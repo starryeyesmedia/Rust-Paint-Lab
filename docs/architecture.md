@@ -9,8 +9,10 @@ Windows WM_POINTER adapter             Synthetic version-1 text fixtures
                   \                       /
                    shared lifecycle Processor
                      -> ordered Output batches
-                     -> diagnostic display / automated assertions
-                     -> future stroke router and brush engine (not implemented)
+                     -> existing diagnostic display / automated assertions
+                     -> paint-stroke Router (synthetic replay integration)
+                        -> Begin/Update/Commit/Cancel commands in document units
+                        -> future brush engine, renderer, document (not implemented)
 ```
 
 `paint-input` is safe, OS-independent Rust without external dependencies. Its
@@ -106,17 +108,41 @@ Sources inspected during foundation (2026-10-23):
 - [Microsoft WM_POINTERDOWN](https://learn.microsoft.com/en-us/windows/win32/inputmsg/wm-pointerdown)
 - [Microsoft POINTER_PEN_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-pointer_pen_info)
 
-## Replay and future brush boundary
+## Stroke routing and future brush boundary
 
 See [v1 fixture grammar and commands](replay-format.md) and
 [automated testing instructions](testing.md). Tests use only synthetic fixtures.
-A future stroke router consumes Started/Moved/Ended/Cancelled, resolves tool/UI
-routing, transforms client pixels into document coordinates, and feeds brush
-transactions. Hovered is cursor feedback; Ignored is diagnostics. Pressure/tilt
-must reach the brush unchanged unless an explicit calibration stage is added.
-Replaying the same fixture through that router should test brush commands without
-a window, clock, or GPU. Do not put brush policy inside Processor, and do not
-silently commit a cancelled stroke as a complete one.
+The implemented `paint-stroke` crate consumes Started/Moved/Ended/Cancelled;
+pen contact paints, touch is reserved, mouse primary paints with unavailable
+pressure/tilt. Hovered/Ignored do not paint. The separate crate depends only on
+`paint-input`; lifecycle processing remains independent of painting policy.
+It maps physical client pixels into document coordinates using a validated
+axis-aligned Viewport captured at stroke start. Commands carry unique per-session
+stroke IDs, pointer/tool identity, original and transformed positions, button and
+capability data, source timing, and dispatch timing. Cancellation preserves the
+last accepted stroke sample and a distinct terminal reason.
+
+[Routing and transaction semantics](stroke-routing.md) specify duplicate/stale
+handling, transform errors, bounded state, and provisional-versus-committed work.
+Replay integration tests assert exact command streams without a window or brush.
+The existing native diagnostic intentionally remains a lifecycle inspector; no
+Win32 code or event handling was changed for this milestone.
+
+Future components have distinct responsibilities:
+
+1. **Adapters:** translate OS data, coordinate/timestamp units, and capture loss.
+2. **Lifecycle:** validate samples and repair contact sequences; no paint policy.
+3. **Router:** choose painting tools, map coordinates, and emit transactions.
+4. **Brush engine:** consume routed samples and produce brush geometry/dabs; no OS
+   input handling or surface/window ownership. Respect None versus supported zero.
+5. **Canvas renderer:** display committed content plus isolated provisional
+   previews; remove cancelled previews without committing them. Convert document
+   coordinates to GPU units with explicit range checks at this boundary.
+6. **Document model:** own accepted stroke results and future edit semantics;
+   only Commit may finalize a transaction. No persistence or undo exists yet.
+
+No renderer or document consumer is implemented. Commands are an integration
+contract, not proof of document mutation, drawing, or cancellation of GPU work.
 
 ## Planned boundaries (not implemented)
 
@@ -136,6 +162,6 @@ Windows shell minimum remains Windows 10 1703+ x64; other platforms can run shar
 processing tests. Physical pen behavior, capture/interruption delivery, tilt,
 latency, GPU compatibility, and Android S Pen remain unverified by these tests.
 Project license, final UI stack, open document format, and platform support policy
-remain unresolved. The next milestone should add a pure stroke-command router and
-fixture assertions for cancellation/commit and pen-versus-touch routing; keep GPU
-and brush algorithms out until that contract is testable.
+remain unresolved. The next milestone is a replay-fed minimal wgpu canvas, scoped
+in [the next-milestone plan](next-canvas-milestone.md). No GPU, painting window,
+brush engine, document storage, or undo code was added in the routing milestone.

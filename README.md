@@ -8,6 +8,7 @@ The first executable is a Windows pen-input diagnostic for the Galaxy Book2 Pro
 ## Workspace
 
 - `crates/input` (`paint-input`): OS-independent pointer samples, lifecycle processing, and deterministic replay.
+- `crates/stroke` (`paint-stroke`): portable stroke commands, routing policy, and client-to-document coordinates.
 - `apps/stylus-diagnostic`: native Windows pointer inspector.
 - [Architecture](docs/architecture.md), [dependencies and licenses](docs/dependencies.md),
   [hardware test checklist](docs/hardware-testing.md), [agent guidance](AGENTS.md).
@@ -27,7 +28,7 @@ No secrets, services, accounts, or runtime downloads are required.
 
 No local Rust or Visual Studio installation is needed for the CI-built package.
 On GitHub, open **Actions → Rust checks**, select a successful run for
-`feature/input-replay-and-lifecycle`, then download **rust-paint-lab-windows-diagnostic**
+`feature/stroke-routing`, then download **rust-paint-lab-windows-diagnostic**
 from its Artifacts section (a GitHub sign-in/repository access may be required).
 Extract the ZIP to a normal user folder and follow its `README.txt`.
 
@@ -97,14 +98,30 @@ See the [fixture format](docs/replay-format.md), [processing architecture](docs/
 and [testing instructions](docs/testing.md). The diagnostic now displays shared
 lifecycle outcomes; its native event loop and capture behavior remain unchanged.
 
+## Stroke commands
+
+`paint-stroke` converts ordered lifecycle outputs into provisional Begin/Update
+and terminal Commit/Cancel commands. Pen paints, touch is reserved, and mouse
+painting requires the primary button without synthesizing pressure or tilt.
+A validated viewport maps physical client pixels to document coordinates and is
+captured per stroke. Run the existing synthetic pen fixture through the router:
+
+```sh
+cargo run --locked -p paint-stroke --example stroke_commands
+```
+
+See [routing and transaction semantics](docs/stroke-routing.md). The Windows
+inspector remains a lifecycle diagnostic; it does not paint or route brush work.
+
 ## Current boundaries and next step
 
 No painting, GPU canvas, persistence, Android shell, or touch gestures are
 implemented. The proposed wgpu/winit/egui/serde stack remains under evaluation.
 Physical Galaxy Book validation is pending and does not block synthetic processing
-work. Next add a pure stroke-command router with replay assertions for tool routing
-and interrupted versus committed strokes before a minimal canvas experiment. See the architecture document for the
-Windows input decision and future platform boundaries.
+work. Next build a minimal wgpu canvas that displays routed replay commands;
+[the bounded next-milestone plan](docs/next-canvas-milestone.md) defines scope and
+acceptance checks. No GPU code is included yet. See the architecture document for
+the Windows input decision and future platform boundaries.
 
 Third-party notices are documented separately. A license for the original project
 has not yet been selected; no open-source distribution grant is implied.

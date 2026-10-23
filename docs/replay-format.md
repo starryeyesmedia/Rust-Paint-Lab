@@ -90,3 +90,14 @@ The example prints processed outputs to the terminal and exits on parsing errors
 It reads only the explicitly named file and does not save anything. A future
 version must get a new header and documented migration rather than silently
 reinterpreting v1 fields. There is no writer or realtime playback scheduler yet.
+
+## Stroke-command integration
+
+The separate `paint-stroke` crate routes these same v1 lifecycle outputs without
+changing the fixture grammar. Touch remains available to future navigation code
+but emits no painting commands. Capture loss, interruption, and unfinished EOF
+strokes produce CancelStroke rather than CommitStroke. `paint-stroke` tests use
+all three existing fixtures plus `crates/stroke/tests/fixtures/mouse.replay`.
+See [routing rules](stroke-routing.md) for exact transaction semantics. The
+`stroke_commands` example routes the existing pen fixture to stdout explicitly;
+it does not record input or create a painting window.

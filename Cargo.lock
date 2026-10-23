@@ -7,6 +7,13 @@ name = "paint-input"
 version = "0.1.0"
 
 [[package]]
+name = "paint-stroke"
+version = "0.1.0"
+dependencies = [
+ "paint-input",
+]
+
+[[package]]
 name = "stylus-diagnostic"
 version = "0.1.0"
 dependencies = [

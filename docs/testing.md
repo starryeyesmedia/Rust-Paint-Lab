@@ -21,10 +21,25 @@ Tests do not sleep, read wall time, use network, or require hardware. Fixture
 limits are tested at the parser boundary; long-stream tests do not retain outputs.
 The native diagnostic binary itself has no automated hardware test suite.
 
+`paint-stroke` adds nineteen routing/coordinate integration tests, for **40 total
+workspace tests**. Existing fixtures exercise exact Begin/Update/Commit/Cancel
+sequences, pressure changes, missing versus zero data, hover and barrel buttons,
+pen/touch mixing, ID reuse, and interruptions/capture loss. A synthetic mouse
+fixture covers primary-button gating and unavailable mouse pressure/tilt. Direct
+lifecycle boundary tests cover duplicates, orphans, stale outputs, malformed
+values, and independent transactions. Coordinate tests cover translation, zoom,
+viewport changes during a stroke, invalid values, and arithmetic overflow.
+Additional tests verify dispatch/source timing, bounded state over 10,000 strokes,
+explicit router teardown, and identical command streams on repeated replay.
+These checks do not implement or validate a renderer, brush engine, or document
+consumer. Cancellation is asserted as a distinct command, never a Commit.
+
 For focused development:
 
 ```sh
 cargo test --locked -p paint-input --test processing
+cargo test --locked -p paint-stroke --test routing
+cargo run --locked -p paint-stroke --example stroke_commands
 ```
 
 On Linux/macOS also check the Windows adapter without linking/executing:

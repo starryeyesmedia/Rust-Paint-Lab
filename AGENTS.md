@@ -11,6 +11,9 @@ or cloud service requirements. Do not attempt the full product in one task.
 ## Architecture boundaries
 - `crates/input`: safe, OS-independent input structures, normalization, bounded lifecycle processing, and deterministic replay. No
   Win32, windowing, UI, GPU, filesystem, or application policy dependencies.
+- `crates/stroke`: OS-independent painting routing policy, document-coordinate
+  mapping, and stroke transaction commands. Depends on `paint-input`, never the
+  other way around. No brush algorithms, GPU resources, document storage, or IO.
 - `apps/stylus-diagnostic`: disposable diagnostic shell, not the future app core.
   Win32 calls stay in its Windows module with documented unsafe invariants.
 - Future core owns document operations; rendering consumes snapshots/commands;
@@ -34,6 +37,19 @@ or cloud service requirements. Do not attempt the full product in one task.
   timestamp ordering/rollover, and long-stream cleanup in processing tests.
 - Shared lifecycle/replay changes must pass the hardware-free suite in
   `docs/testing.md`; hardware validation remains separate and must not block it.
+
+## Stroke routing conventions
+- Feed one Router the complete, ordered output of one Processor; do not omit
+  cancellations or reuse an old Router for a fresh replay session.
+- Begin/Update are provisional. Only Commit completes a transaction; Cancel must
+  discard previews. Key consumer state by StrokeId, not a reusable pointer ID.
+- Pen paints on contact, touch is reserved, and mouse requires primary-button
+  contact. Mouse pressure/tilt remain None. Do not remap barrel/eraser buttons to
+  brush behavior without a separately tested policy.
+- Capture the viewport at Begin. Coordinate units, error behavior, bounded state,
+  and cancellation semantics are documented in `docs/stroke-routing.md`.
+- Add exact command-sequence replay assertions for policy changes. Keep render,
+  brush, and document responsibilities separate; no GPU tests are needed here.
 
 ## Development conventions
 Use the pinned Rust toolchain and Cargo workspace. Prefer safe Rust, small

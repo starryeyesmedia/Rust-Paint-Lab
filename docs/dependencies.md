@@ -4,8 +4,9 @@ The shared input crate, including lifecycle processing, timestamp extension, and
 the versioned replay parser, uses only Rust's standard library. The strict
 line-oriented fixture format avoids adding a JSON/serde dependency for this
 development-only use case. No new dependencies or third-party notices are needed
-for input replay. No dependencies are
-needed on non-Windows targets. Cargo.lock pins the complete current graph.
+for input replay. The new `paint-stroke` workspace crate depends only on local `paint-input`;
+its coordinate mapping and router add no external packages or license notices.
+No external dependencies are needed on non-Windows targets. Cargo.lock pins the complete current graph.
 
 | Package | Version | Purpose | SPDX license |
 | --- | --- | --- | --- |

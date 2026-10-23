@@ -1,0 +1,13 @@
+paint-input-replay 1
+# Secondary-only mouse contact is not painting.
+sample 0 1 mouse down 0 0 - - - 2 1 1
+sample 1 1 mouse up 0 0 - - - 0 0 1
+# Mouse primary painting; no pressure/tilt fabrication, even if supplied upstream.
+sample 2 1 mouse down 1 2 1 10 20 1 1 1
+sample 3 1 mouse move 2 3 0.5 0 0 1 1 1
+sample 4 1 mouse up 3 4 0 - - 0 0 1
+# Lost primary before up aborts; a later move must not restart painting.
+sample 5 1 mouse down 4 5 - - - 1 1 1
+sample 6 1 mouse move 5 6 - - - 0 1 1
+sample 7 1 mouse move 6 7 - - - 1 1 1
+sample 8 1 mouse up 6 7 - - - 0 0 1
