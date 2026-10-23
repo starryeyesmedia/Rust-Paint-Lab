@@ -123,6 +123,7 @@ will be a separate validated boundary.
 
 No UI hit testing, eraser tool policy, gestures, palm rejection, pressure curves,
 smoothing/prediction, history processing, rasterization, or document mutation.
-The Windows diagnostic and its artifact workflow remain unchanged. Tests are
-synthetic and do not verify Galaxy Book pen hardware. Next implement only the
-[replay-fed minimal wgpu canvas](next-canvas-milestone.md).
+The router remains graphics-independent and unchanged by Phase 4. Its commands
+now feed the separate [replay canvas](canvas-demo.md), which demonstrates isolated
+previews and commit/cancel rendering. The native diagnostic remains unchanged.
+Tests are synthetic and do not verify Galaxy Book pen hardware.

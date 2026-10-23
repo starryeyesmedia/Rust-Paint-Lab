@@ -9,6 +9,7 @@ The first executable is a Windows pen-input diagnostic for the Galaxy Book2 Pro
 
 - `crates/input` (`paint-input`): OS-independent pointer samples, lifecycle processing, and deterministic replay.
 - `crates/stroke` (`paint-stroke`): portable stroke commands, routing policy, and client-to-document coordinates.
+- `apps/canvas-demo`: progressive replay-driven wgpu canvas, separate from live input.
 - `apps/stylus-diagnostic`: native Windows pointer inspector.
 - [Architecture](docs/architecture.md), [dependencies and licenses](docs/dependencies.md),
   [hardware test checklist](docs/hardware-testing.md), [agent guidance](AGENTS.md).
@@ -28,7 +29,7 @@ No secrets, services, accounts, or runtime downloads are required.
 
 No local Rust or Visual Studio installation is needed for the CI-built package.
 On GitHub, open **Actions → Rust checks**, select a successful run for
-`feature/stroke-routing`, then download **rust-paint-lab-windows-diagnostic**
+`feature/gpu-canvas`, then download **rust-paint-lab-windows-diagnostic**
 from its Artifacts section (a GitHub sign-in/repository access may be required).
 Extract the ZIP to a normal user folder and follow its `README.txt`.
 
@@ -113,15 +114,33 @@ cargo run --locked -p paint-stroke --example stroke_commands
 See [routing and transaction semantics](docs/stroke-routing.md). The Windows
 inspector remains a lifecycle diagnostic; it does not paint or route brush work.
 
+## GPU canvas demo
+
+Download **rust-paint-lab-canvas-demo** from a successful `feature/gpu-canvas`
+Actions run, extract, and run `canvas-demo.exe` on Windows 10 x64 with a compatible
+graphics driver. No local Rust, installer, or administrator rights are needed.
+It is separate from **rust-paint-lab-windows-diagnostic**, which remains available.
+
+From source:
+
+```sh
+cargo run --locked -p canvas-demo
+```
+
+Keys **1/2/3** select completed/cancelled/concurrent replay scenarios, **R** restarts,
+**Space** pauses, **Escape** exits. Orange means provisional, blue means committed;
+cancellation removes orange geometry. No live painting is implemented.
+[Canvas documentation](docs/canvas-demo.md) includes Linux prerequisites, controls,
+resource/error policy, automated test distinctions, and the RTX 3060 checklist.
+
 ## Current boundaries and next step
 
-No painting, GPU canvas, persistence, Android shell, or touch gestures are
-implemented. The proposed wgpu/winit/egui/serde stack remains under evaluation.
-Physical Galaxy Book validation is pending and does not block synthetic processing
-work. Next build a minimal wgpu canvas that displays routed replay commands;
-[the bounded next-milestone plan](docs/next-canvas-milestone.md) defines scope and
-acceptance checks. No GPU code is included yet. See the architecture document for
-the Windows input decision and future platform boundaries.
+The canvas renders routed synthetic commands; it is not yet a live painting app.
+There is no brush engine, persistence, Android shell, or gesture system. egui and
+serde remain prospective dependencies. Physical RTX 3060/Iris Xe/stylus tests are
+pending. Next add live mouse input through the shared pipeline, with pressure and
+tilt unavailable, before native pressure-sensitive pen integration. See the
+[Phase 5 scope](docs/canvas-demo.md#recommended-phase-5-live-mouse-before-pen).
 
 Third-party notices are documented separately. A license for the original project
 has not yet been selected; no open-source distribution grant is implied.

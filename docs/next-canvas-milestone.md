@@ -1,6 +1,8 @@
 # Next milestone plan: minimal replay-fed wgpu canvas
 
-This is a plan only. No GPU code or painting window is part of stroke routing.
+This is the historical plan agreed after Phase 3. Phase 4 implements the separate
+replay canvas described in [canvas-demo.md](canvas-demo.md); shared routing remains
+graphics-independent. No GPU code was part of the Phase 3 routing commit.
 
 ## Goal
 

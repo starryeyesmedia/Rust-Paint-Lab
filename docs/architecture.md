@@ -12,7 +12,8 @@ Windows WM_POINTER adapter             Synthetic version-1 text fixtures
                      -> existing diagnostic display / automated assertions
                      -> paint-stroke Router (synthetic replay integration)
                         -> Begin/Update/Commit/Cancel commands in document units
-                        -> future brush engine, renderer, document (not implemented)
+                        -> canvas-demo Scene / fixed-width triangle geometry / wgpu
+                        -> future brush engine and document (not implemented)
 ```
 
 `paint-input` is safe, OS-independent Rust without external dependencies. Its
@@ -141,8 +142,13 @@ Future components have distinct responsibilities:
 6. **Document model:** own accepted stroke results and future edit semantics;
    only Commit may finalize a transaction. No persistence or undo exists yet.
 
-No renderer or document consumer is implemented. Commands are an integration
-contract, not proof of document mutation, drawing, or cancellation of GPU work.
+The separate canvas demo now implements a bounded command consumer and renderer
+for synthetic playback. Scene uses separate provisional/committed maps keyed by
+StrokeId, includes the final Commit sample, retains pressure/tilt, and rebuilds
+render geometry each frame so cancellation leaves no committed residue. This is
+not a document model or brush engine. winit owns one event loop, wgpu owns the
+surface/device and fixed vertex buffer, and the pure Playback class takes explicit
+elapsed demo time. See [canvas architecture and limits](canvas-demo.md).
 
 ## Planned boundaries (not implemented)
 
@@ -152,8 +158,9 @@ contract, not proof of document mutation, drawing, or cancellation of GPU work.
 - Input routing: gesture arbitration, palm policy, history/coalescing, smoothing,
   prediction, subpixel positions, and multiple adapter sessions remain future work.
 - Application core: OS/UI/GPU-independent document model and edit commands.
-- Rendering: proposed wgpu, validate D3D12/Iris Xe first; device-loss handling and
-  resource limits before mobile expansion. No rendering code is implemented here.
+- Rendering: Phase 4 uses wgpu 30.0.1 and winit 0.30.13 only in canvas-demo.
+  Physical D3D12/RTX 3060/Iris Xe validation remains pending; device-loss recovery
+  is a clear diagnostic exit, not automatic device recreation. Mobile is deferred.
 - Controls: proposed egui, validate accessibility, focus, touch targets, and routing.
 - Storage: proposed serde/versioned metadata and image payloads, with atomic saves,
   journaling/recovery, exports, and local timelapse designed separately.
@@ -162,6 +169,7 @@ Windows shell minimum remains Windows 10 1703+ x64; other platforms can run shar
 processing tests. Physical pen behavior, capture/interruption delivery, tilt,
 latency, GPU compatibility, and Android S Pen remain unverified by these tests.
 Project license, final UI stack, open document format, and platform support policy
-remain unresolved. The next milestone is a replay-fed minimal wgpu canvas, scoped
-in [the next-milestone plan](next-canvas-milestone.md). No GPU, painting window,
-brush engine, document storage, or undo code was added in the routing milestone.
+remain unresolved. The replay-fed GPU canvas milestone follows the
+[original plan](next-canvas-milestone.md); [Phase 5](canvas-demo.md#recommended-phase-5-live-mouse-before-pen)
+should add live mouse routing before pen integration. No brush engine, document
+storage, layers, or undo exists.

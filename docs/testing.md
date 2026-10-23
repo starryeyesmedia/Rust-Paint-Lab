@@ -57,3 +57,37 @@ README, with hardware tests in [the full checklist](hardware-testing.md).
 Do not infer actual Windows execution from cross-compilation, or pen behavior
 from either native builds or synthetic replay. The Galaxy Book checklist is still
 pending and is independent of completing the automated processing milestone.
+
+## Phase 4 canvas checks
+
+The canvas adds twelve hardware-independent tests, bringing the Rust suite to
+**52 tests**. They cover the actual routed A/B/C fixtures, geometry and document
+mapping, final samples and retained pressure, preview/commit/cancel transitions,
+independent IDs/touch exclusion, nonfinite/range errors, fixed width/zero-length
+segments, duplicates, restart determinism, and explicit sample/stroke/vertex limits.
+
+```sh
+cargo test --locked -p canvas-demo --test geometry
+cargo test --locked -p canvas-demo --test gpu_smoke
+cargo run --locked -p canvas-demo
+```
+
+The offscreen smoke runner is an additional custom harness, outside Rust's unit
+passed-test count. It prints **GPU_SMOKE: PASSED** after real pixel checks or
+**GPU_SMOKE: SKIPPED** if no adapter exists. After finding an adapter, device,
+shader, rendering, readback, or pixel failures fail the command. Set
+`RPL_REQUIRE_GPU=1` to make absence fail too; Linux CI does so with Mesa installed.
+The runner records its actual adapter/backend and appends outcome to the Actions
+step summary. Do not describe a skip as passing GPU validation.
+
+Linux CI additionally runs the actual window under a virtual display:
+
+```sh
+xvfb-run -a cargo run --locked -p canvas-demo -- --exit-after-demo
+```
+
+The normal demo stays open; this testing flag exits only after replay completion
+and presentation of the final frame. Use an external timeout in automation (CI
+limits this step to two minutes). Software-rendered/offscreen/virtual-window tests
+are not physical RTX 3060, Iris Xe, or stylus validation. The downloadable canvas
+and stylus diagnostic remain distinct artifacts. See the [manual checklist](canvas-demo.md).

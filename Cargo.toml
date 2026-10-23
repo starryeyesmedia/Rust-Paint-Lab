@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/input", "crates/stroke", "apps/stylus-diagnostic"]
+members = ["crates/input", "crates/stroke", "apps/stylus-diagnostic", "apps/canvas-demo"]
 resolver = "2"
 
 [workspace.package]

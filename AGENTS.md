@@ -14,6 +14,10 @@ or cloud service requirements. Do not attempt the full product in one task.
 - `crates/stroke`: OS-independent painting routing policy, document-coordinate
   mapping, and stroke transaction commands. Depends on `paint-input`, never the
   other way around. No brush algorithms, GPU resources, document storage, or IO.
+- `apps/canvas-demo`: replay-only winit/wgpu shell, bounded demo transaction
+  state, CPU polyline geometry, and GPU rendering. Graphics dependencies stay here.
+  Do not move window/GPU concepts into paint-input or paint-stroke. No live input
+  painting, document persistence, or brush algorithms in this milestone.
 - `apps/stylus-diagnostic`: disposable diagnostic shell, not the future app core.
   Win32 calls stay in its Windows module with documented unsafe invariants.
 - Future core owns document operations; rendering consumes snapshots/commands;
@@ -50,6 +54,19 @@ or cloud service requirements. Do not attempt the full product in one task.
   and cancellation semantics are documented in `docs/stroke-routing.md`.
 - Add exact command-sequence replay assertions for policy changes. Keep render,
   brush, and document responsibilities separate; no GPU tests are needed here.
+
+## Canvas conventions
+- Preserve command identity/attributes and include the final Commit sample.
+  Never bake provisional geometry irreversibly into committed content.
+- Keep explicit stroke/sample/vertex/surface budgets. Reject nonfinite/range errors
+  before f64-to-GPU conversion. Demo width is fixed, independent of pressure.
+- Playback generation is deterministic; only the shell supplies elapsed demo time.
+  Scenario restart must clear retained state. Never collect real user input.
+- Run CPU geometry tests plus the offscreen runner. A missing GPU is explicitly
+  SKIPPED, not a passed unit test; Linux CI requires software GPU execution via
+  RPL_REQUIRE_GPU=1 and tests the window under Xvfb. See docs/canvas-demo.md.
+- Preserve both separate Windows artifacts and their notices; use
+  scripts/canvas-licenses.py when dependency versions change.
 
 ## Development conventions
 Use the pinned Rust toolchain and Cargo workspace. Prefer safe Rust, small
