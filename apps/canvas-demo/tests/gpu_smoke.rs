@@ -8,6 +8,13 @@ use std::{io::Write, time::Duration};
 
 fn report(message: &str) {
     println!("{message}");
+    if std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true") {
+        let annotation = message
+            .replace('%', "%25")
+            .replace('\r', "%0D")
+            .replace('\n', "%0A");
+        println!("::notice title=Offscreen GPU smoke::{annotation}");
+    }
     if let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY")
         && let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(path)
     {

@@ -20,7 +20,7 @@ On Ubuntu, for development and headless tests:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y libx11-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers xvfb xauth
+sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libwayland-dev mesa-vulkan-drivers xvfb xauth
 ```
 
 Windows users can download `rust-paint-lab-canvas-demo` from a successful
