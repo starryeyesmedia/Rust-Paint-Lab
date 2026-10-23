@@ -1,6 +1,9 @@
 //! Platform-independent pointer samples. No windowing, rendering, or OS dependencies.
 #![forbid(unsafe_code)]
 
+pub mod lifecycle;
+pub mod replay;
+
 /// Device category, kept distinct so touch is never mistaken for a paint stroke.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {

@@ -1,6 +1,6 @@
 # Galaxy Book2 Pro 360 hardware validation
 
-Status: **not performed**. Linux automated tests and Windows-target compilation
+Status: **not performed**. Synthetic lifecycle/replay tests and Windows-target compilation
 cannot verify a digitizer, driver, native event delivery, or display behavior.
 
 Build/run from README on Windows 10 1703+ with MSVC. Record Windows build,
@@ -17,7 +17,7 @@ application commit, and observations below. Do not record hardware serial number
 | Barrel button hover/contact/release | Barrel and raw pen flags update; note whether device reports hover button state | Not run |
 | Inversion/eraser if pen supports it | Flags change for compatible tool; otherwise record unsupported | Not run |
 | Drag out of window then lift | Captured updates continue or cancel is reported; no stuck active contact | Not run |
-| Alt-Tab/window interruption during contact | Capture loss cancels locally; no stuck contact; next stroke works | Not run |
+| Alt-Tab/window interruption during contact | Shared lifecycle reports cancellation on capture/app loss; next stroke works | Not run |
 | Two fingers down/move/lift | Separate Touch IDs and contact lifecycles; no invented pen pressure | Not run |
 | Pen plus palm/finger | Record actual OS-delivered tools/IDs; no promise of palm rejection | Not run |
 | Rotation and 100/150/200% scaling | Physical client coordinates align with window bounds; content stays usable | Not run |

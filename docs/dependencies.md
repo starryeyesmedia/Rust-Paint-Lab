@@ -1,6 +1,10 @@
 # Dependencies and licenses
 
-The shared input crate uses only Rust's standard library. No dependencies are
+The shared input crate, including lifecycle processing, timestamp extension, and
+the versioned replay parser, uses only Rust's standard library. The strict
+line-oriented fixture format avoids adding a JSON/serde dependency for this
+development-only use case. No new dependencies or third-party notices are needed
+for input replay. No dependencies are
 needed on non-Windows targets. Cargo.lock pins the complete current graph.
 
 | Package | Version | Purpose | SPDX license |

@@ -27,7 +27,8 @@ WHAT TO TEST ON THE GALAXY BOOK
 - Lean the pen in both directions: note signed tilt changes or unsupported axes.
 - Press/release barrel button; test inversion/eraser only if the pen supports it.
 - Drag outside the window, lift, and interrupt a contact with Alt-Tab: no stuck
-  active contacts; capture loss should be reported as cancellation.
+  active contacts; capture loss and application deactivation should show shared
+  lifecycle cancellation outcomes. Check a fresh stroke works afterward.
 - Try two fingers and pen-plus-palm/finger: record distinct tool types/contact IDs.
 - Resize, rotate the screen, and change display scaling; check client coordinates
   and readability. Try an external monitor if available.
@@ -36,7 +37,7 @@ WHAT TO TEST ON THE GALAXY BOOK
 Record the commit from BUILD.txt, Windows version, driver versions, pen model,
 scaling/orientation, expected/observed behavior, and screenshots of errors or raw
 flags/masks. Do not include hardware serial numbers. Full checklist:
-https://github.com/starryeyesmedia/Rust-Paint-Lab/blob/feature/project-foundation/docs/hardware-testing.md
+https://github.com/starryeyesmedia/Rust-Paint-Lab/blob/feature/input-replay-and-lifecycle/docs/hardware-testing.md
 
 LIMITATIONS
 This is an input inspector, not a painting application. It does not draw strokes,

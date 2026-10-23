@@ -1,0 +1,10 @@
+paint-input-replay 1
+sample 1 1 pen down 0 0 0.1 - - 1 1 1
+sample 2 1 pen cancel 1 1 - - - 0 0 0
+sample 3 1 pen move 2 2 0.2 - - 1 1 1
+sample 4 1 pen down 3 3 0.3 - - 1 1 1
+sample 4 1 pen down 3 3 0.3 - - 1 1 1
+sample 3 1 pen move 2 2 0.2 - - 1 1 1
+sample 2 1 pen up 2 2 0 - - 0 0 0
+sample 5 1 pen up 3 3 0 - - 0 0 0
+capture_lost 6 99

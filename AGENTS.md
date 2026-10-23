@@ -9,7 +9,7 @@ autosave/recovery, open formats, and modest resource use. No telemetry, accounts
 or cloud service requirements. Do not attempt the full product in one task.
 
 ## Architecture boundaries
-- `crates/input`: safe, OS-independent input structures and normalization. No
+- `crates/input`: safe, OS-independent input structures, normalization, bounded lifecycle processing, and deterministic replay. No
   Win32, windowing, UI, GPU, filesystem, or application policy dependencies.
 - `apps/stylus-diagnostic`: disposable diagnostic shell, not the future app core.
   Win32 calls stay in its Windows module with documented unsafe invariants.
@@ -21,6 +21,19 @@ or cloud service requirements. Do not attempt the full product in one task.
   `None`, distinguish pen/touch/mouse, and retain contact IDs and cancellation.
 - Keep pixel/DIP/document coordinates and time units explicit. Preserve input
   history before adding stroke smoothing or gesture arbitration.
+
+## Input processing and replay conventions
+- Keep one Processor per ordered adapter stream; explicitly cancel on capture loss
+  and interrupt on application/session teardown. Do not infer missing Up events
+  from wall-clock time or synthesize a Down for orphan Moves.
+- Preserve bounded state and deterministic output order. Consumer code must handle
+  cancellation separately from completion and must not retain unbounded live logs.
+- Replay v1 is documented in `docs/replay-format.md`. Fixtures are synthetic;
+  never automatically record user input. Version incompatible format changes.
+- Include expected outputs, missing-versus-zero values, interruptions, ID reuse,
+  timestamp ordering/rollover, and long-stream cleanup in processing tests.
+- Shared lifecycle/replay changes must pass the hardware-free suite in
+  `docs/testing.md`; hardware validation remains separate and must not block it.
 
 ## Development conventions
 Use the pinned Rust toolchain and Cargo workspace. Prefer safe Rust, small

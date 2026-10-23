@@ -7,7 +7,7 @@ The first executable is a Windows pen-input diagnostic for the Galaxy Book2 Pro
 
 ## Workspace
 
-- `crates/input` (`paint-input`): OS-independent pointer samples and normalization.
+- `crates/input` (`paint-input`): OS-independent pointer samples, lifecycle processing, and deterministic replay.
 - `apps/stylus-diagnostic`: native Windows pointer inspector.
 - [Architecture](docs/architecture.md), [dependencies and licenses](docs/dependencies.md),
   [hardware test checklist](docs/hardware-testing.md), [agent guidance](AGENTS.md).
@@ -27,7 +27,7 @@ No secrets, services, accounts, or runtime downloads are required.
 
 No local Rust or Visual Studio installation is needed for the CI-built package.
 On GitHub, open **Actions → Rust checks**, select a successful run for
-`feature/project-foundation`, then download **rust-paint-lab-windows-diagnostic**
+`feature/input-replay-and-lifecycle`, then download **rust-paint-lab-windows-diagnostic**
 from its Artifacts section (a GitHub sign-in/repository access may be required).
 Extract the ZIP to a normal user folder and follow its `README.txt`.
 
@@ -83,13 +83,27 @@ CI performs formatting, lint, tests, and native builds on Linux, Windows, and
 macOS. A successful build does not verify a stylus or driver. Follow the
 [Galaxy Book checklist](docs/hardware-testing.md) before making hardware claims.
 
+## Synthetic input processing and replay
+
+The shared processor handles bounded contact lifecycles, hover, cancellation,
+capture loss, interruption, and reused IDs. Versioned text fixtures replay without
+hardware or wall-clock timing; nothing is automatically recorded. Run:
+
+```sh
+cargo run --locked -p paint-input --example replay -- crates/input/tests/fixtures/pen.replay
+```
+
+See the [fixture format](docs/replay-format.md), [processing architecture](docs/architecture.md),
+and [testing instructions](docs/testing.md). The diagnostic now displays shared
+lifecycle outcomes; its native event loop and capture behavior remain unchanged.
+
 ## Current boundaries and next step
 
 No painting, GPU canvas, persistence, Android shell, or touch gestures are
 implemented. The proposed wgpu/winit/egui/serde stack remains under evaluation.
-First collect Galaxy Book pen results, fix any input delivery issues, and then
-add deterministic replay plus contact lifecycle/cancellation processing before a
-minimal single-stroke canvas experiment. See the architecture document for the
+Physical Galaxy Book validation is pending and does not block synthetic processing
+work. Next add a pure stroke-command router with replay assertions for tool routing
+and interrupted versus committed strokes before a minimal canvas experiment. See the architecture document for the
 Windows input decision and future platform boundaries.
 
 Third-party notices are documented separately. A license for the original project

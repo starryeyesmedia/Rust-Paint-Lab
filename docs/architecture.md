@@ -1,117 +1,141 @@
 # Architecture foundation
 
-## Current implementation
+## Implemented pipeline
 
 ```
-Windows WM_POINTER messages
-  -> native diagnostic adapter (GetPointerInfo / GetPointerPenInfo)
-  -> paint-input PointerSample + normalization
-  -> bounded live text inspector (native GDI)
+Windows WM_POINTER adapter             Synthetic version-1 text fixtures
+  -> PointerSample (normalized units)     -> Replay parser
+  -> 32-bit timestamp extension           -> ordered records
+                  \                       /
+                   shared lifecycle Processor
+                     -> ordered Output batches
+                     -> diagnostic display / automated assertions
+                     -> future stroke router and brush engine (not implemented)
 ```
 
-Only `paint-input` and a diagnostic executable exist. The shared library forbids
-unsafe Rust and has no dependencies. The diagnostic owns the Win32 event loop,
-DPI awareness, and painting its text display. FFI is contained in one module,
-uses initialized output buffers, checks fallible input calls, and documents unsafe
-invariants. It does not measure painting latency or reproduce the final UI.
+`paint-input` is safe, OS-independent Rust without external dependencies. Its
+sample definitions, normalization, lifecycle processing, clock extension, and
+replay reader are separate modules. The diagnostic owns a single native Win32
+event loop and display; replay is an explicit development/test facility, never an
+automatic recorder. File IO belongs to the CLI example, outside the library.
 
-## Input contract
+## Sample and timing contract
 
-A sample carries adapter-local pointer ID, tool (pen/touch/mouse/unknown), phase
-(down/move/up/hover/cancel), client physical pixel position, adapter-relative
-milliseconds, contact/range state, buttons, optional normalized pressure, and
-independently optional tilt axes in degrees. Preserve `None` versus a supported
-zero value. Pressure uses the platform's reported range; finite outliers clamp
-to [0,1]; invalid readings/ranges produce `None`. Tilt clamps to [-90,90] and
-rejects non-finite readings. Adapters must validate position coordinates before
-creating samples (Win32 supplies integer coordinates).
+PointerSample retains adapter-local ID, tool, phase, physical client pixel
+position, relative milliseconds, pressure, independent tilt axes, buttons, and
+contact/range state. `None` means unavailable; supported zero is preserved.
+Pressure is [0,1] and tilt [-90,90] degrees. Normalizers clamp finite outliers and
+reject invalid numeric inputs. Processor validates positions, ranges, and contact
+flags before forwarding noncancel samples. Pen and touch never share invented
+pressure, and mouse buttons are never treated as pressure data.
 
-Windows uses `dwTime`, a 32-bit millisecond timestamp that wraps after about 49.7
-days. The diagnostic displays this raw timestamp widened to u64; it does not
-pretend it is globally monotonic. Future processing must unwrap per adapter or
-use a higher resolution clock, preserving timestamp provenance. IDs may be reused
-after release/cancellation. The adapter respects pen capability masks rather than
-inferring support from nonzero data. Raw rotation is diagnostic only and valid
-only when its mask is present. Positions use `ptPixelLocation` converted with
-`ScreenToClient`, under per-monitor-v2 DPI awareness; subpixel/himetric input is
-not yet used. DPI changes reposition the window using the system suggestion.
+One Processor belongs to one ordered adapter stream. Merge/namespacing multiple
+adapters is a future shell responsibility. Outputs carry nondecreasing dispatch
+`time_ms`; embedded samples retain their original timestamps. Equal timestamps
+are accepted in input order. Older nonterminal samples are ignored without
+replacing newer state. Older terminal events conservatively cancel that ID at the
+current dispatch time. Cancellation outputs carry the last accepted contact sample
+and an explicit reason, rather than fabricated end position/pressure.
 
-The inspector tracks up to 32 active contacts and ten recent events, removes
-contacts on up/leave/capture loss/cancel, and surfaces retrieval errors. Windows
-implicitly captures a contacting pointer. Capture changes are treated as local
-cancellation without depending on a subsequent up. This is diagnostic bookkeeping,
-not a tested production stroke lifecycle or gesture engine. No mouse events are
-converted into pressure-sensitive samples. Touch pressure/geometry are not queried
-in this first adapter and remain unavailable. Pen and touch IDs/tools stay distinct
-so future arbitration can handle simultaneous fingers, palm rejection, and pen.
+Windows dwTime wraps every ~49.7 days. MillisecondClock32 extends wrapping u32
+milliseconds to u64 using forward modular deltas smaller than 2^31. Duplicate and
+small regressive readings clamp to the last time without moving the raw anchor.
+This is deterministic but not high-resolution timing or packet reordering: late
+samples clamped by the adapter can still be processed at the same dispatch time.
+Observations must be less than ~24.8 days apart; longer suspension requires a new
+adapter session after interrupting old contacts. Replay uses unwrapped u64 times.
 
-## Windows decision: native WM_POINTER now
+## Lifecycle policy
 
-Investigation baseline: **winit 0.30.12**, not a claim about all future versions.
-Its Windows backend already handles `WM_POINTERDOWN/UPDATE/UP`, uses pointer frame
-history, and queries `GetPointerPenInfo` for pressure. Therefore generic mouse
-input is not the only path in winit. However, public `WindowEvent::Touch(Touch)`
-contains location, phase, force, and ID without pen tool identity, tilt, barrel,
-inversion, or eraser fields. `TouchpadPressure` is a different device event and
-is not a pen solution. The backend's pressure helper also maps zero to unavailable;
-our diagnostic preserves valid zero when the pen mask advertises pressure.
+| Incoming event | Outcome |
+| --- | --- |
+| Down on unused ID | Started; retain latest sample, unless capacity reached |
+| Move on active ID with same tool | Moved; replace latest retained sample |
+| Up on active ID | Ended and remove contact |
+| Cancel / lost capture | Cancelled and remove; unknown ID is explicitly ignored |
+| Hover | No retained hover state; cancel any contact on that ID, emit Hovered |
+| Duplicate Down | Cancel old contact as Replaced, then Started (even at capacity) |
+| Tool changes without new Down | Cancel old contact; orphan move/up ignored |
+| Move or Up without Down | Ignored as MissingDown; no synthetic stroke start |
+| Invalid noncancel sample | Cancel existing contact as InvalidData, otherwise ignore |
+| Application interruption | Cancel all active IDs in ascending order |
+| Replay EOF | Cancel all unfinished IDs as EndOfReplay |
 
-Use direct Win32 messages for the first diagnostic to inspect all required pen
-fields. GDI text avoids a GPU/UI dependency tree and driver requirements before
-input works. No winit, wgpu, or egui version is committed as a dependency yet.
-For a future GPU shell evaluate then-current winit APIs and its Windows message
-hook (or a native HWND owner), ensuring only one path consumes a pen stream.
-Do not bolt a second competing event loop onto winit. Confirm ownership, pointer
-promotion, capture/cancel, DPI, and UI event routing in a small spike before
-integrating egui. Native access does not mean bypassing the OS's driver limits.
+Processor retains at most 64 active samples in a BTreeMap, no per-ID tombstones,
+hover history, or unbounded logs. A sample produces at most two outputs; global
+interruption produces at most 64. Duplicate Moves remain updates; duplicate Ups
+become explicit ignores. IDs are reusable once ended/cancelled. No generation
+number is available from a bare pointer ID: an old terminal event after ID reuse
+can conservatively cancel the new contact. Replay preserves this policy.
 
-Sources inspected (2026-10-23):
+No processor can infer an absent terminal if there are no subsequent events.
+Adapters must call `interrupt` on focus/application loss or teardown, and `cancel`
+on capture loss or invalid retrieval. There is no timeout thread or heuristic
+stroke completion. Lifecycle cancellation means interrupted/aborted input, not
+committed brush output; the future application will decide transaction policy.
 
-- [winit 0.30.12 public events](https://github.com/rust-windowing/winit/blob/v0.30.12/src/event.rs)
-- [winit Windows WM_POINTER implementation](https://github.com/rust-windowing/winit/blob/v0.30.12/src/platform_impl/windows/event_loop.rs)
-- [Microsoft WM_POINTERDOWN contract](https://learn.microsoft.com/en-us/windows/win32/inputmsg/wm-pointerdown)
-- [Microsoft POINTER_PEN_INFO and masks](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-pointer_pen_info)
+## Windows integration and research
 
-Microsoft documentation source was read through its official GitHub mirror when
-the documentation site denied automated requests. Pressure is 0–1024; tilt axes
-are signed degrees. Pen masks determine validity, not device marketing specs.
+The existing HWND, GDI text display, and event loop remain. GetPointerInfo and
+GetPointerPenInfo are queried during native dispatch. Capability masks gate
+pressure/tilt; raw fields and message details remain visible. Physical screen
+pixels are converted with ScreenToClient under per-monitor-v2 DPI awareness.
+WM_DPICHANGED keeps the suggested window position. Unsupported touch pressure and
+geometry remain None; touch IDs/tool types are kept distinct.
+
+The diagnostic now uses Processor for its active contacts and displays processed
+outcomes. Capture-change notifications cancel one ID locally. Application
+deactivation and destruction interrupt all contacts; failed pointer retrieval
+cancels the affected contact. Timestamp extension runs before processing while
+raw dwTime remains visible. These are local bookkeeping changes only: no new
+capture API calls, competing event loop, OS gesture changes, or coalesced-history
+retrieval were introduced. Windows' implicit capture remains in charge.
+
+The foundation investigated **winit 0.30.12**: its Windows backend already uses
+WM_POINTER and GetPointerPenInfo for pressure, but public Touch events omit pen
+identity, tilt, barrel/inversion/eraser state. Its pressure helper maps zero to
+unavailable; this adapter preserves valid zero with capability masks. Therefore
+the diagnostic uses native WM_POINTER. GDI avoids committing to GPU/UI integration
+before validating pen input. Reevaluate current winit APIs and its native message
+hook or HWND ownership in a later focused integration spike. Do not consume the
+same pen stream through two paths. TouchpadPressure is not a pen substitute.
+
+Sources inspected during foundation (2026-10-23):
+- [winit 0.30.12 events](https://github.com/rust-windowing/winit/blob/v0.30.12/src/event.rs)
+- [Windows implementation](https://github.com/rust-windowing/winit/blob/v0.30.12/src/platform_impl/windows/event_loop.rs)
+- [Microsoft WM_POINTERDOWN](https://learn.microsoft.com/en-us/windows/win32/inputmsg/wm-pointerdown)
+- [Microsoft POINTER_PEN_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-pointer_pen_info)
+
+## Replay and future brush boundary
+
+See [v1 fixture grammar and commands](replay-format.md) and
+[automated testing instructions](testing.md). Tests use only synthetic fixtures.
+A future stroke router consumes Started/Moved/Ended/Cancelled, resolves tool/UI
+routing, transforms client pixels into document coordinates, and feeds brush
+transactions. Hovered is cursor feedback; Ignored is diagnostics. Pressure/tilt
+must reach the brush unchanged unless an explicit calibration stage is added.
+Replaying the same fixture through that router should test brush commands without
+a window, clock, or GPU. Do not put brush policy inside Processor, and do not
+silently commit a cancelled stroke as a complete one.
 
 ## Planned boundaries (not implemented)
 
-1. **Platform adapters:** Windows translates native pointer data; Android will
-   translate MotionEvent tool type, pointer IDs, historical samples, pressure,
-   orientation/tilt, and cancellation. Convert radians/orientation to our documented
-   axes explicitly and test the convention; do not assume Android tilt equals
-   Windows tiltX/tiltY. macOS/iPadOS/Linux need their own capability investigations.
-2. **Input processing:** timestamp ordering, contact lifecycle, history/replay,
-   coalescing, then gesture arbitration and stroke routing. Preserve raw samples
-   before smoothing/prediction. UI hit testing and pen-versus-touch policy belong
-   here or in the application shell, not in the normalization functions.
-3. **Application core:** document model and explicit edit commands, independent of
-   OS, UI toolkit, and GPU. Test document transitions without opening a window.
-4. **Rendering:** proposed wgpu renderer consumes document/canvas snapshots and
-   viewport state. Keep device/surface handling outside the core. Validate Windows
-   D3D12 on Iris Xe first; evaluate Vulkan/Metal/GLES and mobile limits separately.
-   A renderer must tolerate device loss and avoid unbounded GPU/RAM allocations.
-5. **Controls:** proposed egui for panels and accessible controls after validating
-   integration, touch targets, focus, and accessibility. Canvas input must remain
-   separate from generic UI pointer events; pen data must not be flattened away.
-6. **Storage:** proposed serde-based, explicitly versioned document metadata plus
-   documented binary image/tile payloads. Choose format/version migration, atomic
-   save/flush/rename strategy, recovery journal, and compatibility policy in a
-   dedicated task. Autosave, crash recovery, exports, and timelapse are future
-   local subsystems. Do not serialize raw GPU objects or platform handles.
+- Platform adapters: Android MotionEvent tool/IDs/history/cancel and pressure/tilt
+  conversion need their own tests. Android orientation/radians are not Windows
+  tilt axes. Linux/macOS/iPadOS need capability investigations.
+- Input routing: gesture arbitration, palm policy, history/coalescing, smoothing,
+  prediction, subpixel positions, and multiple adapter sessions remain future work.
+- Application core: OS/UI/GPU-independent document model and edit commands.
+- Rendering: proposed wgpu, validate D3D12/Iris Xe first; device-loss handling and
+  resource limits before mobile expansion. No rendering code is implemented here.
+- Controls: proposed egui, validate accessibility, focus, touch targets, and routing.
+- Storage: proposed serde/versioned metadata and image payloads, with atomic saves,
+  journaling/recovery, exports, and local timelapse designed separately.
 
-The initial shell targets Windows 10 1703+ because per-monitor-v2 DPI awareness is
-required. This is not a final platform-support commitment. Android packaging,
-iPadOS feasibility/distribution, final UI stack, project license, open file format,
-GPU limits, accessibility, and timing/latency budgets remain decisions to validate.
-
-## Next bounded milestone
-
-Run and record the Galaxy Book checklist first. Then introduce a deterministic
-sample replay format for development fixtures and a shared contact lifecycle with
-cancellation/ID-reuse tests. Add history retrieval with ordering tests if hardware
-shows coalescing. Only then spike a minimal wgpu single-stroke canvas and confirm
-that the chosen window/UI integration preserves pen capabilities. No layers or
-complex brushes in that milestone.
+Windows shell minimum remains Windows 10 1703+ x64; other platforms can run shared
+processing tests. Physical pen behavior, capture/interruption delivery, tilt,
+latency, GPU compatibility, and Android S Pen remain unverified by these tests.
+Project license, final UI stack, open document format, and platform support policy
+remain unresolved. The next milestone should add a pure stroke-command router and
+fixture assertions for cancellation/commit and pen-versus-touch routing; keep GPU
+and brush algorithms out until that contract is testable.

@@ -1,0 +1,11 @@
+paint-input-replay 1
+sample 10 20 touch down 5 5 - - - 1 1 1
+sample 10 10 touch down 50 50 - - - 1 1 1
+sample 10 30 pen down 0 0 0.5 0 0 1 1 1
+sample 11 20 touch move 6 6 - - - 1 1 1
+sample 11 30 pen move 1 1 0.75 - - 5 1 1
+sample 12 10 touch up 50 50 - - - 0 0 0
+capture_lost 13 30
+interrupt 14
+sample 15 20 pen down 0 0 0 - - 1 1 1
+# EOF intentionally interrupts a reused ID with a different tool.

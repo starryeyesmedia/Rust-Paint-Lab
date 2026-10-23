@@ -1,0 +1,7 @@
+# Synthetic only: hover, zero pressure, varying pressure, partial/missing tilt, lift.
+paint-input-replay 1
+sample 0 7 pen hover 10 20 - - - 0 0 1
+sample 1 7 pen down 10 20 0 - - 1 1 1
+sample 2 7 pen move 11 21 0.25 - - 5 1 1
+sample 3 7 pen move 12 22 1 0 - 1 1 1
+sample 4 7 pen up 13 23 0 - - 0 0 1

@@ -1,7 +1,11 @@
 //! All Win32 interaction lives here. This diagnostic deliberately has no canvas.
-use std::{cell::RefCell, collections::BTreeMap, collections::VecDeque, io, ptr};
+use std::{cell::RefCell, collections::VecDeque, io, ptr};
 
-use paint_input::{Buttons, Phase, PointerSample, Tool, normalize_pressure, normalize_tilt};
+use paint_input::{
+    Buttons, Phase, PointerSample, Tool,
+    lifecycle::{MillisecondClock32, Processor, Reason},
+    normalize_pressure, normalize_tilt,
+};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
@@ -17,7 +21,9 @@ const INTRO: &str = "Rust Paint Lab - Windows pointer diagnostic\r\n\
 #[derive(Default)]
 struct State {
     total: u64,
-    active: BTreeMap<u64, Tool>,
+    processor: Processor,
+    clock: MillisecondClock32,
+    processed: String,
     latest: String,
     recent: VecDeque<String>,
 }
@@ -31,10 +37,11 @@ impl State {
 
     fn display(&self) -> String {
         format!(
-            "{INTRO}\r\nEvents received: {}  Active contacts: {:?}\r\n\r\n{}\r\n\r\nRecent events (newest first):\r\n{}",
+            "{INTRO}\r\nEvents received: {}  Active contacts: {:?}\r\n\r\n{}\r\nLifecycle: {}\r\n\r\nRecent events (newest first):\r\n{}",
             self.total,
-            self.active,
+            self.processor.active().keys().collect::<Vec<_>>(),
             self.latest,
+            self.processed,
             self.recent.iter().cloned().collect::<Vec<_>>().join("\r\n")
         )
     }
@@ -141,12 +148,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM
                 let id = (w & 0xffff) as u32;
                 let result = read_sample(hwnd, id, message);
                 STATE.with_borrow_mut(|state| match result {
-                    Ok((sample, raw)) => {
-                        if matches!(sample.phase, Phase::Up | Phase::Cancel) || !sample.in_contact {
-                            state.active.remove(&sample.id);
-                        } else if state.active.len() < 32 || state.active.contains_key(&sample.id) {
-                            state.active.insert(sample.id, sample.tool);
-                        }
+                    Ok((mut sample, raw)) => {
+                        sample.timestamp_ms = state.clock.extend(sample.timestamp_ms as u32);
+                        state.processed = format!("{:?}", state.processor.process(sample));
                         state.latest = format!(
                             "ID={} {:?} {:?} position=({:.0}, {:.0}) client physical px\r\npressure={:?} tilt degrees={:?}\r\nbuttons={:?}\r\ncontact={} range={}\r\n{}",
                             sample.id, sample.tool, sample.phase,
@@ -156,9 +160,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM
                         state.record(format!("id={} {:?} {:?} t={} pressure={:?}", sample.id, sample.tool, sample.phase, sample.timestamp_ms, sample.pressure));
                     }
                     Err(error) => {
-                        if matches!(message, WM_POINTERUP | WM_POINTERLEAVE) {
-                            state.active.remove(&u64::from(id));
-                        }
+                        state.processed = format!("{:?}", state.processor.cancel(
+                            u64::from(id), state.processor.time_ms(), Reason::InvalidData));
                         state.latest = format!("GetPointerInfo/ScreenToClient: {error}");
                         state.record(format!("id={id} msg=0x{message:04X}: {error}"));
                     }
@@ -169,9 +172,29 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM
             WM_POINTERCAPTURECHANGED => {
                 let id = (w & 0xffff) as u64;
                 STATE.with_borrow_mut(|state| {
-                    state.active.remove(&id);
+                    state.processed = format!(
+                        "{:?}",
+                        state
+                            .processor
+                            .cancel(id, state.processor.time_ms(), Reason::CaptureLost)
+                    );
                     state.latest = format!("id={id}: capture changed; contact cancelled locally");
                     state.record(format!("id={id} Cancel (capture changed)"));
+                });
+                InvalidateRect(hwnd, ptr::null(), 1);
+                0
+            }
+            WM_ACTIVATEAPP if w == 0 => {
+                STATE.with_borrow_mut(|state| {
+                    state.processed = format!(
+                        "{:?}",
+                        state
+                            .processor
+                            .interrupt(state.processor.time_ms(), Reason::Interrupted)
+                    );
+                    state.record(
+                        "Application deactivated: active contacts cancelled locally".into(),
+                    );
                 });
                 InvalidateRect(hwnd, ptr::null(), 1);
                 0
@@ -211,6 +234,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM
                 0
             }
             WM_DESTROY => {
+                STATE.with_borrow_mut(|state| {
+                    state
+                        .processor
+                        .interrupt(state.processor.time_ms(), Reason::Interrupted);
+                });
                 PostQuitMessage(0);
                 0
             }
