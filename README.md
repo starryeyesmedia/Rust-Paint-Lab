@@ -23,6 +23,22 @@ Linux needs a C linker (for example `build-essential` on Ubuntu); macOS needs
 Xcode Command Line Tools. Shared tests work on all three desktop platforms.
 No secrets, services, accounts, or runtime downloads are required.
 
+## Run the downloadable Windows diagnostic
+
+No local Rust or Visual Studio installation is needed for the CI-built package.
+On GitHub, open **Actions → Rust checks**, select a successful run for
+`feature/project-foundation`, then download **rust-paint-lab-windows-diagnostic**
+from its Artifacts section (a GitHub sign-in/repository access may be required).
+Extract the ZIP to a normal user folder and follow its `README.txt`.
+
+The package contains the x64 release executable, instructions, dependency notice,
+build information, and executable SHA-256 checksum. It targets Windows 10 1703+
+and statically links the C runtime to avoid a separate VC++ redistributable.
+No installer or elevation is required. It is unsigned; SmartScreen or organization
+policy may warn or block it. Artifacts expire after 30 days (subject to repository
+policy) and are development builds, not GitHub releases. See the
+[packaged instructions](docs/windows-diagnostic-README.txt).
+
 ## Build and run on Windows
 
 From PowerShell in the repository root:

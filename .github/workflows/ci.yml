@@ -19,3 +19,48 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo build --workspace --locked
+      - name: Build portable Windows diagnostic
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --locked -p stylus-diagnostic --target x86_64-pc-windows-msvc
+      - name: Package Windows diagnostic and inspect runtime dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'target/x86_64-pc-windows-msvc/release/stylus-diagnostic.exe'
+          if (!(Test-Path $exe -PathType Leaf)) { throw 'Release executable is missing' }
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or !$vs) { throw 'Cannot locate Visual C++ tools' }
+          $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$dumpbin) { throw 'Cannot locate dumpbin' }
+          $imports = & $dumpbin.FullName /dependents $exe
+          if ($LASTEXITCODE -ne 0) { throw 'DLL import inspection failed' }
+          $imports | Write-Output
+          if ($imports -match '(?i)\b(vcruntime[^\s]*|msvcp[^\s]*|ucrtbase|api-ms-win-crt-[^\s]*)\.dll\b') {
+            throw 'Portable build unexpectedly depends on a dynamic Visual C++ runtime'
+          }
+          $package = 'target/windows-diagnostic-package'
+          New-Item -ItemType Directory -Force $package | Out-Null
+          Copy-Item $exe "$package/stylus-diagnostic.exe"
+          Copy-Item 'docs/windows-diagnostic-README.txt' "$package/README.txt"
+          Copy-Item 'docs/licenses/windows-rs-MIT.txt' "$package/THIRD-PARTY-LICENSE.txt"
+          $rust = rustc --version
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify Rust toolchain' }
+          @("Commit: $env:GITHUB_SHA", "Toolchain: $rust", 'Target: x86_64-pc-windows-msvc',
+            'Release build; static CRT; unsigned executable', '', 'DLL import inspection:', $imports) |
+            Set-Content "$package/BUILD.txt" -Encoding utf8
+          $hash = (Get-FileHash "$package/stylus-diagnostic.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  stylus-diagnostic.exe" | Set-Content "$package/SHA256SUMS.txt" -Encoding ascii
+      - name: Upload Windows diagnostic
+        if: runner.os == 'Windows'
+        id: windows-diagnostic
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-paint-lab-windows-diagnostic
+          path: target/windows-diagnostic-package/
+          if-no-files-found: error
+          retention-days: 30
