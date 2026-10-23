@@ -1,0 +1,13 @@
+[workspace]
+members = ["crates/input", "apps/stylus-diagnostic"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
