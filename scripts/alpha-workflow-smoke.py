@@ -133,6 +133,42 @@ def native_state(path):
 def png_chunk(kind, data):
     body=kind+data
     return struct.pack('>I',len(data))+body+struct.pack('>I',binascii.crc32(body)&0xffffffff)
+def decode_rgba_png(data):
+    assert data[:8]==b'\x89PNG\r\n\x1a\n'
+    offset=8;width=height=bit_depth=color_type=None;compressed=bytearray()
+    while offset<len(data):
+        length=struct.unpack('>I',data[offset:offset+4])[0]
+        kind=data[offset+4:offset+8];payload=data[offset+8:offset+8+length]
+        if kind==b'IHDR':
+            width,height,bit_depth,color_type,compression,filter_method,interlace=struct.unpack('>IIBBBBB',payload)
+            assert (bit_depth,color_type,compression,filter_method,interlace)==(8,6,0,0,0)
+        elif kind==b'IDAT': compressed.extend(payload)
+        elif kind==b'IEND': break
+        offset+=12+length
+    assert width and height and compressed
+    row_bytes=width*4;raw=zlib.decompress(compressed)
+    assert len(raw)==height*(row_bytes+1)
+    pixels=bytearray(width*height*4);previous=bytearray(row_bytes);source=0
+    def paeth(left,up,up_left):
+        estimate=left+up-up_left
+        distances=(abs(estimate-left),abs(estimate-up),abs(estimate-up_left))
+        return (left,up,up_left)[distances.index(min(distances))]
+    for y in range(height):
+        filter_type=raw[source];source+=1
+        row=bytearray(raw[source:source+row_bytes]);source+=row_bytes
+        for i,value in enumerate(row):
+            left=row[i-4] if i>=4 else 0;up=previous[i]
+            up_left=previous[i-4] if i>=4 else 0
+            if filter_type==1: predictor=left
+            elif filter_type==2: predictor=up
+            elif filter_type==3: predictor=(left+up)//2
+            elif filter_type==4: predictor=paeth(left,up,up_left)
+            else:
+                assert filter_type==0
+                predictor=0
+            row[i]=(value+predictor)&255
+        start=y*row_bytes;pixels[start:start+row_bytes]=row;previous=row
+    return width,height,pixels
 with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     directory=Path(folder)
     executable=Path(__file__).resolve().parent.parent/'target/debug/canvas-demo'
@@ -168,6 +204,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: png.exists(),'PNG export')
             data=png.read_bytes();assert data[:8]==b'\x89PNG\r\n\x1a\n'
             assert struct.unpack('>II',data[16:24])==(1600,1000)
+            png_width,png_height,pixels=decode_rgba_png(data)
+            assert (png_width,png_height)==(1600,1000)
+            assert not any(pixels[i:i+4]==b'\xff\x00\xff\xff' for i in range(0,len(pixels),4)), 'workspace reference pixels leaked into the exported artwork'
             assert json.loads(prefs.read_text())['references'][0]['path']==str(reference)
             key('Escape');assert process.wait(timeout=20)==0
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
@@ -201,11 +240,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             with zipfile.ZipFile(ora) as archive:
                 assert archive.namelist()[0]=='mimetype' and archive.read('mimetype')==b'image/openraster'
                 assert archive.testzip() is None and b'<layer' in archive.read('stack.xml')
-            ctrl_shift('o');path_prompt();ctrl('Return');status('*');ctrl('s')
+            ctrl_shift('o');path_prompt();ctrl('Return');status('*')
             imported=directory/'imported-artwork.rpl'
-            wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
             recovery_dir=directory/'state/rust-paint-lab/recovery'
             snapshot=wait(lambda: next((p for p in sorted(recovery_dir.glob('recovery-*.rpl'),reverse=True) if valid_project(p)),None),'initial recovery checkpoint')
+            # Recovery snapshots are submitted only while the current document is
+            # dirty. Wait for this checkpoint before an explicit save makes it clean.
+            ctrl('s')
+            wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
             journal_path=Path(str(snapshot)+'.journal')
             assert latest_journal_checkpoint(journal_path)==snapshot.read_bytes(),'initial checkpoint has a complete synced journal record'
             before=snapshot.read_bytes()

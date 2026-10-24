@@ -21,6 +21,16 @@ work below.
   handling and partial success. Source decode and GPU rendering have not been
   exercised on the user's Windows device, so the precise original failure for
   that photo remains unconfirmed.
+- Inspection of the original import path identified two concrete failure modes:
+  it rejected sources above 2048 pixels on either edge and applied an 8 MiB
+  decoder allocation limit before creating a preview, which excludes many
+  ordinary phone photos. More critically, after texture creation the action
+  returned early without requesting another frame; egui had already collected
+  the frame's texture updates, so the new floating window and its status could
+  remain unseen until unrelated input caused a redraw. The revised batch path
+  scales bounded large sources, reports each rejection, persists successful
+  siblings, and requests redraw. This maps the failure to code-path defects but
+  does not prove which one affected the user's specific Windows selection.
 - Replaced toolbar/menu Unicode symbols with original egui vector geometry for
   the functional Brush, Eraser, Rectangle, Ellipse, Lasso, Eyedropper, Deselect,
   Fill, Undo, Redo, Open, Save, Layers, Color and Settings actions. Buttons retain
@@ -42,8 +52,9 @@ work below.
   not submit. Commit `212b77d` now recognizes physical/logical Enter only while
   the test-only dialog is active, closes that harness modal, and queues its
   existing action directly into the next Studio frame. Ordinary users continue to
-  receive the native file dialog. Run `40124176543` tests this change in Xvfb.
-  Local Xvfb is not installed in this environment.
+  receive the native file dialog. Run `40124892298` confirms the Linux test
+  harness received and queued four Enter submissions, and advanced through the
+  picker flows into OpenRaster import. Local Xvfb is not installed here.
 - Floating reference windows now have explicit physical-pixel/DPI-aware hit
   testing in the input adapter. Mouse, pen, touch-navigation and selection starts
   over the reference board are routed to the UI instead of painting or navigating
@@ -78,9 +89,10 @@ work below.
   Enter only while the test-only dialog is active, closes that harness modal, and
   queues its existing action directly into the next Studio frame. Ordinary users
   continue to receive the native file dialog. It also emits test-only diagnostic
-  markers so a further failure identifies which dispatch stage ran. New Actions
-  run [`40124176543`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40124176543)
-  is testing that change in Xvfb; platform results are pending.
+  markers so a further failure identifies which dispatch stage ran. `40124176543`
+  was canceled as stale. The newer run [`40124892298`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40124892298)
+  confirms the path picker submits and reaches the recovery portion of the Linux
+  smoke, where it then fails waiting for an initial recovery snapshot.
 
 ### Completed workspace refinement in `885b213`
 
@@ -105,7 +117,7 @@ work below.
   last inspection. The test-only path-prompt fix, reference input guard, portable
   Windows packages and Linux virtual-window workflow remain under CI validation.
 
-### Working color-palette slice after `885b213` (not yet pushed)
+### Completed in `f672cec`
 
 - The Color section now shows a bounded recent brush-color palette. Selecting a
   color updates the active brush; user-picked, HEX-entered and eyedropper colors
@@ -116,13 +128,17 @@ work below.
 - Persistence/ordering/bounds and named touch-sized swatches have automated tests.
 - Formatting, strict Clippy, all **175 workspace tests**, workspace build, llvmpipe
   GPU smoke, and Windows GNU workspace check/Clippy pass locally for this slice.
-  Full platform CI is pending.
+  The current Actions run is still building/testing Windows and packaging macOS;
+  Linux reaches the recovery smoke but fails because the test saves the imported
+  project before waiting for its debounced recovery snapshot. The product only
+  checkpoints dirty work, so the workflow order is being corrected to wait for
+  the checkpoint before explicit Save. The smoke also now decodes its real PNG
+  export and checks that the magenta reference sentinel is absent from artwork.
 
 ### Next Phase 8.1 work
 
-1. Verify the winit-latched picker workflow and all three platform jobs for
-   `212b77d`. Preserve both Windows artifacts and diagnose the modal further if
-   the smoke still fails.
+1. Commit the recovery-smoke ordering and reference/export assertion, then verify
+   the Xvfb workflow and all three platform jobs. Preserve both Windows artifacts.
 2. Obtain a real Windows run of Add Reference Images with small PNG, phone JPEG,
    multiple selections, one bad file, cancellation and restart persistence; record
    the dialog/result/status behavior before declaring the confirmed issue fixed.
