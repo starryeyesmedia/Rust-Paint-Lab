@@ -14,7 +14,12 @@ for line in process.stdout:
     tail.append(line)
 result = process.wait()
 if result and os.environ.get('GITHUB_ACTIONS') == 'true':
-    message = ''.join(tail)[-12000:]
+    lines = list(tail)
+    diagnostics = [line for line in lines if any(
+        marker in line.lower()
+        for marker in ('failed', 'failure', 'error:', 'panicked', 'test result:')
+    )]
+    message = ''.join(diagnostics[-30:] or lines[-30:])[-3000:]
     message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
     print('::error title=Workspace test failure::' + message)
 sys.exit(result)
