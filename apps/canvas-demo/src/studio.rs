@@ -1362,7 +1362,12 @@ ui.add(egui::Label::new(pen_status).truncate());
                 self.path = "recovered-artwork.rpl".into();
                 self.store = None;
                 self.last_submitted = u64::MAX;
-                self.status=if fallback{"RECOVERED BACKUP: latest checkpoint was invalid; newer edits may be missing. Save As a new native project"}else{"Recovery restored into a new unsaved document; Save As a native project"}.into();
+                self.status = if fallback {
+                    "RECOVERED PREVIOUS CHECKPOINT: newest recovery data was invalid; edits after the previous complete checkpoint may be missing. Save As a new native project"
+                } else {
+                    "Recovery restored into a new unsaved document; Save As a native project"
+                }
+                .into();
             }
             Action::Open | Action::Recent(_) => {
                 let path = if let Action::Recent(p) = &a {

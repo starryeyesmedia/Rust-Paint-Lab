@@ -56,9 +56,12 @@ artwork. Close/Escape prompts for dirty work; save, keep recovery, or cancel.
 Save often and retain independent copies while this alpha format evolves. Saving
 checks integrity, locks writers, detects external changes, synchronizes a temporary
 file and retains the previous valid `.bak`. Recovery writes local committed-document
-snapshots on a bounded worker. Closing or replacing dirty work waits for a confirmed
-checkpoint. A crash can lose edits since the last completed checkpoint; this is not
-a per-operation journal. No raw input is automatically recorded.
+snapshots plus a bounded, checksummed journal of complete states on a background
+worker. A damaged journal tail falls back to its previous complete snapshot; the
+existing recovery `.rpl` and `.bak` remain additional fallbacks. Closing or replacing
+dirty work waits for a confirmed checkpoint. The journal is not an operation log
+and does not preserve undo history; a crash can lose edits since the last completed
+checkpoint. No raw input is automatically recorded.
 
 Recovery choices appear in the right panel on next launch. Recover into a new
 unsaved document and Save As a normal `.rpl`. Each document switch keeps its own
@@ -140,8 +143,9 @@ unsupported blend modes are rejected. Save `.rpl` afterward. See openraster.md f
 exact capabilities/limits. External application interoperability still needs testing.
 
 Ctrl+Shift+R restores the latest inactive recovery into a new unsaved document.
-If the primary snapshot is corrupt or missing, a verified `.bak` is offered through
-the same recovery entry; status explicitly warns that newer edits may be missing.
+If the latest journal entry is incomplete/corrupt, recovery uses the previous
+complete journal state; if the journal is unusable, it tries the primary snapshot
+and verified `.bak`. Status warns when recovery may have missed newer edits.
 Neither source is rewritten. Save the restored work under a normal native filename.
 A missing/corrupt primary plus missing/corrupt backup reports an error and keeps the
 current artwork. Force-kill testing in CI uses disposable synthetic artwork only.
