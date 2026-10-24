@@ -1174,39 +1174,73 @@ ui.add(egui::Label::new(pen_status).truncate());
                                 }
                             });
 
-                        ui.color_edit_button_srgb(&mut project.brush.color);
+                        ui.horizontal(|ui| {
+                            ui.label("Color");
+                            ui.color_edit_button_srgb(&mut project.brush.color);
+                            let mut eraser = project.brush.kind == BrushKind::Eraser;
+                            if ui.checkbox(&mut eraser, "Erase").changed() {
+                                project.brush.kind = if eraser {
+                                    BrushKind::Eraser
+                                } else {
+                                    BrushKind::Round
+                                };
+                            }
+                        });
 
+                        ui.horizontal(|ui| {
+                            ui.label("Size");
+                            ui.add(
+                                egui::DragValue::new(&mut project.brush.size)
+                                    .range(1.0..=256.0)
+                                    .speed(0.25)
+                                    .suffix(" px"),
+                            );
+                        });
                         ui.add(
-                            egui::Slider::new(&mut project.brush.size, 1.0..=256.0).text("Size"),
+                            egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
+                                .show_value(false)
+                                .text("Size"),
                         );
+                        ui.horizontal(|ui| {
+                            ui.label("Opacity");
+                            ui.add(
+                                egui::DragValue::new(&mut project.brush.opacity)
+                                    .range(0.0..=1.0)
+                                    .speed(0.01),
+                            );
+                        });
                         ui.add(
                             egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
+                                .show_value(false)
                                 .text("Opacity"),
                         );
-                        ui.add(egui::Slider::new(&mut project.brush.flow, 0.0..=1.0).text("Flow"));
-                        ui.add(
-                            egui::Slider::new(&mut project.brush.hardness, 0.0..=1.0)
-                                .text("Hardness"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut project.brush.spacing, 0.05..=1.0)
-                                .text("Spacing"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut project.brush.smoothing, 0.0..=1.0)
-                                .text("Smoothing"),
-                        );
-                        ui.add(
-                            egui::Slider::new(
-                                &mut project.brush.angle,
-                                -std::f64::consts::PI..=std::f64::consts::PI,
-                            )
-                            .text("Angle"),
-                        );
-
-                        ui.checkbox(&mut project.brush.pressure_size, "Pressure size");
-                        ui.checkbox(&mut project.brush.pressure_opacity, "Pressure opacity");
-                        ui.checkbox(&mut project.brush.tilt, "Tilt angle");
+                        ui.collapsing("Advanced dynamics", |ui| {
+                            ui.add(
+                                egui::Slider::new(&mut project.brush.flow, 0.0..=1.0).text("Flow"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut project.brush.hardness, 0.0..=1.0)
+                                    .text("Hardness"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut project.brush.spacing, 0.05..=1.0)
+                                    .text("Spacing"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut project.brush.smoothing, 0.0..=1.0)
+                                    .text("Smoothing"),
+                            );
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut project.brush.angle,
+                                    -std::f64::consts::PI..=std::f64::consts::PI,
+                                )
+                                .text("Angle"),
+                            );
+                            ui.checkbox(&mut project.brush.pressure_size, "Pressure size");
+                            ui.checkbox(&mut project.brush.pressure_opacity, "Pressure opacity");
+                            ui.checkbox(&mut project.brush.tilt, "Tilt angle");
+                        });
 
                         ui.separator();
                         let mut transparent = project.state().background.is_none();

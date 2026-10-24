@@ -115,6 +115,10 @@ This is the active continuation record. Phase 7 work remains documented in
 - The Xvfb window workflow waits for test-only title markers before confirming New
   Document and native-file-picker test prompts. This removes fixed-delay UI races and
   includes the current window title in failed status assertions.
+- The Brush panel keeps preset, color, eraser, numeric size, and opacity as primary
+  controls. Flow, hardness, spacing, angle, smoothing, pressure response, and tilt are
+  grouped in a collapsed Advanced dynamics section. Brush behavior and preset format
+  did not change.
 
 ## Partial and unimplemented Phase 8 requirements
 
@@ -131,10 +135,11 @@ This is the active continuation record. Phase 7 work remains documented in
   incremental edits.
 - File dialogs have compiled on native Linux and Windows GNU targets; Windows,
   Linux portal, and macOS visual/runtime behavior needs CI or manual verification.
-- The first compact menus and vertical tool palette are implemented, but there are
-  no draggable/dockable panels, snap previews, palette placement/size preferences,
-  complete accessibility review, or polished color/brush/layer panels. Menu
-  categories remain limited to currently supported actions.
+- The first compact menus and vertical tool palette are implemented, and everyday
+  brush controls are less crowded, but there are no draggable/dockable panels, snap
+  previews, palette placement/size preferences, complete accessibility review,
+  brush thumbnails/library, or polished color/layer panels. Menu categories remain
+  limited to currently supported actions.
 - Reference board supports multiple selected references but still lacks internal
   zoom/pan, rotation, lock, project-scoped configurations, native drag/drop, and
   color sampling.
@@ -158,12 +163,11 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Push the locally validated autosave and test-prompt synchronization slice, then
-   rerun CI; verify Linux welcome/open/save smoke, Windows package build, macOS
-   packaging, and artifacts.
+1. Run format, strict Clippy, workspace tests/build, and GPU smoke for the compact
+   Brush panel, commit/push it, and verify Linux window smoke plus Windows/macOS CI.
 2. Use the test-only dialog marker and improved failure title to diagnose the Linux
    reopen timeout if it persists.
-3. Continue compact brush/layer/color controls and close-save failure coverage in
+3. Continue a more useful layer/color workflow and close-save failure coverage in
    the real window workflow.
 
 No physical Windows picker, stylus, touch, power-loss, or hardware-performance

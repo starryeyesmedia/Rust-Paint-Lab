@@ -26,12 +26,13 @@ outside paper does not paint. Focus/capture loss, leaving the application window
 resize, and mode changes cancel the provisional stroke. Completed strokes remain
 in the editable document.
 
-The right panel contains ten brush presets, size/opacity/flow/hardness/spacing,
-pressure responses, tilt rotation, angle, smoothing and RGB color. Opacity caps the
-whole stroke while flow accumulates individual dabs. Wash is a deterministic visual
-experiment, not a physical watercolor simulation. Airbrush deposits on movement,
-not continuously while stationary. There is no prediction. Smoothing is a simple
-low-pass filter, not a full stabilizer.
+The right panel keeps ten brush presets, color, an eraser toggle, and size/opacity
+controls visible. Size and opacity accept direct numeric entry; flow, hardness,
+spacing, tilt, angle, smoothing, and pressure responses are grouped under Advanced
+dynamics. Opacity caps the whole stroke while flow accumulates individual dabs. Wash
+is a deterministic visual experiment, not a physical watercolor simulation. Airbrush
+deposits on movement, not continuously while stationary. There is no prediction.
+Smoothing is a simple low-pass filter, not a full stabilizer.
 
 Layers support add, duplicate, delete, rename, reorder, visibility, lock, opacity,
 Normal/Multiply/Screen/Overlay, and clear. Bottom-to-top composition follows layer
