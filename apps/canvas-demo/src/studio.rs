@@ -1484,33 +1484,34 @@ impl Studio {
             }
 
             egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-let project = session.live().project();
-let save_status = if self.recovery_saving {
-    "Saving recovery"
-} else if project.dirty() && self.recovery.is_some() {
-    "Unsaved changes · recovery available"
-} else if project.dirty() {
-    "Unsaved changes"
-} else if self.store.is_some() {
-    "Saved"
-} else {
-    "Untitled document"
-};
-ui.horizontal(|ui| {
-    ui.strong(save_status);
-    ui.separator();
-    if let Some(error)=session.live().document_error(){
-        ui.colored_label(egui::Color32::LIGHT_RED,error);
-    } else {
-        ui.label(&self.status);
-    }
-});
-ui.small(format!("{}×{} | {} dpi | {} tiles | {} undo | CPU composite/upload-submit {} µs | frame {} µs",session.live().project().state().width,session.live().project().state().height,session.live().project().state().dpi,session.live().project().state().tile_count(),session.live().project().undo_count(),self.last_upload_us,self.last_frame_us));
-let pen_status=if let Some(p)=session.live().last_pen(){format!("Pen {:?} | pressure {} | tilt X {} / Y {} | barrel {} | eraser {}",p.phase,p.pressure.map(|v|format!("{v:.2}")).unwrap_or_else(||"unavailable".into()),p.tilt_degrees[0].map(|v|format!("{v:.0}°")).unwrap_or_else(||"unavailable".into()),p.tilt_degrees[1].map(|v|format!("{v:.0}°")).unwrap_or_else(||"unavailable".into()),p.buttons.barrel,p.buttons.eraser||p.buttons.inverted)}else{"Mouse / native Windows pen · hover ring shows selected brush diameter".into()};
-ui.add(egui::Label::new(pen_status).truncate());
-
-}
-);
+                let project = session.live().project();
+                let save_status = if self.recovery_saving {
+                    "Saving recovery"
+                } else if project.dirty() && self.recovery.is_some() {
+                    "Unsaved changes · recovery available"
+                } else if project.dirty() {
+                    "Unsaved changes"
+                } else if self.store.is_some() {
+                    "Saved"
+                } else {
+                    "Untitled document"
+                };
+                ui.horizontal(|ui| {
+                    ui.strong(save_status);
+                    ui.separator();
+                    if let Some(error) = session.live().document_error() {
+                        ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    } else {
+                        ui.label(&self.status);
+                    }
+                });
+                ui.small(format!(
+                    "{} × {} px · {} dpi",
+                    session.live().project().state().width,
+                    session.live().project().state().height,
+                    session.live().project().state().dpi
+                ));
+            });
 
             if self.show_controls {
                 let side_panel = egui::SidePanel::right("painting controls")

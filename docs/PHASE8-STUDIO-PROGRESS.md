@@ -37,18 +37,20 @@ work below.
   platform build/lint path; this verifies the atomic unique temp-directory fix
   introduced in `f8db5a5`.
 - The Linux picker smoke still failed on `f8db5a5`: after Ctrl+Enter the title
-  remained `TEST FILE PICKER`. Commit `039fa2a` latches Enter/Numpad Enter at the
-  winit boundary only when the test-only path dialog is active, then submits
-  through the same action path. Ordinary users continue to receive the native
-  file dialog. This requires a fresh Xvfb Actions run; local Xvfb is not installed
-  in this environment.
+  remained `TEST FILE PICKER`. Commit `039fa2a` first latched Enter/Numpad Enter
+  at the winit boundary, but Actions run `40123715340` showed the modal still did
+  not submit. Commit `212b77d` now recognizes physical/logical Enter only while
+  the test-only dialog is active, closes that harness modal, and queues its
+  existing action directly into the next Studio frame. Ordinary users continue to
+  receive the native file dialog. Run `40124176543` tests this change in Xvfb.
+  Local Xvfb is not installed in this environment.
 - Floating reference windows now have explicit physical-pixel/DPI-aware hit
   testing in the input adapter. Mouse, pen, touch-navigation and selection starts
   over the reference board are routed to the UI instead of painting or navigating
   the obscured canvas. Their existing move/resize/opacity/close controls can
   receive those events. A bounded-coordinate unit test covers inside/outside,
-  invalid scale and nonfinite pointer positions. This follow-up is locally tested
-  but not yet pushed or window-tested.
+  invalid scale and nonfinite pointer positions. Commit `b54bf1e` contains this
+  change; a window-level CI validation is still pending.
 
 ### Current local validation
 
@@ -69,22 +71,22 @@ work below.
   No cross-platform pass is claimed for that run.
 - After reference-window hit testing, full workspace tests and build, the required
   llvmpipe GPU pixel suite, Windows GNU target workspace check/Clippy, and local
-  strict Clippy pass. The hit-test change is not included in the in-progress
-  `039fa2a` Actions run.
+  strict Clippy pass.
 - Actions run [`40123715340`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40123715340)
-  still fails Linux at the same `TEST FILE PICKER` timeout; the UI-level latch in
-  `039fa2a` did not resolve it. At last inspection macOS was packaging and Windows
-  was building the canvas executable. The new uncommitted correction intercepts
-  physical or logical Enter/Numpad Enter at winit and transfers the selected test
-  action directly into the next Studio frame instead of asking the modal widget to
-  read the key. It also emits test-only diagnostic markers so a further failure
-  identifies which dispatch stage ran. This needs a fresh Xvfb run.
+  failed Linux at the same `TEST FILE PICKER` timeout; the UI-level latch in
+  `039fa2a` did not resolve it. Commit `212b77d` recognizes physical/logical
+  Enter only while the test-only dialog is active, closes that harness modal, and
+  queues its existing action directly into the next Studio frame. Ordinary users
+  continue to receive the native file dialog. It also emits test-only diagnostic
+  markers so a further failure identifies which dispatch stage ran. New Actions
+  run [`40124176543`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40124176543)
+  is testing that change in Xvfb; platform results are pending.
 
 ### Next Phase 8.1 work
 
-1. Commit and push the current verified UI/reference slice, then verify the new
-   winit-latched picker workflow and all three platform jobs. Preserve both
-   Windows artifacts.
+1. Verify the winit-latched picker workflow and all three platform jobs for
+   `212b77d`. Preserve both Windows artifacts and diagnose the modal further if
+   the smoke still fails.
 2. Obtain a real Windows run of Add Reference Images with small PNG, phone JPEG,
    multiple selections, one bad file, cancellation and restart persistence; record
    the dialog/result/status behavior before declaring the confirmed issue fixed.
