@@ -119,7 +119,7 @@ fn pathological_pen_down_sequence_keeps_tracking_bounded_and_duplicates_do_not_r
     let first = sample(1, 1, Phase::Down);
     live.pen(first);
     let mut duplicate = sample(1, 2, Phase::Down);
-    duplicate.position_px = [300.0, 300.0];
+    duplicate.position_px = [0.0, 116.0];
     live.pen(duplicate);
     for id in 2..10_000 {
         let mut down = sample(id, id, Phase::Down);

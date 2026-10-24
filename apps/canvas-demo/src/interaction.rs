@@ -195,6 +195,9 @@ impl LiveMouse {
         match sample.phase {
             Phase::Hover => self.consume(sample),
             Phase::Down => {
+                if self.processor.active().contains_key(&sample.id) {
+                    return;
+                }
                 if !mapping.contains_client(sample.position_px) {
                     self.pen_tracks.remove(&native_id);
                     self.consume(PointerSample {
@@ -204,8 +207,7 @@ impl LiveMouse {
                     });
                     return;
                 }
-                if self.processor.active().contains_key(&sample.id)
-                    || self.processor.active().len() >= paint_input::lifecycle::MAX_CONTACTS
+                if self.processor.active().len() >= paint_input::lifecycle::MAX_CONTACTS
                     || self.pen_tracks.len() >= paint_input::lifecycle::MAX_CONTACTS
                 {
                     return;
