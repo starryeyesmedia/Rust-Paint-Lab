@@ -13,8 +13,8 @@ This is the active continuation record. Phase 7 work remains documented in
   [40112079927](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40112079927)
   passed Windows, Linux, and macOS and uploaded the canvas and stylus artifacts.
 - Previous checked suite: 148 Rust tests. No merge or release was performed.
-- Latest pushed Phase 8 code commit: `af1a879` (persisted Brush/Layers panel
-  visibility).
+- Latest pushed Phase 8 code commit: `100d103` (Ctrl+Enter submission in the
+  test-only path picker).
 
 ## Implemented Phase 8 slice: welcome, document setup, and file selection
 
@@ -135,23 +135,23 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ### Latest checkpoint validation
 
-- Commit `af1a879`: workspace formatting, strict Clippy, all workspace tests, and
-  workspace build passed after adding the panel visibility preference. The required
-  llvmpipe GPU pixel smoke also passed.
-- GitHub Actions for `af1a879` ([40118673479](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118673479))
-  failed immediately with all platform jobs assigned runner ID 0 and no steps.
-  Retrying the failed jobs produced the same pre-setup failure. Run
-  [40118752060](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118752060)
-  for the progress-record-only follow-up hit the same runner provisioning error.
-  The prior pushed commit's run
-  [40118528397](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118528397)
-  is progressing, but is not a check of the panel-visibility change.
+- Commit `100d103`: workspace formatting, strict Clippy, all **165 tests**, and
+  workspace build passed. The required llvmpipe GPU pixel smoke and Python
+  workflow-script syntax check also passed.
+- GitHub Actions rerun for `100d103`
+  ([40118885388](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118885388))
+  failed before any job step on all three platforms; all jobs had runner ID 0.
+  The same runner-provisioning failure affected runs
+  [40118673479](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118673479)
+  and [40118752060](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118752060).
+  Superseded in-progress runs were canceled to free Actions capacity.
 - Linux UI smoke in earlier run
   [40118257862](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118257862)
   reached the test-only file picker but timed out because synthetic plain Enter
   was consumed by the focused path field. The smoke now submits the test-only
-  picker with Ctrl+Enter, which the modal handles explicitly. This correction
-  awaits Xvfb CI verification.
+  picker with Ctrl+Enter, which the modal handles explicitly. The correction has
+  not yet been verified with Xvfb; `xvfb-run` is absent locally and the latest CI
+  rerun failed before setup.
 - The Linux Xvfb real-window workflow still cannot be exercised in this container
   because `xvfb-run` is absent. Latest platform CI must confirm the native window,
   dialogs, artifact packaging, and smoke script.
