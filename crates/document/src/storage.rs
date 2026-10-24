@@ -167,7 +167,10 @@ impl Store {
                 let backup = sibling(&self.path, ".bak");
                 let backup_tmp = temporary(&backup);
                 fs::copy(&self.path, &backup_tmp)?;
-                File::open(&backup_tmp)?.sync_all()?;
+                OpenOptions::new()
+                    .write(true)
+                    .open(&backup_tmp)?
+                    .sync_all()?;
                 fs::rename(&backup_tmp, &backup)?;
             }
             if fault == Fault::BeforeReplace {
@@ -223,7 +226,7 @@ pub fn export_png(path: &Path, engine: &crate::Engine) -> Result<(), PaintError>
         writer
             .finish()
             .map_err(|e| PaintError::Png(e.to_string()))?;
-        File::open(&tmp)?.sync_all()?;
+        OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
         fs::rename(&tmp, path)?;
         Ok(())
     })();

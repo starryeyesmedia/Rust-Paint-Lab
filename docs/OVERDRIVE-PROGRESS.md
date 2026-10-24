@@ -108,3 +108,11 @@ these still require system graphics/desktop libraries and are unsigned/unnotariz
 Pending P0 refinements: recent documents, recovery retention UI, full operation
 journal and asynchronous explicit save. Current snapshot recovery is usable and
 fault-tested but these refinements are not claimed. Do not silently delete recovery.
+
+Windows CI correction: d322c55 Linux/macOS succeeded, Windows failed in tests
+(after GPU pixel success). Full logs are blocked by the environment's GitHub logs
+host; check annotations expose only the exit code. Code review identified read-only
+handles passed to sync_all for backup/PNG files, which Windows FlushFileBuffers
+requires write access for. Changed those to write handles; native matrix rerun is
+required to confirm. Added bounded failed-test tail annotations so exact errors
+remain accessible through the GitHub API. Never count this failed run as success.
