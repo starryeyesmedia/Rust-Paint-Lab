@@ -30,7 +30,9 @@ in the editable document.
 The right panel keeps ten brush presets, color, an eraser toggle, and size/opacity
 controls visible. Size and opacity accept direct numeric entry; flow, hardness,
 spacing, tilt, angle, smoothing, and pressure responses are grouped under Advanced
-dynamics. Opacity caps the whole stroke while flow accumulates individual dabs. Wash
+dynamics. Expand Color values for validated six-digit HEX and direct encoded-sRGB RGB
+entry; the color swatch still opens the color picker. Opacity caps the whole stroke
+while flow accumulates individual dabs. Wash
 is a deterministic visual experiment, not a physical watercolor simulation. Airbrush
 deposits on movement, not continuously while stationary. There is no prediction.
 Smoothing is a simple low-pass filter, not a full stabilizer.

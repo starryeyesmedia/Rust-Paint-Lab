@@ -13,6 +13,11 @@ This is the active continuation record. Phase 7 work remains documented in
   [40112079927](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40112079927)
   passed Windows, Linux, and macOS and uploaded the canvas and stylus artifacts.
 - Previous checked suite: 148 Rust tests. No merge or release was performed.
+- Latest pushed Phase 8 code commit: `edd4afe` (recent document-size choices).
+  Local validation on it passed formatting, strict Clippy, 163 workspace tests,
+  workspace build, and the required Mesa llvmpipe GPU smoke. GitHub Actions run
+  [40118402178](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118402178)
+  is queued; real Linux window, Windows, and macOS verification is pending.
 
 ## Implemented Phase 8 slice: welcome, document setup, and file selection
 
@@ -64,9 +69,9 @@ This is the active continuation record. Phase 7 work remains documented in
 
 - `cargo fmt --all --check`: passed.
 - Workspace Clippy with `-D warnings`: passed.
-- `cargo test --workspace --locked`: passed, **163 tests**, including draft cleanup,
-  backward-compatible preferences, recent dimension bounds, and deterministic
-  autosave debounce/retry behavior.
+- `cargo test --workspace --locked`: passed, **165 tests**, including draft cleanup,
+  backward-compatible preferences, recent dimensions, autosave scheduling, and HEX
+  color parsing/validation.
 - `cargo build --workspace --locked`: passed.
 - Required offscreen pixel test passed on Mesa llvmpipe/OpenGL. Forcing Vulkan in
   this container did not find a Vulkan adapter; the default backend selected
@@ -122,6 +127,9 @@ This is the active continuation record. Phase 7 work remains documented in
 - New Document now offers the eight most recently created pixel-size/DPI pairs.
   Entries are deduplicated newest-first and validated/bounded on load; older
   workspace preference files default to an empty recent-size list.
+- Brush color now has a collapsed sRGB value editor with validated `#RRGGBB` entry
+  and direct R/G/B numeric controls. The existing swatch picker remains available;
+  this does not claim ICC color management.
 
 ## Partial and unimplemented Phase 8 requirements
 
@@ -139,10 +147,10 @@ This is the active continuation record. Phase 7 work remains documented in
 - File dialogs have compiled on native Linux and Windows GNU targets; Windows,
   Linux portal, and macOS visual/runtime behavior needs CI or manual verification.
 - The first compact menus and vertical tool palette are implemented, and everyday
-  brush controls are less crowded, but there are no draggable/dockable panels, snap
-  previews, palette placement/size preferences, complete accessibility review,
-  brush thumbnails/library, or polished color/layer panels. Menu categories remain
-  limited to currently supported actions.
+  brush/color controls are less crowded, but there are no draggable/dockable panels,
+  snap previews, palette placement/size preferences, complete accessibility review,
+  brush thumbnails/library, HSV wheel, recent-color palette, or polished layer panel.
+  Menu categories remain limited to currently supported actions.
 - Reference board supports multiple selected references but still lacks internal
   zoom/pan, rotation, lock, project-scoped configurations, native drag/drop, and
   color sampling.
@@ -166,8 +174,8 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Run format, strict Clippy, workspace tests/build, and GPU smoke for recent-size
-   choices; commit/push and verify Linux window smoke plus Windows/macOS CI.
+1. Run format, strict Clippy, workspace tests/build, and GPU smoke for HEX/RGB
+   controls; commit/push and verify Linux window smoke plus Windows/macOS CI.
 2. Use the test-only dialog marker and improved failure title to diagnose the Linux
    reopen timeout if it persists.
 3. Continue a more useful layer/color workflow and close-save failure coverage in

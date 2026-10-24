@@ -204,6 +204,8 @@ pub struct Studio {
     new_background: [u8; 3],
     new_transparent: bool,
     recent_document_sizes: Vec<crate::workspace::RecentDocumentSize>,
+    hex_color: String,
+    hex_color_for: Option<[u8; 3]>,
     new_dialog: bool,
     picker: Option<FileRequest>,
     manual_file_dialog: bool,
@@ -319,6 +321,8 @@ impl Studio {
             new_background: document_setup.background,
             new_transparent: document_setup.transparent,
             recent_document_sizes,
+            hex_color: String::new(),
+            hex_color_for: None,
             new_dialog: false,
             picker: None,
             manual_file_dialog: false,
@@ -1188,6 +1192,50 @@ ui.add(egui::Label::new(pen_status).truncate());
                                 } else {
                                     BrushKind::Round
                                 };
+                            }
+                        });
+                        if self.hex_color_for != Some(project.brush.color) {
+                            self.hex_color =
+                                crate::color_controls::format_hex_rgb(project.brush.color);
+                            self.hex_color_for = Some(project.brush.color);
+                        }
+                        ui.collapsing("Color values (sRGB)", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("HEX");
+                                let response = ui.add(
+                                    egui::TextEdit::singleline(&mut self.hex_color)
+                                        .char_limit(7)
+                                        .desired_width(88.0),
+                                );
+                                let apply = ui.button("Apply").clicked()
+                                    || (response.lost_focus()
+                                        && ui.input(|input| input.key_pressed(egui::Key::Enter)));
+                                if apply {
+                                    if let Some(color) =
+                                        crate::color_controls::parse_hex_rgb(&self.hex_color)
+                                    {
+                                        project.brush.color = color;
+                                        self.hex_color =
+                                            crate::color_controls::format_hex_rgb(color);
+                                        self.hex_color_for = Some(color);
+                                        self.status = "Brush color updated".into();
+                                    } else {
+                                        self.status =
+                                            "Enter a six-digit color such as #4B86D1".into();
+                                    }
+                                }
+                            });
+                            let mut rgb = project.brush.color;
+                            ui.horizontal(|ui| {
+                                ui.label("RGB");
+                                for component in &mut rgb {
+                                    ui.add(egui::DragValue::new(component).range(0..=255).speed(1));
+                                }
+                            });
+                            if rgb != project.brush.color {
+                                project.brush.color = rgb;
+                                self.hex_color = crate::color_controls::format_hex_rgb(rgb);
+                                self.hex_color_for = Some(rgb);
                             }
                         });
 
