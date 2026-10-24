@@ -12,7 +12,8 @@ RGB background, and transparency. It shows the resolved pixel size and rejects
 dimensions over 4096 × 4096. DPI affects print-size conversion, not pixel detail.
 The document is sparse at creation; painted tiles remain within the existing 128 MiB
 tile budget. The last successfully created document's dimensions, units, DPI, background,
-and transparency are remembered locally in workspace preferences. Ctrl+N opens New Document.
+and transparency are remembered locally in workspace preferences. The last eight
+created pixel dimensions/DPI pairs also appear as quick choices. Ctrl+N opens New Document.
 
 ## Drawing and controls
 

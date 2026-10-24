@@ -64,9 +64,9 @@ This is the active continuation record. Phase 7 work remains documented in
 
 - `cargo fmt --all --check`: passed.
 - Workspace Clippy with `-D warnings`: passed.
-- `cargo test --workspace --locked`: passed, **162 tests**, including draft cleanup,
-  backward-compatible document-setup preferences, and deterministic autosave
-  debounce/retry behavior.
+- `cargo test --workspace --locked`: passed, **163 tests**, including draft cleanup,
+  backward-compatible preferences, recent dimension bounds, and deterministic
+  autosave debounce/retry behavior.
 - `cargo build --workspace --locked`: passed.
 - Required offscreen pixel test passed on Mesa llvmpipe/OpenGL. Forcing Vulkan in
   this container did not find a Vulkan adapter; the default backend selected
@@ -119,16 +119,19 @@ This is the active continuation record. Phase 7 work remains documented in
   controls. Flow, hardness, spacing, angle, smoothing, pressure response, and tilt are
   grouped in a collapsed Advanced dynamics section. Brush behavior and preset format
   did not change.
+- New Document now offers the eight most recently created pixel-size/DPI pairs.
+  Entries are deduplicated newest-first and validated/bounded on load; older
+  workspace preference files default to an empty recent-size list.
 
 ## Partial and unimplemented Phase 8 requirements
 
 - Welcome screen is not yet a full separate workspace with thumbnails, settings
   pages, or session continuation. The engine's internal initial placeholder
   remains hidden and input-blocked until the artist creates or opens a project.
-- Document setup now remembers the last successfully created settings, but has no
-  recent-dimension list, explicit physical-paper preset catalog beyond current
-  presets, or automated app-level reopen/export dimension workflow. Preset dimensions
-  are bounded to current format.
+- Document setup remembers the last-created settings and eight recent pixel-size/DPI
+  pairs, but has no explicit physical-paper preset catalog beyond current presets or
+  automated app-level reopen/export dimension workflow. Preset dimensions remain
+  bounded to current format.
 - Drafts now have a confirmation-gated remove action, but there is still no
   rename, pin, or age sorting. Recovery checkpoints debounce dirty changes and
   expose basic save status, but store full committed snapshots rather than
@@ -163,8 +166,8 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Run format, strict Clippy, workspace tests/build, and GPU smoke for the compact
-   Brush panel, commit/push it, and verify Linux window smoke plus Windows/macOS CI.
+1. Run format, strict Clippy, workspace tests/build, and GPU smoke for recent-size
+   choices; commit/push and verify Linux window smoke plus Windows/macOS CI.
 2. Use the test-only dialog marker and improved failure title to diagnose the Linux
    reopen timeout if it persists.
 3. Continue a more useful layer/color workflow and close-save failure coverage in

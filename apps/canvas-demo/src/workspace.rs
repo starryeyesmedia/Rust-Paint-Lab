@@ -5,6 +5,7 @@ use std::{fs::File, io::Read, path::PathBuf};
 pub const MAX_REFERENCES: usize = 6;
 pub const MAX_REFERENCE_PATH: usize = 4096;
 pub const MAX_PREFERENCES_BYTES: usize = 64 * 1024;
+pub const MAX_RECENT_DOCUMENT_SIZES: usize = 8;
 
 pub fn load(path: &std::path::Path) -> Option<WorkspacePreferences> {
     let mut bytes = Vec::new();
@@ -36,6 +37,23 @@ pub struct WorkspacePreferences {
     pub references: Vec<ReferenceLayout>,
     #[serde(default)]
     pub new_document: NewDocumentPreferences,
+    #[serde(default)]
+    pub recent_document_sizes: Vec<RecentDocumentSize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentDocumentSize {
+    pub width_px: u32,
+    pub height_px: u32,
+    pub dpi: u32,
+}
+
+impl RecentDocumentSize {
+    pub fn valid(self) -> bool {
+        (1..=4096).contains(&self.width_px)
+            && (1..=4096).contains(&self.height_px)
+            && (1..=9600).contains(&self.dpi)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,6 +95,7 @@ impl Default for WorkspacePreferences {
             brush_panel_width: 260.0,
             references: Vec::new(),
             new_document: NewDocumentPreferences::default(),
+            recent_document_sizes: Vec::new(),
         }
     }
 }
@@ -89,6 +108,17 @@ impl WorkspacePreferences {
             return false;
         }
         self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
+        let mut seen = Vec::new();
+        self.recent_document_sizes.retain(|size| {
+            if !size.valid() || seen.contains(size) {
+                false
+            } else {
+                seen.push(*size);
+                true
+            }
+        });
+        self.recent_document_sizes
+            .truncate(MAX_RECENT_DOCUMENT_SIZES);
         self.references.truncate(MAX_REFERENCES);
         self.references.retain_mut(|reference| {
             let path_len = reference.path.as_os_str().len();
@@ -192,5 +222,40 @@ mod tests {
         let mut preferences = WorkspacePreferences::default();
         preferences.new_document.width = f64::NAN;
         assert!(!preferences.validate());
+    }
+
+    #[test]
+    fn recent_dimensions_are_valid_deduplicated_and_bounded() {
+        let mut preferences = WorkspacePreferences::default();
+        let size = RecentDocumentSize {
+            width_px: 1200,
+            height_px: 1800,
+            dpi: 300,
+        };
+        preferences.recent_document_sizes = vec![
+            size,
+            size,
+            RecentDocumentSize {
+                width_px: 0,
+                height_px: 64,
+                dpi: 96,
+            },
+        ];
+        preferences
+            .recent_document_sizes
+            .extend(
+                (0..MAX_RECENT_DOCUMENT_SIZES + 2).map(|i| RecentDocumentSize {
+                    width_px: 400 + i as u32,
+                    height_px: 300,
+                    dpi: 96,
+                }),
+            );
+        assert!(preferences.validate());
+        assert_eq!(
+            preferences.recent_document_sizes.len(),
+            MAX_RECENT_DOCUMENT_SIZES
+        );
+        assert_eq!(preferences.recent_document_sizes[0], size);
+        assert_eq!(preferences.recent_document_sizes[1].width_px, 400);
     }
 }

@@ -203,6 +203,7 @@ pub struct Studio {
     new_unit: crate::document_setup::DocumentUnit,
     new_background: [u8; 3],
     new_transparent: bool,
+    recent_document_sizes: Vec<crate::workspace::RecentDocumentSize>,
     new_dialog: bool,
     picker: Option<FileRequest>,
     manual_file_dialog: bool,
@@ -290,6 +291,7 @@ impl Studio {
             .and_then(|p| crate::workspace::load(p))
             .unwrap_or_default();
         let document_setup = preferences.new_document.clone();
+        let recent_document_sizes = preferences.recent_document_sizes.clone();
         let references = preferences
             .references
             .iter()
@@ -316,6 +318,7 @@ impl Studio {
             new_unit: document_setup.unit,
             new_background: document_setup.background,
             new_transparent: document_setup.transparent,
+            recent_document_sizes,
             new_dialog: false,
             picker: None,
             manual_file_dialog: false,
@@ -837,6 +840,7 @@ impl Studio {
                 background: self.new_background,
                 transparent: self.new_transparent,
             },
+            recent_document_sizes: self.recent_document_sizes.clone(),
             ..Default::default()
         };
         if !preferences.validate() {
@@ -1681,6 +1685,27 @@ ui.add(egui::Label::new(pen_status).truncate());
                             }
                         });
                 });
+                if !self.recent_document_sizes.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.label("Recent size");
+                        egui::ComboBox::from_id_salt("recent-document-size")
+                            .selected_text("Choose recent dimensions…")
+                            .show_ui(ui, |ui| {
+                                for size in self.recent_document_sizes.iter().copied() {
+                                    let label = format!(
+                                        "{} × {} px · {} DPI",
+                                        size.width_px, size.height_px, size.dpi
+                                    );
+                                    if ui.selectable_label(false, label).clicked() {
+                                        self.new_unit = crate::document_setup::DocumentUnit::Pixels;
+                                        self.new_width = f64::from(size.width_px);
+                                        self.new_height = f64::from(size.height_px);
+                                        self.new_dpi = size.dpi;
+                                    }
+                                }
+                            });
+                    });
+                }
                 ui.horizontal(|ui| {
                     ui.label("Units");
                     egui::ComboBox::from_id_salt("new-document-units")
@@ -2195,6 +2220,16 @@ ui.add(egui::Label::new(pen_status).truncate());
                 )?;
                 let width = state.width;
                 let height = state.height;
+                let recent_size = crate::workspace::RecentDocumentSize {
+                    width_px: width,
+                    height_px: height,
+                    dpi: self.new_dpi,
+                };
+                self.recent_document_sizes
+                    .retain(|size| *size != recent_size);
+                self.recent_document_sizes.insert(0, recent_size);
+                self.recent_document_sizes
+                    .truncate(crate::workspace::MAX_RECENT_DOCUMENT_SIZES);
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
                 self.recovery = Some(next);
                 *project = Engine::from_state(state)?;
