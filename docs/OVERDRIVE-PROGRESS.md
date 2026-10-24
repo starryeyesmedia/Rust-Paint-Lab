@@ -298,3 +298,11 @@ collision to the explicit conflict error, with matching test expectation; archit
 and test docs now describe the format. That small refinement is not yet committed or
 covered by CI. Earlier modal/lasso checkpoint `f6ab0a1` is also awaiting Actions
 completion.
+
+Checkpoint follow-up: `bdea96f` commits the explicit `PaintError::Conflict` mapping
+for an existing preset, updates the no-clobber test, and records the format in the
+architecture/testing guides. Full local validation (129 tests, required Vulkan GPU
+runner, workspace fmt/Clippy/build, Windows GNU cross-target check/Clippy, and the
+updated X11 alpha workflow) was rerun after this change. Actions run `40056494303`
+is the matrix validation for this final code state; it is currently in progress.
+The working tree was clean after the push.
