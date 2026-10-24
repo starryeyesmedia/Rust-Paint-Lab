@@ -145,6 +145,46 @@ fn presets_are_deterministic_distinct_and_versioned() {
     assert_eq!(outputs.len(), 9);
     assert!(Brush::decode("{\"version\":2,\"brush\":{}}").is_err());
 }
+
+#[test]
+fn brush_presets_roundtrip_with_bounded_no_clobber_storage() {
+    let root = std::env::temp_dir().join(format!("rpl-brush-presets-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("ink.rplbrush");
+    let mut brush = Brush::preset(BrushKind::Calligraphy);
+    brush.color = [12, 34, 56];
+    brush.pressure_opacity = true;
+
+    storage::save_brush_preset(&path, &brush).unwrap();
+    assert_eq!(storage::load_brush_preset(&path).unwrap(), brush);
+    assert!(matches!(
+        storage::save_brush_preset(&path, &Brush::default()),
+        Err(PaintError::Io(_))
+    ));
+
+    std::fs::write(&path, vec![b' '; 16 * 1024 + 1]).unwrap();
+    assert!(matches!(
+        storage::load_brush_preset(&path),
+        Err(PaintError::Limit)
+    ));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn brush_preset_storage_rejects_wrong_extension_and_invalid_settings() {
+    let root = std::env::temp_dir().join(format!("rpl-brush-invalid-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    assert!(matches!(
+        storage::save_brush_preset(&root.join("brush.json"), &Brush::default()),
+        Err(PaintError::Invalid)
+    ));
+    let path = root.join("bad.rplbrush");
+    std::fs::write(&path, "{\"version\":99,\"brush\":{}} ").unwrap();
+    assert!(storage::load_brush_preset(&path).is_err());
+    std::fs::remove_dir_all(root).unwrap();
+}
 #[test]
 fn erasing_and_layer_properties_are_undoable() {
     let mut e = Engine::new(64, 64, 300).unwrap();

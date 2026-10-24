@@ -49,6 +49,8 @@ enum Action {
     Open,
     Save,
     SaveAs,
+    SaveBrush,
+    LoadBrush,
     Export,
     Import,
     ImportOra,
@@ -503,6 +505,19 @@ impl Studio {
     }
     pub fn shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
+        if key == 't' || key == 'u' {
+            self.path = PathBuf::from(&self.path)
+                .with_extension("rplbrush")
+                .to_string_lossy()
+                .into();
+            self.action = Some(if key == 't' {
+                Action::SaveBrush
+            } else {
+                Action::LoadBrush
+            });
+            self.file_dialog = true;
+            return;
+        }
         if key == 'v' {
             if let Some(path) = self.recovery_files.first().cloned() {
                 if session.live().project().dirty() {
@@ -601,6 +616,24 @@ impl Studio {
 
                 if ui.button("Save as").clicked() {
                     self.action = Some(Action::SaveAs);
+                    self.file_dialog = true;
+                }
+
+                if ui.button("Save brush…").clicked() {
+                    self.path = PathBuf::from(&self.path)
+                        .with_extension("rplbrush")
+                        .to_string_lossy()
+                        .into();
+                    self.action = Some(Action::SaveBrush);
+                    self.file_dialog = true;
+                }
+
+                if ui.button("Load brush…").clicked() {
+                    self.path = PathBuf::from(&self.path)
+                        .with_extension("rplbrush")
+                        .to_string_lossy()
+                        .into();
+                    self.action = Some(Action::LoadBrush);
                     self.file_dialog = true;
                 }
 
@@ -1022,7 +1055,7 @@ ui.add(egui::Label::new(pen_status).truncate());
         } else if self.file_dialog {
             egui::Modal::new(egui::Id::new("project file path")).show(ctx, |ui| {
                 ui.heading("Project / image path");
-                ui.label("Enter a full path or a file in the current folder. RPL for editable projects; PNG for images.");
+                ui.label("Enter a full path or a file in the current folder. RPL for editable projects, PNG for images, RPLBRUSH for brush presets.");
                 ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
                 if ui.button("Continue").clicked()
                     || ui.input(|i| i.key_pressed(egui::Key::Enter))
@@ -1359,6 +1392,21 @@ ui.add(egui::Label::new(pen_status).truncate());
                 self.status = "Editable project saved; previous valid file retained as .bak".into();
                 let path = self.store.as_ref().unwrap().path.clone();
                 self.remember(&path);
+            }
+            Action::SaveBrush => {
+                let path = native_project_path(std::path::Path::new(&self.path))
+                    .with_extension("rplbrush");
+                storage::save_brush_preset(&path, &project.brush)?;
+                self.path = path.to_string_lossy().into_owned();
+                self.status =
+                    "Versioned brush preset saved without replacing an existing file".into();
+            }
+            Action::LoadBrush => {
+                let path = native_project_path(std::path::Path::new(&self.path))
+                    .with_extension("rplbrush");
+                project.brush = storage::load_brush_preset(&path)?;
+                self.path = path.to_string_lossy().into_owned();
+                self.status = "Validated brush preset loaded".into();
             }
             Action::Export => {
                 storage::export_png(std::path::Path::new(&self.path), project)?;

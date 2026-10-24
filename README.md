@@ -33,6 +33,8 @@ The app opens in live drawing mode. Drag the left mouse button or supported Wind
 - `B`, `M`, `E`, `K`, `I`: brush, rectangle, ellipse, lasso, eyedropper.
 - `Ctrl+Z` / `Ctrl+Y`: undo / redo; `Ctrl+S`: save; `Ctrl+O`: open path dialog; `Ctrl+E`: PNG export.
 - `Ctrl+F`: fill; `Ctrl+X`: delete selected pixels; `Ctrl+D`: deselect.
+- **Save brush… / Load brush…** stores and restores the current settings as a bounded `.rplbrush` preset.
+- `Ctrl+Shift+B` / `Ctrl+Alt+B`: save / load a brush preset by path.
 - `Ctrl+Shift+E` / `Ctrl+Shift+O`: OpenRaster export / import.
 - `0`: fit canvas; mouse wheel: zoom; middle-button drag: pan; `F11`: fullscreen.
 - `L`: live document; `P` or `1`/`2`/`3`: deterministic replay; `Tab`: switch modes; `R`: restart; `Space`: pause replay.

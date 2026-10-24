@@ -96,12 +96,17 @@ def ctrl(name):
     code=keycode(display,keysym(b'Control_L'));key_event(display,code,1,0);key(name);key_event(display,code,0,0);send()
 def ctrl_shift(name):
     code=keycode(display,keysym(b'Shift_L'));key_event(display,code,1,0);ctrl(name);key_event(display,code,0,0);send()
+def ctrl_alt(name):
+    code=keycode(display,keysym(b'Alt_L'));key_event(display,code,1,0);ctrl(name);key_event(display,code,0,0);send()
 def valid_project(path):
     if not path.exists(): return False
     data=path.read_bytes()
     if len(data)<48 or data[:8]!=b'RPLALP01' or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return False
     n=struct.unpack('<I',data[8:12])[0]
     return struct.unpack('<I',data[12+n:16+n])[0]
+def native_state(path):
+    data=path.read_bytes();n=struct.unpack('<I',data[8:12])[0]
+    return json.loads(data[12:12+n])
 with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     directory=Path(folder)
     executable=Path(__file__).resolve().parent.parent/'target/debug/canvas-demo'
@@ -134,6 +139,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             window=wait(find_window,'reopened workspace');focus(display,window,2,0);send()
             ctrl('o');time.sleep(0.3);key('Return')
             status('artwork.rpl')
+            # Save and reload a custom versioned brush preset through the app UI.
+            ctrl_shift('b');time.sleep(0.3);key('Return')
+            preset=directory/'artwork.rplbrush'
+            wait(lambda: preset.exists(),'custom brush preset save')
+            preset_data=json.loads(preset.read_text())
+            assert preset_data['version']==1 and preset_data['brush']['kind']=='Round'
+            ctrl_alt('b');time.sleep(0.3);key('Return');ctrl('s')
+            wait(lambda: native_state(project)['brush']==preset_data['brush'],'brush preset load and project save')
             # Exercise actual selection-tool ownership and transactional fill.
             time.sleep(0.5)
             saved=project.read_bytes()
@@ -172,7 +185,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
 
 
             key('Escape');assert process.wait(timeout=20)==0
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, forced-crash recovery, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, forced-crash recovery, clean close)')
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)
             close_display(display)

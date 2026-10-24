@@ -30,7 +30,9 @@ large documents with many changed tiles can retain fewer steps. Limits produce a
 discard older committed artwork.
 
 Toolbar: New (dimensions/DPI), Open, Save, Save As, Export PNG, Import PNG,
-Undo/Redo, Dark/Light. File dialogs currently accept typed paths, not a native file
+Save brush, Load brush, Undo/Redo, Dark/Light. Brush presets are versioned `.rplbrush`
+JSON files; load/save validates settings and saving refuses to replace an existing
+preset. File dialogs currently accept typed paths, not a native file
 browser. New/Open safeguard dirty artwork with recovery confirmation. Save As and
 PNG export refuse unrelated existing files; select a new path. PNG import creates a
 layer at the top-left; oversized inputs are rejected. Save `.rpl` for editable layers,
@@ -40,7 +42,8 @@ the workspace behind them does not accept drawing or toolbar input. Saving an
 untitled document after a PNG export chooses the matching `.rpl` project path.
 
 Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+O open path dialog, Enter confirms;
-Ctrl+E export PNG; F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
+Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one by path;
+F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
 replays; Tab switches modes; R restarts; Space pauses. Replay never replaces live
 artwork. Close/Escape prompts for dirty work; save, keep recovery, or cancel.
 `--compat-mouse` runs the original session-only Phase 5 diagnostic canvas.

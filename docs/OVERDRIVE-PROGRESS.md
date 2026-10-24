@@ -276,3 +276,21 @@ async explicit export/save, groups/masks, vectors, timelapse, Android app or ful
 workflow. Exact continuation: commit and push this fix, verify the three-platform
 Actions build/artifact uploads, then continue P0 reliability work after assessing
 Windows results. Do not claim the new modal flow or path behavior was hardware-tested.
+
+## Custom brush preset workflow (implemented; CI pending)
+
+Connected the existing versioned Brush JSON schema to actual storage and workspace
+controls. A user can save/load `.rplbrush` presets by typed path or Ctrl+Shift+B /
+Ctrl+Alt+B. Storage validates the extension and settings, caps reads at 16 KiB,
+validates schema version on load, and publishes via same-directory atomic no-clobber
+hard links. Existing presets are preserved; choose a new filename to save another.
+The alpha smoke workflow now drives both shortcuts through the real egui dialog,
+loads the preset, saves the project, and compares the embedded brush settings. Two
+storage tests cover roundtrip, existing target, size, extension, and invalid version.
+No dependency was added.
+
+At this point local format, Clippy, workspace build and all **129 Rust tests** pass;
+the required Mesa llvmpipe Vulkan pixel runner passes. The updated interactive alpha
+workflow passes with brush preset roundtrip included. Windows GNU cross-target check
+and Clippy pass. Actions for the preceding f6ab0a1 checkpoint are still in progress;
+this brush change has not yet been committed or covered by CI.

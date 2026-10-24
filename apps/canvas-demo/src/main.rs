@@ -403,6 +403,12 @@ impl ApplicationHandler for App {
                         }
                         if self.modifiers.control_key() {
                             let key = match event.physical_key {
+                                PhysicalKey::Code(KeyCode::KeyB) if self.modifiers.shift_key() => {
+                                    Some('t')
+                                }
+                                PhysicalKey::Code(KeyCode::KeyB) if self.modifiers.alt_key() => {
+                                    Some('u')
+                                }
                                 PhysicalKey::Code(KeyCode::KeyZ) => Some('z'),
                                 PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
                                 PhysicalKey::Code(KeyCode::KeyS) => Some('s'),

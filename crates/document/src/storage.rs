@@ -10,6 +10,7 @@ use std::{
 };
 const MAGIC: &[u8; 8] = b"RPLALP01";
 const MAX_FILE: usize = 160 * 1024 * 1024;
+const MAX_BRUSH_FILE: usize = 16 * 1024;
 static NONCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Fault {
@@ -251,6 +252,57 @@ pub fn export_png(path: &Path, engine: &crate::Engine) -> Result<(), PaintError>
     }
     result
 }
+
+/// Save one validated, versioned brush preset without replacing another file.
+pub fn save_brush_preset(path: &Path, brush: &crate::brush::Brush) -> Result<(), PaintError> {
+    if path.extension().is_none_or(|e| e != "rplbrush") {
+        return Err(PaintError::Invalid);
+    }
+    let data = brush.encode()?.into_bytes();
+    if data.len() > MAX_BRUSH_FILE {
+        return Err(PaintError::Limit);
+    }
+    let tmp = temporary(path);
+    let result = (|| {
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        file.write_all(&data)?;
+        file.sync_all()?;
+        fs::hard_link(&tmp, path)?;
+        #[cfg(unix)]
+        File::open(
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new(".")),
+        )?
+        .sync_all()?;
+        Ok(())
+    })();
+    if tmp.exists() {
+        let _ = fs::remove_file(tmp);
+    }
+    result
+}
+
+/// Load a bounded, validated versioned brush preset.
+pub fn load_brush_preset(path: &Path) -> Result<crate::brush::Brush, PaintError> {
+    if path.extension().is_none_or(|e| e != "rplbrush") {
+        return Err(PaintError::Invalid);
+    }
+    let input = File::open(path)?;
+    if input.metadata()?.len() > MAX_BRUSH_FILE as u64 {
+        return Err(PaintError::Limit);
+    }
+    let mut data = Vec::with_capacity(MAX_BRUSH_FILE.min(4096));
+    input
+        .take(MAX_BRUSH_FILE as u64 + 1)
+        .read_to_end(&mut data)?;
+    if data.len() > MAX_BRUSH_FILE {
+        return Err(PaintError::Limit);
+    }
+    let text = std::str::from_utf8(&data).map_err(|_| PaintError::Invalid)?;
+    crate::brush::Brush::decode(text)
+}
+
 pub fn import_png(path: &Path, engine: &mut crate::Engine) -> Result<(), PaintError> {
     let input = File::open(path)?;
     if input.metadata()?.len() > MAX_FILE as u64 {
