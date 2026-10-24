@@ -119,8 +119,12 @@ impl Store {
         }
     }
     pub fn open(path: PathBuf) -> Result<(Self, State), PaintError> {
-        let state = load(&path)?;
-        let expected = Some(hash(&encode(&state)?));
+        let mut bytes = Vec::new();
+        File::open(&path)?
+            .take(MAX_FILE as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        let state = decode(&bytes)?;
+        let expected = Some(hash(&bytes));
         Ok((Self { path, expected }, state))
     }
     pub fn save(&mut self, state: &State) -> Result<(), PaintError> {
@@ -227,7 +231,16 @@ pub fn export_png(path: &Path, engine: &crate::Engine) -> Result<(), PaintError>
             .finish()
             .map_err(|e| PaintError::Png(e.to_string()))?;
         OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
-        fs::rename(&tmp, path)?;
+        // Hard-link creation is an atomic no-clobber publish on supported local
+        // filesystems. A concurrently-created export is never overwritten.
+        fs::hard_link(&tmp, path)?;
+        #[cfg(unix)]
+        File::open(
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new(".")),
+        )?
+        .sync_all()?;
         Ok(())
     })();
     if tmp.exists() {

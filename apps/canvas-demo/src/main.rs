@@ -385,6 +385,7 @@ impl ApplicationHandler for App {
                         }
                         if !self.modifiers.control_key() {
                             let key = match event.physical_key {
+                                PhysicalKey::Code(KeyCode::Digit0) => Some('0'),
                                 PhysicalKey::Code(KeyCode::KeyB) => Some('b'),
                                 PhysicalKey::Code(KeyCode::KeyM) => Some('m'),
                                 PhysicalKey::Code(KeyCode::KeyE) => Some('e'),

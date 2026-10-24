@@ -65,6 +65,10 @@ pub struct Studio {
     recovery_files: Vec<PathBuf>,
     last_submitted: u64,
     theme_dark: bool,
+    navigation: crate::navigation::Navigation,
+    touches: crate::navigation::TouchNavigation,
+    pan_cursor: Option<[f64; 2]>,
+    workspace_center: [f64; 2],
     tool: EditTool,
     edit_pointer: Option<u64>,
     edit_points: Vec<[f64; 2]>,
@@ -124,6 +128,10 @@ impl Studio {
             recovery_files: files,
             last_submitted: 0,
             theme_dark: true,
+            navigation: Default::default(),
+            touches: Default::default(),
+            pan_cursor: None,
+            workspace_center: [0.0; 2],
             tool: EditTool::Brush,
             edit_pointer: None,
             edit_points: Vec::new(),
@@ -146,6 +154,78 @@ impl Studio {
         use winit::event::{ElementState, WindowEvent as E};
         if let E::CursorMoved { position, .. } = event {
             self.mouse_position = Some([position.x, position.y]);
+        }
+        if matches!(
+            event,
+            E::Focused(false) | E::CursorLeft { .. } | E::Resized(_) | E::ScaleFactorChanged { .. }
+        ) {
+            self.touches.clear();
+            self.pan_cursor = None;
+        }
+        if let E::Touch(touch) = event {
+            if session.live().active() {
+                self.touches.clear();
+                return (false, false);
+            }
+            let p = [touch.location.x, touch.location.y];
+            if !self.blocks_canvas()
+                && session.mode() == crate::interaction::Mode::Live
+                && (self.mapping.is_some_and(|m| m.contains_client(p))
+                    || self.touches.active_count() > 0)
+            {
+                let phase = match touch.phase {
+                    winit::event::TouchPhase::Started => crate::navigation::TouchPhase::Start,
+                    winit::event::TouchPhase::Moved => crate::navigation::TouchPhase::Move,
+                    winit::event::TouchPhase::Ended => crate::navigation::TouchPhase::End,
+                    winit::event::TouchPhase::Cancelled => crate::navigation::TouchPhase::Cancel,
+                };
+                if let Some(pinch) = self.touches.event(touch.id, phase, p) {
+                    self.navigation
+                        .pinch(self.workspace_center, pinch.from, pinch.to, pinch.ratio);
+                }
+                return (true, true);
+            }
+        }
+        let canvas = self
+            .mouse_position
+            .is_some_and(|p| self.mapping.is_some_and(|m| m.contains_client(p)))
+            && !self.blocks_canvas()
+            && session.mode() == crate::interaction::Mode::Live;
+        match event {
+            E::MouseWheel { delta, .. } if canvas => {
+                let lines = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => f64::from(*y),
+                    winit::event::MouseScrollDelta::PixelDelta(p) => p.y / 40.0,
+                };
+                let p = self.mouse_position.unwrap();
+                self.navigation.pinch(
+                    self.workspace_center,
+                    p,
+                    p,
+                    (lines.clamp(-8.0, 8.0) * 0.12).exp(),
+                );
+                return (true, true);
+            }
+            E::MouseInput {
+                state,
+                button: winit::event::MouseButton::Middle,
+                ..
+            } if canvas || self.pan_cursor.is_some() => {
+                self.pan_cursor = if *state == ElementState::Pressed {
+                    self.mouse_position
+                } else {
+                    None
+                };
+                return (true, true);
+            }
+            E::CursorMoved { .. } if self.pan_cursor.is_some() => {
+                let from = self.pan_cursor.unwrap();
+                let to = self.mouse_position.unwrap();
+                self.navigation.pinch(self.workspace_center, from, to, 1.0);
+                self.pan_cursor = Some(to);
+                return (true, true);
+            }
+            _ => {}
         }
         use paint_input::Phase;
         let phase = match event {
@@ -336,6 +416,10 @@ impl Studio {
         session.mouse(MouseEvent::Interrupted, 0);
         self.edit_pointer = None;
         self.edit_points.clear();
+        if key == '0' {
+            self.navigation = Default::default();
+            return;
+        }
         self.tool = match key {
             'm' => EditTool::Rectangle,
             'e' => EditTool::Ellipse,
@@ -406,6 +490,8 @@ impl Studio {
         size: [u32; 2],
     ) -> egui::FullOutput {
         if session.mode() != crate::interaction::Mode::Live {
+            self.touches.clear();
+            self.pan_cursor = None;
             self.edit_pointer = None;
             self.edit_points.clear();
         }
@@ -795,7 +881,10 @@ self.close_requested=false;
         ];
         let state = session.live().project().state();
         self.mapping =
-            CanvasMapping::for_document(size, [state.width as f64, state.height as f64], rect).ok();
+            CanvasMapping::for_document(size, [state.width as f64, state.height as f64], rect)
+                .and_then(|m| m.navigated(self.navigation.zoom, self.navigation.pan))
+                .ok();
+        self.workspace_center = [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0];
         if let Some(m) = self.mapping {
             session.live_mut().set_mapping(m);
         }

@@ -102,3 +102,14 @@ undo history, including dimensions/layer pixels; cancellation never does. Transf
 clears the selection; undo restores it. Selections are transient and not saved in
 `.rpl`; reopening preserves artwork, not a selection outline. There is no selection
 feathering, arbitrary transform handles or clipboard integration yet.
+
+## Canvas navigation
+
+Mouse wheel over paper zooms around the cursor; middle-button drag pans. “Fit 0”
+or the 0 key resets the view. Zoom is 0.25–8 times the fit scale. Two touch contacts
+pan/pinch only while no painting transaction is active. A single finger never paints;
+third/additional contacts suspend gesture deltas. Touch state is bounded and clears
+on interruption. This is a basic palm-avoidance policy, not anatomical palm rejection.
+Actual Windows multi-touch delivery and simultaneous S Pen behavior need hardware
+testing. Navigation cancels a provisional stroke before changing its transform and
+never edits committed pixels or enters history. Canvas rotation is not implemented.

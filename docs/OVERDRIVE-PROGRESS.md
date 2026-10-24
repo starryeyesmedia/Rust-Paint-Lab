@@ -134,3 +134,22 @@ pass. Real alpha OS workflow passed rectangle-select -> fill -> save -> undo -> 
 restoring byte-for-byte original project data. Hardware UX still pending. Recent
 files, recovery cleanup/journal, groups/masks, navigation, interchange and P2 remain
 incomplete. Verify the next CI run before treating the checkpoint as matrix-validated.
+
+## Navigation/safety checkpoint
+
+Added bounded physical-pixel zoom/pan mapping with workspace clipping, cursor-
+anchored wheel zoom, middle-button pan, fit control and two-contact touch deltas.
+Touch navigation is suspended during active painting; single/third contacts do not
+paint. Four synthetic tests cover anchor math, zoom/pan limits, two-contact state,
+orphans/duplicates/reuse, long streams, nonfinite data and inverse/clip mapping.
+Physical touch behavior is NOT TESTED. Navigation is not a full palm classifier.
+One additional storage test checks valid noncanonical JSON opens/saves correctly;
+conflict detection now hashes actual file bytes, not a reserialization. PNG publish
+uses an atomic no-clobber hard link so concurrent exports cannot replace artwork;
+filesystems without hard links will report an error, not overwrite a target.
+
+103 total Rust tests plus software GPU runner pass locally. Real alpha workflow
+also exercised wheel zoom/fit without changing saved artwork. Windows write-handle
+fix run 40051986737 passed native tests and reached release canvas compilation;
+Linux/macOS jobs succeeded and published native development artifacts. Verify final
+matrix/artifacts after all changes; do not treat pending compilation as success.

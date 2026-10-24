@@ -497,3 +497,21 @@ fn cooperative_writer_lock_preserves_existing_project() {
     drop(lock);
     store.save(e.state()).unwrap();
 }
+
+#[test]
+fn open_tracks_actual_bytes_of_valid_noncanonical_metadata() {
+    use sha2::{Digest, Sha256};
+    let p = path("noncanonical");
+    let data = storage::encode(&State::new(64, 64, 300).unwrap()).unwrap();
+    let n = u32::from_le_bytes(data[8..12].try_into().unwrap()) as usize;
+    let metadata: serde_json::Value = serde_json::from_slice(&data[12..12 + n]).unwrap();
+    let metadata = serde_json::to_vec_pretty(&metadata).unwrap();
+    let mut alternate = b"RPLALP01".to_vec();
+    alternate.extend_from_slice(&(metadata.len() as u32).to_le_bytes());
+    alternate.extend(metadata);
+    alternate.extend_from_slice(&0u32.to_le_bytes());
+    alternate.extend(Sha256::digest(&alternate));
+    std::fs::write(&p, alternate).unwrap();
+    let (mut store, state) = Store::open(p).unwrap();
+    store.save(&state).unwrap();
+}

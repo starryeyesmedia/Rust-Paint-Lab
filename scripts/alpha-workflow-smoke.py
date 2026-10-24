@@ -140,8 +140,12 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('z');ctrl('s')
             wait(lambda: project.read_bytes()==saved,'undo selected fill restores exact native artwork')
             ctrl('d');key('b')
+            # Navigation changes view state, never authoritative artwork.
+            move(300,300);click_button(4,True);click_button(4,False);time.sleep(0.2)
+            key('0');ctrl('s')
+            wait(lambda: project.read_bytes()==saved,'zoom and fit preserve artwork')
             key('Escape');assert process.wait(timeout=20)==0
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, rectangle selection/fill/undo, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, rectangle selection/fill/undo, zoom/fit, clean close)')
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)
             close_display(display)

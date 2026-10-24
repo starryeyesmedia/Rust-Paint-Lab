@@ -171,6 +171,7 @@ pub struct CanvasMapping {
     scale: f64,
     origin: [f64; 2],
     document: [f64; 2],
+    viewport: [f64; 4],
 }
 impl CanvasMapping {
     pub fn new(size: [u32; 2]) -> Result<Self, SceneError> {
@@ -213,7 +214,24 @@ impl CanvasMapping {
                 rect[1] + (rect[3] - rect[1] - document[1] * scale) / 2.0,
             ],
             document,
+            viewport: rect,
         })
+    }
+    pub fn navigated(mut self, zoom: f64, pan: [f64; 2]) -> Result<Self, SceneError> {
+        if !zoom.is_finite()
+            || !(0.25..=8.0).contains(&zoom)
+            || !pan.iter().all(|n| n.is_finite() && n.abs() <= 32768.0)
+        {
+            return Err(SceneError::InvalidViewport);
+        }
+        let center = [
+            (self.viewport[0] + self.viewport[2]) / 2.0,
+            (self.viewport[1] + self.viewport[3]) / 2.0,
+        ];
+        self.scale *= zoom;
+        self.origin =
+            std::array::from_fn(|i| center[i] - self.document[i] * self.scale / 2.0 + pan[i]);
+        Ok(self)
     }
     pub fn document_size(self) -> [f64; 2] {
         self.document
@@ -224,6 +242,13 @@ impl CanvasMapping {
             .expect("validated mapping")
     }
     pub fn contains_client(self, client: [f64; 2]) -> bool {
+        if client[0] < self.viewport[0]
+            || client[1] < self.viewport[1]
+            || client[0] > self.viewport[2]
+            || client[1] > self.viewport[3]
+        {
+            return false;
+        }
         self.routing_viewport()
             .to_document(client)
             .is_ok_and(|point| {
@@ -236,11 +261,17 @@ impl CanvasMapping {
     }
     /// Integer interior paper bounds for clipping stroke caps at canvas edges.
     pub fn scissor(self) -> [u32; 4] {
-        let start = self.origin.map(|v| v.ceil() as u32);
+        let start: [u32; 2] = std::array::from_fn(|i| {
+            self.origin[i]
+                .max(self.viewport[i])
+                .ceil()
+                .clamp(0.0, self.size[i]) as u32
+        });
         let end: [u32; 2] = std::array::from_fn(|i| {
             (self.origin[i] + self.document[i] * self.scale)
                 .floor()
-                .min(self.size[i]) as u32
+                .min(self.viewport[i + 2])
+                .clamp(0.0, self.size[i]) as u32
         });
         [
             start[0],

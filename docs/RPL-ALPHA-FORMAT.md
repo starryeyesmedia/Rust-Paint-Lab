@@ -52,3 +52,7 @@ Export flattens visible content to straight-alpha RGBA8 with sRGB and DPI metada
 It refuses to overwrite an existing export. Native projects retain editable raster
 layers. Compositing is explicitly encoded-sRGB premultiplied arithmetic, not full
 linear-light or ICC color management.
+
+PNG publication requires local hard-link support for atomic no-clobber behavior;
+unsupported filesystems fail safely. Views/selections are transient; stored pixels
+and layers remain editable after crop/transform.

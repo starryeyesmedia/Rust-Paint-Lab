@@ -197,7 +197,11 @@ impl RasterGpu {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind, &[]);
             pass.set_vertex_buffer(0, buffer.slice(..));
-            pass.draw(0..6, 0..1);
+            let [x, y, w, h] = mapping.scissor();
+            if w > 0 && h > 0 {
+                pass.set_scissor_rect(x, y, w, h);
+                pass.draw(0..6, 0..1);
+            }
         }
         g.queue.submit([encoder.finish()]);
         g.check_error()

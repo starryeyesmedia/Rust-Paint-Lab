@@ -150,3 +150,7 @@ notice generator when packaging additional desktop platforms.
 Selection/editing adds seven portable tests (98 total). The real alpha window
 workflow additionally selects a rectangle, fills, saves, undoes and verifies the
 original native file is restored byte-for-byte. Physical pen editing remains untested.
+
+Navigation and noncanonical-file regressions bring the suite to 103 Rust tests,
+plus the separate GPU pixel runner. Touch gesture math is synthetic; physical
+Windows touch/pen arbitration is still untested.
