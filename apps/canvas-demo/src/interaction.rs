@@ -38,6 +38,7 @@ pub struct LiveMouse {
     time_ms: u64,
     notice: Option<SceneError>,
     document_error: Option<String>,
+    last_pen: Option<PointerSample>,
 }
 impl LiveMouse {
     pub fn new(size: [u32; 2]) -> Self {
@@ -55,6 +56,7 @@ impl LiveMouse {
             time_ms: 0,
             notice: None,
             document_error: None,
+            last_pen: None,
         }
     }
     pub fn project(&self) -> &paint_document::Engine {
@@ -80,6 +82,9 @@ impl LiveMouse {
     pub fn active(&self) -> bool {
         !self.processor.active().is_empty()
     }
+    pub fn last_pen(&self) -> Option<PointerSample> {
+        self.last_pen
+    }
     pub fn document_error(&self) -> Option<&str> {
         self.document_error.as_deref()
     }
@@ -88,6 +93,7 @@ impl LiveMouse {
     }
 
     fn interrupt(&mut self, reason: Reason) {
+        self.last_pen = None;
         for output in self.processor.interrupt(self.time_ms, reason) {
             if let Some(command) = self.router.route(&output) {
                 let _ = self.scene.apply(&command);
@@ -98,6 +104,11 @@ impl LiveMouse {
         self.cursor = None;
     }
     pub fn pen(&mut self, mut sample: PointerSample) {
+        self.last_pen = if self.focused && paint_input::lifecycle::valid_sample(&sample) {
+            Some(sample)
+        } else {
+            None
+        };
         sample.id |= 1 << 63; // Disjoint from the logical mouse stream.
         self.time_ms = self.time_ms.max(sample.timestamp_ms);
         sample.timestamp_ms = self.time_ms;
@@ -150,6 +161,7 @@ impl LiveMouse {
     fn sample(&mut self, phase: Phase, position: [f64; 2]) {
         let contact = matches!(phase, Phase::Down | Phase::Move);
         let sample = PointerSample {
+            source_counter: None,
             id: 1,
             timestamp_ms: self.time_ms,
             tool: Tool::Mouse,
@@ -182,6 +194,9 @@ impl LiveMouse {
     /// scale-factor multiplication. Cancellation resets the cursor, requiring a
     /// fresh position before another Down; orphan Moves never restart a stroke.
     pub fn handle(&mut self, event: MouseEvent, time_ms: u64) {
+        if matches!(event, MouseEvent::Moved(_) | MouseEvent::Button { .. }) {
+            self.last_pen = None;
+        }
         self.time_ms = self.time_ms.max(time_ms);
         match event {
             MouseEvent::Focus(focused) => {

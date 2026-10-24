@@ -6,6 +6,7 @@ use paint_input::{
 
 fn sample(id: u64, time: u64, phase: Phase, tool: Tool) -> PointerSample {
     PointerSample {
+        source_counter: None,
         id,
         timestamp_ms: time,
         phase,
@@ -325,7 +326,7 @@ fn bounded_capacity_and_long_stream_cleanup() {
 fn replay_rejects_unknown_versions_fields_nonfinite_and_malformed_values() {
     for text in [
         "",
-        "paint-input-replay 2",
+        "paint-input-replay 3",
         "paint-input-replay 1\ninterrupt nope",
         "paint-input-replay 1\ninterrupt 1 extra",
         "paint-input-replay 1\nwat 1",

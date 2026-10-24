@@ -84,6 +84,7 @@ fn read_sample(hwnd: HWND, id: u32, message: u32) -> io::Result<(PointerSample, 
             Phase::Hover
         };
         let mut sample = PointerSample {
+            source_counter: None,
             id: id.into(),
             timestamp_ms: info.dwTime.into(),
             tool: match info.pointerType {

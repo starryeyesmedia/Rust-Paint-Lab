@@ -50,7 +50,27 @@ fn boolean(s: &str) -> Result<bool, &'static str> {
     }
 }
 
-fn record(fields: &[&str]) -> Result<Record, &'static str> {
+fn record(fields: &[&str], version: u8) -> Result<Record, &'static str> {
+    if version == 2 && fields.first() == Some(&"sample") {
+        if fields.len() != 15 {
+            return Err("version 2 samples require ticks and frequency");
+        }
+        let Record::Sample(mut sample) = record(&fields[..13], 1)? else {
+            unreachable!()
+        };
+        sample.source_counter = match (fields[13], fields[14]) {
+            ("-", "-") => None,
+            ("-", _) | (_, "-") => {
+                return Err("counter ticks/frequency must both be present or unavailable");
+            }
+            (ticks, hz) => Some(
+                crate::SourceCounter::new(number(ticks)?, number(hz)?)
+                    .ok_or("counter frequency must be positive")?,
+            ),
+        };
+        return Ok(Record::Sample(sample));
+    }
+
     match fields {
         ["capture_lost", time, id] => Ok(Record::CaptureLost {
             time_ms: number(time)?,
@@ -79,6 +99,7 @@ fn record(fields: &[&str]) -> Result<Record, &'static str> {
                 return Err("unknown button bits");
             }
             let s = PointerSample {
+                source_counter: None,
                 timestamp_ms: number(time)?,
                 id: number(id)?,
                 tool: match *tool {
@@ -127,7 +148,7 @@ impl FromStr for Replay {
                 message: "fixture byte limit exceeded",
             });
         }
-        let mut header = false;
+        let mut version = None;
         let mut records = Vec::new();
         for (index, line) in text.lines().enumerate() {
             let line = line.trim();
@@ -138,22 +159,23 @@ impl FromStr for Replay {
                 line: index + 1,
                 message,
             };
-            if !header {
-                if line != "paint-input-replay 1" {
-                    return Err(error("expected paint-input-replay 1"));
-                }
-                header = true;
+            if version.is_none() {
+                version = Some(match line {
+                    "paint-input-replay 1" => 1,
+                    "paint-input-replay 2" => 2,
+                    _ => return Err(error("expected paint-input-replay 1 or 2")),
+                });
                 continue;
             }
             if records.len() == MAX_RECORDS {
                 return Err(error("record limit exceeded"));
             }
-            // Every known record has at most 13 fields. Bound temporary parsing
+            // Every known record has at most 15 fields. Bound temporary parsing
             // allocations even for maliciously long lines.
-            let fields: Vec<_> = line.split_whitespace().take(14).collect();
-            records.push(record(&fields).map_err(error)?);
+            let fields: Vec<_> = line.split_whitespace().take(16).collect();
+            records.push(record(&fields, version.unwrap()).map_err(error)?);
         }
-        if !header {
+        if version.is_none() {
             return Err(ParseError {
                 line: 0,
                 message: "missing version header",

@@ -1,0 +1,5 @@
+paint-input-replay 2
+# Multiple pen samples in the same millisecond; raw source ticks stay distinct.
+sample 0 17 pen down 10 20 0.2 15 - 1 1 1 1000000 10000000
+sample 0 17 pen move 15 25 0.8 15 30 1 1 1 1000123 10000000
+sample 1 17 pen up 20 30 0 15 30 0 0 1 1010000 10000000

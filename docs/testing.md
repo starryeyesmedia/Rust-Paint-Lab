@@ -162,3 +162,12 @@ unsupported input and allocation protections. External app roundtrips are pendin
 Independent X/Y tilt azimuth regression brings the current suite to 114 Rust tests.
 The metrics example now measures actual durable saves, flushed recovery and PNG,
 not only in-memory encode/decode. Cloud numbers are in OVERDRIVE-PROGRESS.md.
+
+Precise counter/replay v2 adds four tests (120 current Rust tests total). V1 fixtures
+remain unchanged except the unknown-version negative test now uses version 3.
+Native QPC attachment is Windows cross-linted/built; precise timestamp behavior on
+physical S Pen remains a manual check. No auto-recording of device input is added.
+
+Four native raw-history identity tests bring the suite to 124 Rust tests. They are
+portable adapter-helper tests, not mocked claims that Windows delivered hardware
+history. Physical coalescing/capture/promotion behavior remains on the manual list.

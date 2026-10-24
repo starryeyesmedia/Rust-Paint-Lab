@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let x = f64::from(20 + (id as u32 * 37) % (size - 240));
             let y = f64::from(20 + (id as u32 * 71) % (size - 40));
             let s = StrokeSample {
+                source_counter: None,
                 pointer_id: 1,
                 tool: Tool::Pen,
                 position_client_px: [x, y],

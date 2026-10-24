@@ -129,3 +129,9 @@ replacing dirty work. Cancelled previews never enter history or storage. Exercis
 fault-injection, corruption, round trips and the real alpha window workflow after
 storage/UI changes. Never claim snapshots are a full operation journal or full ICC
 color management. See docs/overdrive-user-guide.md for actual supported controls.
+
+Optional SourceCounter is exact adapter-clock metadata with a nonzero frequency;
+preserve it through lifecycle and stroke routing. Do not compare unrelated clock
+domains or replace normalized ordering with wall-clock time. Replay v1 remains
+supported; v2 appends explicit counter ticks/frequency or `- -`. Mouse has None;
+never invent timing or pen capabilities. See docs/replay-format.md.

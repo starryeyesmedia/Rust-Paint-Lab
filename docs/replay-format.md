@@ -101,3 +101,27 @@ all three existing fixtures plus `crates/stroke/tests/fixtures/mouse.replay`.
 See [routing rules](stroke-routing.md) for exact transaction semantics. The
 `stroke_commands` example routes the existing pen fixture to stdout explicitly;
 it does not record input or create a painting window.
+
+## Version 2: precise adapter counters
+
+`paint-input-replay 2` uses the same records as v1, but each `sample` appends two
+fields: unsigned `source_ticks source_ticks_per_second`. Both `- -` means unsupported;
+`0 10000000` is a valid zero reading, not unsupported. Frequency must be nonzero.
+Mixed available/unavailable pairs, missing/extra fields and overflow are rejected.
+V1 remains supported and always supplies None for this optional metadata.
+
+```
+paint-input-replay 2
+sample 0 17 pen down 10 20 0.2 15 - 1 1 1 1000000 10000000
+sample 0 17 pen move 15 25 0.8 15 30 1 1 1 1000123 10000000
+sample 1 17 pen up 20 30 0 15 30 0 0 1 1010000 10000000
+```
+
+`SourceCounter` stores ticks and NonZeroU64 frequency without float conversion.
+Counter differences use u128 fractional arithmetic and reject backwards ticks or
+mismatched frequencies. Compare only within the same adapter clock domain; equal
+frequency does not imply equal epochs across adapters/machines. Normalized lifecycle
+ordering still uses nondecreasing milliseconds and fixture file order, while exact
+counter metadata survives Processor/Router/Begin/Update/Commit/Cancel. It is not
+wall-clock time, prediction, a reason to sort simultaneous device streams, or an
+automatic raw-input recording feature. `fixtures/precise.replay` is synthetic.

@@ -16,7 +16,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::ScreenToClient,
-    System::SystemInformation::GetTickCount64,
+    System::{Performance::QueryPerformanceFrequency, SystemInformation::GetTickCount64},
     UI::{
         Input::Pointer::*,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
@@ -32,7 +32,7 @@ pub struct PenEvent {
     pub sample: PointerSample,
     pub performance_count: u64,
 }
-type PenStamp = (u64, u32, i32, i32, u32, u32, u32, i32, i32, u32);
+use canvas_demo::native_history::{HistoryDeduplicator, NativeStamp};
 const SUBCLASS_ID: usize = 0x52504c35;
 struct State {
     releasing: Cell<bool>,
@@ -43,7 +43,8 @@ struct State {
     clock: RefCell<MillisecondClock32>,
     base_tick: u64,
     base_ms: u64,
-    last: RefCell<BTreeMap<u32, PenStamp>>,
+    frequency: u64,
+    last: RefCell<HistoryDeduplicator>,
 }
 thread_local! { static STATES: RefCell<BTreeMap<usize, Rc<State>>> = const { RefCell::new(BTreeMap::new()) }; }
 
@@ -64,6 +65,11 @@ impl Observer {
         let hwnd = handle.hwnd.get() as HWND;
         // SAFETY: GetTickCount64 has no pointer or thread-affinity preconditions.
         let boot = unsafe { GetTickCount64() };
+        let mut frequency = 0_i64;
+        // SAFETY: a valid mutable LARGE_INTEGER output, no native ownership transfer.
+        if unsafe { QueryPerformanceFrequency(&mut frequency) } == 0 {
+            frequency = 0;
+        }
         let mut clock = MillisecondClock32::default();
         let base_tick = clock.extend(boot as u32);
         let state = Rc::new(State {
@@ -75,7 +81,8 @@ impl Observer {
             clock: RefCell::new(clock),
             base_tick,
             base_ms: epoch.elapsed().as_millis() as u64,
-            last: RefCell::new(BTreeMap::new()),
+            frequency: frequency.max(0) as u64,
+            last: RefCell::new(HistoryDeduplicator::default()),
         });
         STATES.with_borrow_mut(|states| {
             states.insert(hwnd as usize, state.clone());
@@ -177,6 +184,7 @@ unsafe extern "system" fn callback(
                     queue.push_back(PenEvent {
                         performance_count: 0,
                         sample: PointerSample {
+                            source_counter: None,
                             id: (w & 0xffff) as u64,
                             timestamp_ms: state.base_ms,
                             tool: Tool::Pen,
@@ -243,30 +251,19 @@ unsafe fn pen_history(
         let mut events = Vec::new();
         for pen in history.into_iter().rev() {
             let info = pen.pointerInfo;
-            let stamp = (
-                info.PerformanceCount,
-                info.dwTime,
-                info.ptHimetricLocation.x,
-                info.ptHimetricLocation.y,
-                info.pointerFlags,
-                pen.penFlags,
-                pen.pressure,
-                pen.tiltX,
-                pen.tiltY,
-                pen.penMask,
-            );
-            let mut last = state.last.borrow_mut();
-            if last
-                .get(&id)
-                .is_some_and(|old| *old == stamp || (stamp.0 != 0 && old.0 != 0 && stamp.0 < old.0))
-            {
+            let stamp = NativeStamp {
+                counter: info.PerformanceCount,
+                timestamp_ms: info.dwTime,
+                position_himetric: [info.ptHimetricLocation.x, info.ptHimetricLocation.y],
+                pointer_flags: info.pointerFlags,
+                pen_flags: pen.penFlags,
+                pressure: pen.pressure,
+                tilt: [pen.tiltX, pen.tiltY],
+                mask: pen.penMask,
+            };
+            if !state.last.borrow_mut().accept(id, stamp) {
                 continue;
             }
-            if last.len() >= 128 && !last.contains_key(&id) {
-                last.pop_first();
-            }
-            last.insert(id, stamp);
-            drop(last);
             let mut point = info.ptPixelLocation;
             if ScreenToClient(hwnd, &mut point) == 0 {
                 return Err(());
@@ -317,6 +314,11 @@ unsafe fn pen_history(
             events.push(PenEvent {
                 performance_count: info.PerformanceCount,
                 sample: PointerSample {
+                    source_counter: if info.PerformanceCount == 0 {
+                        None
+                    } else {
+                        paint_input::SourceCounter::new(info.PerformanceCount, state.frequency)
+                    },
                     id: id.into(),
                     timestamp_ms: time,
                     tool: Tool::Pen,

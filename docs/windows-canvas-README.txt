@@ -135,6 +135,13 @@ Neither source is rewritten. Save the restored work under a normal native filena
 A missing/corrupt primary plus missing/corrupt backup reports an error and keeps the
 current artwork. Force-kill testing in CI uses disposable synthetic artwork only.
 
+Native pen feedback includes an uncluttered hover/brush-size ring and a fixed-height
+status line for pressure, each tilt axis, barrel and eraser/inversion. Unsupported
+values say “unavailable”; hovering does not paint. The ring is the selected full
+brush diameter, not a predicted committed stroke. Native source-counter precision
+is retained through shared commands for future latency/dynamics work. Physical
+hover/pressure/tilt behavior of this alpha still requires the Windows checklist.
+
 TROUBLESHOOTING
 Requires Windows 10 x64 and a compatible Direct3D 12 adapter/driver.
 Run .\canvas-demo.exe from PowerShell to retain startup errors. System graphics

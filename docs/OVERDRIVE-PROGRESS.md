@@ -222,3 +222,30 @@ unmaintained warnings remain: paste1.0.15 (RUSTSEC-2024-0436, graphics macro cha
 ttf-parser0.25.1 (RUSTSEC-2026-0192, egui fonts). Do not claim a warning-free audit;
 upstream GUI/font updates under pinned Rust1.90 need evaluation. No custom fonts
 are imported by this app. Audit tool is external dev tooling, not a product dependency.
+
+## Precise source-time checkpoint
+
+Closed the earlier 6A timing-data gap: optional exact SourceCounter ticks/nonzero
+frequency now survive PointerSample -> Processor -> Router -> StrokeSample commands,
+including cancellation. Windows queries QPC frequency and attaches actual native
+PerformanceCount. Legacy mouse and fixture v1 retain None. Synthetic fixture v2
+supports explicit ticks/frequency or unsupported pairs without changing v1 behavior.
+Four new tests cover sub-ms/zero/unsupported values, overflow-safe differences,
+invalid fixture pairs, deterministic lifecycle and routing/cancellation preservation.
+Current suite: 120 Rust tests plus required GPU runner, formatting/Clippy/build and
+Windows cross-target lint pass locally. Diagnostic changed only to initialize the
+new optional shared field (None); its native inspection behavior is unchanged.
+No raw input is automatically persisted. Future velocity/stabilization can consume
+precise times; the brush remains spatially spaced and native v1 stores raster art.
+Native pen UX also exposes a bounded latest-sample status (including independently
+unavailable tilt axes) and clipped hover diameter ring. Focus/interruption clears
+feedback. Status occupies a reserved line so changing pen text cannot move the
+canvas mid-stroke. Existing synthetic pen checks exercise metadata/cleanup; visual
+native pen behavior remains NOT TESTED on physical hardware.
+The native adapter's bounded history deduplicator is now independently testable
+without OS APIs. Four tests cover overlap/stale packets, attribute changes at the
+same counter, ID reuse/zero-counter rollover, and 100000 IDs with 128 retained
+stamps maximum. Callback uses the tested helper; no capture/event-loop policy was
+changed. Current complete suite is 124 Rust tests plus GPU runner. Native history
+FFI delivery/order still requires physical pen validation; pure packet tests do not
+substitute for it. OpenRaster checkpoint31965b8 / Actions40054016435 passed all3OS.

@@ -5,6 +5,7 @@ use canvas_demo::{
 use paint_input::{Buttons, Phase, PointerSample, Tool};
 fn sample(id: u64, time: u64, phase: Phase) -> PointerSample {
     PointerSample {
+        source_counter: None,
         id,
         timestamp_ms: time,
         tool: Tool::Pen,
@@ -25,6 +26,8 @@ fn pen_pipeline_preserves_pressure_subpixels_tilt_buttons_and_final_sample() {
     let mut live = LiveMouse::new([832, 532]);
     live.pen(sample(7, 0, Phase::Hover));
     assert_eq!(live.scene().sample_count(), 0);
+    assert_eq!(live.last_pen().unwrap().pressure, Some(0.25));
+    assert!(live.last_pen().unwrap().buttons.barrel);
     live.pen(sample(7, 1, Phase::Down));
     let mut s = sample(7, 2, Phase::Move);
     s.pressure = Some(0.8);
@@ -58,6 +61,7 @@ fn pen_ids_mouse_and_cancellation_are_isolated() {
     assert_eq!(live.scene().provisional().len(), 2);
     live.handle(MouseEvent::Focus(false), 4);
     assert!(!live.active());
+    assert!(live.last_pen().is_none());
     assert!(live.scene().provisional().is_empty());
     assert!(live.scene().committed().is_empty());
 }

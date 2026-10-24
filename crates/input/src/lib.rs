@@ -31,6 +31,34 @@ pub struct Buttons {
     pub inverted: bool,
 }
 
+/// Optional precise adapter-clock metadata, separate from normalized lifecycle ms.
+/// Compare only values from the same adapter clock domain; frequency alone does
+/// not identify an epoch. Zero ticks is a real value, None means unavailable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceCounter {
+    pub ticks: u64,
+    pub ticks_per_second: std::num::NonZeroU64,
+}
+impl SourceCounter {
+    pub fn new(ticks: u64, ticks_per_second: u64) -> Option<Self> {
+        Some(Self {
+            ticks,
+            ticks_per_second: std::num::NonZeroU64::new(ticks_per_second)?,
+        })
+    }
+    pub fn elapsed_since(self, earlier: Self) -> Option<std::time::Duration> {
+        if self.ticks_per_second != earlier.ticks_per_second {
+            return None;
+        }
+        let ticks = self.ticks.checked_sub(earlier.ticks)?;
+        let hz = self.ticks_per_second.get();
+        Some(std::time::Duration::new(
+            ticks / hz,
+            ((u128::from(ticks % hz) * 1_000_000_000) / u128::from(hz)) as u32,
+        ))
+    }
+}
+
 /// Coordinates are physical pixels relative to the window's client origin.
 /// IDs are adapter-local and may be reused after Up/Cancel. Timestamps are
 /// adapter-relative milliseconds, not wall time; adapters document wraparound.
@@ -39,6 +67,7 @@ pub struct Buttons {
 pub struct PointerSample {
     pub id: u64,
     pub timestamp_ms: u64,
+    pub source_counter: Option<SourceCounter>,
     pub tool: Tool,
     pub phase: Phase,
     pub position_px: [f64; 2],

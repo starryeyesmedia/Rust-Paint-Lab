@@ -226,3 +226,10 @@ retesting every polygon edge for every output pixel. No feathering is claimed.
 It converts supported raster layers to individual PNG assets plus stack.xml and
 rejects unsupported editing structures. The shell imports into a fresh unsaved
 native document, preserving the prior project/recovery lineage. See openraster.md.
+
+Timing now has two explicit representations: normalized lifecycle milliseconds for
+ordering/rollover, and optional exact `SourceCounter { ticks, ticks_per_second }` for
+future velocity/latency work. Windows attaches POINTER_INFO.PerformanceCount plus
+QueryPerformanceFrequency when available; no conversion to coarse mouse timing.
+The shared structs/router preserve it, and replay v2 supplies deterministic coverage.
+Native v1 documents persist raster artwork, not raw input or performance counters.

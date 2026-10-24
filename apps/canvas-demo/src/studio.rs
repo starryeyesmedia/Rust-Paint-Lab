@@ -664,6 +664,9 @@ else{
 ui.label(&self.status);
 }
 ui.small(format!("{}×{} | {} dpi | {} tiles | {} undo | CPU composite/upload-submit {} µs | frame {} µs",session.live().project().state().width,session.live().project().state().height,session.live().project().state().dpi,session.live().project().state().tile_count(),session.live().project().undo_count(),self.last_upload_us,self.last_frame_us));
+let pen_status=if let Some(p)=session.live().last_pen(){format!("Pen {:?} | pressure {} | tilt X {} / Y {} | barrel {} | eraser {}",p.phase,p.pressure.map(|v|format!("{v:.2}")).unwrap_or_else(||"unavailable".into()),p.tilt_degrees[0].map(|v|format!("{v:.0}°")).unwrap_or_else(||"unavailable".into()),p.tilt_degrees[1].map(|v|format!("{v:.0}°")).unwrap_or_else(||"unavailable".into()),p.buttons.barrel,p.buttons.eraser||p.buttons.inverted)}else{"Mouse / native Windows pen · hover ring shows selected brush diameter".into()};
+ui.add(egui::Label::new(pen_status).truncate());
+
 }
 );
 
@@ -1143,6 +1146,46 @@ self.close_requested=false;
                         clip_rect: central,
                         shape: egui::Shape::closed_line(
                             points.clone(),
+                            egui::Stroke::new(width, color),
+                        ),
+                    });
+                }
+            }
+        }
+        if self.tool == EditTool::Brush
+            && session.mode() == crate::interaction::Mode::Live
+            && let Some(pen) = session.live().last_pen()
+            && pen.phase != paint_input::Phase::Cancel
+            && pen.in_range
+            && let Some(mapping) = self.mapping.filter(|m| m.contains_client(pen.position_px))
+        {
+            let point = mapping
+                .routing_viewport()
+                .to_document(pen.position_px)
+                .expect("valid mapped hover")
+                .0;
+            if let (Ok(center), Ok(edge)) = (
+                mapping.to_clip(point),
+                mapping.to_clip([
+                    point[0] + session.live().project().brush.size / 2.0,
+                    point[1],
+                ]),
+            ) {
+                let center = egui::pos2(
+                    (center[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
+                    (1.0 - center[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
+                );
+                let radius = ((edge[0] - mapping.to_clip(point).expect("validated point")[0])
+                    * size[0] as f32
+                    / 2.0
+                    / output.pixels_per_point)
+                    .abs();
+                for (width, color) in [(3.0, egui::Color32::BLACK), (1.0, egui::Color32::WHITE)] {
+                    output.shapes.push(egui::epaint::ClippedShape {
+                        clip_rect: central,
+                        shape: egui::Shape::circle_stroke(
+                            center,
+                            radius,
                             egui::Stroke::new(width, color),
                         ),
                     });

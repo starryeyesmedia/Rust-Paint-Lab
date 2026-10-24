@@ -10,6 +10,7 @@ use paint_stroke::{
 
 fn raw(id: u64, time: u64, phase: Phase, tool: Tool) -> PointerSample {
     PointerSample {
+        source_counter: None,
         id,
         timestamp_ms: time,
         tool,
@@ -43,6 +44,7 @@ fn output(s: PointerSample) -> Output {
 // Expected identity-coordinate samples, deliberately not using the router's mapper.
 fn point(s: PointerSample) -> StrokeSample {
     StrokeSample {
+        source_counter: s.source_counter,
         pointer_id: s.id,
         tool: s.tool,
         position_client_px: s.position_px,
@@ -616,4 +618,39 @@ fn replay_command_output_is_identical_across_runs() {
             assert_eq!(replay(text), expected);
         }
     }
+}
+
+#[test]
+fn precise_source_clock_survives_replay_routing_and_cancellation() {
+    let replay: Replay = include_str!("../../input/tests/fixtures/precise.replay")
+        .parse()
+        .unwrap();
+    let mut router = Router::default();
+    let commands: Vec<_> = replay
+        .run()
+        .iter()
+        .filter_map(|e| router.route(e))
+        .collect();
+    let counters: Vec<_> = commands
+        .iter()
+        .map(|c| match c {
+            C::BeginStroke { sample, .. }
+            | C::UpdateStroke { sample, .. }
+            | C::CommitStroke { sample, .. } => sample.source_counter.unwrap().ticks,
+            _ => panic!(),
+        })
+        .collect();
+    assert_eq!(counters, [1000000, 1000123, 1010000]);
+    let mut processor = Processor::default();
+    let mut router = Router::default();
+    let mut s = raw(1, 0, Phase::Down, Tool::Pen);
+    s.source_counter = paint_input::SourceCounter::new(9999, 10_000_000);
+    for out in processor.process(s) {
+        router.route(&out);
+    }
+    let cancelled = processor.interrupt(1, Reason::Interrupted);
+    let C::CancelStroke { last, .. } = router.route(&cancelled[0]).unwrap() else {
+        panic!()
+    };
+    assert_eq!(last.source_counter, s.source_counter);
 }

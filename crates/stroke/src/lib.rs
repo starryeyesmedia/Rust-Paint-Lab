@@ -18,6 +18,7 @@ pub struct StrokeId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StrokeSample {
     pub pointer_id: u64,
+    pub source_counter: Option<paint_input::SourceCounter>,
     pub tool: Tool,
     pub position_client_px: [f64; 2],
     pub position_document: DocumentPoint,
@@ -216,6 +217,7 @@ fn map_sample(
     time_ms: u64,
 ) -> Result<StrokeSample, coordinates::TransformError> {
     Ok(StrokeSample {
+        source_counter: s.source_counter,
         pointer_id: s.id,
         tool: s.tool,
         position_client_px: s.position_px,

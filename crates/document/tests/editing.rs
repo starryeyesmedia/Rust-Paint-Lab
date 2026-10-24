@@ -138,6 +138,7 @@ fn raster_brush_respects_selection_and_cancel_stays_out_of_history() {
     e.brush.pressure_size = false;
     e.set_selection(Some(rect(K::Rectangle))).unwrap();
     let sample = StrokeSample {
+        source_counter: None,
         pointer_id: 1,
         tool: Tool::Mouse,
         position_client_px: [16.0, 16.0],

@@ -9,6 +9,7 @@ use paint_stroke::{
 };
 fn sample(x: f64, y: f64, p: Option<f32>) -> StrokeSample {
     StrokeSample {
+        source_counter: None,
         pointer_id: 1,
         tool: Tool::Pen,
         position_client_px: [x, y],

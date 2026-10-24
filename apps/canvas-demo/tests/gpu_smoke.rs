@@ -180,6 +180,7 @@ async fn run() -> Result<(), Failure> {
         [64, 64],
     );
     let sample = StrokeSample {
+        source_counter: None,
         pointer_id: 1,
         tool: paint_input::Tool::Pen,
         position_client_px: [32.0, 32.0],
