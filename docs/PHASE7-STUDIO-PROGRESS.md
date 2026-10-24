@@ -66,8 +66,12 @@ pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoi
 - `40059380023` exposed the outdated Linux X11 paper-exit cancellation expectation;
   the smoke now checks paper re-entry plus separate focus cancellation and passed
   locally. CI run `40059871822` for latest code `e3665de` is in progress on Windows,
-  Linux, and macOS. Earlier commits were also pushed; only the latest matrix run is
-  the final CI result for the branch.
+  Linux, and macOS. The last successful API status query showed macOS completed
+  successfully and Windows/Linux in their workspace test steps. Subsequent GitHub
+  API calls returned HTTP 401 because the environment's `GH_TOKEN` was rejected,
+  so the final Windows/Linux status could not be read here. Recheck run
+  `40059871822` before relying on CI. Earlier runs were stopped after being
+  superseded; only `40059871822` is the final matrix run for this code.
 - Physical Windows stylus/capture and modest-hardware performance: not tested here.
 
 ## Architecture decisions
