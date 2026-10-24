@@ -79,6 +79,8 @@ memory to 64 MiB; larger images are reduced to a 1,448-pixel edge / 8 MiB textur
 for display. Errors explain which limit was exceeded. Linux native
 browsing requires an available XDG desktop portal service. The automated Xvfb workflow
 uses `RPL_TEST_PATH_DIALOG=1` for a test-only path-entry harness.
+Reference windows overlay the canvas but are routed as workspace UI: drawing,
+selection and canvas navigation do not start under their visible bounds.
 
 Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+N New Document; Ctrl+O open project
 picker; Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;

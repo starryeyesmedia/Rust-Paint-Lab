@@ -122,9 +122,47 @@ fn add_reference_path(
         .map_err(|error| format!("{name}: {error}"))
 }
 
+fn reference_contains_client(
+    layout: &crate::workspace::ReferenceLayout,
+    client_px: [f64; 2],
+    pixels_per_point: f32,
+) -> bool {
+    if !pixels_per_point.is_finite() || pixels_per_point <= 0.0 {
+        return false;
+    }
+    let point = [
+        client_px[0] / f64::from(pixels_per_point),
+        client_px[1] / f64::from(pixels_per_point),
+    ];
+    point.iter().all(|value| value.is_finite())
+        && layout.position.iter().all(|value| value.is_finite())
+        && layout
+            .size
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0)
+        && point[0] >= f64::from(layout.position[0])
+        && point[1] >= f64::from(layout.position[1])
+        && point[0] <= f64::from(layout.position[0] + layout.size[0])
+        && point[1] <= f64::from(layout.position[1] + layout.size[1])
+}
+
 #[cfg(test)]
 mod reference_tests {
     use super::*;
+
+    #[test]
+    fn reference_window_bounds_block_canvas_input_in_physical_pixels() {
+        let layout = crate::workspace::ReferenceLayout {
+            path: PathBuf::from("reference.png"),
+            position: [10.0, 20.0],
+            size: [100.0, 80.0],
+            opacity: 0.7,
+        };
+        assert!(reference_contains_client(&layout, [220.0, 100.0], 2.0));
+        assert!(!reference_contains_client(&layout, [19.0, 100.0], 2.0));
+        assert!(!reference_contains_client(&layout, [0.0, 0.0], 0.0));
+        assert!(!reference_contains_client(&layout, [f64::NAN, 0.0], 1.0));
+    }
 
     #[test]
     fn external_reference_decodes_into_a_ui_texture() {
@@ -493,6 +531,12 @@ impl Studio {
             picker_from_welcome: false,
         }
     }
+    fn reference_under_client(&self, client_px: [f64; 2]) -> bool {
+        let pixels_per_point = self.context.pixels_per_point();
+        self.references.iter().any(|reference| {
+            reference_contains_client(&reference.layout, client_px, pixels_per_point)
+        })
+    }
     pub fn window_event(
         &mut self,
         window: &Window,
@@ -538,6 +582,7 @@ impl Studio {
             if !self.blocks_canvas()
                 && session.mode() == crate::interaction::Mode::Live
                 && (self.mapping.is_some_and(|m| m.contains_client(p))
+                    && !self.reference_under_client(p)
                     || self.touches.active_count() > 0)
             {
                 let phase = match touch.phase {
@@ -553,10 +598,9 @@ impl Studio {
                 return (true, true);
             }
         }
-        let canvas = self
-            .mouse_position
-            .is_some_and(|p| self.mapping.is_some_and(|m| m.contains_client(p)))
-            && !self.blocks_canvas()
+        let canvas = self.mouse_position.is_some_and(|p| {
+            self.mapping.is_some_and(|m| m.contains_client(p)) && !self.reference_under_client(p)
+        }) && !self.blocks_canvas()
             && session.mode() == crate::interaction::Mode::Live;
         match event {
             E::MouseWheel { delta, .. } if canvas => {
@@ -622,9 +666,10 @@ impl Studio {
             return (true, true);
         }
         let on_canvas = !self.blocks_canvas()
-            && self
-                .mouse_position
-                .is_some_and(|p| self.mapping.is_some_and(|m| m.contains_client(p)));
+            && self.mouse_position.is_some_and(|p| {
+                self.mapping.is_some_and(|m| m.contains_client(p))
+                    && !self.reference_under_client(p)
+            });
         match event {
             E::MouseInput {
                 state: ElementState::Pressed,
@@ -680,6 +725,7 @@ impl Studio {
         }
         use paint_input::Phase;
         let outside = self.blocks_canvas()
+            || self.reference_under_client(s.position_px)
             || !self
                 .mapping
                 .is_some_and(|m| m.contains_client(s.position_px));
@@ -722,7 +768,8 @@ impl Studio {
         {
             return false;
         }
-        let on_canvas = self.mapping.is_some_and(|m| m.contains_client(client));
+        let on_canvas = self.mapping.is_some_and(|m| m.contains_client(client))
+            && !self.reference_under_client(client);
         let captured = self.edit_pointer == Some(id);
         if !on_canvas && !captured {
             return false;
@@ -2485,6 +2532,7 @@ ui.add(egui::Label::new(pen_status).truncate());
             && let Some(pen) = session.live().last_pen()
             && pen.phase != paint_input::Phase::Cancel
             && pen.in_range
+            && !self.reference_under_client(pen.position_px)
             && let Some(mapping) = self.mapping.filter(|m| m.contains_client(pen.position_px))
         {
             let point = mapping

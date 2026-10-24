@@ -3,10 +3,11 @@
 ## Phase 8.1 — Studio refinement (active)
 
 The Phase 8.1 working slice is in progress on
-`feature/studio-overdrive-phase-8`. It preserves the Phase 8 document, draft,
-autosave and recovery work below.
+`feature/studio-overdrive-phase-8`. Commit `039fa2a` contains the first pushed
+refinement slice. It preserves the Phase 8 document, draft, autosave and recovery
+work below.
 
-### Completed in the current working slice (not yet pushed)
+### Completed in commit `039fa2a`
 
 - Reference import now accepts common phone/reference photos up to 32 MiB on
   disk, 16,384 pixels per source edge, and 64 MiB of decoded source data. Large
@@ -36,16 +37,23 @@ autosave and recovery work below.
   platform build/lint path; this verifies the atomic unique temp-directory fix
   introduced in `f8db5a5`.
 - The Linux picker smoke still failed on `f8db5a5`: after Ctrl+Enter the title
-  remained `TEST FILE PICKER`. The current uncommitted fix latches Enter/Numpad
-  Enter at the winit boundary only when the test-only path dialog is active, then
-  submits through the same action path. Ordinary users continue to receive the
-  native file dialog. This requires a fresh Xvfb Actions run; local Xvfb is not
-  installed in this environment.
+  remained `TEST FILE PICKER`. Commit `039fa2a` latches Enter/Numpad Enter at the
+  winit boundary only when the test-only path dialog is active, then submits
+  through the same action path. Ordinary users continue to receive the native
+  file dialog. This requires a fresh Xvfb Actions run; local Xvfb is not installed
+  in this environment.
+- Floating reference windows now have explicit physical-pixel/DPI-aware hit
+  testing in the input adapter. Mouse, pen, touch-navigation and selection starts
+  over the reference board are routed to the UI instead of painting or navigating
+  the obscured canvas. Their existing move/resize/opacity/close controls can
+  receive those events. A bounded-coordinate unit test covers inside/outside,
+  invalid scale and nonfinite pointer positions. This follow-up is locally tested
+  but not yet pushed or window-tested.
 
 ### Current local validation
 
 - Formatting and strict workspace Clippy passed after the new changes.
-- `cargo test --workspace --locked` passed, **171 Rust tests**, including the
+- `cargo test --workspace --locked` passed, **172 Rust tests**, including the
   new vector icon, palette contrast/follow-system, JPEG reference import, old
   preference migration, and draft temp-directory concurrency tests.
 - `cargo build --workspace --locked` passed.
@@ -59,6 +67,10 @@ autosave and recovery work below.
   step waiting for `artwork.rpl`; Windows has built/uploaded the separate stylus
   artifact and was still compiling the canvas executable at last inspection.
   No cross-platform pass is claimed for that run.
+- After reference-window hit testing, full workspace tests and build, the required
+  llvmpipe GPU pixel suite, Windows GNU target workspace check/Clippy, and local
+  strict Clippy pass. The hit-test change is not included in the in-progress
+  `039fa2a` Actions run.
 
 ### Next Phase 8.1 work
 
