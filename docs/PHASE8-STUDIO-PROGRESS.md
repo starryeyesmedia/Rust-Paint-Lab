@@ -13,9 +13,8 @@ This is the active continuation record. Phase 7 work remains documented in
   [40112079927](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40112079927)
   passed Windows, Linux, and macOS and uploaded the canvas and stylus artifacts.
 - Previous checked suite: 148 Rust tests. No merge or release was performed.
-- Latest pushed Phase 8 code commit before the current panel slice: `30755fa`
-  (direct sRGB color entry). The panel-visibility slice is currently being
-  validated locally and will be recorded with its commit below.
+- Latest pushed Phase 8 code commit: `af1a879` (persisted Brush/Layers panel
+  visibility).
 
 ## Implemented Phase 8 slice: welcome, document setup, and file selection
 
@@ -135,12 +134,14 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ### Latest checkpoint validation
 
-- Current local workspace formatting, strict Clippy, all workspace tests, and
+- Commit `af1a879`: workspace formatting, strict Clippy, all workspace tests, and
   workspace build passed after adding the panel visibility preference. The required
   llvmpipe GPU pixel smoke also passed.
-- GitHub Actions for pushed commit `30755fa` is still running:
-  [40118528397](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118528397).
-  It must not be described as passing until Windows, Linux, and macOS all finish.
+- GitHub Actions for `af1a879` ([40118673479](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118673479))
+  failed immediately with all platform jobs assigned runner ID 0 and no steps.
+  Retrying the failed jobs produced the same pre-setup failure. The prior pushed
+  commit's run [40118528397](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118528397)
+  is still progressing; no platform-green result for `af1a879` is claimed.
 - The Linux Xvfb real-window workflow still cannot be exercised in this container
   because `xvfb-run` is absent. Latest platform CI must confirm the native window,
   dialogs, artifact packaging, and smoke script.
@@ -188,9 +189,8 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Finish validation, commit and push the show/hide controls-panel slice; verify the
-   latest Windows, Linux, and macOS Actions run and preserve its downloadable
-   Windows canvas and stylus artifacts.
+1. Rerun CI after the current platform jobs release capacity; verify Windows,
+   Linux, macOS and the downloadable canvas/stylus artifacts for `af1a879`.
 2. Resolve any Xvfb welcome/New Document/Open smoke failures using the test-only
    dialog markers and current-window-title diagnostics.
 3. Continue functional workspace work: recent-color palette and more complete
