@@ -48,7 +48,7 @@ discard older committed artwork.
 Use the compact File menu for New/Open/Save, image import/export, brush presets,
 and recent projects. Edit contains Undo/Redo and selection fill/erase; Image contains
 Crop; Layer contains the existing layer operations; View switches appearance; Window
-offers reference images; Help lists the main shortcuts. The five primary tools are
+offers reference images and a Show Brush and Layers toggle; Help lists the main shortcuts. The five primary tools are
 in the rounded vertical palette left of the canvas. Each icon has a name and shortcut
 tooltip, and selection/utility actions sit below them. File actions open the
 operating-system file browser.

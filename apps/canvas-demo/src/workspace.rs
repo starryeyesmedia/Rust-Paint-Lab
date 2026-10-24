@@ -7,6 +7,10 @@ pub const MAX_REFERENCE_PATH: usize = 4096;
 pub const MAX_PREFERENCES_BYTES: usize = 64 * 1024;
 pub const MAX_RECENT_DOCUMENT_SIZES: usize = 8;
 
+fn default_visible() -> bool {
+    true
+}
+
 pub fn load(path: &std::path::Path) -> Option<WorkspacePreferences> {
     let mut bytes = Vec::new();
     File::open(path)
@@ -34,6 +38,8 @@ pub struct WorkspacePreferences {
     pub version: u32,
     pub dark_theme: bool,
     pub brush_panel_width: f32,
+    #[serde(default = "default_visible")]
+    pub show_controls: bool,
     pub references: Vec<ReferenceLayout>,
     #[serde(default)]
     pub new_document: NewDocumentPreferences,
@@ -93,6 +99,7 @@ impl Default for WorkspacePreferences {
             version: 1,
             dark_theme: true,
             brush_panel_width: 260.0,
+            show_controls: true,
             references: Vec::new(),
             new_document: NewDocumentPreferences::default(),
             recent_document_sizes: Vec::new(),
@@ -145,7 +152,10 @@ mod tests {
 
     #[test]
     fn preferences_round_trip_and_bound_saved_layout() {
-        let mut preferences = WorkspacePreferences::default();
+        let mut preferences = WorkspacePreferences {
+            show_controls: false,
+            ..Default::default()
+        };
         preferences.references.push(ReferenceLayout {
             path: "reference.png".into(),
             position: [f32::NAN, 12.0],
@@ -215,6 +225,7 @@ mod tests {
         assert_eq!(preferences.new_document.width, 1600.0);
         assert_eq!(preferences.new_document.height, 1000.0);
         assert!(!preferences.new_document.transparent);
+        assert!(preferences.show_controls);
     }
 
     #[test]

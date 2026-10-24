@@ -13,11 +13,9 @@ This is the active continuation record. Phase 7 work remains documented in
   [40112079927](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40112079927)
   passed Windows, Linux, and macOS and uploaded the canvas and stylus artifacts.
 - Previous checked suite: 148 Rust tests. No merge or release was performed.
-- Latest pushed Phase 8 code commit: `edd4afe` (recent document-size choices).
-  Local validation on it passed formatting, strict Clippy, 163 workspace tests,
-  workspace build, and the required Mesa llvmpipe GPU smoke. GitHub Actions run
-  [40118402178](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118402178)
-  is queued; real Linux window, Windows, and macOS verification is pending.
+- Latest pushed Phase 8 code commit before the current panel slice: `30755fa`
+  (direct sRGB color entry). The panel-visibility slice is currently being
+  validated locally and will be recorded with its commit below.
 
 ## Implemented Phase 8 slice: welcome, document setup, and file selection
 
@@ -130,6 +128,22 @@ This is the active continuation record. Phase 7 work remains documented in
 - Brush color now has a collapsed sRGB value editor with validated `#RRGGBB` entry
   and direct R/G/B numeric controls. The existing swatch picker remains available;
   this does not claim ICC color management.
+- The Window menu can hide or restore the right Brush/Layers controls panel to
+  give the canvas more room. Visibility persists in workspace preferences and old
+  preferences default to visible. Hiding the panel does not change brush or layer
+  state. The panel remains a single resizable panel; it is not a dockable layout.
+
+### Latest checkpoint validation
+
+- Current local workspace formatting, strict Clippy, all workspace tests, and
+  workspace build passed after adding the panel visibility preference. The required
+  llvmpipe GPU pixel smoke also passed.
+- GitHub Actions for pushed commit `30755fa` is still running:
+  [40118528397](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118528397).
+  It must not be described as passing until Windows, Linux, and macOS all finish.
+- The Linux Xvfb real-window workflow still cannot be exercised in this container
+  because `xvfb-run` is absent. Latest platform CI must confirm the native window,
+  dialogs, artifact packaging, and smoke script.
 
 ## Partial and unimplemented Phase 8 requirements
 
@@ -174,10 +188,15 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Run format, strict Clippy, workspace tests/build, and GPU smoke for HEX/RGB
-   controls; commit/push and verify Linux window smoke plus Windows/macOS CI.
-2. Use the test-only dialog marker and improved failure title to diagnose the Linux
-   reopen timeout if it persists.
+1. Finish validation, commit and push the show/hide controls-panel slice; verify the
+   latest Windows, Linux, and macOS Actions run and preserve its downloadable
+   Windows canvas and stylus artifacts.
+2. Resolve any Xvfb welcome/New Document/Open smoke failures using the test-only
+   dialog markers and current-window-title diagnostics.
+3. Continue functional workspace work: recent-color palette and more complete
+   layer workflow, then accessible rearrangeable panels and reference-board
+   navigation. Do not mark dockable panels or a full artist workspace complete
+   until those behaviors exist and have window-level tests.
 3. Continue a more useful layer/color workflow and close-save failure coverage in
    the real window workflow.
 
