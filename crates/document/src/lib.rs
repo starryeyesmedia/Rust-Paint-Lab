@@ -370,6 +370,7 @@ impl Engine {
     pub fn apply(&mut self, c: &StrokeCommand) -> Result<(), PaintError> {
         let candidate = match c {
             StrokeCommand::BeginStroke { stroke_id, sample }
+            | StrokeCommand::BreakStrokeSegment { stroke_id, sample }
             | StrokeCommand::UpdateStroke { stroke_id, sample }
             | StrokeCommand::CommitStroke { stroke_id, sample } => Some((*stroke_id, *sample)),
             _ => None,
@@ -421,6 +422,18 @@ impl Engine {
                     tiles: BTreeMap::new(),
                 };
                 self.dab(&mut t, sample)?;
+                self.active.insert(stroke_id, t);
+            }
+            StrokeCommand::BreakStrokeSegment { stroke_id, sample } => {
+                let Some(mut t) = self.active.remove(&stroke_id) else {
+                    return Ok(());
+                };
+                t.last = sample;
+                t.remaining = 0.0;
+                if let Err(error) = self.dab(&mut t, sample) {
+                    self.damage.extend(t.tiles.keys());
+                    return Err(error);
+                }
                 self.active.insert(stroke_id, t);
             }
             StrokeCommand::UpdateStroke { stroke_id, sample }

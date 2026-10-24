@@ -182,3 +182,21 @@ exercise `.rplbrush` roundtrip, validation, size limits and no-clobber behavior.
 Linux/Xvfb alpha integration workflow also uses actual keyboard events to save a
 preset, load it, save the project and compare brush metadata. This complements (not
 replaces) the portable unit tests.
+
+## Phase 7 artboard-crossing regression
+
+Artboard clipping adds seven portable regressions (136 Rust tests total): client-space
+segment clipping after zoom/pan, same-StrokeId subpath breaks, mouse and native-pen
+exit/re-entry, cancellation remaining distinct, and document raster continuity.
+The offscreen GPU runner now paints outside the artboard path and verifies the
+outside gap remains unpainted while both in-paper segments render. Linux/Xvfb alpha
+workflow remains the full save/edit/recovery integration check; physical Windows
+pen pressure, capture behavior, display scaling, and Iris Xe rendering still require
+manual testing.
+
+```sh
+cargo test --locked -p paint-stroke --test routing
+cargo test --locked -p canvas-demo --test mouse --test pen --test navigation
+cargo test --locked -p paint-document --test document
+RPL_REQUIRE_GPU=1 WGPU_BACKEND=vulkan cargo test --locked -p canvas-demo --test gpu_smoke
+```

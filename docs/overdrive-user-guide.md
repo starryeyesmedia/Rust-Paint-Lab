@@ -11,8 +11,11 @@ Draw inside the paper with the left mouse button or Windows pen. Mouse has no
 pressure or tilt. Windows pressure affects size/opacity when enabled. Pen inversion/
 eraser flags select erasing for that stroke. Hover/barrel state is retained; barrel
 button has no separate tool action yet. Touch does not paint; gestures are pending.
-Cancellation (focus/capture loss, leaving paper, resize/mode changes) removes the
-whole provisional stroke. Completed strokes remain in the editable document.
+Crossing the paper edge clips the visible stroke to the document and continues the
+same contact on re-entry; no line bridges the outside gap. A press that begins
+outside paper does not paint. Focus/capture loss, leaving the application window,
+resize, and mode changes cancel the provisional stroke. Completed strokes remain
+in the editable document.
 
 The right panel contains ten brush presets, size/opacity/flow/hardness/spacing,
 pressure responses, tilt rotation, angle, smoothing and RGB color. Opacity caps the
@@ -71,8 +74,10 @@ appear in status; destructive actions stop if preservation cannot succeed.
 1. Launch on Iris Xe / RTX 3060; inspect console adapter and BUILD.txt commit.
 2. Draw slow/fast pressure ramps, hover, independently tilt X/Y, test barrel and
    inversion where supported. No duplicate mouse strokes should appear.
-3. Alt-Tab, minimize, leave paper, resize/change DPI and transfer capture mid-stroke:
-   previews must cancel, completed artwork must remain; fresh contact starts cleanly.
+3. Cross the paper edge and re-enter during a stroke; verify clipping, continuation,
+   and no bridge across the gap. Alt-Tab, minimize, leave the window, resize/change
+   DPI, and transfer capture mid-stroke: previews must cancel and completed artwork
+   must remain; fresh contact starts cleanly.
 4. Try each brush; change size/color/flow/opacity and pressure toggles. Erase on a
    transparent layer, cancel erasing, then undo/redo committed erasing.
 5. Add/rename/duplicate/reorder/hide/lock layers, vary blend/opacity, save/reopen.

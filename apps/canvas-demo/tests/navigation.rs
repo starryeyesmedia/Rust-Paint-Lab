@@ -62,3 +62,36 @@ fn navigation_mapping_roundtrips_and_clips_to_workspace_after_zoom_and_pan() {
     assert!(m.navigated(f64::NAN, [0.0; 2]).is_err());
     assert!(m.navigated(1.0, [f64::INFINITY, 0.0]).is_err());
 }
+
+#[test]
+fn pointer_segments_clip_to_document_after_zoom_and_pan() {
+    let mapping =
+        CanvasMapping::for_document([1000, 700], [800.0, 500.0], [20.0, 40.0, 980.0, 680.0])
+            .unwrap()
+            .navigated(2.5, [35.0, -20.0])
+            .unwrap();
+    let vp = mapping.routing_viewport();
+    let client = |doc: [f64; 2]| mapping.document_to_client(doc).unwrap();
+    let clipped = mapping
+        .clip_segment_client(client([-100.0, 120.0]), client([900.0, 120.0]))
+        .unwrap()
+        .unwrap();
+    assert!((clipped.start_t - 0.1).abs() < 1e-9);
+    assert!((clipped.end_t - 0.9).abs() < 1e-9);
+    let start = vp.to_document(clipped.start_client).unwrap().0;
+    let end = vp.to_document(clipped.end_client).unwrap().0;
+    assert!((start[0]).abs() < 1e-9 && (start[1] - 120.0).abs() < 1e-9);
+    assert!((end[0] - 800.0).abs() < 1e-9 && (end[1] - 120.0).abs() < 1e-9);
+
+    assert!(
+        mapping
+            .clip_segment_client(client([-40.0, -20.0]), client([-20.0, -10.0]))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        mapping
+            .clip_segment_client([f64::NAN, 0.0], [10.0, 10.0])
+            .is_err()
+    );
+}

@@ -139,8 +139,10 @@ Future components have distinct responsibilities:
 5. **Canvas renderer:** display committed content plus isolated provisional
    previews; remove cancelled previews without committing them. Convert document
    coordinates to GPU units with explicit range checks at this boundary.
-6. **Document model:** own accepted stroke results and future edit semantics;
-   only Commit may finalize a transaction. No persistence or undo exists yet.
+6. **Document model:** `paint-document` owns sparse raster tiles, editable layers,
+   bounded undo/redo, provisional brush transactions, and checked native storage;
+   only Commit finalizes a transaction. It is OS/UI/GPU-independent. See the alpha
+   format and overdrive progress document for its current boundaries.
 
 The separate canvas demo now implements a bounded command consumer and renderer
 for synthetic playback and interactive mouse drawing. The physical-pixel winit
@@ -150,10 +152,22 @@ while completed live content remains in memory. The Windows-only capture observe
 adds notifications without replacing winit's event loop/capture ownership. See
 [live mouse semantics](live-mouse.md). Scene uses separate provisional/committed maps keyed by
 StrokeId, includes the final Commit sample, retains pressure/tilt, and rebuilds
-render geometry each frame so cancellation leaves no committed residue. This is
-not a document model or brush engine. winit owns one event loop, wgpu owns the
+render geometry each frame so cancellation leaves no committed residue. The alpha
+workspace can route live samples to the independent raster document engine; legacy
+fixed-width demo scenes remain for replay and compatibility. winit owns one event loop, wgpu owns the
 surface/device and fixed vertex buffer, and the pure Playback class takes explicit
 elapsed demo time. See [canvas architecture and limits](canvas-demo.md).
+
+For a live pen or mouse contact that starts on paper, the app adapter clips each
+physical client-space segment against the current document rectangle before it
+reaches Processor/Router. A clipped exit/re-entry emits a `BreakStrokeSegment`
+command under the original `StrokeId`; consumers reset interpolation at the
+boundary without ending the transaction. This prevents both demo polylines and
+raster brush spacing from connecting across regions traversed outside paper. A
+contact that begins outside cannot paint. Focus loss, capture loss, invalid input,
+resize, mode change, and leaving the window still use the explicit cancellation
+path. This clipping belongs in the canvas adapter because it knows the transformed
+artboard; shared lifecycle and routing remain window-agnostic.
 
 ## Planned boundaries (not implemented)
 

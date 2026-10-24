@@ -349,6 +349,12 @@ impl Studio {
         session: &mut CanvasSession,
     ) -> bool {
         let scale = f64::from(self.context.pixels_per_point());
+        // Once a pen contact begins on the canvas, keep the native stream with
+        // the painting processor while it crosses the paper boundary. Sending
+        // these samples to egui would synthesize a Cancel and orphan the stroke.
+        if session.live().active() {
+            return false;
+        }
         if self.editing_pointer(session, s.id, s.phase, s.position_px) {
             return true;
         }

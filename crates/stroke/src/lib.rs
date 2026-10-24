@@ -48,6 +48,13 @@ pub enum StrokeCommand {
         stroke_id: StrokeId,
         sample: StrokeSample,
     },
+    /// Starts a new visible subpath while retaining the same input contact and
+    /// transaction identity. Used when a contact leaves and re-enters a clipped
+    /// document viewport; it never commits or cancels the surrounding stroke.
+    BreakStrokeSegment {
+        stroke_id: StrokeId,
+        sample: StrokeSample,
+    },
     UpdateStroke {
         stroke_id: StrokeId,
         sample: StrokeSample,
@@ -79,6 +86,7 @@ struct ActiveStroke {
 pub struct Router {
     viewport: Viewport,
     active: BTreeMap<u64, ActiveStroke>,
+    break_next: std::collections::BTreeSet<u64>,
     next_id: u64,
     time_ms: u64,
 }
@@ -97,8 +105,16 @@ impl Router {
     pub fn active_count(&self) -> usize {
         self.active.len()
     }
+    /// Make the next valid Move for this active pointer begin a disconnected
+    /// subpath with the same StrokeId. Other pointers remain unaffected.
+    pub fn break_before_next_move(&mut self, pointer_id: u64) {
+        if self.active.contains_key(&pointer_id) {
+            self.break_next.insert(pointer_id);
+        }
+    }
 
     fn cancel(&mut self, pointer: u64, reason: CancelReason) -> Option<StrokeCommand> {
+        self.break_next.remove(&pointer);
         self.active
             .remove(&pointer)
             .map(|active| StrokeCommand::CancelStroke {
@@ -170,6 +186,7 @@ impl Router {
                     raw: sample,
                 },
             );
+            self.break_next.remove(&sample.id);
             return Some(StrokeCommand::BeginStroke {
                 stroke_id: id,
                 sample: point,
@@ -194,19 +211,28 @@ impl Router {
         };
         let id = active.id;
         if expected == Phase::Up {
+            self.break_next.remove(&sample.id);
             self.active.remove(&sample.id);
             Some(StrokeCommand::CommitStroke {
                 stroke_id: id,
                 sample: point,
             })
         } else {
+            let break_segment = self.break_next.remove(&sample.id);
             let active = self.active.get_mut(&sample.id)?;
             active.last = point;
             active.raw = sample;
-            Some(StrokeCommand::UpdateStroke {
-                stroke_id: id,
-                sample: point,
-            })
+            if break_segment {
+                Some(StrokeCommand::BreakStrokeSegment {
+                    stroke_id: id,
+                    sample: point,
+                })
+            } else {
+                Some(StrokeCommand::UpdateStroke {
+                    stroke_id: id,
+                    sample: point,
+                })
+            }
         }
     }
 }

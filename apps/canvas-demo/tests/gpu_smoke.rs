@@ -140,6 +140,47 @@ async fn run() -> Result<(), Failure> {
         u16::from(blue[2]) > u16::from(blue[0]) + 40,
         "live commit missing"
     );
+    let mut clipped = LiveMouse::new([256, 256]);
+    clipped.handle(E::Moved([44.0, 100.0]), 0);
+    clipped.handle(
+        E::Button {
+            primary: true,
+            pressed: true,
+        },
+        0,
+    );
+    clipped.handle(E::Moved([0.0, 100.0]), 1);
+    clipped.handle(E::Moved([0.0, 180.0]), 2);
+    clipped.handle(E::Moved([44.0, 180.0]), 3);
+    clipped.handle(E::Moved([60.0, 180.0]), 4);
+    clipped.handle(
+        E::Button {
+            primary: true,
+            pressed: false,
+        },
+        5,
+    );
+    let pixels = render_pixels(&renderer, clipped.scene())?;
+    let before_exit = pixel(&pixels, 24, 100);
+    let disconnected_gap = pixel(&pixels, 21, 140);
+    let after_reentry = pixel(&pixels, 40, 180);
+    assert!(
+        before_exit[2] > before_exit[0] + 30,
+        "clipped exit missing: {before_exit:?}"
+    );
+    assert!(
+        disconnected_gap
+            .iter()
+            .take(3)
+            .map(|v| u32::from(*v))
+            .sum::<u32>()
+            > 600,
+        "off-paper path was incorrectly connected: {disconnected_gap:?}"
+    );
+    assert!(
+        after_reentry[2] > after_reentry[0] + 30,
+        "clipped reentry missing: {after_reentry:?}"
+    );
     mouse.clear(6);
     mouse.handle(E::Moved([16.0, 128.0]), 7);
     mouse.handle(
@@ -228,7 +269,7 @@ async fn run() -> Result<(), Failure> {
     let p = render_raster_pixels(&renderer, &raster, &mut engine)?;
     assert!(pixel(&p, 128, 128)[1] < 70, "raster redo missing");
     report(
-        "GPU_SMOKE: PASSED (replay and live preview/commit/cancel, final segment, canvas clipping/background; raster preview/cancel/commit/undo/redo)",
+        "GPU_SMOKE: PASSED (replay and live preview/commit/cancel, final segment, artboard exit/re-entry clipping without bridge, canvas clipping/background; raster preview/cancel/commit/undo/redo)",
     );
     Ok(())
 }

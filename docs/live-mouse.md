@@ -1,4 +1,4 @@
-# Phase 5: interactive mouse canvas
+# Live canvas input semantics
 
 The default canvas mode is now LIVE mouse. Drawing stays entirely in memory:
 there is no saving, undo, brush simulation, native pen integration, or telemetry.
@@ -28,9 +28,11 @@ mouse data; it is not native pressure-sensitive S Pen integration.
 Cancel on focus loss, window/canvas exit, capture loss, suspend/close, invalid
 coordinates, resize/DPI change, clear, or mode switch. Cancellation travels through
 the lifecycle and router and removes only the active preview. No Move can restart
-a cancelled stroke; a fresh Down and valid position are required. Crossing the
-paper boundary cancels the **whole current stroke**, rather than clipping and
-committing an incomplete stroke. Reentry while held does not resume it.
+a cancelled stroke; a fresh Down and valid position are required. A Down outside
+the paper never starts painting. While contact is active, paper-boundary crossings
+are clipped to the document edge and the same transaction continues on re-entry.
+The clipped gap is a disconnected subpath, so no line bridges the outside area.
+Leaving the application window, focus loss, or capture loss still cancels.
 
 Resize/DPI changes cancel the current preview before replacing the mapping.
 Physical CursorMoved coordinates and physical inner_size share the same unit;
@@ -109,11 +111,12 @@ tilt. That is useful prior evidence, not validation of this new interactive buil
 2. Use a mouse/trackpad to draw several strokes inside the light paper. Confirm
    orange previews turn blue on left release and remain; hover/right-click do not
    paint. No pressure or tilt is expected here.
-3. Start a stroke and Alt-Tab, minimize, leave the paper/window, or switch to replay.
-   Confirm the preview disappears with no new blue stroke. Return, release if
-   needed, move inside paper, and make a fresh press; no line should connect across
-   the interruption. Native capture transfer with focus unchanged needs testing
-   separately when a reproducible tool/window can take capture.
+3. Start a stroke, cross beyond each paper edge, re-enter, and release. Confirm the
+   same preview remains active, the visible line stops at each edge, and no line
+   bridges the gap. Starting outside paper and dragging inside must not paint.
+   Alt-Tab, minimize, leave the window, or switch to replay mid-stroke; confirm the
+   preview disappears without committing. Native capture transfer with focus
+   unchanged needs separate testing with a reproducible tool/window.
 4. Draw, resize, and change display scaling. Completed shapes should keep document
    positions and fit the paper; a resize during a stroke cancels that preview.
 5. Press P or 1/2/3 for replay; R/Space should still work. Press L to return and

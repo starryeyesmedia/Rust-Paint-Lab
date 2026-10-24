@@ -66,7 +66,7 @@ fn pen_ids_mouse_and_cancellation_are_isolated() {
     assert!(live.scene().committed().is_empty());
 }
 #[test]
-fn pen_is_excluded_from_replay_and_interrupted_at_bounds() {
+fn pen_is_excluded_from_replay_and_clips_artboard_crossings() {
     let mut session = CanvasSession::new([832, 532]);
     session.select_replay(Scenario::Completed, 0);
     session.pen(sample(1, 1, Phase::Down));
@@ -74,8 +74,63 @@ fn pen_is_excluded_from_replay_and_interrupted_at_bounds() {
     session.set_mode(Mode::Live, 2);
     session.pen(sample(1, 3, Phase::Down));
     let mut outside = sample(1, 4, Phase::Move);
-    outside.position_px = [0.0, 0.0];
+    outside.position_px = [0.0, 116.0];
     session.pen(outside);
-    session.pen(sample(1, 5, Phase::Up));
-    assert_eq!(session.scene().sample_count(), 0);
+    assert!(session.live().active());
+    let mut reentered = sample(1, 5, Phase::Move);
+    reentered.position_px = [831.0, 116.0];
+    reentered.pressure = Some(0.9);
+    reentered.source_counter = paint_input::SourceCounter::new(300, 1_000);
+    session.pen(reentered);
+    let mut up = sample(1, 6, Phase::Up);
+    up.position_px = [831.0, 116.0];
+    session.pen(up);
+    assert!(!session.live().active());
+    let points = session.scene().committed().values().next().unwrap();
+    assert!(
+        points
+            .iter()
+            .all(|p| (0.0..=800.0).contains(&p.position_document.0[0]))
+    );
+    assert!(
+        points
+            .iter()
+            .any(|p| p.pressure.is_some_and(|pressure| pressure > 0.85))
+    );
+    assert!(points.iter().all(|p| p.source_counter.is_none()));
+}
+
+#[test]
+fn native_pen_cancellation_still_discards_after_paper_crossing() {
+    let mut live = LiveMouse::new([832, 532]);
+    live.pen(sample(1, 1, Phase::Down));
+    let mut outside = sample(1, 2, Phase::Move);
+    outside.position_px = [0.0, 116.0];
+    live.pen(outside);
+    live.pen(sample(1, 3, Phase::Cancel));
+    assert!(!live.active());
+    assert!(live.scene().provisional().is_empty());
+    assert!(live.scene().committed().is_empty());
+}
+
+#[test]
+fn pathological_pen_down_sequence_keeps_tracking_bounded_and_duplicates_do_not_replace() {
+    let mut live = LiveMouse::new([832, 532]);
+    let first = sample(1, 1, Phase::Down);
+    live.pen(first);
+    let mut duplicate = sample(1, 2, Phase::Down);
+    duplicate.position_px = [300.0, 300.0];
+    live.pen(duplicate);
+    for id in 2..10_000 {
+        let mut down = sample(id, id, Phase::Down);
+        down.position_px = [116.0, 116.0];
+        live.pen(down);
+    }
+    assert!(live.active());
+    assert_eq!(
+        live.scene().provisional().len(),
+        paint_input::lifecycle::MAX_CONTACTS
+    );
+    let original = live.scene().provisional().values().next().unwrap()[0];
+    assert_eq!(original.position_client_px, [116.5, 116.25]);
 }

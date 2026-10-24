@@ -310,6 +310,34 @@ fn duplicate_and_orphan_lifecycle_outputs_do_not_duplicate_commands() {
 }
 
 #[test]
+fn clipped_reentry_breaks_path_without_changing_transaction_identity() {
+    let mut router = Router::default();
+    assert!(matches!(
+        router.route(&output(raw(42, 1, Phase::Down, Tool::Pen))),
+        Some(C::BeginStroke {
+            stroke_id: StrokeId(0),
+            ..
+        })
+    ));
+    router.break_before_next_move(42);
+    assert!(matches!(
+        router.route(&output(raw(42, 2, Phase::Move, Tool::Pen))),
+        Some(C::BreakStrokeSegment {
+            stroke_id: StrokeId(0),
+            ..
+        })
+    ));
+    assert!(matches!(
+        router.route(&output(raw(42, 3, Phase::Up, Tool::Pen))),
+        Some(C::CommitStroke {
+            stroke_id: StrokeId(0),
+            ..
+        })
+    ));
+    assert_eq!(router.active_count(), 0);
+}
+
+#[test]
 fn old_cancellation_and_end_cannot_abort_a_reused_pointer_transaction() {
     let mut r = Router::default();
     let first = raw(1, 1, Phase::Down, Tool::Pen);

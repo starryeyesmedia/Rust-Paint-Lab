@@ -6,7 +6,10 @@ by Fresco, Krita, and Procreate. Initial hands-on target: Galaxy Book2 Pro 360
 (Windows 10, Intel Iris Xe, 16 GB). Future targets: Windows/Linux/macOS, Android
 with S Pen, and eventually iPadOS. Favor low latency, accessibility, reliable local
 autosave/recovery, open formats, and modest resource use. No telemetry, accounts,
-or cloud service requirements. Overdrive explicitly authorizes a multi-checkpoint program; deliver tested vertical slices and maintain docs/OVERDRIVE-PROGRESS.md.
+or cloud service requirements. Studio Overdrive requires that all application
+functionality remain free, with no subscription/paywall, advertising, tracking, or
+forced online dependency. Overdrive explicitly authorizes a multi-checkpoint
+program; deliver tested vertical slices and maintain docs/OVERDRIVE-PROGRESS.md.
 
 ## Architecture boundaries
 - `crates/input`: safe, OS-independent input structures, normalization, bounded lifecycle processing, and deterministic replay. No
@@ -80,6 +83,11 @@ or cloud service requirements. Overdrive explicitly authorizes a multi-checkpoin
 - Cancel on focus/window/canvas exit or capture loss. Require a new Down after
   interruption. Keep live/replay scene namespaces separate and retain completed
   live work across mode switches; clear is an explicit user action.
+- A Down outside the paper cannot start a stroke. During contact, clip samples to
+  the document boundary and continue the same transaction on re-entry. Mark a
+  disconnected subpath so neither previews nor committed rasterization bridge an
+  off-paper gap. Focus loss, capture loss, invalid data, resize, and window exit
+  remain true cancellation paths.
 - Capacity errors cancel previews and show feedback, not a fatal app exit.
 - Capture FFI is confined to windows_capture.rs with documented unsafe blocks;
   do not add competing loops; native pen adapters stay isolated here. Winit remains capture owner.

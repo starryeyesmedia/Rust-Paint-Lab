@@ -108,14 +108,68 @@ fn capture_loss_and_window_exit_cancel_then_require_a_new_down() {
 }
 
 #[test]
-fn outside_paper_and_invalid_positions_do_not_start_or_leave_orphan_contacts() {
-    for point in [
-        [0.0, 0.0],
-        [831.0, 531.0],
-        [-1.0, 30.0],
-        [f64::NAN, 100.0],
-        [f64::INFINITY, 0.0],
-    ] {
+fn outside_paper_does_not_start_but_window_boundary_crossing_is_clipped() {
+    let mut m = LiveMouse::new([832, 532]);
+    m.handle(E::Moved([0.0, 116.0]), 0);
+    m.handle(button(true), 0);
+    assert!(!m.active());
+    assert_eq!(m.scene().sample_count(), 0);
+
+    m.handle(E::Moved([116.0, 116.0]), 1);
+    m.handle(button(true), 1);
+    let id = *m.scene().provisional().keys().next().unwrap();
+    m.handle(E::Moved([0.0, 116.0]), 2);
+    assert!(m.active());
+    assert_eq!(
+        m.scene().provisional()[&id]
+            .last()
+            .unwrap()
+            .position_document
+            .0[0],
+        0.0
+    );
+    m.handle(E::Moved([0.0, 531.0]), 3);
+    m.handle(E::Moved([831.0, 531.0]), 4);
+    m.handle(E::Moved([831.0, 400.0]), 5);
+    m.handle(E::Moved([700.0, 400.0]), 6);
+    assert!(m.active());
+    m.handle(button(false), 7);
+    assert!(!m.active());
+    assert!(m.scene().committed().contains_key(&id));
+    let points = &m.scene().committed()[&id];
+    assert!(
+        points
+            .iter()
+            .all(|p| (0.0..=800.0).contains(&p.position_document.0[0]))
+    );
+}
+
+#[test]
+fn document_rasterizer_keeps_reentered_clipped_segments_disconnected() {
+    let mut m = LiveMouse::new([832, 532]);
+    m.enable_document();
+    m.handle(E::Moved([116.0, 116.0]), 0);
+    m.handle(button(true), 0);
+    m.handle(E::Moved([0.0, 116.0]), 1);
+    m.handle(E::Moved([0.0, 531.0]), 2);
+    m.handle(E::Moved([831.0, 531.0]), 3);
+    m.handle(E::Moved([831.0, 400.0]), 4);
+    m.handle(E::Moved([700.0, 400.0]), 5);
+    m.handle(button(false), 6);
+    let rgba = m.project().rgba();
+    let pixel = |x: usize| &rgba[(100 * 800 + x) * 4..(100 * 800 + x) * 4 + 4];
+    assert_ne!(pixel(0), &[255; 4]);
+    assert_eq!(pixel(400), &[255; 4]);
+    assert_eq!(pixel(400), &[255; 4]);
+    assert_ne!(
+        &rgba[(384 * 800 + 799) * 4..(384 * 800 + 799) * 4 + 4],
+        &[255; 4]
+    );
+}
+
+#[test]
+fn invalid_and_out_of_window_positions_cancel_active_contacts() {
+    for point in [[f64::NAN, 100.0], [f64::INFINITY, 0.0], [833.0, 532.0]] {
         let mut m = LiveMouse::new([832, 532]);
         m.handle(E::Moved(point), 0);
         m.handle(button(true), 0);

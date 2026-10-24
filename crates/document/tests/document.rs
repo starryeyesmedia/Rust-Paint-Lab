@@ -81,6 +81,32 @@ fn commit_final_sample_undo_redo_are_transactional() {
     assert!(e.redo());
     assert_eq!(e.rgba(), pixels);
 }
+
+#[test]
+fn disconnected_clipped_segment_does_not_rasterize_across_exited_region() {
+    let mut e = Engine::new(128, 128, 300).unwrap();
+    e.apply(&C::BeginStroke {
+        stroke_id: StrokeId(7),
+        sample: sample(20.0, 64.0, Some(0.8)),
+    })
+    .unwrap();
+    e.apply(&C::BreakStrokeSegment {
+        stroke_id: StrokeId(7),
+        sample: sample(80.0, 64.0, Some(0.8)),
+    })
+    .unwrap();
+    e.apply(&C::CommitStroke {
+        stroke_id: StrokeId(7),
+        sample: sample(81.0, 64.0, Some(0.8)),
+    })
+    .unwrap();
+    let rgba = e.rgba();
+    let pixel = |x: usize| &rgba[(64 * 128 + x) * 4..(64 * 128 + x) * 4 + 4];
+    assert_ne!(pixel(20), &[255; 4]);
+    assert_eq!(pixel(50), &[255; 4]);
+    assert_ne!(pixel(80), &[255; 4]);
+    assert_eq!(e.undo_count(), 1);
+}
 #[test]
 fn concurrent_cancellation_does_not_erase_other_commit() {
     let mut e = Engine::new(128, 128, 300).unwrap();

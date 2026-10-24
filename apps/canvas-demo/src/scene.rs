@@ -31,6 +31,8 @@ impl Error for SceneError {}
 pub struct Scene {
     provisional: BTreeMap<StrokeId, Vec<StrokeSample>>,
     committed: BTreeMap<StrokeId, Vec<StrokeSample>>,
+    provisional_breaks: BTreeMap<StrokeId, std::collections::BTreeSet<usize>>,
+    committed_breaks: BTreeMap<StrokeId, std::collections::BTreeSet<usize>>,
 }
 impl Scene {
     pub fn provisional(&self) -> &BTreeMap<StrokeId, Vec<StrokeSample>> {
@@ -56,9 +58,13 @@ impl Scene {
         let (id, sample, begin, commit) = match *command {
             StrokeCommand::CancelStroke { stroke_id, .. } => {
                 self.provisional.remove(&stroke_id);
+                self.provisional_breaks.remove(&stroke_id);
                 return Ok(());
             }
             StrokeCommand::BeginStroke { stroke_id, sample } => (stroke_id, sample, true, false),
+            StrokeCommand::BreakStrokeSegment { stroke_id, sample } => {
+                (stroke_id, sample, false, false)
+            }
             StrokeCommand::UpdateStroke { stroke_id, sample } => (stroke_id, sample, false, false),
             StrokeCommand::CommitStroke { stroke_id, sample } => (stroke_id, sample, false, true),
         };
@@ -70,6 +76,7 @@ impl Scene {
         }
         if !valid_position(sample.position_document.0) {
             self.provisional.remove(&id);
+            self.provisional_breaks.remove(&id);
             return Err(SceneError::InvalidCoordinates);
         }
         if self.sample_count() == MAX_SAMPLES
@@ -80,11 +87,13 @@ impl Scene {
                 .is_some_and(|p| p.len() == MAX_POINTS_PER_STROKE)
         {
             self.provisional.remove(&id);
+            self.provisional_breaks.remove(&id);
             return Err(SceneError::Capacity);
         }
         if begin {
             self.provisional.insert(id, vec![sample]);
         } else {
+            let disconnected = matches!(command, StrokeCommand::BreakStrokeSegment { .. });
             let points = self
                 .provisional
                 .get_mut(&id)
@@ -93,12 +102,21 @@ impl Scene {
             // sample (even at the same position) is retained with its attributes.
             if points.last() != Some(&sample) {
                 points.push(sample);
+                if disconnected {
+                    self.provisional_breaks
+                        .entry(id)
+                        .or_default()
+                        .insert(points.len() - 1);
+                }
             }
             if commit {
                 self.committed.insert(
                     id,
                     self.provisional.remove(&id).expect("active transaction"),
                 );
+                if let Some(breaks) = self.provisional_breaks.remove(&id) {
+                    self.committed_breaks.insert(id, breaks);
+                }
             }
         }
         Ok(())
@@ -112,8 +130,12 @@ impl Scene {
             [[0.0, 0.0], [800.0, 0.0], [800.0, 500.0], [0.0, 500.0]],
             PAPER,
         )?;
-        for (strokes, color) in [(&self.committed, COMMITTED), (&self.provisional, PREVIEW)] {
-            for points in strokes.values() {
+        for (strokes, breaks, color) in [
+            (&self.committed, &self.committed_breaks, COMMITTED),
+            (&self.provisional, &self.provisional_breaks, PREVIEW),
+        ] {
+            for (id, points) in strokes {
+                let breaks = breaks.get(id);
                 // Square caps/joins, fixed 8 document units; no pressure width.
                 for p in points {
                     let [x, y] = p.position_document.0;
@@ -130,7 +152,11 @@ impl Scene {
                         color,
                     )?;
                 }
-                for pair in points.windows(2) {
+                for (index, pair) in points.windows(2).enumerate() {
+                    let end_index = index + 1;
+                    if breaks.is_some_and(|indices| indices.contains(&end_index)) {
+                        continue;
+                    }
                     let [x, y] = pair[0].position_document.0;
                     let [xx, yy] = pair[1].position_document.0;
                     let dx = xx - x;
@@ -172,6 +198,14 @@ pub struct CanvasMapping {
     origin: [f64; 2],
     document: [f64; 2],
     viewport: [f64; 4],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClippedSegment {
+    pub start_client: [f64; 2],
+    pub end_client: [f64; 2],
+    pub start_t: f64,
+    pub end_t: f64,
 }
 impl CanvasMapping {
     pub fn new(size: [u32; 2]) -> Result<Self, SceneError> {
@@ -235,6 +269,93 @@ impl CanvasMapping {
     }
     pub fn document_size(self) -> [f64; 2] {
         self.document
+    }
+    pub fn document_to_client(self, document: [f64; 2]) -> Result<[f64; 2], SceneError> {
+        if !document.iter().all(|value| value.is_finite()) {
+            return Err(SceneError::InvalidCoordinates);
+        }
+        let client = [
+            self.origin[0] + document[0] * self.scale,
+            self.origin[1] + document[1] * self.scale,
+        ];
+        if client.iter().all(|value| value.is_finite()) {
+            Ok(client)
+        } else {
+            Err(SceneError::InvalidCoordinates)
+        }
+    }
+    /// True when a physical client point belongs to the window, including UI
+    /// panels and margins outside the document.
+    pub fn contains_window_client(self, client: [f64; 2]) -> bool {
+        client.iter().all(|value| value.is_finite())
+            && client[0] >= 0.0
+            && client[1] >= 0.0
+            && client[0] <= self.size[0]
+            && client[1] <= self.size[1]
+    }
+    /// True when a point lies in the workspace viewport that hosts the canvas.
+    pub fn contains_workspace_client(self, client: [f64; 2]) -> bool {
+        client.iter().all(|value| value.is_finite())
+            && client[0] >= self.viewport[0]
+            && client[1] >= self.viewport[1]
+            && client[0] <= self.viewport[2]
+            && client[1] <= self.viewport[3]
+    }
+    /// Clip a physical client-space pointer segment to the document rectangle.
+    /// Returned endpoints are on or inside the paper; `start_t/end_t` identify
+    /// whether either end was clipped. No out-of-document sample reaches Router.
+    pub fn clip_segment_client(
+        self,
+        from_client: [f64; 2],
+        to_client: [f64; 2],
+    ) -> Result<Option<ClippedSegment>, SceneError> {
+        let from = self
+            .routing_viewport()
+            .to_document(from_client)
+            .map_err(|_| SceneError::InvalidCoordinates)?
+            .0;
+        let to = self
+            .routing_viewport()
+            .to_document(to_client)
+            .map_err(|_| SceneError::InvalidCoordinates)?
+            .0;
+        if !from.iter().chain(to.iter()).all(|v| v.is_finite()) {
+            return Err(SceneError::InvalidCoordinates);
+        }
+        let delta = [to[0] - from[0], to[1] - from[1]];
+        let mut start_t: f64 = 0.0;
+        let mut end_t: f64 = 1.0;
+        for (origin, direction, limit) in [
+            (from[0], delta[0], self.document[0]),
+            (from[1], delta[1], self.document[1]),
+        ] {
+            if direction == 0.0 {
+                if origin < 0.0 || origin > limit {
+                    return Ok(None);
+                }
+                continue;
+            }
+            let near = (0.0 - origin) / direction;
+            let far = (limit - origin) / direction;
+            start_t = start_t.max(near.min(far));
+            end_t = end_t.min(near.max(far));
+            if start_t > end_t {
+                return Ok(None);
+            }
+        }
+        let point = |t: f64| [from[0] + delta[0] * t, from[1] + delta[1] * t];
+        let to_client = |doc: [f64; 2]| {
+            [
+                self.origin[0] + doc[0] * self.scale,
+                self.origin[1] + doc[1] * self.scale,
+            ]
+        };
+        Ok(Some(ClippedSegment {
+            start_client: to_client(point(start_t)),
+            end_client: to_client(point(end_t)),
+            start_t,
+            end_t,
+        }))
     }
     /// Inverse of the displayed document mapping for the shared stroke router.
     pub fn routing_viewport(self) -> paint_stroke::coordinates::Viewport {

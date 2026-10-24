@@ -37,6 +37,7 @@ pub fn commands(text: &str) -> Result<Vec<StrokeCommand>, ParseError> {
 fn time(c: &StrokeCommand) -> u64 {
     match c {
         StrokeCommand::BeginStroke { sample, .. }
+        | StrokeCommand::BreakStrokeSegment { sample, .. }
         | StrokeCommand::UpdateStroke { sample, .. }
         | StrokeCommand::CommitStroke { sample, .. } => sample.time_ms,
         StrokeCommand::CancelStroke { time_ms, .. } => *time_ms,

@@ -22,6 +22,13 @@ pub enum MouseEvent {
     Resized([u32; 2]),
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PenTrack {
+    raw_client: [f64; 2],
+    last_paper_client: [f64; 2],
+    raw_sample: PointerSample,
+}
+
 /// One logical mouse stream. Reused pointer ID 1 is normalized by Processor;
 /// Router's monotonically increasing stroke IDs are never reset by clear/mode switches.
 pub struct LiveMouse {
@@ -33,6 +40,8 @@ pub struct LiveMouse {
     mapping: Option<CanvasMapping>,
     cursor: Option<[f64; 2]>,
     primary_down: bool,
+    last_mouse_paper: Option<[f64; 2]>,
+    pen_tracks: std::collections::BTreeMap<u64, PenTrack>,
     focused: bool,
     inside: bool,
     time_ms: u64,
@@ -51,6 +60,8 @@ impl LiveMouse {
             mapping: CanvasMapping::new(size).ok(),
             cursor: None,
             primary_down: false,
+            last_mouse_paper: None,
+            pen_tracks: Default::default(),
             focused: true,
             inside: false,
             time_ms: 0,
@@ -101,26 +112,65 @@ impl LiveMouse {
             }
         }
         self.primary_down = false;
+        self.last_mouse_paper = None;
+        self.pen_tracks.clear();
         self.cursor = None;
     }
+
+    /// Feed only the portion of a raw pointer segment inside the document. A
+    /// re-entry begins a new subpath under the same routed StrokeId.
+    fn clipped_move(
+        &mut self,
+        pointer_id: u64,
+        from: [f64; 2],
+        to: [f64; 2],
+        previous: PointerSample,
+        mut sample: PointerSample,
+    ) -> Option<[f64; 2]> {
+        let clipped = self.mapping?.clip_segment_client(from, to).ok()??;
+        let endpoint_sample = sample;
+        sample.phase = Phase::Move;
+        sample.in_contact = true;
+        if clipped.start_t > 1e-10 || clipped.start_t == clipped.end_t {
+            self.router.break_before_next_move(pointer_id);
+            sample.position_px = clipped.start_client;
+            interpolate_attributes(&mut sample, previous, clipped.start_t);
+            self.consume(sample);
+        }
+        if clipped.end_t - clipped.start_t > 1e-10 {
+            sample = endpoint_sample;
+            sample.position_px = clipped.end_client;
+            if clipped.end_t < 1.0 - 1e-10 {
+                interpolate_attributes(&mut sample, previous, clipped.end_t);
+            }
+            self.consume(sample);
+        }
+        if clipped.end_t < 1.0 - 1e-10 {
+            self.router.break_before_next_move(pointer_id);
+        }
+        Some(clipped.end_client)
+    }
+
     pub fn pen(&mut self, mut sample: PointerSample) {
         self.last_pen = if self.focused && paint_input::lifecycle::valid_sample(&sample) {
             Some(sample)
         } else {
             None
         };
+        let native_id = sample.id;
         sample.id |= 1 << 63; // Disjoint from the logical mouse stream.
         self.time_ms = self.time_ms.max(sample.timestamp_ms);
         sample.timestamp_ms = self.time_ms;
         if sample.phase == Phase::Cancel {
+            self.pen_tracks.remove(&native_id);
             self.consume(sample);
             return;
         }
-        if !self.focused
-            || !self
-                .mapping
-                .is_some_and(|m| m.contains_client(sample.position_px))
-        {
+        let Some(mapping) = self.mapping else {
+            return;
+        };
+        if !self.focused || !mapping.contains_window_client(sample.position_px) {
+            self.pen_tracks.remove(&native_id);
             for output in self.processor.process(PointerSample {
                 phase: Phase::Cancel,
                 in_contact: false,
@@ -133,11 +183,93 @@ impl LiveMouse {
             }
             return;
         }
-        if sample.phase == Phase::Down {
-            self.router
-                .set_viewport(self.mapping.expect("checked mapping").routing_viewport());
+
+        if sample.tool != Tool::Pen {
+            if matches!(sample.phase, Phase::Up | Phase::Cancel) {
+                self.pen_tracks.remove(&native_id);
+            }
+            self.consume(sample);
+            return;
         }
-        self.consume(sample);
+
+        match sample.phase {
+            Phase::Hover => self.consume(sample),
+            Phase::Down => {
+                if !mapping.contains_client(sample.position_px) {
+                    self.pen_tracks.remove(&native_id);
+                    self.consume(PointerSample {
+                        phase: Phase::Cancel,
+                        in_contact: false,
+                        ..sample
+                    });
+                    return;
+                }
+                if self.processor.active().contains_key(&sample.id)
+                    || self.processor.active().len() >= paint_input::lifecycle::MAX_CONTACTS
+                    || self.pen_tracks.len() >= paint_input::lifecycle::MAX_CONTACTS
+                {
+                    return;
+                }
+                self.router.set_viewport(mapping.routing_viewport());
+                self.pen_tracks.insert(
+                    native_id,
+                    PenTrack {
+                        raw_client: sample.position_px,
+                        last_paper_client: sample.position_px,
+                        raw_sample: sample,
+                    },
+                );
+                self.consume(sample);
+            }
+            Phase::Move => {
+                let Some(track) = self.pen_tracks.get(&native_id).copied() else {
+                    self.consume(sample);
+                    return;
+                };
+                if let Some(last) = self.clipped_move(
+                    sample.id,
+                    track.raw_client,
+                    sample.position_px,
+                    track.raw_sample,
+                    sample,
+                ) {
+                    self.pen_tracks.insert(
+                        native_id,
+                        PenTrack {
+                            raw_client: sample.position_px,
+                            last_paper_client: last,
+                            raw_sample: sample,
+                        },
+                    );
+                } else if let Some(track) = self.pen_tracks.get_mut(&native_id) {
+                    track.raw_client = sample.position_px;
+                    track.raw_sample = sample;
+                }
+            }
+            Phase::Up => {
+                let Some(track) = self.pen_tracks.get(&native_id).copied() else {
+                    self.consume(sample);
+                    return;
+                };
+                let last_paper = self
+                    .clipped_move(
+                        sample.id,
+                        track.raw_client,
+                        sample.position_px,
+                        track.raw_sample,
+                        sample,
+                    )
+                    .unwrap_or(track.last_paper_client);
+                sample.position_px = if mapping.contains_client(sample.position_px) {
+                    sample.position_px
+                } else {
+                    last_paper
+                };
+                self.pen_tracks.remove(&native_id);
+                self.consume(sample);
+            }
+            Phase::Cancel => unreachable!("handled above"),
+        }
     }
     fn consume(&mut self, sample: PointerSample) {
         for output in self.processor.process(sample) {
@@ -159,8 +291,11 @@ impl LiveMouse {
         }
     }
     fn sample(&mut self, phase: Phase, position: [f64; 2]) {
+        self.consume(self.mouse_sample(phase, position));
+    }
+    fn mouse_sample(&self, phase: Phase, position: [f64; 2]) -> PointerSample {
         let contact = matches!(phase, Phase::Down | Phase::Move);
-        let sample = PointerSample {
+        PointerSample {
             source_counter: None,
             id: 1,
             timestamp_ms: self.time_ms,
@@ -175,8 +310,7 @@ impl LiveMouse {
             },
             in_contact: contact,
             in_range: true,
-        };
-        self.consume(sample);
+        }
     }
     pub fn clear(&mut self, time_ms: u64) {
         self.time_ms = self.time_ms.max(time_ms);
@@ -218,13 +352,29 @@ impl LiveMouse {
             }
             MouseEvent::Moved(position) => {
                 self.inside = true;
-                if !self.mapping.is_some_and(|m| m.contains_client(position)) {
+                if !position.iter().all(|value| value.is_finite())
+                    || self
+                        .mapping
+                        .is_some_and(|mapping| !mapping.contains_window_client(position))
+                {
                     self.interrupt(Reason::Interrupted);
                     return;
                 }
+                let previous = self.cursor;
                 self.cursor = Some(position);
-                if self.focused && self.primary_down && self.active() {
-                    self.sample(Phase::Move, position);
+                if self.focused
+                    && self.primary_down
+                    && self.active()
+                    && let Some(previous) = previous
+                    && let Some(last) = self.clipped_move(
+                        1,
+                        previous,
+                        position,
+                        self.mouse_sample(Phase::Move, previous),
+                        self.mouse_sample(Phase::Move, position),
+                    )
+                {
+                    self.last_mouse_paper = Some(last);
                 }
             }
             MouseEvent::Button {
@@ -246,6 +396,7 @@ impl LiveMouse {
                     }
                     self.router.set_viewport(mapping.routing_viewport());
                     self.primary_down = true;
+                    self.last_mouse_paper = Some(position);
                     self.notice = None;
                     self.document_error = None;
                     self.sample(Phase::Down, position);
@@ -253,16 +404,51 @@ impl LiveMouse {
                     self.primary_down = false;
                     if self.active() {
                         if let Some(position) = self.cursor {
-                            self.sample(Phase::Up, position);
+                            let final_position = if self
+                                .mapping
+                                .is_some_and(|mapping| mapping.contains_client(position))
+                            {
+                                Some(position)
+                            } else {
+                                self.last_mouse_paper
+                            };
+                            if let Some(position) = final_position {
+                                self.sample(Phase::Up, position);
+                            } else {
+                                self.interrupt(Reason::Interrupted);
+                            }
                         } else {
                             self.interrupt(Reason::Interrupted);
                         }
                     }
+                    self.last_mouse_paper = None;
                 }
             }
             MouseEvent::Button { primary: false, .. } => {} // Right/middle never paint.
         }
     }
+}
+
+fn interpolate_attributes(sample: &mut PointerSample, from: PointerSample, t: f64) {
+    fn lerp_option(a: Option<f32>, b: Option<f32>, t: f64) -> Option<f32> {
+        match (a, b) {
+            (Some(a), Some(b)) => Some(a + (b - a) * t as f32),
+            _ => None,
+        }
+    }
+    sample.pressure = lerp_option(from.pressure, sample.pressure, t);
+    for axis in 0..2 {
+        sample.tilt_degrees[axis] =
+            lerp_option(from.tilt_degrees[axis], sample.tilt_degrees[axis], t);
+    }
+    if t < 1.0 - 1e-10 {
+        sample.source_counter = None;
+    }
+    let fraction = t.clamp(0.0, 1.0);
+    let elapsed = sample.timestamp_ms.saturating_sub(from.timestamp_ms);
+    sample.timestamp_ms = from
+        .timestamp_ms
+        .saturating_add((elapsed as f64 * fraction).round() as u64);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
