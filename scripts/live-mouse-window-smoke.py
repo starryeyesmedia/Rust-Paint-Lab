@@ -109,11 +109,11 @@ with log_path.open('w') as log:
         status('1 completed')
         click_button(1, True)
         status('DRAWING')
-        move(2, 2)  # Outside paper: cancel.
-        status('READY')
+        move(2, 2)  # Outside paper but inside window: keep the contact active.
+        status('DRAWING')
         move(200, 220)
         click_button(1, False)
-        status('1 completed')
+        status('2 completed')
         click_button(1, True)
         status('DRAWING')
         focus(display, root, 2, 0)
@@ -129,7 +129,7 @@ with log_path.open('w') as log:
         status('REPLAY')
         click_button(1, False)
         key('l')
-        status('1 completed')
+        status('2 completed')
         key('c')
         status('0 completed')
         resize(display, window, 832, 532)
@@ -141,7 +141,7 @@ with log_path.open('w') as log:
         status('1 completed')
         key('Escape')
         assert process.wait(timeout=15) == 0
-        print('LIVE_WINDOW_SMOKE: PASSED (OS mouse events, right-button exclusion, boundary/focus cancellation, modes, clear, resize, close)')
+        print('LIVE_WINDOW_SMOKE: PASSED (OS mouse events, right-button exclusion, artboard exit/re-entry, focus cancellation, modes, clear, resize, close)')
     finally:
         if process.poll() is None:
             process.terminate()
