@@ -71,6 +71,14 @@ work below.
   llvmpipe GPU pixel suite, Windows GNU target workspace check/Clippy, and local
   strict Clippy pass. The hit-test change is not included in the in-progress
   `039fa2a` Actions run.
+- Actions run [`40123715340`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40123715340)
+  still fails Linux at the same `TEST FILE PICKER` timeout; the UI-level latch in
+  `039fa2a` did not resolve it. At last inspection macOS was packaging and Windows
+  was building the canvas executable. The new uncommitted correction intercepts
+  physical or logical Enter/Numpad Enter at winit and transfers the selected test
+  action directly into the next Studio frame instead of asking the modal widget to
+  read the key. It also emits test-only diagnostic markers so a further failure
+  identifies which dispatch stage ran. This needs a fresh Xvfb run.
 
 ### Next Phase 8.1 work
 

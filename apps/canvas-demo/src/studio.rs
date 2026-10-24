@@ -548,17 +548,24 @@ impl Studio {
         // workflow harness. Latch its submit key at the winit boundary: egui
         // text editing and platform shortcut handling can otherwise consume
         // Enter before the modal observes it.
-        if self.test_path_dialog
+        let test_dialog_enter = self.test_path_dialog
             && self.manual_file_dialog
-            && let E::KeyboardInput { event, .. } = event
-            && event.state == ElementState::Pressed
             && matches!(
-                event.physical_key,
-                winit::keyboard::PhysicalKey::Code(
-                    winit::keyboard::KeyCode::Enter | winit::keyboard::KeyCode::NumpadEnter
-                )
-            )
-        {
+                event,
+                E::KeyboardInput { event, .. }
+                    if event.state == ElementState::Pressed
+                        && (matches!(
+                            event.physical_key,
+                            winit::keyboard::PhysicalKey::Code(
+                                winit::keyboard::KeyCode::Enter
+                                    | winit::keyboard::KeyCode::NumpadEnter
+                            )
+                        )
+                        || event.logical_key
+                            == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter))
+            );
+        if test_dialog_enter {
+            eprintln!("TEST_PATH_DIALOG: Enter received at winit boundary");
             self.manual_file_submit = true;
             window.request_redraw();
             return (true, true);
@@ -2223,8 +2230,7 @@ ui.add(egui::Label::new(pen_status).truncate());
                 // Plain Enter works in the new-document form but can be consumed
                 // by this focused text field. Read it before the TextEdit handles
                 // the event so the headless workflow can reliably submit the path.
-                let submit = std::mem::take(&mut self.manual_file_submit)
-                    || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let submit = ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
                 ui.horizontal(|ui| {
                     if ui.button("Continue").clicked() || submit {
@@ -2311,6 +2317,14 @@ ui.add(egui::Label::new(pen_status).truncate());
         let raw = self.input.take_egui_input(window);
         let ctx = self.context.clone();
         let mut actions = Vec::new();
+        if self.test_path_dialog && self.manual_file_dialog && self.manual_file_submit {
+            self.manual_file_submit = false;
+            self.manual_file_dialog = false;
+            if let Some(action) = self.manual_file_action.take() {
+                eprintln!("TEST_PATH_DIALOG: queued action for deterministic submission");
+                actions.push(action);
+            }
+        }
         let mut central = egui::Rect::NOTHING;
         let mut approved = false;
         let mut output = ctx.run(raw, |ctx| {
