@@ -37,6 +37,7 @@ impl Graphics {
     async fn new(
         event_loop: &ActiveEventLoop,
         _proxy: winit::event_loop::EventLoopProxy<()>,
+        _epoch: Instant,
     ) -> Result<Self, Failure> {
         let window = Arc::new(
             event_loop.create_window(
@@ -47,7 +48,7 @@ impl Graphics {
             )?,
         );
         #[cfg(windows)]
-        let capture = windows_capture::Observer::install(window.clone(), _proxy)?;
+        let capture = windows_capture::Observer::install(window.clone(), _proxy, _epoch)?;
         let mut descriptor = wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
             event_loop.owned_display_handle(),
         ));
@@ -181,13 +182,21 @@ impl App {
     }
     fn check_capture(&mut self) {
         #[cfg(windows)]
-        if self
-            .graphics
-            .as_ref()
-            .is_some_and(|g| g.capture.take_lost())
-            && self.session.live().active()
-        {
-            self.mouse(MouseEvent::CaptureLost);
+        if let Some(g) = &self.graphics {
+            let lost = g.capture.take_lost();
+            let events = g.capture.drain_pen();
+            if lost {
+                self.mouse(MouseEvent::CaptureLost);
+            } else if !events.is_empty() {
+                for event in events {
+                    let _source_counter = event.performance_count;
+                    self.session.pen(event.sample);
+                }
+                self.needs_redraw = true;
+                if let Some(g) = &self.graphics {
+                    g.window.request_redraw();
+                }
+            }
         }
     }
     fn reset_replay_clock(&mut self) {
@@ -219,7 +228,7 @@ impl ApplicationHandler for App {
     }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.graphics.is_none() {
-            match pollster::block_on(Graphics::new(event_loop, self.proxy.clone())) {
+            match pollster::block_on(Graphics::new(event_loop, self.proxy.clone(), self.clock)) {
                 Ok(graphics) => {
                     self.session
                         .mouse(MouseEvent::Resized(graphics.size), self.time_ms());

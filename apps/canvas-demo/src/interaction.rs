@@ -70,6 +70,47 @@ impl LiveMouse {
         self.primary_down = false;
         self.cursor = None;
     }
+    pub fn pen(&mut self, mut sample: PointerSample) {
+        sample.id |= 1 << 63; // Disjoint from the logical mouse stream.
+        self.time_ms = self.time_ms.max(sample.timestamp_ms);
+        sample.timestamp_ms = self.time_ms;
+        if sample.phase == Phase::Cancel {
+            self.consume(sample);
+            return;
+        }
+        if !self.focused
+            || !self
+                .mapping
+                .is_some_and(|m| m.contains_client(sample.position_px))
+        {
+            for output in self.processor.process(PointerSample {
+                phase: Phase::Cancel,
+                in_contact: false,
+                ..sample
+            }) {
+                if let Some(command) = self.router.route(&output) {
+                    let _ = self.scene.apply(&command);
+                }
+            }
+            return;
+        }
+        if sample.phase == Phase::Down {
+            self.router
+                .set_viewport(self.mapping.expect("checked mapping").routing_viewport());
+        }
+        self.consume(sample);
+    }
+    fn consume(&mut self, sample: PointerSample) {
+        for output in self.processor.process(sample) {
+            if let Some(command) = self.router.route(&output)
+                && let Err(error) = self.scene.apply(&command)
+            {
+                self.notice = Some(error);
+                self.interrupt(Reason::Interrupted);
+                break;
+            }
+        }
+    }
     fn sample(&mut self, phase: Phase, position: [f64; 2]) {
         let contact = matches!(phase, Phase::Down | Phase::Move);
         let sample = PointerSample {
@@ -87,15 +128,7 @@ impl LiveMouse {
             in_contact: contact,
             in_range: true,
         };
-        for output in self.processor.process(sample) {
-            if let Some(command) = self.router.route(&output)
-                && let Err(error) = self.scene.apply(&command)
-            {
-                self.notice = Some(error);
-                self.interrupt(Reason::Interrupted);
-                break;
-            }
-        }
+        self.consume(sample);
     }
     pub fn clear(&mut self, time_ms: u64) {
         self.time_ms = self.time_ms.max(time_ms);
@@ -197,6 +230,11 @@ impl CanvasSession {
             playback: Playback::new(Scenario::Completed).expect("built-in valid replay"),
             mode: Mode::Live,
             scenario: Scenario::Completed,
+        }
+    }
+    pub fn pen(&mut self, sample: PointerSample) {
+        if self.mode == Mode::Live {
+            self.live.pen(sample);
         }
     }
     pub fn live(&self) -> &LiveMouse {

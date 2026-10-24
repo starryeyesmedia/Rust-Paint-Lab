@@ -6,7 +6,7 @@ by Fresco, Krita, and Procreate. Initial hands-on target: Galaxy Book2 Pro 360
 (Windows 10, Intel Iris Xe, 16 GB). Future targets: Windows/Linux/macOS, Android
 with S Pen, and eventually iPadOS. Favor low latency, accessibility, reliable local
 autosave/recovery, open formats, and modest resource use. No telemetry, accounts,
-or cloud service requirements. Do not attempt the full product in one task.
+or cloud service requirements. Overdrive explicitly authorizes a multi-checkpoint program; deliver tested vertical slices and maintain docs/OVERDRIVE-PROGRESS.md.
 
 ## Architecture boundaries
 - `crates/input`: safe, OS-independent input structures, normalization, bounded lifecycle processing, and deterministic replay. No
@@ -17,7 +17,7 @@ or cloud service requirements. Do not attempt the full product in one task.
 - `apps/canvas-demo`: winit/wgpu shell with separate live mouse and replay sessions,
   bounded transaction state, CPU polyline geometry, and GPU rendering. Graphics
   dependencies stay here. The Windows capture observer is isolated in the binary;
-  no OS APIs enter shared input/routing logic. No pen integration, persistence,
+  no OS APIs enter shared input/routing logic. Overdrive adds pen integration, persistence,
   layers, or brush algorithms in the current mouse milestone.
 - `apps/stylus-diagnostic`: disposable diagnostic shell, not the future app core.
   Win32 calls stay in its Windows module with documented unsafe invariants.
@@ -81,7 +81,7 @@ or cloud service requirements. Do not attempt the full product in one task.
   live work across mode switches; clear is an explicit user action.
 - Capacity errors cancel previews and show feedback, not a fatal app exit.
 - Capture FFI is confined to windows_capture.rs with documented unsafe blocks;
-  do not add competing loops or native pen APIs. Winit remains capture owner.
+  do not add competing loops; native pen adapters stay isolated here. Winit remains capture owner.
 - Run mouse tests, GPU pixel validation, and Linux Xvfb/XTest interaction smoke.
   Distinguish these from pending manual Windows mouse/capture validation.
 
@@ -91,8 +91,7 @@ interfaces, established maintained dependencies, and explicit errors. Keep
 platform dependencies target-gated. Add dependencies only for current needs;
 update Cargo.lock and `docs/dependencies.md` with versions/licenses and notices.
 Do not select a project distribution license without the owner's decision.
-Keep features focused; no layers, vectors, natural media, or complex brush engine
-until separately scoped. Do not add device identifiers to persistent logs by default.
+Overdrive authorizes raster brushes, documents/layers/history, safe storage, exports, and usable controls in P0 order; expand only after verified slices. Do not add device identifiers to persistent logs by default.
 
 ## Required validation
 Before committing run:
@@ -116,3 +115,6 @@ Record commands, outcomes, and unrun checks honestly.
 ## Git
 Work on feature branches, never directly on main. Preserve existing work. Do not
 merge or create releases unless separately requested. Keep commits reviewable.
+
+## Overdrive protocol
+Maintain docs/OVERDRIVE-PROGRESS.md with exact tested checkpoints, partial/missing features, measured results, defects and continuation steps. Commit each working slice. Artwork preservation precedes optional expansion. Never count a control without behavior as a completed feature.
