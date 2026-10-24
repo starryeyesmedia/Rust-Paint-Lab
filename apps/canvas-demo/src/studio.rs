@@ -269,7 +269,7 @@ impl Studio {
                 if ui.add_enabled(session.live().project().redo_count()>0,egui::Button::new("Redo")).clicked(){actions.push(Action::Redo);}
                 ui.checkbox(&mut self.theme_dark,"Dark");
             });});
-            egui::TopBottomPanel::bottom("status").show(ctx,|ui|{ui.label(&self.status);ui.small(format!("{}×{} | {} dpi | {} tiles | {} undo | CPU composite/upload-submit {} µs | frame {} µs",session.live().project().state().width,session.live().project().state().height,session.live().project().state().dpi,session.live().project().state().tile_count(),session.live().project().undo_count(),self.last_upload_us,self.last_frame_us));});
+            egui::TopBottomPanel::bottom("status").show(ctx,|ui|{if let Some(error)=session.live().document_error(){ui.colored_label(egui::Color32::LIGHT_RED,error);}else{ui.label(&self.status);}ui.small(format!("{}×{} | {} dpi | {} tiles | {} undo | CPU composite/upload-submit {} µs | frame {} µs",session.live().project().state().width,session.live().project().state().height,session.live().project().state().dpi,session.live().project().state().tile_count(),session.live().project().undo_count(),self.last_upload_us,self.last_frame_us));});
             egui::SidePanel::right("painting controls").default_width(240.0).show(ctx,|ui|{egui::ScrollArea::vertical().show(ui,|ui|{
                 ui.heading("Brush");let project=session.live_mut().project_mut();
                 egui::ComboBox::from_label("Preset").selected_text(format!("{:?}",project.brush.kind)).show_ui(ui,|ui|{for k in [BrushKind::Round,BrushKind::Ink,BrushKind::Pencil,BrushKind::Marker,BrushKind::Airbrush,BrushKind::Soft,BrushKind::Textured,BrushKind::Calligraphy,BrushKind::Eraser,BrushKind::Wash]{if ui.selectable_label(project.brush.kind==k,format!("{k:?}")).clicked(){let color=project.brush.color;project.brush=Brush::preset(k);project.brush.color=color;}}});
@@ -400,6 +400,7 @@ if ui.button("Cancel").clicked(){self.close_requested=false;}});}
                 self.recovery = Some(next);
                 *project = Engine::new(self.new_width, self.new_height, self.new_dpi)?;
                 self.store = None;
+                self.path = "new-artwork.rpl".into();
                 self.last_submitted = u64::MAX;
             }
             Action::Open | Action::Recover(_) => {

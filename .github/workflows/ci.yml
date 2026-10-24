@@ -177,3 +177,29 @@ jobs:
           path: target/windows-canvas-package/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Package Linux or macOS painting alpha
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p canvas-demo
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          package=target/desktop-alpha-package
+          mkdir -p "$package"
+          cp target/release/canvas-demo "$package/"
+          cp docs/overdrive-user-guide.md "$package/README.md"
+          cp docs/desktop-package-README.txt "$package/README.txt"
+          python3 scripts/canvas-licenses.py --target "$host" --output "$package/THIRD-PARTY-NOTICES.txt"
+          { echo "Commit: $GITHUB_SHA"; rustc --version; echo "Target: $host"; echo 'Unsigned development alpha; no notarization'; } > "$package/BUILD.txt"
+          if [ "$RUNNER_OS" = Linux ]; then ldd target/release/canvas-demo > "$package/SYSTEM-LIBRARIES.txt"; else otool -L target/release/canvas-demo > "$package/SYSTEM-LIBRARIES.txt"; fi
+          (cd "$package" && shasum -a 256 canvas-demo > SHA256SUMS.txt)
+          tar -czf target/painting-alpha.tar.gz -C "$package" .
+      - name: Upload Linux or macOS painting alpha
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-paint-lab-${{ runner.os }}-${{ runner.arch }}-alpha
+          path: target/painting-alpha.tar.gz
+          if-no-files-found: error
+          retention-days: 30

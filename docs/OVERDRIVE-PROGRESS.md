@@ -10,7 +10,8 @@ Baseline: e29a98c, Phase 5; GitHub Actions run 40047220819 succeeded on all thre
 - Phase 5 baseline e29a98c; Actions 40047220819, Windows/Linux/macOS success.
 - Native pen checkpoint d97c3c4; Actions 40048248605, all three platforms success;
   70 Rust tests plus required software GPU runner. Physical integration tests pending.
-- Raster/document/UI checkpoint: local validation below; matrix pending push.
+- Raster/document/UI checkpoint d322c55: 87 Rust tests plus raster GPU checks;
+  Actions 40051472347 Linux/macOS succeeded, Windows still running at this update.
 
 ## Architecture decisions
 
@@ -83,3 +84,27 @@ not physical watercolor simulation. UI editing/painting hardware tests are pendi
    OpenRaster. Touch navigation/timelapse follow stable P0 workflows.
 5. Editable vectors, JPEG/WebP/TIFF/PSD investigation, Android functional APK and
    video remain later P2 work. Do not count them as delivered.
+
+
+## History and storage hardening checkpoint
+
+Unique Arc tile allocations now count once per history queue. Both benchmark
+workloads retain 32 steps instead of 8/2. This trades bookkeeping CPU time for
+usable history: same release workload measured 1171/1649ms raster at 2048²/4096²,
+18/70ms encode, 18/65ms decode, 13/59ms for 32 undo plus 32 redo operations.
+No statistical/hardware latency claim. Future optimization: incremental reference
+accounting or patches, after profiling. Snapshot queue remains capped at 128 MiB
+unique tile payload; metadata adds bounded overhead (32 states × 32 layers).
+
+Four additional tests cover shared allocation accounting, checksum-valid malformed
+metadata plus deterministic mutation corpus, cooperative writer locking, and PNG
+no-overwrite. Workspace now has 91 Rust tests plus separate required GPU runner.
+Drawing failures now surface a document-specific status, not only a legacy capacity
+notice. New documents reset the default save path; recovery keeps distinct per-
+document lineages. Artifact workflow additionally produces native Linux/macOS tar
+packages with architecture/build ID, system import list and target-specific notices;
+these still require system graphics/desktop libraries and are unsigned/unnotarized.
+
+Pending P0 refinements: recent documents, recovery retention UI, full operation
+journal and asynchronous explicit save. Current snapshot recovery is usable and
+fault-tested but these refinements are not claimed. Do not silently delete recovery.

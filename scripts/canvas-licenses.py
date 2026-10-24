@@ -18,6 +18,10 @@ SUPPLEMENTAL = {
 }
 
 SUPPLEMENTAL.update({
+    ("dispatch2","0.3.1"): ["objc2-LICENSE.md"],
+    ("dispatch","0.2.0"): ["dispatch-MIT.txt"],
+    ("block2","0.5.1"): ["block2-MIT.txt"],
+    ("block","0.1.6"): ["block-MIT.txt"],
     ("clipboard-win","5.4.3"): ["clipboard.txt"],
     ("spirv","0.3.0+sdk-1.3.268.0"): ["spirv27.txt"],
     ("hexf-parse","0.2.1"): ["CC0-1.0.txt"],
@@ -29,13 +33,16 @@ SUPPLEMENTAL.update({
 for package in ["egui","emath","ecolor","epaint","egui-wgpu","egui-winit"]:
     SUPPLEMENTAL[(package,"0.33.3")]=["egui-APACHE.txt","egui-MIT.txt"]
 
+SUPPLEMENTAL.update({('objc-sys', '0.3.5'): ['objc-4fc083f1.txt'], ('objc2', '0.5.3'): ['objc-5237cbf0.txt'], ('objc2', '0.6.5'): ['objc-d7d2fa23.txt'], ('objc2-app-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-app-kit', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-cloud-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-contacts', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-data', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-foundation', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-core-graphics', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-core-image', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-location', '0.2.2'): ['objc-e282618b.txt'], ('objc2-encode', '4.1.0'): ['objc-8d214f54.txt'], ('objc2-foundation', '0.2.2'): ['objc-e282618b.txt'], ('objc2-foundation', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-io-surface', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-link-presentation', '0.2.2'): ['objc-e282618b.txt'], ('objc2-metal', '0.2.2'): ['objc-e282618b.txt'], ('objc2-metal', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-quartz-core', '0.2.2'): ['objc-e282618b.txt'], ('objc2-quartz-core', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-symbols', '0.2.2'): ['objc-e282618b.txt'], ('objc2-ui-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-uniform-type-identifiers', '0.2.2'): ['objc-e282618b.txt'], ('objc2-user-notifications', '0.2.2'): ['objc-e282618b.txt'], ('malloc_buf', '0.0.6'): ['malloc-MIT.txt']})
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--inventory", action="store_true")
+parser.add_argument("--target", default="x86_64-pc-windows-msvc")
 parser.add_argument("--output", type=Path, required=True)
 args = parser.parse_args()
 command = ["cargo", "metadata", "--locked", "--format-version", "1"]
 if not args.inventory:
-    command += ["--filter-platform", "x86_64-pc-windows-msvc"]
+    command += ["--filter-platform", args.target]
 metadata = json.loads(subprocess.check_output(command, cwd=ROOT))
 packages = {p["id"]: p for p in metadata["packages"]}
 if args.inventory:
@@ -61,7 +68,7 @@ if args.inventory:
     text += [f"| {p['name']} | {p['version']} | {p['license'] or 'SEE LICENSE FILE'} |" for p in selected]
 else:
     text = ["Rust Paint Lab canvas demo: third-party license notices",
-            "Generated from the locked Windows canvas dependency graph.",
+            f"Generated from the locked {args.target} canvas dependency graph.",
             "Original project source has no selected distribution license; these notices cover third-party code only."]
     for package in selected:
         name, version = package["name"], package["version"]

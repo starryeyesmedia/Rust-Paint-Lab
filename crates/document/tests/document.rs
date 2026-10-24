@@ -403,3 +403,97 @@ fn smoothing_connects_to_the_final_unfiltered_endpoint() {
         );
     }
 }
+
+#[test]
+fn history_accounts_shared_tile_allocations_once() {
+    let mut e = Engine::new(128, 128, 300).unwrap();
+    begin(&mut e, 1, 32.0, 32.0);
+    end(&mut e, 1, 32.0, 32.0);
+    for _ in 0..40 {
+        e.edit(|s| {
+            s.layers[0].opacity = 128;
+            Ok(())
+        })
+        .unwrap();
+    }
+    assert_eq!(e.undo_count(), 32);
+    assert_eq!(
+        e.history_bytes()[0],
+        e.state().tile_count() * paint_document::TILE_BYTES
+    );
+    assert!(
+        e.history_bytes()
+            .iter()
+            .all(|n| *n <= paint_document::HISTORY_BYTES)
+    );
+    let saved = e.rgba();
+    for _ in 0..32 {
+        assert!(e.undo());
+    }
+    for _ in 0..32 {
+        assert!(e.redo());
+    }
+    assert_eq!(e.rgba(), saved);
+}
+#[test]
+fn checksum_valid_malformed_metadata_and_mutated_inputs_are_rejected_without_panics() {
+    use sha2::{Digest, Sha256};
+    let bytes = storage::encode(&State::new(64, 64, 300).unwrap()).unwrap();
+    let n = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+    let metadata: serde_json::Value = serde_json::from_slice(&bytes[12..12 + n]).unwrap();
+    for (key, value) in [
+        ("width", serde_json::json!(4294967295u64)),
+        ("height", serde_json::json!(0)),
+        ("layers", serde_json::json!([])),
+        ("selected", serde_json::json!(99)),
+        ("future_feature", serde_json::json!(true)),
+    ] {
+        let mut m = metadata.clone();
+        m[key] = value;
+        let m = serde_json::to_vec(&m).unwrap();
+        let mut bad = b"RPLALP01".to_vec();
+        bad.extend_from_slice(&(m.len() as u32).to_le_bytes());
+        bad.extend(m);
+        bad.extend_from_slice(&0u32.to_le_bytes());
+        bad.extend(Sha256::digest(&bad));
+        assert!(storage::decode(&bad).is_err());
+    }
+    // Deterministic mutation corpus exercises both checksum and structural guards.
+    for i in 0..512 {
+        let mut bad = bytes.clone();
+        let len = bad.len();
+        bad[i % len] ^= (i as u8).wrapping_add(1);
+        let _ = storage::decode(&bad);
+    }
+}
+#[test]
+fn png_refuses_overwriting_artwork_or_an_existing_export() {
+    let p = path("png-protect");
+    let e = Engine::new(64, 64, 300).unwrap();
+    let mut store = Store::new(p.clone());
+    store.save(e.state()).unwrap();
+    let old = std::fs::read(&p).unwrap();
+    assert!(storage::export_png(&p, &e).is_err());
+    assert_eq!(std::fs::read(&p).unwrap(), old);
+    let png = p.with_extension("png");
+    storage::export_png(&png, &e).unwrap();
+    let old = std::fs::read(&png).unwrap();
+    assert!(storage::export_png(&png, &e).is_err());
+    assert_eq!(std::fs::read(png).unwrap(), old);
+}
+#[test]
+fn cooperative_writer_lock_preserves_existing_project() {
+    let p = path("writer-lock");
+    let mut store = Store::new(p.clone());
+    let e = Engine::new(64, 64, 300).unwrap();
+    store.save(e.state()).unwrap();
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(p.with_file_name("art.rpl.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    assert!(matches!(store.save(e.state()), Err(PaintError::Busy)));
+    drop(lock);
+    store.save(e.state()).unwrap();
+}

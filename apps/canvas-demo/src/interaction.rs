@@ -37,6 +37,7 @@ pub struct LiveMouse {
     inside: bool,
     time_ms: u64,
     notice: Option<SceneError>,
+    document_error: Option<String>,
 }
 impl LiveMouse {
     pub fn new(size: [u32; 2]) -> Self {
@@ -53,6 +54,7 @@ impl LiveMouse {
             inside: false,
             time_ms: 0,
             notice: None,
+            document_error: None,
         }
     }
     pub fn project(&self) -> &paint_document::Engine {
@@ -77,6 +79,9 @@ impl LiveMouse {
     }
     pub fn active(&self) -> bool {
         !self.processor.active().is_empty()
+    }
+    pub fn document_error(&self) -> Option<&str> {
+        self.document_error.as_deref()
     }
     pub fn notice(&self) -> Option<SceneError> {
         self.notice
@@ -127,9 +132,10 @@ impl LiveMouse {
         for output in self.processor.process(sample) {
             if let Some(command) = self.router.route(&output) {
                 let result = if self.document_mode {
-                    self.project
-                        .apply(&command)
-                        .map_err(|_| SceneError::Capacity)
+                    self.project.apply(&command).map_err(|error| {
+                        self.document_error = Some(error.to_string());
+                        SceneError::Capacity
+                    })
                 } else {
                     self.scene.apply(&command)
                 };
@@ -170,6 +176,7 @@ impl LiveMouse {
             let _ = self.project.clear_layer();
         }
         self.notice = None;
+        self.document_error = None;
     }
     /// Winit positions and sizes must both be physical client pixels. No second
     /// scale-factor multiplication. Cancellation resets the cursor, requiring a
@@ -225,6 +232,7 @@ impl LiveMouse {
                     self.router.set_viewport(mapping.routing_viewport());
                     self.primary_down = true;
                     self.notice = None;
+                    self.document_error = None;
                     self.sample(Phase::Down, position);
                 } else {
                     self.primary_down = false;

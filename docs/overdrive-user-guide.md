@@ -25,8 +25,8 @@ Layers support add, duplicate, delete, rename, reorder, visibility, lock, opacit
 Normal/Multiply/Screen/Overlay, and clear. Bottom-to-top composition follows layer
 order. Use Undo/Redo for committed strokes and supported layer/background changes.
 Locked/hidden layers reject drawing. Transparency shows a checkerboard. History is
-session-only and bounded (up to 32 snapshots, conservative 128 MiB per history queue);
-large documents can retain far fewer steps. Limits produce an error, never silently
+session-only and bounded (up to 32 snapshots, 128 MiB unique tile payload per history queue);
+large documents with many changed tiles can retain fewer steps. Limits produce an error, never silently
 discard older committed artwork.
 
 Toolbar: New (dimensions/DPI), Open, Save, Save As, Export PNG, Import PNG,

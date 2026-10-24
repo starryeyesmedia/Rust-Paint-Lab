@@ -220,15 +220,22 @@ impl Engine {
             }
         }
     }
+    fn queue_bytes(queue: &VecDeque<State>) -> usize {
+        // Arc identity counts COW allocations once, not once per snapshot/layer.
+        let mut allocations = std::collections::HashSet::new();
+        for s in queue {
+            for tile in s.layers.iter().flat_map(|l| l.tiles.values()) {
+                allocations.insert(Arc::as_ptr(tile));
+            }
+        }
+        allocations.len() * TILE_BYTES
+    }
+    pub fn history_bytes(&self) -> [usize; 2] {
+        [Self::queue_bytes(&self.undo), Self::queue_bytes(&self.redo)]
+    }
     fn retain_history(queue: &mut VecDeque<State>, s: State) {
         queue.push_back(s);
-        while queue.len() > 32
-            || queue
-                .iter()
-                .map(|s| (s.tile_count() * TILE_BYTES) as u64)
-                .sum::<u64>()
-                > HISTORY_BYTES as u64
-        {
+        while queue.len() > 32 || Self::queue_bytes(queue) > HISTORY_BYTES {
             queue.pop_front();
         }
     }
@@ -247,7 +254,7 @@ impl Engine {
         self.cancel_all();
         if let Some(before) = self.undo.pop_back() {
             Self::retain_history(&mut self.redo, std::mem::replace(&mut self.state, before));
-            self.revision += 1;
+            self.revision = self.revision.saturating_add(1);
             self.damage_all();
             true
         } else {
@@ -258,7 +265,7 @@ impl Engine {
         self.cancel_all();
         if let Some(after) = self.redo.pop_back() {
             Self::retain_history(&mut self.undo, std::mem::replace(&mut self.state, after));
-            self.revision += 1;
+            self.revision = self.revision.saturating_add(1);
             self.damage_all();
             true
         } else {

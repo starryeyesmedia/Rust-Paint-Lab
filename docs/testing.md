@@ -142,3 +142,7 @@ checksummed editable save, undo/redo tile results, backup, PNG dimensions and re
 It uses a temporary working/recovery directory. The older mouse window script uses
 `--compat-mouse` to preserve its original regression contract. These tests are not
 physical pen, Windows filesystem, Iris Xe/RTX frame-rate or tablet UX certification.
+
+History hardening adds unique COW allocation accounting and 4 storage/history tests
+(91 total Rust tests). Run the same workspace suite and target-specific license
+notice generator when packaging additional desktop platforms.
