@@ -287,6 +287,7 @@ impl Studio {
             .as_ref()
             .and_then(|p| crate::workspace::load(p))
             .unwrap_or_default();
+        let document_setup = preferences.new_document.clone();
         let references = preferences
             .references
             .iter()
@@ -307,12 +308,12 @@ impl Studio {
             store: None,
             status,
             new_name,
-            new_width: 1600.0,
-            new_height: 1000.0,
-            new_dpi: 300,
-            new_unit: crate::document_setup::DocumentUnit::Pixels,
-            new_background: [255; 3],
-            new_transparent: false,
+            new_width: document_setup.width,
+            new_height: document_setup.height,
+            new_dpi: document_setup.dpi,
+            new_unit: document_setup.unit,
+            new_background: document_setup.background,
+            new_transparent: document_setup.transparent,
             new_dialog: false,
             picker: None,
             manual_file_dialog: false,
@@ -802,6 +803,14 @@ impl Studio {
                 .iter()
                 .map(|reference| reference.layout.clone())
                 .collect(),
+            new_document: crate::workspace::NewDocumentPreferences {
+                width: self.new_width,
+                height: self.new_height,
+                dpi: self.new_dpi,
+                unit: self.new_unit,
+                background: self.new_background,
+                transparent: self.new_transparent,
+            },
             ..Default::default()
         };
         if !preferences.validate() {
@@ -1995,6 +2004,10 @@ ui.add(egui::Label::new(pen_status).truncate());
                 self.last_submitted = u64::MAX;
                 self.welcome = false;
                 self.status = format!("Created {width} × {height} px at {} DPI", self.new_dpi);
+                if let Err(error) = self.persist_workspace() {
+                    self.status =
+                        format!("Document created; setup preference save failed: {error}");
+                }
             }
             Action::Recover(path) => {
                 let (state, fallback) = paint_document::recovery::restore(&path)?;

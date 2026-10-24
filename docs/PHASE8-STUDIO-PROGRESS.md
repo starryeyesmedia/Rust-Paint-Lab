@@ -64,8 +64,8 @@ This is the active continuation record. Phase 7 work remains documented in
 
 - `cargo fmt --all --check`: passed.
 - Workspace Clippy with `-D warnings`: passed.
-- `cargo test --workspace --locked`: passed, **158 tests**, including draft cleanup
-  path validation and storage-backup removal.
+- `cargo test --workspace --locked`: passed, **160 tests**, including draft cleanup
+  and backward-compatible, validated document-setup preference persistence.
 - `cargo build --workspace --locked`: passed.
 - Required offscreen pixel test passed on Mesa llvmpipe/OpenGL. Forcing Vulkan in
   this container did not find a Vulkan adapter; the default backend selected
@@ -79,8 +79,10 @@ This is the active continuation record. Phase 7 work remains documented in
   for `d29bd2f` failed in the Linux window assertion (which expected the old 800 ×
   500 demo size) and macOS supplemental license generation (missing the `block2
   0.6.2` notice). The assertion and full upstream license/provenance were corrected
-  in the next pushed commit. Its Actions run is still in progress; the new draft
-  cleanup is an uncommitted local slice and needs its own Actions run.
+  in the next pushed commit. Run [`40116926028`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40116926028)
+  then passed macOS but failed the Linux alpha window smoke while waiting for the
+  reopened window title to show `artwork.rpl`; Windows was still compiling. The
+  draft cleanup and remembered setup commits are newer and still require CI.
 - The second close-save/draft slice has passed focused `canvas-demo` tests and
   now passes complete workspace tests/build/Clippy, required local GPU smoke, and
   Windows GNU target check/Clippy. License generation passes for both Windows MSVC
@@ -91,15 +93,20 @@ This is the active continuation record. Phase 7 work remains documented in
   regression tests cover backup cleanup and reject unrelated/outside paths. Local
   fmt, strict Clippy, workspace tests/build, and the required llvmpipe GPU smoke
   all pass for this slice.
+- Workspace preferences now retain the last successfully created document's size,
+  units, DPI, background, and transparency. Older version-1 preference files load
+  with safe defaults; malformed or out-of-range settings are rejected before they
+  reach the setup dialog.
 
 ## Partial and unimplemented Phase 8 requirements
 
 - Welcome screen is not yet a full separate workspace with thumbnails, settings
   pages, or session continuation. The engine's internal initial placeholder
   remains hidden and input-blocked until the artist creates or opens a project.
-- Document setup has no remembered settings/recent-dimension list, explicit unit
-  presets for physical paper beyond current pixel presets, or automated app-level
-  reopen/export dimension workflow. Preset dimensions are bounded to current format.
+- Document setup now remembers the last successfully created settings, but has no
+  recent-dimension list, explicit physical-paper preset catalog beyond current
+  presets, or automated app-level reopen/export dimension workflow. Preset dimensions
+  are bounded to current format.
 - Drafts now have a confirmation-gated remove action, but there is still no
   rename, pin, or age sorting. Continuous debounced autosave and a full save-state
   indicator remain unfinished; the existing recovery worker still checkpoints
@@ -132,14 +139,12 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Commit/push the draft cleanup slice and rerun the cross-platform build after it.
-2. Verify Linux save/reopen/recovery smoke, macOS packaging, Windows package build,
-   and the portable canvas artifact on the latest commit.
-3. Run the real alpha window workflow in CI to verify close-save failure choices,
-   startup dialogs, and draft restart behavior (locally blocked by missing
-   `xvfb-run`).
-4. Remember the last document-setup settings, then continue the vertical tool
-   palette/menu and compact brush/layer controls.
+1. Push the locally validated document-setup preference persistence slice.
+2. Resolve and rerun the Linux window workflow failure from startup/reopen tests;
+   verify macOS packaging, Windows package build, and canvas artifact on the latest
+   commit.
+3. Continue the vertical tool palette/menu and compact brush/layer controls, then
+   add close-save conflict/failure coverage to the real window workflow.
 
 No physical Windows picker, stylus, touch, power-loss, or hardware-performance
 validation has been performed in this phase.

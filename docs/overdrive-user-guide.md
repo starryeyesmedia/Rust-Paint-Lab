@@ -11,7 +11,8 @@ pixel/inch/millimeter/centimeter units, DPI, starter presets, portrait/landscape
 RGB background, and transparency. It shows the resolved pixel size and rejects
 dimensions over 4096 × 4096. DPI affects print-size conversion, not pixel detail.
 The document is sparse at creation; painted tiles remain within the existing 128 MiB
-tile budget. Ctrl+N opens New Document.
+tile budget. The last successfully created document's dimensions, units, DPI, background,
+and transparency are remembered locally in workspace preferences. Ctrl+N opens New Document.
 
 ## Drawing and controls
 

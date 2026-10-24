@@ -34,6 +34,39 @@ pub struct WorkspacePreferences {
     pub dark_theme: bool,
     pub brush_panel_width: f32,
     pub references: Vec<ReferenceLayout>,
+    #[serde(default)]
+    pub new_document: NewDocumentPreferences,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NewDocumentPreferences {
+    pub width: f64,
+    pub height: f64,
+    pub dpi: u32,
+    pub unit: crate::document_setup::DocumentUnit,
+    pub background: [u8; 3],
+    pub transparent: bool,
+}
+
+impl Default for NewDocumentPreferences {
+    fn default() -> Self {
+        Self {
+            width: 1600.0,
+            height: 1000.0,
+            dpi: 300,
+            unit: crate::document_setup::DocumentUnit::Pixels,
+            background: [255; 3],
+            transparent: false,
+        }
+    }
+}
+
+impl NewDocumentPreferences {
+    fn validate(&mut self) -> bool {
+        self.unit.to_pixels(self.width, self.dpi).is_some()
+            && self.unit.to_pixels(self.height, self.dpi).is_some()
+    }
 }
 
 impl Default for WorkspacePreferences {
@@ -43,6 +76,7 @@ impl Default for WorkspacePreferences {
             dark_theme: true,
             brush_panel_width: 260.0,
             references: Vec::new(),
+            new_document: NewDocumentPreferences::default(),
         }
     }
 }
@@ -50,7 +84,8 @@ impl Default for WorkspacePreferences {
 impl WorkspacePreferences {
     /// Reject unknown schemas and bound untrusted disk data before creating UI.
     pub fn validate(&mut self) -> bool {
-        if self.version != 1 || !self.brush_panel_width.is_finite() {
+        if self.version != 1 || !self.brush_panel_width.is_finite() || !self.new_document.validate()
+        {
             return false;
         }
         self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
@@ -138,5 +173,24 @@ mod tests {
         std::fs::write(&path, vec![b' '; MAX_PREFERENCES_BYTES + 1]).unwrap();
         assert!(load(&path).is_none());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn older_preferences_load_with_safe_document_setup_defaults() {
+        let mut preferences: WorkspacePreferences = serde_json::from_str(
+            r#"{"version":1,"dark_theme":false,"brush_panel_width":300,"references":[]}"#,
+        )
+        .unwrap();
+        assert!(preferences.validate());
+        assert_eq!(preferences.new_document.width, 1600.0);
+        assert_eq!(preferences.new_document.height, 1000.0);
+        assert!(!preferences.new_document.transparent);
+    }
+
+    #[test]
+    fn invalid_saved_document_setup_is_rejected() {
+        let mut preferences = WorkspacePreferences::default();
+        preferences.new_document.width = f64::NAN;
+        assert!(!preferences.validate());
     }
 }
