@@ -65,14 +65,21 @@ Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+N New Document; Ctrl+O open proj
 picker; Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
 F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
 replays; Tab switches modes; R restarts; Space pauses. Replay never replaces live
-artwork. Close/Escape prompts for dirty work; save, keep recovery, or cancel.
+artwork. Normal close saves named projects to their existing path, or writes an
+unnamed document as a bounded local editable draft. If saving fails, the app stays
+open and offers retry, Save As, or cancel.
 `--compat-mouse` runs the original session-only Phase 5 diagnostic canvas.
 
 ## Saving and recovery
 
 Save often and retain independent copies while this alpha format evolves. Saving
 checks integrity, locks writers, detects external changes, synchronizes a temporary
-file and retains the previous valid `.bak`. Recovery writes local committed-document
+file and retains the previous valid `.bak`. On normal close, a named project is
+saved to its existing path. Untitled work is stored as a native `.rpl` draft under
+the app's local state directory and appears on the welcome screen; up to eight
+drafts are retained, and a full draft list prevents silent closure until Save As
+succeeds or the user cancels. These are normal editable documents, separate from
+disposable recovery checkpoints. Recovery writes local committed-document
 snapshots plus a bounded, checksummed journal of complete states on a background
 worker. A damaged journal tail falls back to its previous complete snapshot; the
 existing recovery `.rpl` and `.bak` remain additional fallbacks. Closing or replacing

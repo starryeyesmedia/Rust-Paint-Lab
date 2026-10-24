@@ -292,3 +292,13 @@ set `RPL_TEST_PATH_DIALOG=1` to use a path-entry harness; normal desktop operati
 uses native dialogs. Linux desktop users need a functioning XDG portal backend.
 The welcome and creation dialogs block canvas input until a document is selected
 or created.
+
+Normal-close persistence stores a dirty named project through its existing
+`Store`, preserving the content-hash conflict check, atomic replacement, and `.bak`
+behavior. An unnamed project is encoded as a regular editable `.rpl` in a separate
+local `drafts/` directory and is listed on the next welcome screen. The draft
+manager bounds retained drafts to eight and uses generated, human-readable names;
+when draft saving fails, close is blocked and the artist can retry, Save As, or
+cancel. Recovery snapshots and journals remain a separate fallback path. This does
+not claim protection from forced termination or sudden power loss beyond existing
+recovery evidence.

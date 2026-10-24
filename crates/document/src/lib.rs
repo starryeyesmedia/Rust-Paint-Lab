@@ -211,7 +211,10 @@ impl Engine {
         Ok(e)
     }
     pub fn sync_brush_settings(&mut self) {
-        self.state.brush = self.brush.clone();
+        if self.state.brush != self.brush {
+            self.state.brush = self.brush.clone();
+            self.revision = self.revision.saturating_add(1);
+        }
     }
     pub fn state(&self) -> &State {
         &self.state

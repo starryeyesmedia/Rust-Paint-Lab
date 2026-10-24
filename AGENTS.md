@@ -133,7 +133,10 @@ Work on feature branches, never directly on main. Preserve existing work. Do not
 merge or create releases unless separately requested. Keep commits reviewable.
 
 ## Overdrive protocol
-Maintain docs/OVERDRIVE-PROGRESS.md with exact tested checkpoints, partial/missing features, measured results, defects and continuation steps. Commit each working slice. Artwork preservation precedes optional expansion. Never count a control without behavior as a completed feature.
+Maintain `docs/PHASE8-STUDIO-PROGRESS.md` with tested checkpoints, partial/missing
+features, measured results, defects and exact continuation steps. Commit each
+working slice. Artwork preservation precedes optional expansion. Never count a
+control without behavior as a completed feature.
 
 ## Artwork preservation
 Native format and safety limits are specified in docs/RPL-ALPHA-FORMAT.md. Reject
@@ -148,6 +151,10 @@ to a local `.rpl.journal` before replacing the existing recovery snapshot. This
 supplement does not contain editing operations or undo history; preserve the `.rpl`
 snapshot and verified `.bak` fallback. Do not describe it as comprehensive
 crash/power-loss protection without process-kill and platform durability evidence.
+Normal close must durably save a named project to its conflict-checked path or an
+untitled document as an editable native draft. Keep draft persistence separate from
+recovery snapshots, bound draft count/storage, and never silently close after a save
+failure. Offer retry, Save As, and cancel. Do not discard old drafts automatically.
 See docs/overdrive-user-guide.md for actual supported controls.
 
 Optional SourceCounter is exact adapter-clock metadata with a nonzero frequency;

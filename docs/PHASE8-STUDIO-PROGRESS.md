@@ -38,11 +38,30 @@ This is the active continuation record. Phase 7 work remains documented in
 - The Windows stylus diagnostic, live drawing pipeline, recovery journal, and
   existing exporters were not changed.
 
+## Implemented Phase 8 slice: automatic close saves and persistent drafts
+
+- Normal close saves a dirty named project through the existing `Store`, so
+  external-change conflicts and atomic backup behavior remain active. Failure
+  leaves the app open with retry, Save As, and cancel choices.
+- Closing an unnamed project writes a normal editable `.rpl` under a separate
+  local `drafts/` directory. Generated filenames include a readable project stem;
+  drafts appear on the next welcome screen and reopen through the existing native
+  project reader. The list is capped at eight and a failed/full draft save blocks
+  close until Save As succeeds or the user cancels. No old draft is deleted
+  automatically.
+- Empty new documents also become drafts on normal close, so configured dimensions
+  and background survive even before a stroke is drawn. Brush-setting changes now
+  become revisioned document metadata once synchronized, so recovery/close detects
+  them instead of silently losing a settings-only edit.
+- Recovery snapshots/journals remain a separate safety mechanism and are not
+  treated as the persistent draft itself.
+
 ### Validation
 
 - `cargo fmt --all --check`: passed.
 - Workspace Clippy with `-D warnings`: passed.
-- `cargo test --workspace --locked`: passed, **153 tests**.
+- `cargo test --workspace --locked`: passed, **156 tests** after the first draft/close
+  slice and brush-metadata revision tracking.
 - `cargo build --workspace --locked`: passed.
 - Required offscreen pixel test passed on Mesa llvmpipe/OpenGL. Forcing Vulkan in
   this container did not find a Vulkan adapter; the default backend selected
@@ -52,20 +71,31 @@ This is the active continuation record. Phase 7 work remains documented in
 - The real alpha Xvfb window workflow could not run locally because this container
   does not provide `xvfb-run`. CI is configured to run it and now starts with the
   welcome/New Document flow in the test-only path-entry mode.
-- No GitHub Actions run exists for the Phase 8 changes yet.
+- GitHub Actions run [`40116227316`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40116227316)
+  for `d29bd2f` is not fully green: Linux's real window workflow still asserted
+  the old 800 × 500 demo document after New Document began using 1600 × 1000; this
+  assertion is corrected locally. macOS packaging found the new `block2 0.6.2`
+  upstream license note was missing from the supplemental map; the full upstream
+  `LICENSE.md` and revision provenance are now added locally. Windows was still
+  building when the report was updated. These fixes require a new CI run.
+- The second close-save/draft slice has passed focused `canvas-demo` tests and
+  now passes complete workspace tests/build/Clippy, required local GPU smoke, and
+  Windows GNU target check/Clippy. License generation passes for both Windows MSVC
+  and macOS ARM64 target graphs (152 and 164 packages respectively). The real alpha
+  Xvfb workflow remains unavailable locally.
 
 ## Partial and unimplemented Phase 8 requirements
 
-- Welcome screen is an overlay on the current shell, not yet a full canvas-free
-  startup workspace with thumbnails, settings pages, session continuation, or
-  persistent drafts. The engine's internal initial placeholder remains hidden and
-  input-blocked until the artist creates or opens a project.
+- Welcome screen is not yet a full separate workspace with thumbnails, settings
+  pages, or session continuation. The engine's internal initial placeholder
+  remains hidden and input-blocked until the artist creates or opens a project.
 - Document setup has no remembered settings/recent-dimension list, explicit unit
   presets for physical paper beyond current pixel presets, or automated app-level
   reopen/export dimension workflow. Preset dimensions are bounded to current format.
-- Normal close still uses the existing save/recovery modal. Persistent drafts,
-  conflict-aware close autosave, debounced incremental persistence, and a full
-  save-state indicator remain unfinished.
+- Drafts do not yet have a management/removal UI. At the eight-draft cap, use Save
+  As or cancel; cleanup controls must not delete an active document or its only
+  valid copy. Continuous debounced autosave and a full save-state indicator remain
+  unfinished; the existing recovery worker still checkpoints committed revisions.
 - File dialogs have compiled on native Linux and Windows GNU targets; Windows,
   Linux portal, and macOS visual/runtime behavior needs CI or manual verification.
 - Workspace still has the previous dense top toolbar. Vertical tool palette, proper
@@ -89,18 +119,20 @@ This is the active continuation record. Phase 7 work remains documented in
   uses its XDG portal feature and therefore depends on a desktop portal service.
   No bundled GTK or separately packaged runtime is added to the Windows executable.
 - Keep reference imagery outside document state and export pipelines.
+- Keep persistent drafts as independently readable native files under the app state
+  directory. Do not treat the recovery journal as the intentional draft store.
 
 ## Exact next steps
 
-1. Run `scripts/alpha-workflow-smoke.py` in CI; its test path harness now creates a
-   document from the welcome screen before exercising save/reopen/recovery.
-2. Update the canvas dependency inventory and Windows artifact notices for rfd's
-   locked Windows dependency graph.
-3. Commit and push the first Phase 8 slice on `feature/studio-overdrive-phase-8`,
-   then verify the new Windows, Linux, and macOS Actions jobs and portable artifacts.
-4. Next implementation checkpoint: exercise new document dimensions through native
-   save/reopen/export integration; then add bounded persistent untitled drafts and
-   safe close autosave before broad visual redesign work.
+1. Finish the complete local Rust validation after the draft/close changes and rerun
+   Windows GNU check/Clippy.
+2. Push the corrected Linux dimension assertion and new macOS `block2` notice, then
+   verify Linux save/reopen/recovery smoke, macOS packaging, Windows package build,
+   and the portable canvas artifact.
+3. Add automated close-save conflict/failure tests through the real window workflow
+   (currently blocked locally by missing `xvfb-run`) and verify unnamed draft restart.
+4. Add safe draft management and remember the last document-setup settings, then
+   continue the vertical tool palette/menu and compact brush/layer controls.
 
 No physical Windows picker, stylus, touch, power-loss, or hardware-performance
 validation has been performed in this phase.

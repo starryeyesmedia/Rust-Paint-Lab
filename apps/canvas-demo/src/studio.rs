@@ -131,6 +131,7 @@ enum Action {
     Open,
     Save,
     SaveAs,
+    RetryClose,
     SaveBrush,
     LoadBrush,
     Export,
@@ -211,6 +212,7 @@ pub struct Studio {
     pub close_ready: bool,
     recovery: Option<Recovery>,
     recovery_files: Vec<PathBuf>,
+    drafts: Vec<PathBuf>,
     recent: paint_document::recent::Recent,
     recent_path: Option<PathBuf>,
     cleanup: Option<PathBuf>,
@@ -319,6 +321,7 @@ impl Studio {
             close_ready: false,
             recovery,
             recovery_files: files,
+            drafts: crate::drafts::list(),
             recent,
             recent_path,
             cleanup: None,
@@ -745,6 +748,39 @@ impl Studio {
             }
         }
         Ok(())
+    }
+    pub fn requires_close_save(&self, session: &CanvasSession) -> bool {
+        !self.welcome && (session.live().project().dirty() || self.store.is_none())
+    }
+    /// Persist artwork before normal close. A conflict/failure leaves the window
+    /// open so the user can retry, choose Save As, or cancel.
+    pub fn save_for_close(&mut self, session: &mut CanvasSession) -> Result<(), Failure> {
+        if self.store.is_some() {
+            self.execute(Action::Save, session)?;
+        } else {
+            let (store, path) = {
+                let project = session.live_mut().project_mut();
+                project.sync_brush_settings();
+                let state = project.state().clone();
+                let (store, path) = crate::drafts::create(&state, &self.new_name)?;
+                project.saved_revision = project.revision;
+                (store, path)
+            };
+            self.path = path.to_string_lossy().into_owned();
+            self.status = format!(
+                "Draft saved locally: {}",
+                crate::drafts::display_name(&path)
+            );
+            self.store = Some(store);
+            self.drafts = crate::drafts::list();
+        }
+        self.close_ready = true;
+        self.close_requested = false;
+        Ok(())
+    }
+    pub fn mark_close_save_failed(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Automatic save failed: {error}");
+        self.close_requested = true;
     }
     pub fn needs_autosave(&self, session: &CanvasSession) -> bool {
         self.recovery.is_some()
@@ -1376,6 +1412,17 @@ ui.add(egui::Label::new(pen_status).truncate());
                         }
                     }
                 }
+                if !self.drafts.is_empty() {
+                    ui.separator();
+                    ui.heading("Persistent drafts");
+                    for path in self.drafts.iter().take(crate::drafts::MAX_DRAFTS) {
+                        if ui.button(crate::drafts::display_name(path)).clicked() {
+                            self.picker_from_welcome = true;
+                            actions.push(Action::Recent(path.clone()));
+                            self.welcome = false;
+                        }
+                    }
+                }
                 ui.separator();
                 ui.small("Ctrl+N creates a document · Ctrl+O opens a project · Escape closes");
                 if ui.button("Close application").clicked() {
@@ -1517,16 +1564,13 @@ ui.add(egui::Label::new(pen_status).truncate());
             });
         } else if self.close_requested {
             egui::Modal::new(egui::Id::new("close artwork")).show(ctx, |ui| {
-                ui.heading("Close artwork?");
-                ui.label("Unsaved artwork will be retained in local recovery. Save the project for an explicit editable file.");
-                if ui.button("Save project and close").clicked() {
-                    actions.push(Action::Save);
+                ui.heading("Automatic save did not complete");
+                ui.label("Your artwork is still open. Retry the save, choose another project location, or cancel closing.");
+                if ui.button("Retry save").clicked() {
+                    actions.push(Action::RetryClose);
                 }
-                if ui.button("Keep recovery and close").clicked() {
-                    match self.preserve(session) {
-                        Ok(()) => self.close_ready = true,
-                        Err(error) => self.status = error.to_string(),
-                    }
+                if ui.button("Save As…").clicked() {
+                    self.picker = Some(FileRequest::SaveProjectAs);
                 }
                 if ui.button("Cancel").clicked() {
                     self.close_requested = false;
@@ -1635,6 +1679,14 @@ ui.add(egui::Label::new(pen_status).truncate());
         }
 
         for a in actions {
+            if matches!(a, Action::RetryClose) {
+                if let Err(error) = self.save_for_close(session) {
+                    self.status = format!("Automatic save failed: {error}");
+                    self.close_requested = true;
+                }
+                window.request_redraw();
+                continue;
+            }
             if let Action::AddReference(path) = a {
                 if self.references.len() >= crate::workspace::MAX_REFERENCES {
                     self.status = "Reference board is full (six images maximum)".into();
@@ -1802,6 +1854,7 @@ ui.add(egui::Label::new(pen_status).truncate());
                 }
             }
         }
+        session.live_mut().project_mut().sync_brush_settings();
         if let Some(recovery) = &self.recovery {
             for result in recovery.poll() {
                 self.status = match result {
@@ -1846,6 +1899,9 @@ ui.add(egui::Label::new(pen_status).truncate());
             }
             Action::AddReference(_) => {
                 return Err("Reference import is handled by the workspace".into());
+            }
+            Action::RetryClose => {
+                return Err("Close retry must be handled by the workspace".into());
             }
             Action::Fill(erase) => project.fill_selection(erase)?,
             Action::Deselect => project.set_selection(None)?,

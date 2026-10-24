@@ -21,6 +21,7 @@ SUPPLEMENTAL.update({
     ("dispatch2","0.3.1"): ["objc2-LICENSE.md"],
     ("dispatch","0.2.0"): ["dispatch-MIT.txt"],
     ("block2","0.5.1"): ["block2-MIT.txt"],
+    ("block2","0.6.2"): ["block2-0.6.2-MIT.txt"],
     ("block","0.1.6"): ["block-MIT.txt"],
     ("clipboard-win","5.4.3"): ["clipboard.txt"],
     ("spirv","0.3.0+sdk-1.3.268.0"): ["spirv27.txt"],

@@ -273,6 +273,20 @@ impl App {
         self.needs_redraw = true;
         Ok(())
     }
+    fn request_close(&mut self) -> bool {
+        self.mouse(MouseEvent::Interrupted);
+        if let Some(graphics) = &mut self.graphics
+            && let Some(studio) = &mut graphics.studio
+            && studio.requires_close_save(&self.session)
+        {
+            if let Err(error) = studio.save_for_close(&mut self.session) {
+                studio.mark_close_save_failed(error);
+            }
+            graphics.window.request_redraw();
+            return true;
+        }
+        false
+    }
 }
 impl ApplicationHandler for App {
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
@@ -329,14 +343,7 @@ impl ApplicationHandler for App {
         let result: Result<(), Failure> = (|| {
             match event {
                 WindowEvent::CloseRequested => {
-                    self.mouse(MouseEvent::Interrupted);
-                    if let Some(g) = &mut self.graphics
-                        && let Some(studio) = &mut g.studio
-                        && self.session.live().project().dirty()
-                    {
-                        studio.close_requested = true;
-                        g.window.request_redraw();
-                    } else {
+                    if !self.request_close() {
                         event_loop.exit();
                     }
                 }
@@ -477,14 +484,7 @@ impl ApplicationHandler for App {
                             self.tick = Instant::now();
                         }
                         PhysicalKey::Code(KeyCode::Escape) => {
-                            self.mouse(MouseEvent::Interrupted);
-                            if let Some(g) = &mut self.graphics
-                                && let Some(studio) = &mut g.studio
-                                && self.session.live().project().dirty()
-                            {
-                                studio.close_requested = true;
-                                g.window.request_redraw();
-                            } else {
+                            if !self.request_close() {
                                 event_loop.exit();
                             }
                         }

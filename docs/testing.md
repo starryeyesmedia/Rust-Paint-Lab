@@ -260,3 +260,10 @@ path-entry harness because native desktop pickers cannot be assumed in a headles
 session. Normal users use rfd native dialogs; this test harness is not an alternate
 painting or document path. Physical Windows/macOS picker behavior still requires
 manual checking.
+
+The local draft manager tests verify that an unnamed document is stored as a normal
+`.rpl`, can be reopened with matching dimensions, is discoverable after a restart,
+and refuses to exceed the eight-draft bound. It ignores unrelated files. If the
+bound or a write error prevents automatic close-save, the application remains open
+and offers retry, Save As, or Cancel. Named-document external-change conflicts use
+the existing `Store` content-hash guard and also keep the window open.

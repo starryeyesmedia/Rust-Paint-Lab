@@ -4,7 +4,7 @@ Rust Paint Lab is an original cross-platform digital painting application in act
 
 This is not yet a production replacement for established painting software. Native pen delivery, capture behavior, storage durability, and performance still require testing on the target Windows hardware. Keep independent copies of important artwork. The application is unsigned development software; the project has no selected distribution license.
 
-Start with the [alpha user guide](docs/overdrive-user-guide.md), [current implementation status](docs/OVERDRIVE-PROGRESS.md), [native project format](docs/RPL-ALPHA-FORMAT.md), and [known interchange limits](docs/openraster.md).
+Start with the [alpha user guide](docs/overdrive-user-guide.md), [Phase 8 implementation status](docs/PHASE8-STUDIO-PROGRESS.md), [native project format](docs/RPL-ALPHA-FORMAT.md), and [known interchange limits](docs/openraster.md).
 
 ## Workspace
 
@@ -31,14 +31,14 @@ From GitHub Actions, download `rust-paint-lab-canvas-demo` for the canvas app or
 The app opens in live drawing mode. Drag the left mouse button or supported Windows pen on the paper; right-click and hover do not paint. Pressure and independent tilt are kept when the adapter supplies them. Touch is reserved for navigation and does not paint. Completed work remains in the current editable document; cancellation removes the provisional stroke.
 
 - `B`, `M`, `E`, `K`, `I`: brush, rectangle, ellipse, lasso, eyedropper.
-- `Ctrl+Z` / `Ctrl+Y`: undo / redo; `Ctrl+S`: save; `Ctrl+O`: open path dialog; `Ctrl+E`: PNG export.
+- `Ctrl+N`: new document; `Ctrl+Z` / `Ctrl+Y`: undo / redo; `Ctrl+S`: save; `Ctrl+O`: open project; `Ctrl+E`: PNG export.
 - `Ctrl+F`: fill; `Ctrl+X`: delete selected pixels; `Ctrl+D`: deselect.
 - **Save brush… / Load brush…** stores and restores the current settings as a bounded `.rplbrush` preset.
 - `Ctrl+Shift+B` / `Ctrl+Alt+B`: save / load a brush preset by path.
 - `Ctrl+Shift+E` / `Ctrl+Shift+O`: OpenRaster export / import.
 - `0`: fit canvas; mouse wheel: zoom; middle-button drag: pan; `F11`: fullscreen.
 - `L`: live document; `P` or `1`/`2`/`3`: deterministic replay; `Tab`: switch modes; `R`: restart; `Space`: pause replay.
-- `Escape`: close prompt. Dirty artwork can be saved, preserved through a confirmed local recovery snapshot, or kept open.
+- Normal close saves a named project to its existing file or preserves an untitled document as a local editable draft. If saving fails, retry, use Save As, or cancel closing.
 
 The UI exposes ten brush presets, size/opacity/flow/hardness/spacing, pressure responses, tilt rotation, brush angle/smoothing/color, raster layer operations and blend modes, selections, fill/delete, eyedropper, layer transforms/crop, project/recovery actions, and file import/export. The [user guide](docs/overdrive-user-guide.md) explains what is implemented and what each format drops.
 
@@ -53,4 +53,4 @@ cargo build --workspace --locked
 
 Linux CI additionally requires software Vulkan GPU pixel validation and runs the interactive app under Xvfb with synthetic OS mouse/key events, including save/reopen, editing, OpenRaster interchange, and forced-process recovery. A passing CI build does not establish physical pen, touch, driver latency, or Windows filesystem durability. Follow the [manual hardware checklist](docs/hardware-testing.md). The standalone diagnostic remains useful for inspecting actual WM_POINTER pressure and tilt without modifying artwork.
 
-Third-party notices are generated for packaged dependencies. No cloud services, accounts, telemetry, or remote storage are used. See [the progress record](docs/OVERDRIVE-PROGRESS.md) for tested commit IDs, CI results, measured cloud-host workloads, unresolved defects, and exact next steps.
+Third-party notices are generated for packaged dependencies. No cloud services, accounts, telemetry, or remote storage are used. See [Phase 8 progress](docs/PHASE8-STUDIO-PROGRESS.md) for tested commits, CI results, unresolved gaps, and exact next steps.

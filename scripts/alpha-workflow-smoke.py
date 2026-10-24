@@ -158,7 +158,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('e');png=directory/'artwork.png'
             wait(lambda: png.exists(),'PNG export')
             data=png.read_bytes();assert data[:8]==b'\x89PNG\r\n\x1a\n'
-            assert struct.unpack('>II',data[16:24])==(800,500)
+            assert struct.unpack('>II',data[16:24])==(1600,1000)
             assert json.loads(prefs.read_text())['references'][0]['path']==str(reference)
             key('Escape');assert process.wait(timeout=20)==0
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)

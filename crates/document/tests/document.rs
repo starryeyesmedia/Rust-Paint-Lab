@@ -603,3 +603,18 @@ fn independent_tilt_axes_rotate_calligraphy_and_unsupported_tilt_is_valid() {
     );
     assert_ne!(render([None, None]), render([None, Some(30.0)]));
 }
+
+#[test]
+fn brush_setting_changes_become_dirty_revisioned_document_metadata_once() {
+    let mut engine = Engine::new(64, 64, 300).unwrap();
+    assert!(!engine.dirty());
+    engine.brush.size = 37.0;
+    engine.sync_brush_settings();
+    assert_eq!(engine.revision, 1);
+    assert!(engine.dirty());
+    assert_eq!(engine.state().brush.size, 37.0);
+    engine.sync_brush_settings();
+    assert_eq!(engine.revision, 1);
+    engine.saved_revision = engine.revision;
+    assert!(!engine.dirty());
+}

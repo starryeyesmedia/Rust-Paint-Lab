@@ -37,6 +37,8 @@ v3.26.0, without inventing missing copyright fields or claiming upstream supplie
 
 block2 0.5.1: madsmtm/objc2 revision 4fc083f1c6d6784577e38b0ee8dbd344481e2fd2, root LICENSE.txt (archive VCS metadata).
 
+block2 0.6.2: madsmtm/objc2 revision b4167b582b2f75f9a1be75495c41b765344fd03c, root LICENSE.md (archive VCS metadata). The full upstream licensing note is retained because it documents the Apple SDK derivation context in addition to the crate's MIT manifest declaration.
+
 dispatch 0.2.0: same manifest-MIT/canonical-text approach as block. Archive VCS revision
 82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748, SSheldon/rust-dispatch; no notice file upstream.
 
