@@ -5,6 +5,14 @@ Windows CI packages need no Rust, Visual Studio, installer or administrator righ
 Download the canvas artifact from a successful Overdrive branch Actions run,
 extract all files, and launch `canvas-demo.exe`. Builds are unsigned and expire.
 
+The app opens to a welcome surface with New Document, Open Existing Project, recent
+saved projects, and detected recovery checkpoints. New Document supports a name,
+pixel/inch/millimeter/centimeter units, DPI, starter presets, portrait/landscape swap,
+RGB background, and transparency. It shows the resolved pixel size and rejects
+dimensions over 4096 × 4096. DPI affects print-size conversion, not pixel detail.
+The document is sparse at creation; painted tiles remain within the existing 128 MiB
+tile budget. Ctrl+N opens New Document.
+
 ## Drawing and controls
 
 Draw inside the paper with the left mouse button or Windows pen. Mouse has no
@@ -32,11 +40,11 @@ session-only and bounded (up to 32 snapshots, 128 MiB unique tile payload per hi
 large documents with many changed tiles can retain fewer steps. Limits produce an error, never silently
 discard older committed artwork.
 
-Toolbar: New (dimensions/DPI), Open, Save, Save As, Export PNG, Import PNG,
-Save brush, Load brush, Undo/Redo, Dark/Light. Brush presets are versioned `.rplbrush`
-JSON files; load/save validates settings and saving refuses to replace an existing
-preset. File dialogs currently accept typed paths, not a native file
-browser. New/Open safeguard dirty artwork with recovery confirmation. Save As and
+Toolbar: New, Open, Save, Save As, Export PNG, Import PNG, Save brush, Load brush,
+Undo/Redo, Dark/Light. These file actions open the operating-system file browser.
+Brush presets are versioned `.rplbrush` JSON files; load/save validates settings and
+saving refuses to replace an existing preset. New/Open safeguard dirty artwork with
+recovery confirmation. Save As and
 PNG export refuse unrelated existing files; select a new path. PNG import creates a
 layer at the top-left; oversized inputs are rejected. Save `.rpl` for editable layers,
 PNG for flattened images. Color is encoded-sRGB RGBA8, not full ICC color management.
@@ -44,16 +52,17 @@ Document, file-path, recovery, close, and cleanup prompts are blocking modal dia
 the workspace behind them does not accept drawing or toolbar input. Saving an
 untitled document after a PNG export chooses the matching `.rpl` project path.
 
-The top reference row accepts a PNG/JPEG file path; press **Add to board** for each
-image (up to six). Each floating reference window can be moved, resized, assigned an
-overlay opacity, or removed. Theme, right-panel width, and reference arrangement are
+Use **Browse / Add images…** to select one or more PNG/JPEG references (up to six).
+Each floating reference window can be moved, resized, assigned an overlay opacity,
+or removed. Theme, right-panel width, and reference arrangement are
 stored in a separate local `workspace.json`; reference images stay linked to their
 files and never become document layers or appear in PNG/OpenRaster exports. Files
-are limited to 32 MiB and decoded textures to 2048 × 2048 / 8 MiB each. Use a
-reachable local file path; a native file browser is not available yet.
+are limited to 32 MiB and decoded textures to 2048 × 2048 / 8 MiB each. Linux native
+browsing requires an available XDG desktop portal service. The automated Xvfb workflow
+uses `RPL_TEST_PATH_DIALOG=1` for a test-only path-entry harness.
 
-Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+O open path dialog, Enter confirms;
-Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one by path;
+Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+N New Document; Ctrl+O open project
+picker; Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
 F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
 replays; Tab switches modes; R restarts; Space pauses. Replay never replaces live
 artwork. Close/Escape prompts for dirty work; save, keep recovery, or cancel.

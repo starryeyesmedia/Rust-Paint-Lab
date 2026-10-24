@@ -270,3 +270,25 @@ textures; they are neither layers nor part of document composition/export. The
 resizable tool panel and floating reference windows use egui's normal drag/resize
 behavior. A native file picker, snapping/docking affordances, and accessibility
 audit are still pending. Preferences are not artwork data and can be safely reset.
+
+## Phase 8 startup and file selection slice
+
+The canvas shell starts with a welcome surface rather than making an artwork
+document the first visible screen. It offers new/open, recent projects and
+available recovery checkpoints; document replacement still passes through the
+existing preservation gate. The creation dialog resolves physical units to pixels
+using the requested DPI, validates the 4096-pixel edge limit before allocation,
+and only exposes the existing sRGB RGBA8 background choices and transparency.
+The sparse document engine allocates no pixel tiles at creation; its existing
+8192-tile/128 MiB budget remains authoritative. `document_setup` holds this
+conversion and validation outside platform and GPU code.
+
+File actions request a typed intent from the workspace and call rfd at the shell
+boundary. The selected path then enters the existing `Store`, PNG, OpenRaster,
+brush-preset, or reference-image validation path; the picker does not weaken any
+format or allocation limits. Multi-select is used for UI-only references, which
+remain separate from document layers and export. Automated Xvfb workflow tests can
+set `RPL_TEST_PATH_DIALOG=1` to use a path-entry harness; normal desktop operation
+uses native dialogs. Linux desktop users need a functioning XDG portal backend.
+The welcome and creation dialogs block canvas input until a document is selected
+or created.

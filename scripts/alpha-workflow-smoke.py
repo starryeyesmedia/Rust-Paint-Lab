@@ -127,7 +127,7 @@ def png_chunk(kind, data):
 with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     directory=Path(folder)
     executable=Path(__file__).resolve().parent.parent/'target/debug/canvas-demo'
-    env={**os.environ,'XDG_STATE_HOME':str(directory/'state')}
+    env={**os.environ,'XDG_STATE_HOME':str(directory/'state'),'RPL_TEST_PATH_DIALOG':'1','RPL_TEST_DOCUMENT_NAME':'artwork'}
     # Load a persisted external reference window. It is intentionally magenta;
     # the exported PNG below must still contain only project artwork.
     reference=directory/'reference.png'
@@ -142,6 +142,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             focus(display,window,2,0);send()
             # Let font/layout requests settle before testing drawing ownership.
             time.sleep(0.5)
+            ctrl('n');time.sleep(0.25);key('Return');time.sleep(0.5)
             move(180,250);click_button(1,True);move(400,400);click_button(1,False)
             status('*')
             ctrl('s');project=directory/'artwork.rpl'

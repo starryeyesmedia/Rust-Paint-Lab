@@ -9,7 +9,9 @@ autosave/recovery, open formats, and modest resource use. No telemetry, accounts
 or cloud service requirements. Studio Overdrive requires that all application
 functionality remain free, with no subscription/paywall, advertising, tracking, or
 forced online dependency. Overdrive explicitly authorizes a multi-checkpoint
-program; deliver tested vertical slices and maintain docs/OVERDRIVE-PROGRESS.md.
+program; deliver tested vertical slices and maintain
+`docs/PHASE8-STUDIO-PROGRESS.md`. `docs/PHASE7-STUDIO-PROGRESS.md` is the prior
+phase's historical checkpoint and remains available for context.
 
 ## Architecture boundaries
 - `crates/input`: safe, OS-independent input structures, normalization, bounded lifecycle processing, and deterministic replay. No

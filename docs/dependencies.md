@@ -18,6 +18,7 @@ safe Rust with no GPU or GUI dependency. Cargo.lock pins the complete graph.
 | zip | 9.0.5 exact | Bounded OpenRaster ZIP, deflate only | MIT |
 | roxmltree | 0.21.1 exact | Bounded stack.xml; DTD disabled | MIT OR Apache-2.0 |
 | image | 0.25.10 exact | Bounded PNG/JPEG decoding for external workspace references | MIT OR Apache-2.0 |
+| rfd | 0.15.4 exact | Native project/image/preset selection dialogs; XDG desktop portal on Linux | MIT |
 
 ## Compatibility decision
 
@@ -38,6 +39,13 @@ integration brings image packages transitively, but those codecs are not adverti
 as implemented application import/export features. Font notices include bundled
 Ubuntu/Noto/Hack attributions. No cloud services, telemetry or account dependency.
 The project owner's own distribution license remains undecided.
+
+The artist-facing file selection workflow uses rfd 0.15.4 with its default XDG
+portal backend on Linux; Linux desktops need a working document portal service for
+native browsing. Windows uses the platform dialog integration and macOS uses its
+native dialog. The Windows executable does not bundle GTK, a language runtime, or an
+installer. Dialog presentation has not yet been manually checked on physical Windows
+or macOS hardware.
 
 ## Distribution notices
 

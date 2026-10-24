@@ -1,5 +1,6 @@
 //! Replay canvas demo. Shared input/routing crates remain graphics-independent.
 #![forbid(unsafe_code)]
+pub mod document_setup;
 pub mod gpu;
 pub mod interaction;
 pub mod native_history;

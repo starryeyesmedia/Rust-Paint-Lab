@@ -10,7 +10,9 @@ SYSTEM-LIBRARIES.txt records build-time system library imports.
 Linux: requires a desktop X11/Wayland session, graphics drivers and compatible
 system libraries/glibc. Built on GitHub's current Ubuntu image; this is not an
 AppImage or a distribution-independent static binary. Older distributions may
-not satisfy the imported GLIBC version. Mesa software Vulkan is used by CI.
+not satisfy the imported GLIBC version. Native file dialogs use the XDG desktop
+portal; a portal service such as xdg-desktop-portal must be available. Mesa software
+Vulkan is used by CI.
 
 macOS: native architecture follows BUILD.txt (current macos-latest generally
 ARM64); no Intel universal binary, .app bundle, signing or notarization is claimed.

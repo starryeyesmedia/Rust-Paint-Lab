@@ -241,3 +241,22 @@ tests, for **148 Rust tests**. The new workspace tests cover preference JSON ver
 geometry/count/file-size limits, and a real PNG-to-egui texture decode. The journal
 smoke validates journal-only recovery through the application after a forced process
 termination. The reference-board paths/layout are persisted separately from artwork.
+
+## Phase 8 startup, document setup, and native file selection
+
+`paint-document::document_setup` has hardware-free tests for pixel/inch/millimeter/
+centimeter conversion, DPI behavior, finite/range validation, every included preset,
+safe document names, exact created dimensions/background/transparency, and creating
+an empty sparse state without allocating tiles. Run them with:
+
+```sh
+cargo test --locked -p canvas-demo document_setup::tests
+```
+
+The real alpha workflow starts from the welcome surface, creates a document through
+Ctrl+N, then exercises drawing, save/open, presets, import/export, and recovery.
+When running under Xvfb only, `RPL_TEST_PATH_DIALOG=1` enables a deterministic
+path-entry harness because native desktop pickers cannot be assumed in a headless
+session. Normal users use rfd native dialogs; this test harness is not an alternate
+painting or document path. Physical Windows/macOS picker behavior still requires
+manual checking.
