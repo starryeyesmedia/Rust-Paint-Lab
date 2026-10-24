@@ -91,3 +91,32 @@ and presentation of the final frame. Use an external timeout in automation (CI
 limits this step to two minutes). Software-rendered/offscreen/virtual-window tests
 are not physical RTX 3060, Iris Xe, or stylus validation. The downloadable canvas
 and stylus diagnostic remain distinct artifacts. See the [manual checklist](canvas-demo.md).
+
+## Phase 5 live mouse validation
+
+Fifteen mouse/session integration tests bring the hardware-independent Rust suite
+to **67 tests**. They run the real sample/lifecycle/router/scene pipeline and cover
+primary/secondary/hover/orphan input, final samples and unavailable pressure/tilt,
+focus/capture/window exit, nonfinite/outside points, duplicate events, ID reuse,
+resize and physical-pixel mapping, mode isolation, replay/clear semantics, and
+nonfatal bounded-state cleanup. The GPU runner additionally checks live preview,
+commit/cancel pixel regions and scissor clipping at the paper edge.
+
+```sh
+cargo test --locked -p canvas-demo --test mouse
+cargo test --locked -p canvas-demo --test gpu_smoke
+xvfb-run -a python3 scripts/live-mouse-window-smoke.py
+```
+
+The Linux window test needs libXtst (`libxtst6` on Ubuntu) in addition to the
+existing display prerequisites. It injects real X11 button/motion/focus/key events
+into the normal winit executable, checks transaction/mode feedback, and exits
+cleanly. It does not use an application test-input shortcut or record user data.
+Both virtual-window tests and required software-GPU validation remain in CI.
+
+The isolated Windows capture subclass observes actual WM_CAPTURECHANGED/CANCELMODE,
+while suppressing expected release during normal WM_LBUTTONUP. It is cross-checked/
+linted for Windows and built in native CI; theft/release behavior still needs
+manual Windows validation. Linux/macOS use winit focus/leave notifications; capture
+stealing without either notification is not independently observed there.
+See [Galaxy Book interactive checklist](live-mouse.md#manual-galaxy-book-checklist).

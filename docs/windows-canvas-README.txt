@@ -1,68 +1,76 @@
-Rust Paint Lab - First GPU Canvas Demo (development build)
+Rust Paint Lab - Interactive Mouse Canvas (Phase 5 development build)
 
-LAUNCH ON WINDOWS 10
-Extract the whole ZIP into a normal user folder. Run canvas-demo.exe. A console
-window is normal and prints the selected GPU/backend and errors. No local Rust,
-Visual Studio, installer, administrator rights, or accounts are required. Keep
-the bundled README, BUILD.txt, checksum, and THIRD-PARTY-NOTICES.txt together.
+RUN ON WINDOWS 10
+Extract the entire ZIP into a normal user folder and run canvas-demo.exe.
+No local Rust, Visual Studio, installer, administrator rights, or accounts are
+required. A console is normal; it prints GPU/backend information and errors.
+Keep BUILD.txt, SHA256SUMS.txt, and THIRD-PARTY-NOTICES.txt with the executable.
+Requires Windows 10 x64, a compatible Direct3D 12 graphics adapter, and its driver.
+The static C runtime and Windows-supplied FXC compiler avoid a separate VC++
+redistributable or DXC bundle. Windows graphics libraries/drivers remain required.
 
-Requires Windows 10 x64 with a compatible Direct3D 12 graphics adapter and driver.
-The initial manual target is Ryzen 7 5700X / NVIDIA RTX 3060, with current NVIDIA
-drivers. Physical RTX 3060 and Galaxy Book/Iris Xe execution has NOT been verified
-by software-rendered tests or CI compilation. Older drivers, Remote Desktop/VM
-sessions, or restricted systems may not provide a usable adapter.
+LIVE DRAWING (DEFAULT)
+Move inside the light paper and drag the LEFT mouse button. Orange is the active
+preview; releasing commits it in blue. Hover and right-click do not paint.
+Pressure and tilt are unavailable for mouse strokes. This is not native pen input.
+Only session memory retains completed strokes; closing loses everything.
 
-CONTROLS AND EXPECTED DISPLAY
-1: Scenario A, completed pen. An orange fixed-width zigzag appears progressively,
-   then becomes blue and remains. Pressure is retained but does not control width.
-2: Scenario B, cancelled pen. An orange preview grows, holds briefly, then
-   disappears completely at capture loss (~2.6 seconds). No blue stroke remains.
-3: Scenario C, concurrent input. Two independent pen paths grow, then both become
-   blue. Simulated touch in the center does not draw anything.
-R: restart the selected scenario and clear its old state.
-Space: pause/resume playback. Escape or the close button: exit.
+CONTROLS
+C: clear the current live canvas, including any preview (LIVE only).
+L: switch to LIVE drawing, retaining earlier completed live strokes.
+P: select/restart replay. 1/2/3: select replay scenario A/B/C.
+Tab: switch modes. R: restart replay. Space: pause/resume replay.
+Escape or the close button: cancel active work and close.
 
-Expect a light paper rectangle on a dark border/background. The title identifies
-the scenario, playback status, color meanings, and keys. Resize the window to
-check aspect-preserving document mapping. No live pen, mouse, or touch painting
-is implemented; only keyboard controls affect the demo. Playback stops at the
-end and waits for restart or scenario selection.
+Replay A: orange zigzag becomes blue and remains.
+Replay B: orange preview grows, holds, then disappears at capture loss (~2.6s).
+Replay C: two pen paths commit separately; simulated touch produces no geometry.
+Switching modes discards interrupted previews, never completed live work.
 
-FAILURES AND TROUBLESHOOTING
-If the window closes immediately, run from PowerShell in the extracted folder:
+TEST ON YOUR GALAXY BOOK2 PRO 360
+The user has confirmed Phase 4 GPU/replay/scaling operation and real pressure/
+tilt in the separate native diagnostic. Phase 5 mouse/capture behavior needs its
+own testing; prior results do not prove integrated pen painting.
+- Draw several left-button strokes. Check final points, separate strokes, and no
+  painting on hover/right-click. Mouse input may come from a mouse or trackpad.
+- Start a stroke and Alt-Tab, minimize, move outside paper/window, or switch mode.
+  The WHOLE interrupted preview should disappear; returning while held must not
+  resume it. Release, move inside, and make a fresh press to draw again.
+- Resize or change display scaling. Completed geometry should keep its document
+  position; resize/DPI changes during a stroke cancel that preview safely.
+- Switch to replay and back with L; live completed strokes should remain. Test C
+  both while idle and during a stroke. Close/relaunch should start an empty canvas.
+- Native Windows capture transfer without focus loss still needs a targeted
+  manual check when another window/tool can steal capture.
+
+FAILURES
+If startup closes immediately, run from PowerShell to keep errors visible:
   .\canvas-demo.exe
-Look for "Canvas adapter", "Canvas failed", shader validation, surface, or device
-errors. Record the commit in BUILD.txt, Windows version, driver version, adapter,
-backend, scenario, and reproduction steps. Missing strokes, a stuck orange path
-after Scenario B finishes, flicker, or a blank canvas in A/C are failures.
-
-Update your graphics driver if initialization fails. For a driver-supported
-Vulkan alternative, try in PowerShell:
+Record BUILD.txt commit, Windows/driver version, scaling, mode, and reproduction
+steps for blank paper, orphan previews, unexpected commits, flicker, or exits.
+Check the console-selected adapter. A driver-supported Vulkan alternative is:
   $env:WGPU_BACKEND = 'vulkan'
   .\canvas-demo.exe
   Remove-Item Env:WGPU_BACKEND
-Vulkan needs a compatible driver; it is not guaranteed to fix a driver problem.
-The normal Direct3D path uses Windows' d3dcompiler_47.dll (FXC); no DXC DLL bundle
-or separate Visual C++ redistributable is expected. The C runtime is static.
-Windows system graphics libraries and vendor drivers are still required.
+Vulkan is optional and is not guaranteed to fix a driver issue. Restricted remote
+or VM sessions may have no compatible adapter. Do not download random graphics DLLs.
 
 LIMITATIONS
-Unsigned executable: SmartScreen or security policy may warn/block it. Verify the
-repository/run/commit and follow organization policy; do not disable protection.
-Compare the executable with SHA256SUMS.txt using:
+Boundary exit cancels the whole current stroke; drawing does not continue outside
+the paper or automatically resume on reentry. Resize/mode switches cancel previews.
+Rendering is fixed 8 document units wide with square joins/caps and no antialiasing.
+Budgets: 64 strokes, 1024 samples per stroke, 8192 total samples. Very long/dense
+strokes may be cancelled at the limit. Older commits remain; C clears the live
+canvas to make room. Capacity feedback is nonfatal. Render size is capped at 4096
+pixels per dimension. Device loss/initialization failures remain diagnostic exits.
+No native S Pen painting, brush engine, layers, saving, undo, exports, or telemetry.
+
+The executable is unsigned. SmartScreen/security policy may warn/block it; verify
+repository/run/commit and follow your policy, without disabling protection.
+Compare with SHA256SUMS.txt using:
   Get-FileHash .\canvas-demo.exe -Algorithm SHA256
-A checksum is not a publisher signature. Artifacts expire after 30 days, subject
-to repository policy, and downloading may require GitHub sign-in/access.
-
-The demo fits an 800x500 document in the window. Strokes are 8 document units
-wide (scaled with the canvas), opaque triangles with square caps/joins and no
-antialiasing. Pressure/tilt are retained, not simulated as brush effects. Window
-render size is capped at 4096 pixels per dimension, with bounded scene/vertex
-budgets. Surface loss is retried a bounded number of times; device loss, validation
-errors, exhausted scene budgets, or out-of-memory errors cause a diagnostic exit.
-
-No layers, saving, undo, live input, brush engine, vector tools, telemetry, or
-network services. This is a replay renderer, not a painting product. The separate
-stylus-diagnostic.exe remains in rust-paint-lab-windows-diagnostic; the applications
-are not combined. Third-party licenses are bundled; the original project's own
-license is still undecided. No GitHub release is created.
+A checksum is not a publisher signature. Artifacts expire after 30 days subject to
+repository policy and may require GitHub sign-in. This is not a GitHub release.
+The unchanged stylus diagnostic remains in rust-paint-lab-windows-diagnostic.
+Original application licensing is undecided; third-party notices do not grant a
+license to the project's original source.

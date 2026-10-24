@@ -14,10 +14,11 @@ or cloud service requirements. Do not attempt the full product in one task.
 - `crates/stroke`: OS-independent painting routing policy, document-coordinate
   mapping, and stroke transaction commands. Depends on `paint-input`, never the
   other way around. No brush algorithms, GPU resources, document storage, or IO.
-- `apps/canvas-demo`: replay-only winit/wgpu shell, bounded demo transaction
-  state, CPU polyline geometry, and GPU rendering. Graphics dependencies stay here.
-  Do not move window/GPU concepts into paint-input or paint-stroke. No live input
-  painting, document persistence, or brush algorithms in this milestone.
+- `apps/canvas-demo`: winit/wgpu shell with separate live mouse and replay sessions,
+  bounded transaction state, CPU polyline geometry, and GPU rendering. Graphics
+  dependencies stay here. The Windows capture observer is isolated in the binary;
+  no OS APIs enter shared input/routing logic. No pen integration, persistence,
+  layers, or brush algorithms in the current mouse milestone.
 - `apps/stylus-diagnostic`: disposable diagnostic shell, not the future app core.
   Win32 calls stay in its Windows module with documented unsafe invariants.
 - Future core owns document operations; rendering consumes snapshots/commands;
@@ -61,12 +62,28 @@ or cloud service requirements. Do not attempt the full product in one task.
 - Keep explicit stroke/sample/vertex/surface budgets. Reject nonfinite/range errors
   before f64-to-GPU conversion. Demo width is fixed, independent of pressure.
 - Playback generation is deterministic; only the shell supplies elapsed demo time.
-  Scenario restart must clear retained state. Never collect real user input.
+  Scenario restart must clear retained replay state. Live samples may remain in
+  bounded session memory to render strokes; never automatically persist or log them.
 - Run CPU geometry tests plus the offscreen runner. A missing GPU is explicitly
   SKIPPED, not a passed unit test; Linux CI requires software GPU execution via
   RPL_REQUIRE_GPU=1 and tests the window under Xvfb. See docs/canvas-demo.md.
 - Preserve both separate Windows artifacts and their notices; use
   scripts/canvas-licenses.py when dependency versions change.
+
+## Live mouse conventions
+- Feed mouse samples through Processor and Router; primary button only, with
+  pressure/tilt None. Never paint from hover, right-click, or an orphan Move.
+- Use physical CursorMoved positions and physical inner sizes without multiplying
+  DPI twice. Reuse the inverse canvas mapping, capture it per stroke, and cancel
+  active input before resize/DPI/mode changes.
+- Cancel on focus/window/canvas exit or capture loss. Require a new Down after
+  interruption. Keep live/replay scene namespaces separate and retain completed
+  live work across mode switches; clear is an explicit user action.
+- Capacity errors cancel previews and show feedback, not a fatal app exit.
+- Capture FFI is confined to windows_capture.rs with documented unsafe blocks;
+  do not add competing loops or native pen APIs. Winit remains capture owner.
+- Run mouse tests, GPU pixel validation, and Linux Xvfb/XTest interaction smoke.
+  Distinguish these from pending manual Windows mouse/capture validation.
 
 ## Development conventions
 Use the pinned Rust toolchain and Cargo workspace. Prefer safe Rust, small

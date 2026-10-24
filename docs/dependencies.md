@@ -2,13 +2,17 @@
 
 The shared `paint-input` crate uses only Rust's standard library. `paint-stroke`
 depends only on local paint-input. Graphics/window dependencies belong exclusively
-to the separate canvas-demo application; the native Windows diagnostic is unchanged.
+to the separate canvas-demo application; the native Windows diagnostic is unchanged. Phase 5 reuses windows-sys 0.61.2
+as a Windows-only direct dependency for the small ComCtl32 capture observer
+(Foundation/Shell/WindowsAndMessaging features). No package version or additional
+third-party runtime is introduced; ComCtl32 is supplied by Windows. Shared
+paint-input/paint-stroke remain OS-independent.
 Cargo.lock pins the complete graph. No egui, serde, image export, or telemetry
 package is directly added for the canvas.
 
 | Direct package | Version | Purpose / enabled features | Declared license |
 | --- | --- | --- | --- |
-| windows-sys | 0.61.2 | Native Windows diagnostic ABI bindings | MIT OR Apache-2.0 |
+| windows-sys | 0.61.2 | Native diagnostic bindings and canvas-only Windows capture observer | MIT OR Apache-2.0 |
 | wgpu | 30.0.1 (exact) | GPU device/surface/pipeline; std, parking_lot, dx12, metal, vulkan, gles, wgsl; web defaults disabled | MIT OR Apache-2.0 |
 | winit | 0.30.13 (exact) | Stable desktop lifecycle/windowing, native raw-window-handle 0.6; default X11/Wayland/CSD support | Apache-2.0 |
 | pollster | 0.4.0 (exact) | Small native future executor for device/adapter initialization, no async runtime | Apache-2.0 OR MIT |

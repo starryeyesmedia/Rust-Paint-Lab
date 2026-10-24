@@ -1,8 +1,10 @@
-# First GPU canvas demo (Phase 4)
+# GPU canvas: replay foundation and interactive mouse
 
-A separate `apps/canvas-demo` workspace application displays simulated strokes.
-It has no live painting input, brush engine, panels, layers, document persistence,
-undo, or telemetry. The original Windows stylus diagnostic remains separate.
+The separate `apps/canvas-demo` now defaults to live mouse drawing and preserves
+the Phase 4 simulated stroke demonstrations. See [Phase 5 interaction semantics](live-mouse.md)
+for mode isolation, physical coordinate mapping, cancellation, and native Windows
+capture observation. There is no pen integration, brush engine, panels, layers,
+document persistence, undo, or telemetry. The native stylus diagnostic remains separate.
 
 ## Build and run
 
@@ -24,7 +26,7 @@ sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-0 libxcurso
 ```
 
 Windows users can download `rust-paint-lab-canvas-demo` from a successful
-`feature/gpu-canvas` Actions run. Extract and run `canvas-demo.exe`. Its README.txt
+`feature/live-mouse-drawing` Actions run. Extract and run `canvas-demo.exe`. Its README.txt
 contains detailed RTX 3060 test steps and troubleshooting. The release build
 statically links the CRT and uses Windows' FXC compiler, so no separate VC++
 redistributable or DXC DLL bundle is expected. Windows graphics libraries and a
@@ -35,16 +37,20 @@ alternative. This package is unsigned and is not a GitHub release.
 
 | Key | Expected behavior |
 | --- | --- |
+| L | Live mouse drawing (default), completed live work retained across modes |
+| C | Clear live work (LIVE only) |
+| P / Tab | Select replay / toggle live-replay modes |
 | 1 | A: pressure-varying pen draws a zigzag; orange preview becomes blue at commit |
 | 2 | B: orange preview grows, holds, then disappears at capture loss, leaving no committed stroke |
 | 3 | C: two independent pen paths commit separately; simulated central touch activity draws nothing |
-| R | Clear current scene and restart the selected scenario |
+| R | Clear replay scene and restart the selected scenario (REPLAY only) |
 | Space | Pause/resume demonstration playback |
 | Escape | Close and release window/GPU resources |
 
 The title identifies scenario, status, colors, and shortcuts. Resize to check the
 light document rectangle stays centered/aspect-preserving against the dark outer
-background. Mouse, touch, and pen events do not paint in this milestone.
+background. In LIVE mode the primary mouse button paints; right-click and hover
+do not. Native pressure-sensitive pen and touch painting are not integrated.
 
 ## Architecture
 
@@ -54,7 +60,8 @@ embedded v1 Replay fixture -> Processor -> Router -> immutable command sequence
 ```
 
 Replay::run invokes the real lifecycle Processor, and the actual paint-stroke
-Router creates the commands. Command generation never observes wall time. The
+Router creates the commands. LiveMouse separately feeds physical winit mouse
+samples through the same Processor/Router into a different Scene namespace. Command generation never observes wall time. The
 winit application supplies an explicit elapsed demonstration clock at roughly
 60Hz, with pause/restart controls. Equal-time commands retain pipeline order.
 The CPU playback class is independently testable without sleeping or a GPU.
@@ -88,14 +95,15 @@ there is no unsafe transmutation or direct bytemuck dependency.
   use is not controlled by these CPU limits.
 - Restart replaces scene and playback state. Repeated scenarios do not accumulate.
   Capacity or invalid-coordinate errors abort an affected preview and are surfaced;
-  they never convert a partial preview to committed content.
+  live capacity errors show C-to-clear feedback rather than exiting. They never
+  convert a partial preview to committed content.
 
 The application owns one winit event loop and an Arc-backed safe wgpu Surface.
 Zero-sized windows skip configure/render. Redraws use timed wakeups during playback,
 wait when finished/paused, and resume for resize/input. Lost/outdated surfaces are
 recreated/configured with an eight-attempt bound; suboptimal frames are presented
 then reconfigured; timeout/occlusion skip a frame. Device loss, validation/OOM,
-initialization failure, or exhausted budgets produce a terminal diagnostic error
+or initialization failure produce a terminal diagnostic error
 and nonzero exit. There is no silent success after a failed initialization.
 Device recreation is deliberately deferred; restarting the demo is the recovery.
 
@@ -131,15 +139,13 @@ This verifies a virtual/software path, not physical RTX 3060 or Iris Xe executio
    stuck playback, flicker, GPU errors, or unexpected exits with scenario and steps.
    Capture loss here is simulated; it does not prove physical pointer handling.
 
-## Recommended Phase 5: live mouse before pen
+## Manual baseline and next phase
 
-Add a focused mouse adapter in the canvas shell using the existing shared sample,
-lifecycle, and router contracts. Route primary-button down/move/up through the
-real Processor/Router alongside the existing replay mode; keep pressure/tilt None.
-Use the inverse of the displayed canvas mapping for client-to-document routing,
-freeze it per stroke, and test physical-pixel/DPI/resize behavior. Explicitly
-cancel on focus/capture loss and switching modes; keep replay reset separate from
-live sessions so StrokeIds cannot collide with retained geometry. Add synthetic
-mouse/focus-loss tests and manual desktop checks before considering WM_POINTER pen
-integration. No pressure-sensitive pen or brush engine is part of Phase 5's initial
-scope; keep the native stylus diagnostic available for its pending hardware tests.
+The user reports successful Phase 4 GPU/replay/resizing/playback tests on the Galaxy
+Book2 Pro 360 and real pressure/tilt detection in the separate S Pen diagnostic.
+This is not a manual test of the Phase 5 interactive mouse build. The RTX 3060
+checklist above remains pending unless separately reported. Follow the new
+[Galaxy Book mouse checklist](live-mouse.md#manual-galaxy-book-checklist).
+Phase 6 should connect Windows-native S Pen samples to this interactive pipeline,
+with promoted-mouse deduplication and actual hardware checks, before changing brush
+behavior. See [the bounded next-milestone scope](live-mouse.md#recommended-phase-6).

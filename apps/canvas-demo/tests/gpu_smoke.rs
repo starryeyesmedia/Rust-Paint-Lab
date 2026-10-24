@@ -94,9 +94,78 @@ async fn run() -> Result<(), Failure> {
         cleared[0] > 220 && cleared[1] > 220 && cleared[2] > 220,
         "cancelled stroke left pixels: {cleared:?}"
     );
+    // Live adapter -> Processor -> Router -> Scene -> the same rendering pipeline.
+    use canvas_demo::interaction::{LiveMouse, MouseEvent as E};
+    let mut mouse = LiveMouse::new([256, 256]);
+    mouse.handle(E::Moved([44.0, 128.0]), 0);
+    mouse.handle(
+        E::Button {
+            primary: true,
+            pressed: true,
+        },
+        0,
+    );
+    mouse.handle(E::Moved([212.0, 128.0]), 1);
+    let pixels = render_pixels(&renderer, mouse.scene())?;
+    let preview = pixel(&pixels, 128, 128);
+    assert!(
+        u16::from(preview[0]) > u16::from(preview[1]) + 30,
+        "live preview missing"
+    );
+    mouse.handle(E::CaptureLost, 2);
+    let pixels = render_pixels(&renderer, mouse.scene())?;
+    assert!(
+        pixel(&pixels, 128, 128)[2] > 220,
+        "live cancellation left residue"
+    );
+    mouse.handle(E::Moved([44.0, 128.0]), 3);
+    mouse.handle(
+        E::Button {
+            primary: true,
+            pressed: true,
+        },
+        3,
+    );
+    mouse.handle(E::Moved([212.0, 128.0]), 4);
+    mouse.handle(
+        E::Button {
+            primary: true,
+            pressed: false,
+        },
+        5,
+    );
+    let pixels = render_pixels(&renderer, mouse.scene())?;
+    let blue = pixel(&pixels, 180, 128);
+    assert!(
+        u16::from(blue[2]) > u16::from(blue[0]) + 40,
+        "live commit missing"
+    );
+    mouse.clear(6);
+    mouse.handle(E::Moved([16.0, 128.0]), 7);
+    mouse.handle(
+        E::Button {
+            primary: true,
+            pressed: true,
+        },
+        7,
+    );
+    mouse.handle(E::Moved([128.0, 128.0]), 8);
+    mouse.handle(
+        E::Button {
+            primary: true,
+            pressed: false,
+        },
+        9,
+    );
+    let pixels = render_pixels(&renderer, mouse.scene())?;
+    let outside = pixel(&pixels, 15, 128);
+    assert!(
+        outside.iter().take(3).map(|v| u32::from(*v)).sum::<u32>() < 350,
+        "stroke cap leaked outside paper"
+    );
     renderer.check_error()?;
     report(
-        "GPU_SMOKE: PASSED (preview, final committed segment, canvas/background, cancellation cleanup)",
+        "GPU_SMOKE: PASSED (replay and live preview/commit/cancel, final segment, canvas clipping/background)",
     );
     Ok(())
 }

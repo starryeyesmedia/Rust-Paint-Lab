@@ -21,7 +21,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libwayland-dev mesa-vulkan-drivers xvfb xauth
+          sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libwayland-dev mesa-vulkan-drivers xvfb xauth libxtst6
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
@@ -45,6 +45,26 @@ jobs:
           text = Path('/tmp/canvas-window-smoke.log').read_text()[-6000:]
           text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
           print('::error title=Canvas window smoke::' + text)
+          PYTHON
+          fi
+          exit "$outcome"
+      - name: Linux live mouse window smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        env:
+          WGPU_BACKEND: vulkan
+        run: |
+          set +e
+          xvfb-run -a python3 scripts/live-mouse-window-smoke.py > /tmp/live-mouse-window-smoke.log 2>&1
+          outcome=$?
+          set -e
+          cat /tmp/live-mouse-window-smoke.log
+          if [ "$outcome" -ne 0 ]; then
+            python3 - <<'PYTHON'
+          from pathlib import Path
+          text = Path('/tmp/live-mouse-window-smoke.log').read_text()[-6000:]
+          text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Live mouse window smoke::' + text)
           PYTHON
           fi
           exit "$outcome"

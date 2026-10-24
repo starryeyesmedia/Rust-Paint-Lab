@@ -1,15 +1,18 @@
 # Rust Paint Lab
 
 An original Rust digital painting and illustration project, starting with a
-small, testable input foundation. This is **not yet a painting application**.
+small, testable painting foundation. The GPU canvas now supports fixed-width,
+session-only mouse drawing; this is **not yet a complete painting application**.
 The first executable is a Windows pen-input diagnostic for the Galaxy Book2 Pro
-360; hardware behavior has not yet been verified.
+360. The user has reported successful Phase 4 GPU/replay operation and pressure/
+tilt detection in the standalone diagnostic; new live mouse behavior still needs
+manual validation.
 
 ## Workspace
 
 - `crates/input` (`paint-input`): OS-independent pointer samples, lifecycle processing, and deterministic replay.
 - `crates/stroke` (`paint-stroke`): portable stroke commands, routing policy, and client-to-document coordinates.
-- `apps/canvas-demo`: progressive replay-driven wgpu canvas, separate from live input.
+- `apps/canvas-demo`: progressive interactive mouse canvas plus deterministic wgpu replay demonstrations.
 - `apps/stylus-diagnostic`: native Windows pointer inspector.
 - [Architecture](docs/architecture.md), [dependencies and licenses](docs/dependencies.md),
   [hardware test checklist](docs/hardware-testing.md), [agent guidance](AGENTS.md).
@@ -29,7 +32,7 @@ No secrets, services, accounts, or runtime downloads are required.
 
 No local Rust or Visual Studio installation is needed for the CI-built package.
 On GitHub, open **Actions → Rust checks**, select a successful run for
-`feature/gpu-canvas`, then download **rust-paint-lab-windows-diagnostic**
+`feature/live-mouse-drawing`, then download **rust-paint-lab-windows-diagnostic**
 from its Artifacts section (a GitHub sign-in/repository access may be required).
 Extract the ZIP to a normal user folder and follow its `README.txt`.
 
@@ -116,7 +119,7 @@ inspector remains a lifecycle diagnostic; it does not paint or route brush work.
 
 ## GPU canvas demo
 
-Download **rust-paint-lab-canvas-demo** from a successful `feature/gpu-canvas`
+Download **rust-paint-lab-canvas-demo** from a successful `feature/live-mouse-drawing`
 Actions run, extract, and run `canvas-demo.exe` on Windows 10 x64 with a compatible
 graphics driver. No local Rust, installer, or administrator rights are needed.
 It is separate from **rust-paint-lab-windows-diagnostic**, which remains available.
@@ -127,20 +130,24 @@ From source:
 cargo run --locked -p canvas-demo
 ```
 
-Keys **1/2/3** select completed/cancelled/concurrent replay scenarios, **R** restarts,
-**Space** pauses, **Escape** exits. Orange means provisional, blue means committed;
-cancellation removes orange geometry. No live painting is implemented.
+The app starts in **LIVE mouse** mode: drag the left button inside the paper to
+paint, release to commit, and use **C** to clear. **L** selects live drawing;
+**P** or **1/2/3** selects replay, **R** restarts replay, **Space** pauses replay,
+**Tab** switches modes, and **Escape** exits. Orange means provisional and blue
+means committed. Interrupted previews disappear; completed live work survives
+replay mode switches. Right-click and hover do not paint.
 [Canvas documentation](docs/canvas-demo.md) includes Linux prerequisites, controls,
 resource/error policy, automated test distinctions, and the RTX 3060 checklist.
 
 ## Current boundaries and next step
 
-The canvas renders routed synthetic commands; it is not yet a live painting app.
-There is no brush engine, persistence, Android shell, or gesture system. egui and
-serde remain prospective dependencies. Physical RTX 3060/Iris Xe/stylus tests are
-pending. Next add live mouse input through the shared pipeline, with pressure and
-tilt unavailable, before native pressure-sensitive pen integration. See the
-[Phase 5 scope](docs/canvas-demo.md#recommended-phase-5-live-mouse-before-pen).
+Live mouse drawing and replay both use the shared lifecycle/router pipeline.
+There is no native pen integration, brush engine, persistence, Android shell, or
+gesture system. egui and serde remain prospective dependencies. The user reports
+successful Phase 4 GPU/replay tests on the Galaxy Book2 Pro 360 and real pressure/
+tilt detection in the separate S Pen diagnostic; this does not validate Phase 5
+mouse/capture changes or integrated pen painting. Next connect native Windows pen
+samples through the same pipeline. See [live mouse architecture and testing](docs/live-mouse.md).
 
 Third-party notices are documented separately. A license for the original project
 has not yet been selected; no open-source distribution grant is implied.

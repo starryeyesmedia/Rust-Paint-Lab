@@ -1,7 +1,13 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+// The shared library is still forbid(unsafe_code). Only this small HWND observer
+// needs FFI; it owns no input loop and does not manipulate capture.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_capture;
 use canvas_demo::{
     gpu::{Failure, Renderer},
-    playback::{Playback, Scenario},
+    interaction::{CanvasSession, Mode, MouseEvent},
+    playback::Scenario,
 };
 use std::{
     sync::Arc,
@@ -9,13 +15,15 @@ use std::{
 };
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, StartCause, WindowEvent},
+    event::{ElementState, MouseButton, StartCause, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
 
 struct Graphics {
+    #[cfg(windows)]
+    capture: windows_capture::Observer,
     // Surface owns an Arc to Window, and is dropped before the instance/window.
     surface: wgpu::Surface<'static>,
     renderer: Renderer,
@@ -26,7 +34,10 @@ struct Graphics {
     recoveries: u8,
 }
 impl Graphics {
-    async fn new(event_loop: &ActiveEventLoop) -> Result<Self, Failure> {
+    async fn new(
+        event_loop: &ActiveEventLoop,
+        _proxy: winit::event_loop::EventLoopProxy<()>,
+    ) -> Result<Self, Failure> {
         let window = Arc::new(
             event_loop.create_window(
                 Window::default_attributes()
@@ -35,6 +46,8 @@ impl Graphics {
                     .with_max_inner_size(winit::dpi::PhysicalSize::new(4096, 4096)),
             )?,
         );
+        #[cfg(windows)]
+        let capture = windows_capture::Observer::install(window.clone(), _proxy)?;
         let mut descriptor = wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
             event_loop.owned_display_handle(),
         ));
@@ -54,6 +67,8 @@ impl Graphics {
         let max = renderer.device.limits().max_texture_dimension_2d.min(4096);
         window.set_max_inner_size(Some(winit::dpi::PhysicalSize::new(max, max)));
         let mut this = Self {
+            #[cfg(windows)]
+            capture,
             surface,
             renderer,
             instance,
@@ -125,8 +140,9 @@ impl Graphics {
 
 struct App {
     graphics: Option<Graphics>,
-    playback: Playback,
-    scenario: Scenario,
+    session: CanvasSession,
+    proxy: winit::event_loop::EventLoopProxy<()>,
+    clock: Instant,
     tick: Instant,
     elapsed: u64,
     paused: bool,
@@ -142,13 +158,51 @@ impl App {
         eprintln!("Canvas failed: {error}");
         event_loop.exit();
     }
-    fn restart(&mut self, scenario: Scenario) -> Result<(), Failure> {
-        self.playback = Playback::new(scenario)?;
-        self.scenario = scenario;
-        self.needs_redraw = true;
+    fn time_ms(&self) -> u64 {
+        self.clock.elapsed().as_millis().min(u64::MAX as u128) as u64
+    }
+    fn mouse(&mut self, event: MouseEvent) {
+        let live = self.session.live();
+        let active = live.active();
+        let samples = live.scene().sample_count();
+        let notice = live.notice();
+        self.session.mouse(event, self.time_ms());
+        let live = self.session.live();
+        if active
+            || live.active()
+            || samples != live.scene().sample_count()
+            || notice != live.notice()
+        {
+            self.needs_redraw = true;
+            if let Some(g) = &self.graphics {
+                g.window.request_redraw();
+            }
+        }
+    }
+    fn check_capture(&mut self) {
+        #[cfg(windows)]
+        if self
+            .graphics
+            .as_ref()
+            .is_some_and(|g| g.capture.take_lost())
+            && self.session.live().active()
+        {
+            self.mouse(MouseEvent::CaptureLost);
+        }
+    }
+    fn reset_replay_clock(&mut self) {
         self.elapsed = 0;
         self.tick = Instant::now();
         self.paused = false;
+        self.needs_redraw = true;
+    }
+    fn resize(&mut self, size: [u32; 2]) -> Result<(), Failure> {
+        self.mouse(MouseEvent::Resized(size));
+        if let Some(g) = &mut self.graphics {
+            g.resize(size)?;
+            g.window.request_redraw();
+        }
+        self.needs_redraw = true;
         Ok(())
     }
 }
@@ -160,10 +214,15 @@ impl ApplicationHandler for App {
             g.window.request_redraw();
         }
     }
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, (): ()) {
+        self.check_capture();
+    }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.graphics.is_none() {
-            match pollster::block_on(Graphics::new(event_loop)) {
+            match pollster::block_on(Graphics::new(event_loop, self.proxy.clone())) {
                 Ok(graphics) => {
+                    self.session
+                        .mouse(MouseEvent::Resized(graphics.size), self.time_ms());
                     graphics.window.request_redraw();
                     self.graphics = Some(graphics);
                     self.needs_redraw = true;
@@ -174,21 +233,40 @@ impl ApplicationHandler for App {
         }
     }
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.mouse(MouseEvent::Interrupted);
         self.graphics = None;
         self.tick = Instant::now();
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        self.check_capture();
         let result: Result<(), Failure> = (|| {
             match event {
-                WindowEvent::CloseRequested => event_loop.exit(),
-                WindowEvent::Resized(s) => {
-                    if let Some(g) = &mut self.graphics {
-                        g.resize([s.width, s.height])?;
-                        self.needs_redraw = true;
-                        g.window.request_redraw();
+                WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                    self.mouse(MouseEvent::Interrupted);
+                    event_loop.exit();
+                }
+                WindowEvent::Focused(focused) => self.mouse(MouseEvent::Focus(focused)),
+                WindowEvent::CursorEntered { .. } => self.mouse(MouseEvent::Entered),
+                WindowEvent::CursorLeft { .. } => self.mouse(MouseEvent::Left),
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.mouse(MouseEvent::Moved([position.x, position.y]))
+                }
+                WindowEvent::MouseInput { state, button, .. } => self.mouse(MouseEvent::Button {
+                    primary: button == MouseButton::Left,
+                    pressed: state == ElementState::Pressed,
+                }),
+                WindowEvent::Resized(s) => self.resize([s.width, s.height])?,
+                WindowEvent::ScaleFactorChanged { .. } => {
+                    self.mouse(MouseEvent::Interrupted);
+                    if let Some(g) = &self.graphics {
+                        let size = g.window.inner_size();
+                        self.resize([size.width, size.height])?;
                     }
                 }
                 WindowEvent::Occluded(value) => {
+                    if value {
+                        self.mouse(MouseEvent::Interrupted);
+                    }
                     self.occluded = value;
                     self.tick = Instant::now();
                     if !value && let Some(g) = &self.graphics {
@@ -200,15 +278,51 @@ impl ApplicationHandler for App {
                     if event.state == ElementState::Pressed && !event.repeat =>
                 {
                     match event.physical_key {
-                        PhysicalKey::Code(KeyCode::Digit1) => self.restart(Scenario::Completed)?,
-                        PhysicalKey::Code(KeyCode::Digit2) => self.restart(Scenario::Cancelled)?,
-                        PhysicalKey::Code(KeyCode::Digit3) => self.restart(Scenario::Concurrent)?,
-                        PhysicalKey::Code(KeyCode::KeyR) => self.restart(self.scenario)?,
-                        PhysicalKey::Code(KeyCode::Space) => {
+                        PhysicalKey::Code(KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3) => {
+                            let scenario = match event.physical_key {
+                                PhysicalKey::Code(KeyCode::Digit1) => Scenario::Completed,
+                                PhysicalKey::Code(KeyCode::Digit2) => Scenario::Cancelled,
+                                _ => Scenario::Concurrent,
+                            };
+                            self.session.select_replay(scenario, self.time_ms());
+                            self.reset_replay_clock();
+                        }
+                        PhysicalKey::Code(KeyCode::KeyL) => {
+                            self.session.set_mode(Mode::Live, self.time_ms());
+                            self.needs_redraw = true;
+                        }
+                        PhysicalKey::Code(KeyCode::KeyP) => {
+                            self.session
+                                .select_replay(self.session.scenario(), self.time_ms());
+                            self.reset_replay_clock();
+                        }
+                        PhysicalKey::Code(KeyCode::Tab) => {
+                            let mode = if self.session.mode() == Mode::Live {
+                                Mode::Replay
+                            } else {
+                                Mode::Live
+                            };
+                            self.session.set_mode(mode, self.time_ms());
+                            self.reset_replay_clock();
+                        }
+                        PhysicalKey::Code(KeyCode::KeyC) => {
+                            self.session.clear_live(self.time_ms());
+                            self.needs_redraw = true;
+                        }
+                        PhysicalKey::Code(KeyCode::KeyR) => {
+                            self.session.restart_replay();
+                            self.reset_replay_clock();
+                        }
+                        PhysicalKey::Code(KeyCode::Space)
+                            if self.session.mode() == Mode::Replay =>
+                        {
                             self.paused = !self.paused;
                             self.tick = Instant::now();
                         }
-                        PhysicalKey::Code(KeyCode::Escape) => event_loop.exit(),
+                        PhysicalKey::Code(KeyCode::Escape) => {
+                            self.mouse(MouseEvent::Interrupted);
+                            event_loop.exit();
+                        }
                         _ => {}
                     }
                     if let Some(g) = &self.graphics {
@@ -217,7 +331,7 @@ impl ApplicationHandler for App {
                 }
                 WindowEvent::RedrawRequested => {
                     let now = Instant::now();
-                    if !self.paused && !self.occluded {
+                    if self.session.mode() == Mode::Replay && !self.paused && !self.occluded {
                         self.elapsed = self.elapsed.saturating_add(
                             now.duration_since(self.tick)
                                 .as_millis()
@@ -225,22 +339,47 @@ impl ApplicationHandler for App {
                         );
                     }
                     self.tick = now;
-                    self.playback.advance_to(self.elapsed)?;
+                    self.session.advance_replay(self.elapsed)?;
                     if let Some(g) = &mut self.graphics {
-                        let status = if self.playback.finished() {
-                            "FINISHED"
-                        } else if self.paused {
-                            "PAUSED"
+                        let title = if self.session.mode() == Mode::Live {
+                            let state = if self.session.live().notice().is_some() {
+                                "Canvas limit: C to clear"
+                            } else {
+                                "Left draw | C clear | P replay | Esc close"
+                            };
+                            format!(
+                                "Rust Paint Lab | LIVE mouse | {} completed | {} | orange preview / blue committed | {state}",
+                                self.session.scene().committed().len(),
+                                if self.session.live().active() {
+                                    "DRAWING"
+                                } else {
+                                    "READY"
+                                }
+                            )
                         } else {
-                            "PLAYING"
+                            let status = if self.session.replay_finished() {
+                                "FINISHED"
+                            } else if self.paused {
+                                "PAUSED"
+                            } else {
+                                "PLAYING"
+                            };
+                            format!(
+                                "Rust Paint Lab | REPLAY {} | {status} | 1/2/3 select, R replay, Space pause, L live",
+                                self.session.scenario().name()
+                            )
                         };
-                        g.window.set_title(&format!("Rust Paint Lab | {} | {} | orange preview / blue committed | 1/2/3 select, R replay, Space pause, Esc close", self.scenario.name(), status));
-                        let presented = g.draw(&self.playback.scene)?;
+                        g.window.set_title(&title);
+                        let presented = g.draw(self.session.scene())?;
                         self.needs_redraw = !presented;
                         if presented {
                             self.frames += 1;
                         }
-                        if self.exit_after_demo && self.playback.finished() && presented {
+                        if self.exit_after_demo
+                            && self.session.mode() == Mode::Replay
+                            && self.session.replay_finished()
+                            && presented
+                        {
                             eprintln!(
                                 "WINDOW_SMOKE: rendered {} frames and completed replay",
                                 self.frames
@@ -249,7 +388,7 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
-                _ => {} // Deliberately no live pointer/mouse painting.
+                _ => {} // No native pen, touch painting, or navigation gestures.
             }
             Ok(())
         })();
@@ -260,7 +399,10 @@ impl ApplicationHandler for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if !self.occluded
             && self.graphics.as_ref().is_some_and(|g| !g.size.contains(&0))
-            && (self.needs_redraw || (!self.paused && !self.playback.finished()))
+            && (self.needs_redraw
+                || (self.session.mode() == Mode::Replay
+                    && !self.paused
+                    && !self.session.replay_finished()))
         {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
@@ -275,11 +417,16 @@ fn main() -> Result<(), Failure> {
     if args.iter().any(|a| a != "--exit-after-demo") {
         return Err("usage: canvas-demo [--exit-after-demo]".into());
     }
-    let event_loop = EventLoop::new()?;
+    let event_loop = EventLoop::<()>::with_user_event().build()?;
+    let mut session = CanvasSession::new([1000, 700]);
+    if !args.is_empty() {
+        session.select_replay(Scenario::Completed, 0);
+    }
     let mut app = App {
         graphics: None,
-        playback: Playback::new(Scenario::Completed)?,
-        scenario: Scenario::Completed,
+        session,
+        proxy: event_loop.create_proxy(),
+        clock: Instant::now(),
         tick: Instant::now(),
         elapsed: 0,
         paused: false,

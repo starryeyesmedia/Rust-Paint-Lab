@@ -144,7 +144,12 @@ impl Renderer {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_vertex_buffer(0, self.vertices.slice(..));
-            pass.draw(0..mesh.len() as u32, 0..1);
+            pass.draw(0..6, 0..1); // Paper is independent of stroke clipping.
+            let [x, y, width, height] = crate::scene::CanvasMapping::new(size)?.scissor();
+            if width > 0 && height > 0 {
+                pass.set_scissor_rect(x, y, width, height);
+                pass.draw(6..mesh.len() as u32, 0..1);
+            }
         }
         self.queue.submit([encoder.finish()]);
         self.check_error()

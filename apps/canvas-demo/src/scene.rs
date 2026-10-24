@@ -187,6 +187,37 @@ impl CanvasMapping {
             ],
         })
     }
+    /// Inverse of the displayed document mapping for the shared stroke router.
+    pub fn routing_viewport(self) -> paint_stroke::coordinates::Viewport {
+        paint_stroke::coordinates::Viewport::new(self.origin, self.scale)
+            .expect("validated mapping")
+    }
+    pub fn contains_client(self, client: [f64; 2]) -> bool {
+        self.routing_viewport()
+            .to_document(client)
+            .is_ok_and(|point| {
+                point
+                    .0
+                    .iter()
+                    .zip(DOCUMENT_SIZE)
+                    .all(|(value, limit)| (0.0..=limit).contains(value))
+            })
+    }
+    /// Integer interior paper bounds for clipping stroke caps at canvas edges.
+    pub fn scissor(self) -> [u32; 4] {
+        let start = self.origin.map(|v| v.ceil() as u32);
+        let end: [u32; 2] = std::array::from_fn(|i| {
+            (self.origin[i] + DOCUMENT_SIZE[i] * self.scale)
+                .floor()
+                .min(self.size[i]) as u32
+        });
+        [
+            start[0],
+            start[1],
+            end[0].saturating_sub(start[0]),
+            end[1].saturating_sub(start[1]),
+        ]
+    }
     pub fn to_clip(self, document: [f64; 2]) -> Result<[f32; 2], SceneError> {
         if !document
             .iter()
