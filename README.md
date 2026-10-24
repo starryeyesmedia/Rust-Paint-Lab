@@ -1,76 +1,46 @@
 # Rust Paint Lab
 
-An original Rust painting application in active alpha development. The Overdrive
-branch provides pressure-responsive raster brushes, editable layers, undo/redo,
-checksummed `.rpl` projects, local recovery, PNG import/export, and a functional
-painting workspace. Native Windows pen input is integrated; its new canvas path
-still needs physical validation. Existing diagnostic and deterministic replay tools
-remain separate and available.
+Rust Paint Lab is an original cross-platform digital painting application in active alpha development. The current desktop alpha has pressure-responsive raster brushes, editable raster layers, bounded undo/redo, selections and basic transforms, local project saving/recovery, PNG and restricted OpenRaster interchange, and a wgpu canvas. Native Windows WM_POINTER input is wired to the same shared input and stroke pipeline as mouse input.
 
-Start here: [alpha user guide](docs/overdrive-user-guide.md),
-[progress and missing features](docs/OVERDRIVE-PROGRESS.md),
-[native file specification](docs/RPL-ALPHA-FORMAT.md).
-This is an unsigned development alpha; retain independent copies of important artwork.
+This is not yet a production replacement for established painting software. Native pen delivery, capture behavior, storage durability, and performance still require testing on the target Windows hardware. Keep independent copies of important artwork. The application is unsigned development software; the project has no selected distribution license.
+
+Start with the [alpha user guide](docs/overdrive-user-guide.md), [current implementation status](docs/OVERDRIVE-PROGRESS.md), [native project format](docs/RPL-ALPHA-FORMAT.md), and [known interchange limits](docs/openraster.md).
 
 ## Workspace
 
-- `crates/input` (`paint-input`): OS-independent pointer samples, lifecycle processing, and deterministic replay.
-- `crates/stroke` (`paint-stroke`): portable stroke commands, routing policy, and client-to-document coordinates.
-- `crates/document` (`paint-document`): portable raster brushes, tiles, layers, transactions/history, storage/recovery and PNG.
-- `apps/canvas-demo`: painting alpha workspace plus preserved deterministic GPU replay demonstrations.
-- `apps/stylus-diagnostic`: native Windows pointer inspector.
-- [Architecture](docs/architecture.md), [dependencies and licenses](docs/dependencies.md),
-  [hardware test checklist](docs/hardware-testing.md), [agent guidance](AGENTS.md).
+- `crates/input` (`paint-input`): platform-independent pointer normalization, lifecycle processing, and deterministic versioned replay.
+- `crates/stroke` (`paint-stroke`): platform-independent stroke routing and document coordinate mapping.
+- `crates/document` (`paint-document`): CPU raster brushes, sparse tiles, layers, bounded transactions/history, checked storage, recovery, PNG and restricted OpenRaster.
+- `apps/canvas-demo`: winit/wgpu/egui painting workspace, native Windows pen adapter, mouse input and preserved replay demonstrations.
+- `apps/stylus-diagnostic`: separate native Windows pointer inspector.
 
-## Prerequisites
+See [architecture](docs/architecture.md), [dependency and license inventory](docs/dependencies.md), [testing instructions](docs/testing.md), and the [hardware checklist](docs/hardware-testing.md).
 
-Install [Rust via rustup](https://rustup.rs/). `rust-toolchain.toml` pins Rust
-1.90.0 with Clippy and rustfmt; Cargo selects it automatically in this checkout.
-On Windows use the **x86_64-pc-windows-msvc** toolchain, Windows 10 version 1703
-or newer, and Visual Studio 2022 Build Tools with **Desktop development with C++**
-(including the Windows SDK and MSVC x64 build tools). A GPU SDK is not needed.
-Linux needs a C linker (for example `build-essential` on Ubuntu); macOS needs
-Xcode Command Line Tools. Shared tests work on all three desktop platforms.
-No secrets, services, accounts, or runtime downloads are required.
+## Build and run
 
-## Run the downloadable Windows diagnostic
+Rust 1.90.0 is pinned in `rust-toolchain.toml`; rustup installs the matching compiler, rustfmt, and Clippy. Windows builds use the x64 MSVC toolchain and Windows SDK. Linux requires a C linker and desktop/window-system libraries; macOS requires Xcode Command Line Tools. GPU drivers are needed to run the desktop app, but not to run the portable document/input tests. The renderer does not require a dedicated GPU; software rendering is used in Linux CI.
 
-No local Rust or Visual Studio installation is needed for the CI-built package.
-On GitHub, open **Actions → Rust checks**, select a successful run for
-`feature/overdrive-painting-alpha`, then download **rust-paint-lab-windows-diagnostic**
-from its Artifacts section (a GitHub sign-in/repository access may be required).
-Extract the ZIP to a normal user folder and follow its `README.txt`.
-
-The package contains the x64 release executable, instructions, dependency notice,
-build information, and executable SHA-256 checksum. It targets Windows 10 1703+
-and statically links the C runtime to avoid a separate VC++ redistributable.
-No installer or elevation is required. It is unsigned; SmartScreen or organization
-policy may warn or block it. Artifacts expire after 30 days (subject to repository
-policy) and are development builds, not GitHub releases. See the
-[packaged instructions](docs/windows-diagnostic-README.txt).
-
-## Build and run on Windows
-
-From PowerShell in the repository root:
-
-```powershell
-rustup show
-cargo build --locked -p stylus-diagnostic
-cargo run --locked -p stylus-diagnostic
-# Optional optimized build:
-cargo build --locked --release -p stylus-diagnostic
-.\target\release\stylus-diagnostic.exe
+```sh
+cargo run --release --locked -p canvas-demo
 ```
 
-Use the pen over the window's client area. The display shows the latest pointer
-position (physical client pixels), pressure (0–1 or `None`), tilt axes (degrees or
-`None`), buttons, contact/range status, raw masks/flags, message code, event time,
-frame, history count, active contact IDs, and ten recent events. Native errors
-appear in the display; startup errors appear in the terminal. Mouse movement is
-not used to fake pen data. Touch contacts are reported if delivered by Windows;
-there is no gesture recognizer or palm-rejection policy yet. Nothing is saved.
+From GitHub Actions, download `rust-paint-lab-canvas-demo` for the canvas app or `rust-paint-lab-windows-diagnostic` for the separate diagnostic. Extract the artifact ZIP and launch the executable. The Windows package targets x64 Windows 10, needs no Rust, Visual Studio, installer, or administrator rights, and statically links the C runtime. It remains unsigned and requires a compatible graphics driver. Artifacts are temporary CI outputs, not releases. Linux and macOS development packages are also attached to successful CI runs, with platform runtime requirements documented in their package readmes.
 
-## Automated checks
+## Painting controls
+
+The app opens in live drawing mode. Drag the left mouse button or supported Windows pen on the paper; right-click and hover do not paint. Pressure and independent tilt are kept when the adapter supplies them. Touch is reserved for navigation and does not paint. Completed work remains in the current editable document; cancellation removes the provisional stroke.
+
+- `B`, `M`, `E`, `K`, `I`: brush, rectangle, ellipse, lasso, eyedropper.
+- `Ctrl+Z` / `Ctrl+Y`: undo / redo; `Ctrl+S`: save; `Ctrl+O`: open path dialog; `Ctrl+E`: PNG export.
+- `Ctrl+F`: fill; `Ctrl+X`: delete selected pixels; `Ctrl+D`: deselect.
+- `Ctrl+Shift+E` / `Ctrl+Shift+O`: OpenRaster export / import.
+- `0`: fit canvas; mouse wheel: zoom; middle-button drag: pan; `F11`: fullscreen.
+- `L`: live document; `P` or `1`/`2`/`3`: deterministic replay; `Tab`: switch modes; `R`: restart; `Space`: pause replay.
+- `Escape`: close prompt. Dirty artwork can be saved, preserved through a confirmed local recovery snapshot, or kept open.
+
+The UI exposes ten brush presets, size/opacity/flow/hardness/spacing, pressure responses, tilt rotation, brush angle/smoothing/color, raster layer operations and blend modes, selections, fill/delete, eyedropper, layer transforms/crop, project/recovery actions, and file import/export. The [user guide](docs/overdrive-user-guide.md) explains what is implemented and what each format drops.
+
+## Validation
 
 ```sh
 cargo fmt --all --check
@@ -79,80 +49,6 @@ cargo test --workspace --locked
 cargo build --workspace --locked
 ```
 
-On Linux/macOS, the diagnostic builds a stub that exits with an explanatory
-message and status 1; this is not a native diagnostic on those platforms.
-To check Windows-specific code on Linux without executing or linking it:
+Linux CI additionally requires software Vulkan GPU pixel validation and runs the interactive app under Xvfb with synthetic OS mouse/key events, including save/reopen, editing, OpenRaster interchange, and forced-process recovery. A passing CI build does not establish physical pen, touch, driver latency, or Windows filesystem durability. Follow the [manual hardware checklist](docs/hardware-testing.md). The standalone diagnostic remains useful for inspecting actual WM_POINTER pressure and tilt without modifying artwork.
 
-```sh
-rustup target add x86_64-pc-windows-gnu
-cargo check --workspace --locked --target x86_64-pc-windows-gnu
-cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
-```
-
-CI performs formatting, lint, tests, and native builds on Linux, Windows, and
-macOS. A successful build does not verify a stylus or driver. Follow the
-[Galaxy Book checklist](docs/hardware-testing.md) before making hardware claims.
-
-## Synthetic input processing and replay
-
-The shared processor handles bounded contact lifecycles, hover, cancellation,
-capture loss, interruption, and reused IDs. Versioned text fixtures replay without
-hardware or wall-clock timing; nothing is automatically recorded. Run:
-
-```sh
-cargo run --locked -p paint-input --example replay -- crates/input/tests/fixtures/pen.replay
-```
-
-See the [fixture format](docs/replay-format.md), [processing architecture](docs/architecture.md),
-and [testing instructions](docs/testing.md). The diagnostic now displays shared
-lifecycle outcomes; its native event loop and capture behavior remain unchanged.
-
-## Stroke commands
-
-`paint-stroke` converts ordered lifecycle outputs into provisional Begin/Update
-and terminal Commit/Cancel commands. Pen paints, touch is reserved, and mouse
-painting requires the primary button without synthesizing pressure or tilt.
-A validated viewport maps physical client pixels to document coordinates and is
-captured per stroke. Run the existing synthetic pen fixture through the router:
-
-```sh
-cargo run --locked -p paint-stroke --example stroke_commands
-```
-
-See [routing and transaction semantics](docs/stroke-routing.md). The Windows
-inspector remains a lifecycle diagnostic; it does not paint or route brush work.
-
-## GPU canvas demo
-
-Download **rust-paint-lab-canvas-demo** from a successful `feature/overdrive-painting-alpha`
-Actions run, extract, and run `canvas-demo.exe` on Windows 10 x64 with a compatible
-graphics driver. No local Rust, installer, or administrator rights are needed.
-It is separate from **rust-paint-lab-windows-diagnostic**, which remains available.
-
-From source:
-
-```sh
-cargo run --locked -p canvas-demo
-```
-
-The app starts in **LIVE mouse** mode: drag the left button inside the paper to
-paint, release to commit, and use **C** to clear. **L** selects live drawing;
-**P** or **1/2/3** selects replay, **R** restarts replay, **Space** pauses replay,
-**Tab** switches modes, and **Escape** exits. Orange means provisional and blue
-means committed. Interrupted previews disappear; completed live work survives
-replay mode switches. Right-click and hover do not paint.
-[Canvas documentation](docs/canvas-demo.md) includes Linux prerequisites, controls,
-resource/error policy, automated test distinctions, and the RTX 3060 checklist.
-
-## Current boundaries and next step
-
-Live mouse drawing and replay both use the shared lifecycle/router pipeline.
-There is no native pen integration, brush engine, persistence, Android shell, or
-gesture system. egui and serde remain prospective dependencies. The user reports
-successful Phase 4 GPU/replay tests on the Galaxy Book2 Pro 360 and real pressure/
-tilt detection in the separate S Pen diagnostic; this does not validate Phase 5
-mouse/capture changes or integrated pen painting. Next connect native Windows pen
-samples through the same pipeline. See [live mouse architecture and testing](docs/live-mouse.md).
-
-Third-party notices are documented separately. A license for the original project
-has not yet been selected; no open-source distribution grant is implied.
+Third-party notices are generated for packaged dependencies. No cloud services, accounts, telemetry, or remote storage are used. See [the progress record](docs/OVERDRIVE-PROGRESS.md) for tested commit IDs, CI results, measured cloud-host workloads, unresolved defects, and exact next steps.

@@ -35,6 +35,9 @@ browser. New/Open safeguard dirty artwork with recovery confirmation. Save As an
 PNG export refuse unrelated existing files; select a new path. PNG import creates a
 layer at the top-left; oversized inputs are rejected. Save `.rpl` for editable layers,
 PNG for flattened images. Color is encoded-sRGB RGBA8, not full ICC color management.
+Document, file-path, recovery, close, and cleanup prompts are blocking modal dialogs;
+the workspace behind them does not accept drawing or toolbar input. Saving an
+untitled document after a PNG export chooses the matching `.rpl` project path.
 
 Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+O open path dialog, Enter confirms;
 Ctrl+E export PNG; F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
@@ -86,7 +89,9 @@ Standalone `stylus-diagnostic.exe` remains separately packaged and unchanged.
 B selects brush; M rectangle selection; E ellipse; K lasso; I eyedropper. Drag inside
 paper to select, then switch back to Brush to constrain painting to that selection.
 Selection outlines are black/white. Lasso is capped at 1024 points (2 document-pixel
-minimum spacing); complex shapes use even/odd pixel-center boundaries, no feathering.
+minimum spacing); reaching the cap cancels the whole lasso with a visible status
+message instead of committing a truncated boundary. Complex shapes use even/odd
+pixel-center boundaries, no feathering.
 Leaving paper, focus loss, resize or mode change cancels an incomplete selection.
 
 Ctrl+F fills selected pixels (or whole selected layer if nothing is selected) with

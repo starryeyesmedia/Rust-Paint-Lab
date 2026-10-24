@@ -13,6 +13,32 @@ use paint_document::{
 };
 use std::path::PathBuf;
 use winit::window::Window;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LassoAppend {
+    Unchanged,
+    Added,
+    LimitReached,
+}
+
+fn append_lasso_point(points: &mut Vec<[f64; 2]>, position: [f64; 2]) -> LassoAppend {
+    let Some(last) = points.last().copied() else {
+        return LassoAppend::LimitReached;
+    };
+    if (position[0] - last[0]).hypot(position[1] - last[1]) < 2.0 {
+        return LassoAppend::Unchanged;
+    }
+    if points.len() >= paint_document::editing::MAX_SELECTION_POINTS {
+        return LassoAppend::LimitReached;
+    }
+    points.push(position);
+    LassoAppend::Added
+}
+
+fn native_project_path(path: &std::path::Path) -> PathBuf {
+    path.with_extension("rpl")
+}
+
 #[derive(Clone)]
 enum Action {
     Fill(bool),
@@ -403,11 +429,14 @@ impl Studio {
             }
             Phase::Move | Phase::Up if captured => {
                 if self.tool == EditTool::Lasso {
-                    let last = *self.edit_points.last().unwrap();
-                    if (position[0] - last[0]).hypot(position[1] - last[1]) >= 2.0
-                        && self.edit_points.len() < 1024
+                    if append_lasso_point(&mut self.edit_points, position)
+                        == LassoAppend::LimitReached
                     {
-                        self.edit_points.push(position);
+                        self.edit_pointer = None;
+                        self.edit_points.clear();
+                        self.status =
+                            "Lasso cancelled: simplify the outline to 1024 points or fewer".into();
+                        return true;
                     }
                 } else {
                     self.edit_points[1] = position;
@@ -660,6 +689,7 @@ impl Studio {
 if let Some(error)=session.live().document_error(){
 ui.colored_label(egui::Color32::LIGHT_RED,error);
 }
+
 else{
 ui.label(&self.status);
 }
@@ -963,87 +993,89 @@ ui.add(egui::Label::new(pen_status).truncate());
             });
 
         if let Some(path) = self.cleanup.clone() {
-            egui::Window::new("Delete recovery checkpoint?").collapsible(false).show(ctx,|ui|{
-                ui.label(path.to_string_lossy());ui.label("Deletes this checkpoint and its backup. First verify an independent saved project. Active sessions and ordinary artwork files are protected.");
-                if ui.button("Delete this recovery and backup").clicked(){actions.push(Action::RemoveRecovery(path));self.cleanup=None;}
-                if ui.button("Cancel").clicked(){self.cleanup=None;}
+            egui::Modal::new(egui::Id::new("delete recovery checkpoint")).show(ctx, |ui| {
+                ui.heading("Delete recovery checkpoint?");
+                ui.label(path.to_string_lossy());
+                ui.label("Deletes this checkpoint and its backup. First verify an independent saved project. Active sessions and ordinary artwork files are protected.");
+                if ui.button("Delete this recovery and backup").clicked() {
+                    actions.push(Action::RemoveRecovery(path));
+                    self.cleanup = None;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.cleanup = None;
+                }
             });
-        }
-        if self.new_dialog {
-            egui::Window::new("New document")
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    ui.add(egui::Slider::new(&mut self.new_width, 64..=4096).text("Width"));
-                    ui.add(egui::Slider::new(&mut self.new_height, 64..=4096).text("Height"));
-                    ui.add(egui::Slider::new(&mut self.new_dpi, 72..=1200).text("DPI"));
-                    if ui.button("Create").clicked() {
-                        actions.push(Action::New);
-                        self.new_dialog = false;
+        } else if self.new_dialog {
+            egui::Modal::new(egui::Id::new("new document")).show(ctx, |ui| {
+                ui.heading("New document");
+                ui.add(egui::Slider::new(&mut self.new_width, 64..=4096).text("Width"));
+                ui.add(egui::Slider::new(&mut self.new_height, 64..=4096).text("Height"));
+                ui.add(egui::Slider::new(&mut self.new_dpi, 72..=1200).text("DPI"));
+                if ui.button("Create").clicked() {
+                    actions.push(Action::New);
+                    self.new_dialog = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.new_dialog = false;
+                }
+            });
+        } else if self.file_dialog {
+            egui::Modal::new(egui::Id::new("project file path")).show(ctx, |ui| {
+                ui.heading("Project / image path");
+                ui.label("Enter a full path or a file in the current folder. RPL for editable projects; PNG for images.");
+                ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
+                if ui.button("Continue").clicked()
+                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                {
+                    if let Some(action) = self.action.take() {
+                        actions.push(action);
                     }
-
-                    if ui.button("Cancel").clicked() {
-                        self.new_dialog = false;
+                    self.file_dialog = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.file_dialog = false;
+                    self.action = None;
+                }
+            });
+        } else if self.confirm.is_some() {
+            egui::Modal::new(egui::Id::new("preserve unsaved artwork")).show(ctx, |ui| {
+                ui.heading("Preserve unsaved artwork");
+                ui.label(
+                    "Save first, or retain a recovery checkpoint before replacing this document.",
+                );
+                if ui.button("Keep recovery and continue").clicked() {
+                    if self.preserve(session).is_ok() {
+                        *approved = true;
+                        if let Some(action) = self.confirm.take() {
+                            actions.push(action);
+                        }
+                    } else {
+                        self.status =
+                            "Recovery unavailable: save current artwork before continuing".into();
                     }
-                });
-        }
-
-        if self.file_dialog {
-            egui::Window::new("Project / image path").collapsible(false).show(ctx,|ui|{
-ui.label("Enter a full path or a file in the current folder. RPL for editable projects; PNG for images.");
-ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
-if ui.button("Continue").clicked()||ui.input(|i|i.key_pressed(egui::Key::Enter)){
-if let Some(a)=self.action.take(){
-actions.push(a);
-}
-self.file_dialog=false;
-}
-
-if ui.button("Cancel").clicked(){
-self.file_dialog=false;
-self.action=None;
-}
-}
-);
-        }
-
-        if self.confirm.is_some() {
-            egui::Window::new("Preserve unsaved artwork").collapsible(false).show(ctx,|ui|{
-ui.label("Save first, or retain a recovery checkpoint before replacing this document.");
-if ui.button("Keep recovery and continue").clicked(){
-if self.preserve(session).is_ok(){
-*approved=true;
-actions.push(self.confirm.take().unwrap());
-}
-else{
-self.status="Recovery unavailable: save current artwork before continuing".into();
-}
-}
-
-if ui.button("Cancel").clicked(){
-self.confirm=None;
-}
-}
-);
-        }
-
-        if self.close_requested {
-            egui::Window::new("Close artwork?").collapsible(false).show(ctx,|ui|{
-ui.label("Unsaved artwork will be retained in local recovery. Save the project for an explicit editable file.");
-if ui.button("Save project and close").clicked(){
-actions.push(Action::Save);
-self.action=Some(Action::Save);
-}
-
-if ui.button("Keep recovery and close").clicked(){
-match self.preserve(session){
-Ok(())=>self.close_ready=true,Err(e)=>self.status=e.to_string()}
-}
-
-if ui.button("Cancel").clicked(){
-self.close_requested=false;
-}
-}
-);
+                }
+                if ui.button("Cancel").clicked() {
+                    self.confirm = None;
+                }
+            });
+        } else if self.close_requested {
+            egui::Modal::new(egui::Id::new("close artwork")).show(ctx, |ui| {
+                ui.heading("Close artwork?");
+                ui.label("Unsaved artwork will be retained in local recovery. Save the project for an explicit editable file.");
+                if ui.button("Save project and close").clicked() {
+                    actions.push(Action::Save);
+                    self.action = Some(Action::Save);
+                }
+                if ui.button("Keep recovery and close").clicked() {
+                    match self.preserve(session) {
+                        Ok(()) => self.close_ready = true,
+                        Err(error) => self.status = error.to_string(),
+                    }
+                }
+                if ui.button("Cancel").clicked() {
+                    self.close_requested = false;
+                }
+            });
         }
     }
     pub fn frame(
@@ -1312,9 +1344,11 @@ self.close_requested=false;
             Action::Save | Action::SaveAs => {
                 project.sync_brush_settings();
                 if matches!(a, Action::SaveAs) || self.store.is_none() {
-                    let mut replacement = Store::new(PathBuf::from(&self.path));
+                    let path = native_project_path(std::path::Path::new(&self.path));
+                    let mut replacement = Store::new(path.clone());
                     replacement.save(project.state())?;
                     self.store = Some(replacement);
+                    self.path = path.to_string_lossy().into_owned();
                 } else {
                     self.store.as_mut().unwrap().save(project.state())?;
                 }
@@ -1379,5 +1413,55 @@ self.close_requested=false;
         for id in &output.textures_delta.free {
             self.painter.free_texture(id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LassoAppend, append_lasso_point, native_project_path};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn lasso_keeps_spacing_and_never_silently_truncates() {
+        let mut points = vec![[0.0, 0.0]; 2];
+        assert_eq!(
+            append_lasso_point(&mut points, [1.0, 0.0]),
+            LassoAppend::Unchanged
+        );
+        assert_eq!(
+            append_lasso_point(&mut points, [2.0, 0.0]),
+            LassoAppend::Added
+        );
+        assert_eq!(points, vec![[0.0, 0.0], [0.0, 0.0], [2.0, 0.0]]);
+
+        points.resize(paint_document::editing::MAX_SELECTION_POINTS, [2.0, 0.0]);
+        let count = points.len();
+        assert_eq!(
+            append_lasso_point(&mut points, [4.0, 0.0]),
+            LassoAppend::LimitReached
+        );
+        assert_eq!(points.len(), count);
+    }
+
+    #[test]
+    fn lasso_capacity_does_not_reject_subthreshold_motion() {
+        let mut points = vec![[0.0, 0.0]; paint_document::editing::MAX_SELECTION_POINTS];
+        assert_eq!(
+            append_lasso_point(&mut points, [1.0, 0.0]),
+            LassoAppend::Unchanged
+        );
+        assert_eq!(points.len(), paint_document::editing::MAX_SELECTION_POINTS);
+    }
+
+    #[test]
+    fn native_save_path_is_not_confused_by_image_export_path() {
+        assert_eq!(
+            native_project_path(Path::new("artwork.png")),
+            PathBuf::from("artwork.rpl")
+        );
+        assert_eq!(
+            native_project_path(Path::new("artwork")),
+            PathBuf::from("artwork.rpl")
+        );
     }
 }

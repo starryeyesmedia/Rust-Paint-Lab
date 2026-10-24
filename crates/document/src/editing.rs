@@ -7,6 +7,7 @@ pub enum SelectionKind {
     Ellipse,
     Lasso,
 }
+pub const MAX_SELECTION_POINTS: usize = 1024;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Selection {
     kind: SelectionKind,
@@ -34,7 +35,7 @@ impl Selection {
         Ok(s)
     }
     pub fn validate(&self) -> Result<(), PaintError> {
-        if self.points.len() > 1024
+        if self.points.len() > MAX_SELECTION_POINTS
             || self.points.len()
                 < if self.kind == SelectionKind::Lasso {
                     3

@@ -249,3 +249,30 @@ stamps maximum. Callback uses the tested helper; no capture/event-loop policy wa
 changed. Current complete suite is 124 Rust tests plus GPU runner. Native history
 FFI delivery/order still requires physical pen validation; pure packet tests do not
 substitute for it. OpenRaster checkpoint31965b8 / Actions40054016435 passed all3OS.
+
+## Editing and save-path safety checkpoint (in progress)
+
+Fixed three concrete alpha-shell hazards. Document/path/recovery/close/cleanup prompts
+are now blocking egui modals so the workspace behind a destructive confirmation
+cannot receive clicks. A lasso that exceeds the 1024-vertex budget is cancelled in
+full and reports why; it can no longer silently commit a clipped outline. Saving an
+untitled document after exporting PNG selects the corresponding `.rpl` path instead
+of writing native project bytes with a `.png` suffix. Added three focused regressions
+for lasso spacing/cap and native project path selection. README was corrected to
+describe the actual painting alpha and its current limitations; user guide updated.
+
+Local validation on Rust 1.90: fmt, workspace Clippy, workspace build, all **127 Rust
+tests**, required Vulkan software GPU pixel runner (Mesa llvmpipe; passed), and the
+interactive X11 alpha workflow passed. The latter verifies real window input, native
+project roundtrip, edits, PNG/OpenRaster, and process-kill recovery. Windows GNU
+cross-target check and Clippy passed; this is not Windows execution. Previous source
+checkpoint `ed8b88a` Actions run `40055386097` completed successfully on Windows,
+Linux, and macOS, with its existing artifacts. The changes in this checkpoint have
+not yet been pushed or run through CI.
+
+Known remaining limits are unchanged: native Windows pen path and physical file
+durability are not tested here; recovery is snapshot-based; no full operation journal,
+async explicit export/save, groups/masks, vectors, timelapse, Android app or full ICC
+workflow. Exact continuation: commit and push this fix, verify the three-platform
+Actions build/artifact uploads, then continue P0 reliability work after assessing
+Windows results. Do not claim the new modal flow or path behavior was hardware-tested.
