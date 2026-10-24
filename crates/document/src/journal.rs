@@ -140,13 +140,10 @@ impl Journal {
         {
             return Ok(());
         }
-        let seq = prior
-            .latest
-            .as_ref()
-            .map_or(1, |(seq, _, _)| seq.saturating_add(1));
-        if seq == 0 {
-            return Err(PaintError::Limit);
-        }
+        let seq = match prior.latest.as_ref() {
+            Some((last, _, _)) => last.checked_add(1).ok_or(PaintError::Limit)?,
+            None => 1,
+        };
         let record_len = HEADER.saturating_add(payload.len()).saturating_add(DIGEST);
         let total = prior.valid_bytes.saturating_add(record_len);
         if total <= self.max_bytes {
