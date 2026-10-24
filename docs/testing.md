@@ -195,10 +195,10 @@ workflow remains the full save/edit/recovery integration check; physical Windows
 pen pressure, capture behavior, display scaling, and Iris Xe rendering still require
 manual testing.
 
-The recovery snapshot journal adds three tests (139 current Rust tests total):
+The recovery snapshot journal adds five tests (141 current Rust tests total):
 latest-state selection and idempotent duplicates, truncated/checksum-corrupt tail
-fallback, and discovery/restoration when a checkpoint journal exists but its paired
-snapshot replacement is absent. The actual alpha smoke still exercises forced
+fallback, discovery/restoration when its paired snapshot replacement is absent,
+writer exclusion, and bounded compaction. The actual alpha smoke exercises forced
 process termination with the integrated recovery worker; Windows power-loss behavior
 and filesystem durability remain untested.
 

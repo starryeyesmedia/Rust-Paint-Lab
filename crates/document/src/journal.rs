@@ -97,11 +97,15 @@ fn scan(bytes: &[u8], retain_state: bool) -> Scan {
 /// later checkpoint compacts to that checkpoint if the cap would be exceeded.
 pub struct Journal {
     path: PathBuf,
+    max_bytes: usize,
 }
 
 impl Journal {
     pub fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self {
+            path,
+            max_bytes: MAX_JOURNAL,
+        }
     }
 
     fn lock(&self) -> Result<File, PaintError> {
@@ -121,10 +125,10 @@ impl Journal {
         let mut bytes = Vec::new();
         if self.path.exists() {
             File::open(&self.path)?
-                .take(MAX_JOURNAL as u64 + 1)
+                .take(self.max_bytes as u64 + 1)
                 .read_to_end(&mut bytes)?;
         }
-        if bytes.len() > MAX_JOURNAL {
+        if bytes.len() > self.max_bytes {
             return Err(PaintError::Limit);
         }
         let prior = scan(&bytes, false);
@@ -145,7 +149,7 @@ impl Journal {
         }
         let record_len = HEADER.saturating_add(payload.len()).saturating_add(DIGEST);
         let total = prior.valid_bytes.saturating_add(record_len);
-        if total <= MAX_JOURNAL {
+        if total <= self.max_bytes {
             let mut file = OpenOptions::new()
                 .create(true)
                 .write(true)
@@ -187,9 +191,9 @@ impl Journal {
     pub fn restore(&self) -> Result<(State, bool), PaintError> {
         let mut bytes = Vec::new();
         File::open(&self.path)?
-            .take(MAX_JOURNAL as u64 + 1)
+            .take(self.max_bytes as u64 + 1)
             .read_to_end(&mut bytes)?;
-        if bytes.len() > MAX_JOURNAL {
+        if bytes.len() > self.max_bytes {
             return Err(PaintError::Limit);
         }
         let scan = scan(&bytes, true);
@@ -283,5 +287,54 @@ mod tests {
         );
         fs::remove_file(&path).unwrap();
         let _ = fs::remove_file(path.with_extension("journal.lock"));
+    }
+
+    #[test]
+    fn journal_compacts_to_latest_state_at_its_bound() {
+        let path = path();
+        let mut engine = Engine::new(32, 32, 96).unwrap();
+        revise(&mut engine, "one");
+        let record_size = HEADER + storage::encode(engine.state()).unwrap().len() + DIGEST;
+        let mut journal = Journal {
+            path: path.clone(),
+            max_bytes: 2 * record_size,
+        };
+        journal.append(engine.state()).unwrap();
+        revise(&mut engine, "two");
+        journal.append(engine.state()).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len() as usize, 2 * record_size);
+        revise(&mut engine, "tre");
+        journal.append(engine.state()).unwrap();
+        assert!(fs::metadata(&path).unwrap().len() as usize <= 2 * record_size);
+        let (restored, fallback) = journal.restore().unwrap();
+        assert!(!fallback);
+        assert_eq!(
+            storage::encode(&restored).unwrap(),
+            storage::encode(engine.state()).unwrap()
+        );
+        fs::remove_file(&path).unwrap();
+        let _ = fs::remove_file(path.with_extension("journal.lock"));
+    }
+
+    #[test]
+    fn concurrent_journal_writer_is_rejected() {
+        let path = path();
+        let lock_path = path.with_extension("journal.lock");
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap();
+        lock.try_lock().unwrap();
+        let mut journal = Journal::new(path.clone());
+        let engine = Engine::new(32, 32, 96).unwrap();
+        assert!(matches!(
+            journal.append(engine.state()),
+            Err(PaintError::Busy)
+        ));
+        drop(lock);
+        let _ = fs::remove_file(lock_path);
     }
 }

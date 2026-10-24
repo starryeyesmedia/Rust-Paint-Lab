@@ -21,8 +21,10 @@ not evidence that a workflow is complete.
   successful on Windows, Linux, and macOS, including the separate Windows
   diagnostic and canvas artifact builds.
 - At resume, local HEAD was `069802c` (documentation only) and origin was
-  `47996f6`; both were retained. New code changes have not yet been pushed or
-  run through Actions.
+  `47996f6`; both were retained and pushed with recovery checkpoint `299506e`.
+- Actions run [`40104691001`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40104691001)
+  for `299506e` started on Windows, Linux, and macOS; it was in progress at the
+  latest query. A follow-up compaction/writer regression is being validated.
 - No merge, release, or public exposure is authorized.
 
 ## Completed checkpoint 7A: artboard crossing and stroke continuity
@@ -81,10 +83,10 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
   longer makes a live stroke disappear. This confirms only that reported boundary
   behavior on that device; no other pen/capture/storage behavior is inferred.
 - Recovery journal checkpoint local validation: workspace formatting, Clippy,
-  tests, build, required Vulkan GPU pixel checks, forced-crash alpha workflow, and
-  Linux live mouse X11 smoke passed. The workspace suite contains 139 tests after
-  this addition. Windows GNU cross-check and GitHub Actions for this checkpoint
-  remain outstanding.
+  tests, build, required Vulkan GPU pixel checks, forced-crash alpha workflow, Linux
+  live mouse X11 smoke, and Windows GNU cross-check/Clippy passed for `299506e` with
+  139 tests. Two more focused tests now cover compaction and writer exclusion (141
+  tests total); these latest changes need full revalidation and cross-platform Actions.
 
 ## Architecture decisions
 
@@ -112,7 +114,8 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
   or corrupted tails return the previous complete record; journal-only recovery is
   discoverable; the existing snapshot and `.bak` remain fallbacks. The journal is
   capped at two maximum project payloads and compacts atomically to the newest full
-  state when needed. This is not an operation WAL, does not retain undo history, and
+  state when needed. Dedicated tests exercise compaction and writer exclusion. This
+  is not an operation WAL, does not retain undo history, and
   still has a checkpoint interval in which a hard crash can lose recent work.
   Remaining work includes process-kill integration coverage after journal sync,
   fault injection around append/compaction, Windows power-loss validation, recovery
