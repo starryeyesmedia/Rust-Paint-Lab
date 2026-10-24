@@ -170,9 +170,9 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
 - **7L Timelapse:** no automatic or opt-in edit-event timelapse system exists.
 - **7M Performance:** sparse tiles and bounded history/cache exist, but 4/8/16 GB
   profiles and target-machine frame/input latency are not benchmarked.
-- **7N Distribution:** desktop CI and portable Windows artifacts exist on Phase 6;
-  Phase 7 artifact workflow must be confirmed after push. Android is not a functional
-  app. Physical Windows and Mac hardware are untested.
+- **7N Distribution:** latest CI builds the separate portable Windows diagnostic,
+  canvas demo, and Linux/macOS alpha packages. Android is not a functional app.
+  Physical Windows and Mac hardware are untested.
 
 ## Known issues and exact next steps
 
@@ -195,7 +195,14 @@ Formatting, workspace Clippy with warnings denied, all **148 Rust tests**, works
 build, Windows GNU target check and target-specific Clippy passed after the 7B/7C
 changes. The required Vulkan offscreen GPU pixel suite passed on Mesa llvmpipe. Linux
 X11 alpha recovery smoke passed journal-only forced-kill recovery, persisted reference
-startup, independent artwork preservation, and normal save/export workflows. CI for
-this continuation has not run yet; the prior validated CI is `40104914603` for
-`6001265`. The new Windows release build/artifact and all three platform checks must
-be verified after push. No Windows hardware or sudden-power-loss test was available.
+startup, independent artwork preservation, and normal save/export workflows. The
+journal Windows unit-test paths now combine wall-clock entropy with a process-local
+atomic suffix after the hosted runner exposed a temporary-path collision. Commit
+`26b3173` passed GitHub Actions run
+[`40112079927`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40112079927)
+on Windows, Linux, and macOS. CI uploaded `rust-paint-lab-windows-diagnostic`,
+`rust-paint-lab-canvas-demo`, `rust-paint-lab-Linux-X64-alpha`, and
+`rust-paint-lab-macOS-ARM64-alpha`; artifacts expire after 30 days. The Windows
+canvas package now contains both a concise `README.txt` and full `USER-GUIDE.md`.
+No Windows hardware or sudden-power-loss test was available. CI packaging does not
+establish physical device compatibility or power-loss durability.
