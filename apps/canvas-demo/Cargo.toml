@@ -7,7 +7,11 @@ rust-version.workspace = true
 [dependencies]
 paint-input = { path = "../../crates/input" }
 paint-stroke = { path = "../../crates/stroke" }
-wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "vulkan", "gles", "wgsl"] }
+paint-document = { path = "../../crates/document" }
+egui = "=0.33.3"
+egui-winit = { version = "=0.33.3", default-features = false, features = ["x11", "wayland", "clipboard"] }
+egui-wgpu = { version = "=0.33.3", default-features = false }
+wgpu = { version = "=27.0.1", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "vulkan", "gles", "wgsl"] }
 winit = "=0.30.13"
 pollster = "=0.4.0"
 

@@ -1,18 +1,23 @@
 # Rust Paint Lab
 
-An original Rust digital painting and illustration project, starting with a
-small, testable painting foundation. The GPU canvas now supports fixed-width,
-session-only mouse drawing; this is **not yet a complete painting application**.
-The first executable is a Windows pen-input diagnostic for the Galaxy Book2 Pro
-360. The user has reported successful Phase 4 GPU/replay operation and pressure/
-tilt detection in the standalone diagnostic; new live mouse behavior still needs
-manual validation.
+An original Rust painting application in active alpha development. The Overdrive
+branch provides pressure-responsive raster brushes, editable layers, undo/redo,
+checksummed `.rpl` projects, local recovery, PNG import/export, and a functional
+painting workspace. Native Windows pen input is integrated; its new canvas path
+still needs physical validation. Existing diagnostic and deterministic replay tools
+remain separate and available.
+
+Start here: [alpha user guide](docs/overdrive-user-guide.md),
+[progress and missing features](docs/OVERDRIVE-PROGRESS.md),
+[native file specification](docs/RPL-ALPHA-FORMAT.md).
+This is an unsigned development alpha; retain independent copies of important artwork.
 
 ## Workspace
 
 - `crates/input` (`paint-input`): OS-independent pointer samples, lifecycle processing, and deterministic replay.
 - `crates/stroke` (`paint-stroke`): portable stroke commands, routing policy, and client-to-document coordinates.
-- `apps/canvas-demo`: progressive interactive mouse canvas plus deterministic wgpu replay demonstrations.
+- `crates/document` (`paint-document`): portable raster brushes, tiles, layers, transactions/history, storage/recovery and PNG.
+- `apps/canvas-demo`: painting alpha workspace plus preserved deterministic GPU replay demonstrations.
 - `apps/stylus-diagnostic`: native Windows pointer inspector.
 - [Architecture](docs/architecture.md), [dependencies and licenses](docs/dependencies.md),
   [hardware test checklist](docs/hardware-testing.md), [agent guidance](AGENTS.md).
@@ -32,7 +37,7 @@ No secrets, services, accounts, or runtime downloads are required.
 
 No local Rust or Visual Studio installation is needed for the CI-built package.
 On GitHub, open **Actions → Rust checks**, select a successful run for
-`feature/live-mouse-drawing`, then download **rust-paint-lab-windows-diagnostic**
+`feature/overdrive-painting-alpha`, then download **rust-paint-lab-windows-diagnostic**
 from its Artifacts section (a GitHub sign-in/repository access may be required).
 Extract the ZIP to a normal user folder and follow its `README.txt`.
 
@@ -119,7 +124,7 @@ inspector remains a lifecycle diagnostic; it does not paint or route brush work.
 
 ## GPU canvas demo
 
-Download **rust-paint-lab-canvas-demo** from a successful `feature/live-mouse-drawing`
+Download **rust-paint-lab-canvas-demo** from a successful `feature/overdrive-painting-alpha`
 Actions run, extract, and run `canvas-demo.exe` on Windows 10 x64 with a compatible
 graphics driver. No local Rust, installer, or administrator rights are needed.
 It is separate from **rust-paint-lab-windows-diagnostic**, which remains available.

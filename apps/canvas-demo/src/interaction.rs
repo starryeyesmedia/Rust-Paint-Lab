@@ -26,6 +26,8 @@ pub enum MouseEvent {
 /// Router's monotonically increasing stroke IDs are never reset by clear/mode switches.
 pub struct LiveMouse {
     scene: Scene,
+    project: paint_document::Engine,
+    document_mode: bool,
     processor: Processor,
     router: Router,
     mapping: Option<CanvasMapping>,
@@ -40,6 +42,8 @@ impl LiveMouse {
     pub fn new(size: [u32; 2]) -> Self {
         Self {
             scene: Scene::default(),
+            project: paint_document::Engine::new(800, 500, 300).expect("valid default document"),
+            document_mode: false,
             processor: Processor::default(),
             router: Router::default(),
             mapping: CanvasMapping::new(size).ok(),
@@ -49,6 +53,23 @@ impl LiveMouse {
             inside: false,
             time_ms: 0,
             notice: None,
+        }
+    }
+    pub fn project(&self) -> &paint_document::Engine {
+        &self.project
+    }
+    pub fn project_mut(&mut self) -> &mut paint_document::Engine {
+        &mut self.project
+    }
+    pub fn enable_document(&mut self) {
+        self.interrupt(Reason::Interrupted);
+        self.document_mode = true;
+        self.scene.clear();
+    }
+    pub fn set_mapping(&mut self, mapping: CanvasMapping) {
+        if self.mapping != Some(mapping) {
+            self.interrupt(Reason::Interrupted);
+            self.mapping = Some(mapping);
         }
     }
     pub fn scene(&self) -> &Scene {
@@ -65,6 +86,7 @@ impl LiveMouse {
         for output in self.processor.interrupt(self.time_ms, reason) {
             if let Some(command) = self.router.route(&output) {
                 let _ = self.scene.apply(&command);
+                let _ = self.project.apply(&command);
             }
         }
         self.primary_down = false;
@@ -90,6 +112,7 @@ impl LiveMouse {
             }) {
                 if let Some(command) = self.router.route(&output) {
                     let _ = self.scene.apply(&command);
+                    let _ = self.project.apply(&command);
                 }
             }
             return;
@@ -102,12 +125,19 @@ impl LiveMouse {
     }
     fn consume(&mut self, sample: PointerSample) {
         for output in self.processor.process(sample) {
-            if let Some(command) = self.router.route(&output)
-                && let Err(error) = self.scene.apply(&command)
-            {
-                self.notice = Some(error);
-                self.interrupt(Reason::Interrupted);
-                break;
+            if let Some(command) = self.router.route(&output) {
+                let result = if self.document_mode {
+                    self.project
+                        .apply(&command)
+                        .map_err(|_| SceneError::Capacity)
+                } else {
+                    self.scene.apply(&command)
+                };
+                if let Err(error) = result {
+                    self.notice = Some(error);
+                    self.interrupt(Reason::Interrupted);
+                    break;
+                }
             }
         }
     }
@@ -136,6 +166,9 @@ impl LiveMouse {
         self.interrupt(Reason::Interrupted);
         self.cursor = cursor;
         self.scene.clear();
+        if self.document_mode {
+            let _ = self.project.clear_layer();
+        }
         self.notice = None;
     }
     /// Winit positions and sizes must both be physical client pixels. No second
@@ -236,6 +269,9 @@ impl CanvasSession {
         if self.mode == Mode::Live {
             self.live.pen(sample);
         }
+    }
+    pub fn live_mut(&mut self) -> &mut LiveMouse {
+        &mut self.live
     }
     pub fn live(&self) -> &LiveMouse {
         &self.live

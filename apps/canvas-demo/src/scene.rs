@@ -165,27 +165,58 @@ fn valid_position(p: [f64; 2]) -> bool {
 
 /// Fit the 800x500 document inside physical viewport pixels with a 16px margin.
 /// Document +y down maps to clip-space +y up. Aspect ratio is preserved.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CanvasMapping {
     size: [f64; 2],
     scale: f64,
     origin: [f64; 2],
+    document: [f64; 2],
 }
 impl CanvasMapping {
     pub fn new(size: [u32; 2]) -> Result<Self, SceneError> {
         if size.iter().any(|v| *v == 0 || *v > 8192) {
             return Err(SceneError::InvalidViewport);
         }
-        let size = size.map(f64::from);
-        let scale = ((size[0] - 32.0).max(1.0) / 800.0).min((size[1] - 32.0).max(1.0) / 500.0);
-        Ok(Self {
+        Self::for_document(
             size,
+            DOCUMENT_SIZE,
+            [0.0, 0.0, size[0] as f64, size[1] as f64],
+        )
+    }
+    pub fn for_document(
+        size: [u32; 2],
+        document: [f64; 2],
+        rect: [f64; 4],
+    ) -> Result<Self, SceneError> {
+        if size.contains(&0)
+            || size.iter().any(|n| *n > 8192)
+            || !document
+                .iter()
+                .all(|n| n.is_finite() && *n > 0.0 && *n <= 4096.0)
+            || !rect.iter().all(|n| n.is_finite())
+            || rect[0] < 0.0
+            || rect[1] < 0.0
+            || rect[2] > size[0] as f64
+            || rect[3] > size[1] as f64
+            || rect[2] <= rect[0]
+            || rect[3] <= rect[1]
+        {
+            return Err(SceneError::InvalidViewport);
+        }
+        let scale = ((rect[2] - rect[0] - 32.0).max(1.0) / document[0])
+            .min((rect[3] - rect[1] - 32.0).max(1.0) / document[1]);
+        Ok(Self {
+            size: size.map(f64::from),
             scale,
             origin: [
-                (size[0] - 800.0 * scale) / 2.0,
-                (size[1] - 500.0 * scale) / 2.0,
+                rect[0] + (rect[2] - rect[0] - document[0] * scale) / 2.0,
+                rect[1] + (rect[3] - rect[1] - document[1] * scale) / 2.0,
             ],
+            document,
         })
+    }
+    pub fn document_size(self) -> [f64; 2] {
+        self.document
     }
     /// Inverse of the displayed document mapping for the shared stroke router.
     pub fn routing_viewport(self) -> paint_stroke::coordinates::Viewport {
@@ -199,7 +230,7 @@ impl CanvasMapping {
                 point
                     .0
                     .iter()
-                    .zip(DOCUMENT_SIZE)
+                    .zip(self.document)
                     .all(|(value, limit)| (0.0..=limit).contains(value))
             })
     }
@@ -207,7 +238,7 @@ impl CanvasMapping {
     pub fn scissor(self) -> [u32; 4] {
         let start = self.origin.map(|v| v.ceil() as u32);
         let end: [u32; 2] = std::array::from_fn(|i| {
-            (self.origin[i] + DOCUMENT_SIZE[i] * self.scale)
+            (self.origin[i] + self.document[i] * self.scale)
                 .floor()
                 .min(self.size[i]) as u32
         });

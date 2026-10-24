@@ -68,6 +68,25 @@ jobs:
           PYTHON
           fi
           exit "$outcome"
+      - name: Linux alpha artwork workflow smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        env:
+          WGPU_BACKEND: vulkan
+        run: |
+          set +e
+          xvfb-run -a python3 scripts/alpha-workflow-smoke.py > /tmp/alpha-workflow.log 2>&1
+          outcome=$?
+          set -e
+          cat /tmp/alpha-workflow.log
+          if [ "$outcome" -ne 0 ]; then
+            python3 - <<'PYTHON'
+          from pathlib import Path
+          text=Path('/tmp/alpha-workflow.log').read_text()[-6000:]
+          print('::error title=Alpha artwork workflow::'+text.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+          PYTHON
+          fi
+          exit "$outcome"
       - name: Build portable Windows diagnostic
         if: runner.os == 'Windows'
         env:

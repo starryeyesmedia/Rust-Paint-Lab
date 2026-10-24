@@ -182,3 +182,33 @@ remain unresolved. The replay-fed GPU canvas milestone follows the
 adds live mouse routing; the next milestone should connect native Windows pen
 samples before expanding the brush or document architecture. No brush engine, document
 storage, layers, or undo exists.
+
+
+## Overdrive authoritative artwork path
+
+`WM_POINTER/mouse -> paint-input Processor -> paint-stroke Router -> paint-document
+Engine -> sparse CPU raster tiles -> dirty-tile composite -> wgpu texture -> egui
+workspace`. Replay keeps its original separate scene/session. Native pointer history
+is bounded and ordered before shared processing; promoted Windows mouse input is
+suppressed. No competing event loop or OS dependency enters shared crates.
+
+The useful new component is `paint-document`, currently containing separate brush,
+storage and recovery modules rather than empty future crates. StrokeId keys scratch
+transactions; Begin/Update preview without mutating the document, Commit merges with
+stroke opacity and adds a history entry, Cancel drops scratch. Brush settings are
+captured at Begin. Spatial dab spacing/interpolated pressure is independent of event
+frequency; the final raw endpoint is included after smoothing. Mouse unavailable
+pressure remains None and uses explicit uniform brush fallback.
+
+64px premultiplied encoded-sRGB tiles use Arc COW for snapshots. Authoritative and
+preview tile count, layers, dimensions, history, file sizes, decoder allocations and
+recovery queues are bounded. Tiny legacy demo geometry limits do not limit alpha
+painting. GPU display uses only a composited texture; small strokes upload dirty
+tiles rather than rebuilding the full document. Metadata operations can invalidate
+all tiles. The CPU document is authoritative and editable without GPU resources.
+
+Layer blend math is encoded-sRGB (not fully linear-light or ICC managed). Display
+converts unpremultiplied samples to linear output for the sRGB surface. Export writes
+straight-alpha PNG with sRGB/DPI metadata. See RPL-ALPHA-FORMAT.md for native storage,
+locking, backups, fault boundaries and recovery limitations. The UI owns file paths,
+modal input routing and preservation confirmations; it does not bypass transactions.

@@ -17,6 +17,18 @@ SUPPLEMENTAL = {
     ("spirv", "0.4.0+sdk-1.4.341.0"): ["spirv-LICENSE.txt"],
 }
 
+SUPPLEMENTAL.update({
+    ("clipboard-win","5.4.3"): ["clipboard.txt"],
+    ("spirv","0.3.0+sdk-1.3.268.0"): ["spirv27.txt"],
+    ("hexf-parse","0.2.1"): ["CC0-1.0.txt"],
+    ("gpu-alloc","0.6.2"): ["alloc-APACHE.txt","alloc-MIT.txt"],
+    ("gpu-alloc-types","0.3.1"): ["alloc-APACHE.txt","alloc-MIT.txt"],
+    ("gpu-descriptor","0.3.2"): ["descriptor-APACHE.txt","descriptor-MIT.txt"],
+    ("gpu-descriptor-types","0.2.0"): ["descriptor-APACHE.txt","descriptor-MIT.txt"],
+})
+for package in ["egui","emath","ecolor","epaint","egui-wgpu","egui-winit"]:
+    SUPPLEMENTAL[(package,"0.33.3")]=["egui-APACHE.txt","egui-MIT.txt"]
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--inventory", action="store_true")
 parser.add_argument("--output", type=Path, required=True)
@@ -54,8 +66,9 @@ else:
     for package in selected:
         name, version = package["name"], package["version"]
         folder = Path(package["manifest_path"]).parent
-        files = sorted(p for p in folder.iterdir() if p.is_file() and p.name.lower().startswith(
-            ("license", "licence", "copying", "notice", "copyright")))
+        files = sorted(p for p in folder.rglob("*") if p.is_file() and
+            (p.name.lower().startswith(("license", "licence", "copying", "notice", "copyright"))
+             or (p.suffix.lower()==".txt" and "fonts" in p.parts)))
         if not files:
             files = [ROOT / "docs/licenses/canvas-supplemental" / f for f in SUPPLEMENTAL.get((name, version), [])]
         if not files:

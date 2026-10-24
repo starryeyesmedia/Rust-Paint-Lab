@@ -32,7 +32,7 @@ pub struct PenEvent {
     pub sample: PointerSample,
     pub performance_count: u64,
 }
-type PenStamp = (u64, u32, i32, i32, u32);
+type PenStamp = (u64, u32, i32, i32, u32, u32, u32, i32, i32, u32);
 const SUBCLASS_ID: usize = 0x52504c35;
 struct State {
     releasing: Cell<bool>,
@@ -249,11 +249,17 @@ unsafe fn pen_history(
                 info.ptHimetricLocation.x,
                 info.ptHimetricLocation.y,
                 info.pointerFlags,
+                pen.penFlags,
+                pen.pressure,
+                pen.tiltX,
+                pen.tiltY,
+                pen.penMask,
             );
             let mut last = state.last.borrow_mut();
-            if last.get(&id).is_some_and(|old| {
-                *old == stamp || (stamp.0 != 0 && old.0 != 0 && stamp.0 <= old.0)
-            }) {
+            if last
+                .get(&id)
+                .is_some_and(|old| *old == stamp || (stamp.0 != 0 && old.0 != 0 && stamp.0 < old.0))
+            {
                 continue;
             }
             if last.len() >= 128 && !last.contains_key(&id) {

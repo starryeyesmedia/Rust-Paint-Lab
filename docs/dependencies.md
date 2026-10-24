@@ -1,53 +1,36 @@
 # Dependencies and licenses
 
-The shared `paint-input` crate uses only Rust's standard library. `paint-stroke`
-depends only on local paint-input. Graphics/window dependencies belong exclusively
-to the separate canvas-demo application; the native Windows diagnostic is unchanged. Phase 5 reuses windows-sys 0.61.2
-as a Windows-only direct dependency for the small ComCtl32 capture observer
-(Foundation/Shell/WindowsAndMessaging features). No package version or additional
-third-party runtime is introduced; ComCtl32 is supplied by Windows. Shared
-paint-input/paint-stroke remain OS-independent.
-Cargo.lock pins the complete graph. No egui, serde, image export, or telemetry
-package is directly added for the canvas.
+The shared input/router crates remain graphics and OS independent. `paint-document`
+uses serde/serde_json for bounded versioned metadata/presets, sha2 for corruption
+checks, and png for bounded image decoding/encoding. Brush/raster/history logic is
+safe Rust with no GPU or GUI dependency. Cargo.lock pins the complete graph.
 
-| Direct package | Version | Purpose / enabled features | Declared license |
+| Direct package | Locked version | Purpose | License |
 | --- | --- | --- | --- |
-| windows-sys | 0.61.2 | Native diagnostic bindings and canvas-only Windows capture observer | MIT OR Apache-2.0 |
-| wgpu | 30.0.1 (exact) | GPU device/surface/pipeline; std, parking_lot, dx12, metal, vulkan, gles, wgsl; web defaults disabled | MIT OR Apache-2.0 |
-| winit | 0.30.13 (exact) | Stable desktop lifecycle/windowing, native raw-window-handle 0.6; default X11/Wayland/CSD support | Apache-2.0 |
-| pollster | 0.4.0 (exact) | Small native future executor for device/adapter initialization, no async runtime | Apache-2.0 OR MIT |
+| windows-sys | 0.61.2 | Native diagnostic and Windows-only canvas pointer adapter | MIT OR Apache-2.0 |
+| wgpu | 27.0.1 exact | GPU presentation, DX12/Metal/Vulkan/GLES/WGSL | MIT OR Apache-2.0 |
+| winit | 0.30.13 exact | Desktop window/input lifecycle | Apache-2.0 |
+| egui / egui-winit / egui-wgpu | 0.33.3 exact | Functional workspace controls and integration | MIT OR Apache-2.0 |
+| pollster | 0.4.0 exact | Initialization future executor | MIT OR Apache-2.0 |
+| serde / serde_json | 1.0.228 / 1.0.150 | Metadata and brush presets | MIT OR Apache-2.0 |
+| sha2 | 0.10.9 | Native project SHA-256 integrity | MIT OR Apache-2.0 |
+| png | 0.18.1 | PNG import/export | MIT OR Apache-2.0 |
 
-windows-link 0.2.1 remains the diagnostic's transitive MIT OR Apache-2.0 import
-helper. Other transitive packages are enumerated with version and declared SPDX
-expression in [the locked inventory](dependency-licenses.md), including platform
-packages not actually compiled on each OS. The substantial transitive graph is
-from native graphics/window backends, not additional product features.
+## Compatibility decision
 
-## Selection and compatibility investigation
+Pinned Rust remains 1.90.0. egui 0.34 needs Rust 1.92; egui 0.33.3 supports the
+pinned toolchain and uses wgpu 27. The canvas therefore moved from wgpu 30.0.1 to
+27.0.1 instead of keeping duplicate graphics stacks or writing a custom GUI renderer.
+Existing GPU and replay tests must pass after this change. winit is unchanged.
+wgpu native device limits are bounded; no advanced optional GPU feature is required.
+Windows retains system FXC and static CRT packaging. Driver support remains necessary.
 
-On 2026-10-23 the crates.io sparse manifests reported Rust MSRVs 1.87 for wgpu
-30.0.1 and 1.70 for winit 0.30.13; both are unyanked stable versions compatible
-with pinned Rust 1.90.0. Their actual source/API and crate license files were
-inspected and native builds/tests are required. wgpu and winit are maintained by
-the gfx-rs and rust-windowing projects. winit 0.31 beta was deliberately not used.
-
-The simple WGSL shader needs no optional GPU features. Native backends cover
-Direct3D 12, Metal, Vulkan, and OpenGL/GLES fallback. Device requests use baseline
-limits plus adapter texture resolution; application surface size is separately
-bounded. Windows explicitly selects the system FXC shader compiler for this basic
-SM5 pipeline, avoiding a dynamic DXC package. FXC is a legacy compiler: revisit
-DXC packaging when modern shader features require it. Driver/backend compatibility
-must be tested; compatible MSRV and successful compilation are not hardware proof.
-
-Supporting direct dependencies were minimized: no math library (small explicit
-axis-aligned transforms), no direct bytemuck (safe explicit float byte encoding),
-no general async runtime, no UI panels. winit and wgpu still require their own
-transitive support packages, all frozen by the lockfile.
-
-Sources: [wgpu](https://crates.io/crates/wgpu/30.0.1),
-[winit](https://crates.io/crates/winit/0.30.13),
-[pollster](https://crates.io/crates/pollster/0.4.0), and the versioned Cargo
-manifests/source in Cargo's checksum-verified registry cache.
+Egui provides keyboard navigation, visible focus and light/dark contrast. AccessKit
+semantic accessibility is not enabled yet; this is a documented gap. Egui clipboard
+integration brings image packages transitively, but those codecs are not advertised
+as implemented application import/export features. Font notices include bundled
+Ubuntu/Noto/Hack attributions. No cloud services, telemetry or account dependency.
+The project owner's own distribution license remains undecided.
 
 ## Distribution notices
 

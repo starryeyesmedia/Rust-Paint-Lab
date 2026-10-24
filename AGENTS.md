@@ -14,11 +14,12 @@ or cloud service requirements. Overdrive explicitly authorizes a multi-checkpoin
 - `crates/stroke`: OS-independent painting routing policy, document-coordinate
   mapping, and stroke transaction commands. Depends on `paint-input`, never the
   other way around. No brush algorithms, GPU resources, document storage, or IO.
-- `apps/canvas-demo`: winit/wgpu shell with separate live mouse and replay sessions,
-  bounded transaction state, CPU polyline geometry, and GPU rendering. Graphics
-  dependencies stay here. The Windows capture observer is isolated in the binary;
-  no OS APIs enter shared input/routing logic. Overdrive adds pen integration, persistence,
-  layers, or brush algorithms in the current mouse milestone.
+- `crates/document`: safe OS/GPU/GUI-independent raster brushes, sparse tiles,
+  editable layers, bounded transactions/history, checked storage, recovery and PNG.
+  Do not merge provisional pixels into authoritative artwork before Commit.
+- `apps/canvas-demo`: winit/wgpu/egui painting shell, dirty-tile presentation,
+  live input and separate deterministic replay. Native APIs stay in the isolated
+  Windows subclass. Never bypass Processor/Router for canvas painting.
 - `apps/stylus-diagnostic`: disposable diagnostic shell, not the future app core.
   Win32 calls stay in its Windows module with documented unsafe invariants.
 - Future core owns document operations; rendering consumes snapshots/commands;
@@ -60,10 +61,10 @@ or cloud service requirements. Overdrive explicitly authorizes a multi-checkpoin
 - Preserve command identity/attributes and include the final Commit sample.
   Never bake provisional geometry irreversibly into committed content.
 - Keep explicit stroke/sample/vertex/surface budgets. Reject nonfinite/range errors
-  before f64-to-GPU conversion. Demo width is fixed, independent of pressure.
+  before f64-to-GPU conversion. Legacy replay geometry remains fixed-width; raster brushes explicitly consume pressure.
 - Playback generation is deterministic; only the shell supplies elapsed demo time.
   Scenario restart must clear retained replay state. Live samples may remain in
-  bounded session memory to render strokes; never automatically persist or log them.
+  bounded session memory to render strokes; never automatically persist raw input; local document recovery stores committed artwork snapshots.
 - Run CPU geometry tests plus the offscreen runner. A missing GPU is explicitly
   SKIPPED, not a passed unit test; Linux CI requires software GPU execution via
   RPL_REQUIRE_GPU=1 and tests the window under Xvfb. See docs/canvas-demo.md.
@@ -118,3 +119,13 @@ merge or create releases unless separately requested. Keep commits reviewable.
 
 ## Overdrive protocol
 Maintain docs/OVERDRIVE-PROGRESS.md with exact tested checkpoints, partial/missing features, measured results, defects and continuation steps. Commit each working slice. Artwork preservation precedes optional expansion. Never count a control without behavior as a completed feature.
+
+## Artwork preservation
+Native format and safety limits are specified in docs/RPL-ALPHA-FORMAT.md. Reject
+malformed/oversized input before allocation. Explicit Save must preserve the previous
+valid file; Save As must not overwrite unrelated artwork. Keep snapshot recovery per
+document, lock concurrent writers, and wait for confirmed durable recovery before
+replacing dirty work. Cancelled previews never enter history or storage. Exercise
+fault-injection, corruption, round trips and the real alpha window workflow after
+storage/UI changes. Never claim snapshots are a full operation journal or full ICC
+color management. See docs/overdrive-user-guide.md for actual supported controls.

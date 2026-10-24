@@ -92,7 +92,7 @@ def status(text):
 
 log_path = Path('/tmp/rpl-live-window.log')
 with log_path.open('w') as log:
-    process = subprocess.Popen(['target/debug/canvas-demo'], stdout=log, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(['target/debug/canvas-demo', '--compat-mouse'], stdout=log, stderr=subprocess.STDOUT)
     try:
         window = wait(find_window, 'live drawing window')
         focus(display, window, 2, 0)

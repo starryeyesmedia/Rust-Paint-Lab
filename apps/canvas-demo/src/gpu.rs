@@ -53,11 +53,11 @@ impl Renderer {
                 module: &shader,
                 entry_point: Some("vs"),
                 compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
+                buffers: &[wgpu::VertexBufferLayout {
                     array_stride: 24,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &attributes,
-                })],
+                }],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -72,7 +72,7 @@ impl Renderer {
             primitive: Default::default(),
             depth_stencil: None,
             multisample: Default::default(),
-            multiview_mask: None,
+            multiview: None,
             cache: None,
         });
         let vertices = device.create_buffer(&wgpu::BufferDescriptor {

@@ -25,9 +25,9 @@ fn main() -> Result<(), Failure> {
     pollster::block_on(run())
 }
 async fn run() -> Result<(), Failure> {
-    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+    let mut descriptor = wgpu::InstanceDescriptor::from_env_or_default();
     descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
-    let instance = wgpu::Instance::new(descriptor);
+    let instance = wgpu::Instance::new(&descriptor);
     let adapter = match instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await
@@ -164,8 +164,70 @@ async fn run() -> Result<(), Failure> {
         "stroke cap leaked outside paper"
     );
     renderer.check_error()?;
+    // Exercise the new sparse-raster shader and persistent dirty-tile texture.
+    use paint_document::Engine;
+    use paint_stroke::{
+        CancelReason, StrokeCommand as C, StrokeId, StrokeSample, coordinates::DocumentPoint,
+    };
+    let mut engine = Engine::new(64, 64, 300)?;
+    engine.brush.pressure_size = false;
+    engine.brush.pressure_opacity = false;
+    engine.brush.size = 12.0;
+    engine.brush.color = [220, 30, 40];
+    let raster = canvas_demo::raster_gpu::RasterGpu::new(
+        &renderer,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        [64, 64],
+    );
+    let sample = StrokeSample {
+        pointer_id: 1,
+        tool: paint_input::Tool::Pen,
+        position_client_px: [32.0, 32.0],
+        position_document: DocumentPoint([32.0, 32.0]),
+        pressure: Some(1.0),
+        tilt_degrees: [None, None],
+        buttons: paint_input::Buttons::default(),
+        source_time_ms: 0,
+        time_ms: 0,
+    };
+    engine.apply(&C::BeginStroke {
+        stroke_id: StrokeId(1),
+        sample,
+    })?;
+    let p = render_raster_pixels(&renderer, &raster, &mut engine)?;
+    assert!(
+        pixel(&p, 128, 128)[0] > 180 && pixel(&p, 128, 128)[1] < 70,
+        "raster preview missing"
+    );
+    engine.apply(&C::CancelStroke {
+        stroke_id: StrokeId(1),
+        last: sample,
+        time_ms: 1,
+        reason: CancelReason::RouterInterrupted,
+    })?;
+    let p = render_raster_pixels(&renderer, &raster, &mut engine)?;
+    assert!(
+        pixel(&p, 128, 128)[1] > 240,
+        "raster cancellation left pixels"
+    );
+    engine.apply(&C::BeginStroke {
+        stroke_id: StrokeId(2),
+        sample,
+    })?;
+    engine.apply(&C::CommitStroke {
+        stroke_id: StrokeId(2),
+        sample,
+    })?;
+    let p = render_raster_pixels(&renderer, &raster, &mut engine)?;
+    assert!(pixel(&p, 128, 128)[1] < 70, "raster commit missing");
+    engine.undo();
+    let p = render_raster_pixels(&renderer, &raster, &mut engine)?;
+    assert!(pixel(&p, 128, 128)[1] > 240, "raster undo left pixels");
+    engine.redo();
+    let p = render_raster_pixels(&renderer, &raster, &mut engine)?;
+    assert!(pixel(&p, 128, 128)[1] < 70, "raster redo missing");
     report(
-        "GPU_SMOKE: PASSED (replay and live preview/commit/cancel, final segment, canvas clipping/background)",
+        "GPU_SMOKE: PASSED (replay and live preview/commit/cancel, final segment, canvas clipping/background; raster preview/cancel/commit/undo/redo)",
     );
     Ok(())
 }
@@ -233,7 +295,83 @@ fn render_pixels(
         timeout: Some(Duration::from_secs(30)),
     })?;
     rx.recv_timeout(Duration::from_secs(30))??;
-    let pixels = buffer.slice(..).get_mapped_range()?.to_vec();
+    let pixels = buffer.slice(..).get_mapped_range().to_vec();
+    buffer.unmap();
+    renderer.check_error()?;
+    Ok(pixels)
+}
+
+fn render_raster_pixels(
+    renderer: &Renderer,
+    raster: &canvas_demo::raster_gpu::RasterGpu,
+    engine: &mut paint_document::Engine,
+) -> Result<Vec<u8>, Failure> {
+    let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("smoke target"),
+        size: wgpu::Extent3d {
+            width: 256,
+            height: 256,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let mapping = canvas_demo::scene::CanvasMapping::for_document(
+        [256, 256],
+        [64.0, 64.0],
+        [0.0, 0.0, 256.0, 256.0],
+    )?;
+    raster.draw(
+        renderer,
+        &texture.create_view(&Default::default()),
+        engine,
+        mapping,
+    )?;
+    let buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("smoke readback"),
+        size: 256 * 256 * 4,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = renderer.device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(1024),
+                rows_per_image: Some(256),
+            },
+        },
+        wgpu::Extent3d {
+            width: 256,
+            height: 256,
+            depth_or_array_layers: 1,
+        },
+    );
+    renderer.queue.submit([encoder.finish()]);
+    let (tx, rx) = std::sync::mpsc::channel();
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+    renderer.device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(Duration::from_secs(30)),
+    })?;
+    rx.recv_timeout(Duration::from_secs(30))??;
+    let pixels = buffer.slice(..).get_mapped_range().to_vec();
     buffer.unmap();
     renderer.check_error()?;
     Ok(pixels)

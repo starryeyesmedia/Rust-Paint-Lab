@@ -120,3 +120,25 @@ linted for Windows and built in native CI; theft/release behavior still needs
 manual Windows validation. Linux/macOS use winit focus/leave notifications; capture
 stealing without either notification is not independently observed there.
 See [Galaxy Book interactive checklist](live-mouse.md#manual-galaxy-book-checklist).
+
+
+## Overdrive alpha validation
+
+`cargo test -p paint-document --locked` tests brush determinism, pressure semantics,
+opacity versus flow, endpoint smoothing, scratch cancellation/concurrency, layers,
+bounded history, blend invariants, corrupted/truncated native files, injected save
+failures, external-change conflicts, recovery ownership/flush and PNG round trips.
+The existing offscreen runner now also checks real raster shader pixels across
+preview, cancellation, commit, undo and redo. A missing adapter remains SKIPPED;
+Linux CI requires software GPU execution. Existing 70 Rust tests are preserved.
+
+```
+cargo run --release --locked -p paint-document --example metrics
+xvfb-run -a python3 scripts/alpha-workflow-smoke.py
+```
+
+The latter injects real OS mouse/key events into the default alpha, verifies a
+checksummed editable save, undo/redo tile results, backup, PNG dimensions and reopen.
+It uses a temporary working/recovery directory. The older mouse window script uses
+`--compat-mouse` to preserve its original regression contract. These tests are not
+physical pen, Windows filesystem, Iris Xe/RTX frame-rate or tablet UX certification.
