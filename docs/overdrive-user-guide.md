@@ -27,8 +27,9 @@ outside paper does not paint. Focus/capture loss, leaving the application window
 resize, and mode changes cancel the provisional stroke. Completed strokes remain
 in the editable document.
 
-The right panel keeps ten brush presets, color, an eraser toggle, and size/opacity
-controls visible. Size and opacity accept direct numeric entry; flow, hardness,
+The right panel keeps ten brush presets, color, eraser mode, and size/opacity
+controls visible. Presets use names such as Hard round, Ink pen and Soft brush;
+Wash is marked experimental. Size and opacity accept direct numeric entry; flow, hardness,
 spacing, tilt, angle, smoothing, and pressure responses are grouped under Advanced
 dynamics. Expand Color values for validated six-digit HEX and direct encoded-sRGB RGB
 entry; the color swatch still opens the color picker. Opacity caps the whole stroke
@@ -38,8 +39,11 @@ deposits on movement, not continuously while stationary. There is no prediction.
 Smoothing is a simple low-pass filter, not a full stabilizer.
 
 Layers support add, duplicate, delete, rename, reorder, visibility, lock, opacity,
-Normal/Multiply/Screen/Overlay, and clear. Bottom-to-top composition follows layer
-order. Use Undo/Redo for committed strokes and supported layer/background changes.
+Normal/Multiply/Screen/Overlay, and clear. The frontmost layer appears at the top;
+use Raise/Lower to reorder, and expand Layer settings to rename or adjust opacity
+and blend mode. Delete is disabled when only one layer remains. Bottom-to-top
+composition follows layer order. Use Undo/Redo for committed strokes and supported
+layer/background changes.
 Locked/hidden layers reject drawing. Transparency shows a checkerboard. History is
 session-only and bounded (up to 32 snapshots, 128 MiB unique tile payload per history queue);
 large documents with many changed tiles can retain fewer steps. Limits produce an error, never silently

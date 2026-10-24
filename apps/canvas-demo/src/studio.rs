@@ -260,6 +260,21 @@ fn native_project_path(path: &std::path::Path) -> PathBuf {
     path.with_extension("rpl")
 }
 
+fn brush_display_name(kind: BrushKind) -> &'static str {
+    match kind {
+        BrushKind::Round => "Hard round",
+        BrushKind::Ink => "Ink pen",
+        BrushKind::Pencil => "Pencil",
+        BrushKind::Marker => "Marker",
+        BrushKind::Airbrush => "Airbrush",
+        BrushKind::Soft => "Soft brush",
+        BrushKind::Textured => "Textured brush",
+        BrushKind::Calligraphy => "Calligraphy",
+        BrushKind::Eraser => "Eraser",
+        BrushKind::Wash => "Wash · experimental",
+    }
+}
+
 #[derive(Clone)]
 enum Action {
     Fill(bool),
@@ -544,6 +559,12 @@ impl Studio {
         session: &mut CanvasSession,
     ) -> (bool, bool) {
         use winit::event::{ElementState, WindowEvent as E};
+        if let E::ThemeChanged(theme) = event {
+            self.system_dark = *theme == winit::window::Theme::Dark;
+            self.appearance_cache = None;
+            window.request_redraw();
+            return (true, true);
+        }
         // The deterministic path-entry dialog is only enabled by the Xvfb
         // workflow harness. Latch its submit key at the winit boundary: egui
         // text editing and platform shortcut handling can otherwise consume
@@ -1523,7 +1544,7 @@ impl Studio {
                             let project = session.live_mut().project_mut();
 
                             egui::ComboBox::from_label("Preset")
-                                .selected_text(format!("{:?}", project.brush.kind))
+                                .selected_text(brush_display_name(project.brush.kind))
                                 .show_ui(ui, |ui| {
                                     for k in [
                                         BrushKind::Round,
@@ -1540,7 +1561,7 @@ impl Studio {
                                         if ui
                                             .selectable_label(
                                                 project.brush.kind == k,
-                                                format!("{k:?}"),
+                                                brush_display_name(k),
                                             )
                                             .clicked()
                                         {
@@ -1559,7 +1580,7 @@ impl Studio {
                                 );
                                 ui.color_edit_button_srgb(&mut project.brush.color);
                                 let mut eraser = project.brush.kind == BrushKind::Eraser;
-                                if ui.checkbox(&mut eraser, "Erase").changed() {
+                                if ui.checkbox(&mut eraser, "Eraser mode").changed() {
                                     project.brush.kind = if eraser {
                                         BrushKind::Eraser
                                     } else {
@@ -1643,7 +1664,7 @@ impl Studio {
                                     .show_value(false)
                                     .text("Opacity"),
                             );
-                            ui.collapsing("Advanced dynamics", |ui| {
+                            ui.collapsing("More brush settings", |ui| {
                                 ui.add(
                                     egui::Slider::new(&mut project.brush.flow, 0.0..=1.0)
                                         .text("Flow"),
@@ -1778,42 +1799,53 @@ impl Studio {
                                 }
                             });
 
+                            let selected = project.state().selected;
+                            let layer_count = project.state().layers.len();
+                            let selected_index = project
+                                .state()
+                                .layers
+                                .iter()
+                                .position(|layer| layer.id == selected)
+                                .unwrap_or(0);
+
+                            ui.separator();
+                            ui.heading("Layers");
+                            ui.small(format!("{layer_count} layers · top of list is frontmost"));
                             ui.horizontal(|ui| {
-                                crate::studio_icons::label(
-                                    ui,
-                                    crate::studio_icons::Icon::Layers,
-                                    "Layers",
-                                );
-                            });
-                            ui.horizontal(|ui| {
-                                if ui.button("+").clicked() {
+                                if ui.button("New layer").clicked() {
                                     actions.push(Action::Add);
                                 }
-
                                 if ui.button("Duplicate").clicked() {
                                     actions.push(Action::Duplicate);
                                 }
-
-                                if ui.button("Delete").clicked() {
+                                if ui
+                                    .add_enabled(layer_count > 1, egui::Button::new("Delete"))
+                                    .clicked()
+                                {
                                     actions.push(Action::Delete);
                                 }
                             });
 
                             ui.horizontal(|ui| {
-                                if ui.button("Up").clicked() {
+                                if ui
+                                    .add_enabled(
+                                        selected_index + 1 < layer_count,
+                                        egui::Button::new("Raise"),
+                                    )
+                                    .clicked()
+                                {
                                     actions.push(Action::Move(1));
                                 }
-
-                                if ui.button("Down").clicked() {
+                                if ui
+                                    .add_enabled(selected_index > 0, egui::Button::new("Lower"))
+                                    .clicked()
+                                {
                                     actions.push(Action::Move(-1));
                                 }
-
                                 if ui.button("Clear layer").clicked() {
                                     actions.push(Action::Clear);
                                 }
                             });
-
-                            let selected = project.state().selected;
 
                             let layers: Vec<_> = project
                                 .state()
@@ -1836,42 +1868,59 @@ impl Studio {
                                 layers
                             {
                                 ui.group(|ui| {
-                                    if ui.selectable_label(id == selected, &name).clicked() {
-                                        actions.push(Action::Select(id));
-                                    }
-
-                                    let mut changed = ui
-                                        .add(egui::TextEdit::singleline(&mut name).char_limit(64))
-                                        .changed();
-
-                                    changed |= ui.checkbox(&mut visible, "Visible").changed();
-                                    changed |= ui.checkbox(&mut locked, "Lock").changed();
-                                    changed |= ui
-                                        .add(
-                                            egui::Slider::new(&mut opacity, 0..=255)
-                                                .text("Layer opacity"),
-                                        )
-                                        .changed();
-
-                                    let old = blend;
-                                    egui::ComboBox::from_id_salt(("blend", id))
-                                        .selected_text(format!("{blend:?}"))
-                                        .show_ui(ui, |ui| {
-                                            for b in [
-                                                Blend::Normal,
-                                                Blend::Multiply,
-                                                Blend::Screen,
-                                                Blend::Overlay,
-                                            ] {
-                                                ui.selectable_value(
-                                                    &mut blend,
-                                                    b,
-                                                    format!("{b:?}"),
-                                                );
+                                    let mut changed = false;
+                                    ui.horizontal(|ui| {
+                                        if ui.selectable_label(id == selected, &name).clicked() {
+                                            actions.push(Action::Select(id));
+                                        }
+                                        changed |= ui.checkbox(&mut visible, "Visible").changed();
+                                        changed |= ui.checkbox(&mut locked, "Locked").changed();
+                                    });
+                                    egui::CollapsingHeader::new("Layer settings")
+                                        .id_salt(("layer-settings", id))
+                                        .show(ui, |ui| {
+                                            changed |= ui
+                                                .add(
+                                                    egui::TextEdit::singleline(&mut name)
+                                                        .char_limit(64)
+                                                        .hint_text("Layer name"),
+                                                )
+                                                .changed();
+                                            let mut opacity_percent =
+                                                f32::from(opacity) * 100.0 / 255.0;
+                                            if ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut opacity_percent,
+                                                        0.0..=100.0,
+                                                    )
+                                                    .suffix("%")
+                                                    .text("Opacity"),
+                                                )
+                                                .changed()
+                                            {
+                                                opacity = (opacity_percent * 2.55).round() as u8;
+                                                changed = true;
                                             }
+                                            let old = blend;
+                                            egui::ComboBox::from_id_salt(("blend", id))
+                                                .selected_text(format!("{blend:?}"))
+                                                .show_ui(ui, |ui| {
+                                                    for b in [
+                                                        Blend::Normal,
+                                                        Blend::Multiply,
+                                                        Blend::Screen,
+                                                        Blend::Overlay,
+                                                    ] {
+                                                        ui.selectable_value(
+                                                            &mut blend,
+                                                            b,
+                                                            format!("{b:?}"),
+                                                        );
+                                                    }
+                                                });
+                                            changed |= old != blend;
                                         });
-                                    changed |= old != blend;
-
                                     if changed {
                                         actions.push(Action::Layer(
                                             id, name, visible, locked, opacity, blend,

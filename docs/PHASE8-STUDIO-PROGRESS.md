@@ -82,6 +82,26 @@ work below.
   run [`40124176543`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40124176543)
   is testing that change in Xvfb; platform results are pending.
 
+### Working refinement after `75e6c5a` (not yet pushed)
+
+- The brush list now uses artist-facing names (for example, Hard round, Ink pen,
+  Soft brush and “Wash · experimental”), and the erase toggle is labelled
+  “Eraser mode.” Advanced dynamics are grouped under “More brush settings.”
+- The layer area is now a distinct headed section. Its list keeps selection,
+  visibility and lock in a compact row; rename, percentage opacity and blend mode
+  live under per-layer “Layer settings.” New, duplicate and delete actions are
+  grouped; delete is disabled when one layer remains, and Raise/Lower are disabled
+  at stack boundaries. Top-of-list is explicitly identified as frontmost.
+- The primary footer no longer displays raw pressure/tilt/button values, tile and
+  undo counts, or timing diagnostics; it presents save state, contextual status,
+  pixel dimensions and DPI. Follow System appearance requests a frame when winit
+  reports an OS theme change.
+- Formatting, strict Clippy, all **172 workspace tests**, workspace build, llvmpipe
+  GPU smoke, and Windows GNU workspace check/Clippy pass locally for this tree.
+  The actual Linux window cannot run locally because Xvfb is absent. No screenshot
+  from a running Studio window or physical Windows reference-board test is
+  available yet.
+
 ### Next Phase 8.1 work
 
 1. Verify the winit-latched picker workflow and all three platform jobs for
@@ -90,9 +110,9 @@ work below.
 2. Obtain a real Windows run of Add Reference Images with small PNG, phone JPEG,
    multiple selections, one bad file, cancellation and restart persistence; record
    the dialog/result/status behavior before declaring the confirmed issue fixed.
-3. Window-level inspect Midnight Violet/icons and exercise appearance persistence
-   and custom contrast; improve the current compact Brush/Layers controls without
-   removing supported behavior.
+3. Window-level inspect Midnight Violet/icons, the new Brush/Layers layout and
+   appearance persistence/custom contrast; test panel resize and reference-window
+   move/resize/opacity input routing.
 4. Continue with bounded recent artwork colors and reference-board pan/zoom/lock/
    reset controls. Full draggable docking, a richer welcome screen, HSV selection,
    and a complete accessibility audit remain outstanding.
