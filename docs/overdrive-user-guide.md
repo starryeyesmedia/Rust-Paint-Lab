@@ -52,6 +52,13 @@ offers reference images and a Show Brush and Layers toggle; Help lists the main 
 in the rounded vertical palette left of the canvas. Each icon has a name and shortcut
 tooltip, and selection/utility actions sit below them. File actions open the
 operating-system file browser.
+The default shell appearance is Midnight Violet. View → Appearance selects Dark,
+Light, or Follow System and one of the built-in Violet, Blue, Teal, Coral, Green,
+Neutral, or Custom accents. Custom accepts a validated `#RRGGBB` value and updates
+without restarting; appearance settings are stored in workspace preferences and do
+not change document or brush colors. Older preference files inherit their previous
+dark/light setting. The welcome screen's small preferences shortcut still toggles
+dark/light directly.
 Brush presets are versioned `.rplbrush` JSON files; load/save validates settings and
 saving refuses to replace an existing preset. New/Open safeguard dirty artwork with
 recovery confirmation. Save As and
@@ -67,7 +74,9 @@ Each floating reference window can be moved, resized, assigned an overlay opacit
 or removed. Theme, right-panel width, and reference arrangement are
 stored in a separate local `workspace.json`; reference images stay linked to their
 files and never become document layers or appear in PNG/OpenRaster exports. Files
-are limited to 32 MiB and decoded textures to 2048 × 2048 / 8 MiB each. Linux native
+are limited to 32 MiB, source dimensions to 16,384 pixels per edge and decoded source
+memory to 64 MiB; larger images are reduced to a 1,448-pixel edge / 8 MiB texture
+for display. Errors explain which limit was exceeded. Linux native
 browsing requires an available XDG desktop portal service. The automated Xvfb workflow
 uses `RPL_TEST_PATH_DIALOG=1` for a test-only path-entry harness.
 

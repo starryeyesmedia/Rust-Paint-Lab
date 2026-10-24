@@ -311,6 +311,7 @@ pub struct Studio {
     picker: Option<FileRequest>,
     manual_file_dialog: bool,
     manual_file_action: Option<Action>,
+    manual_file_submit: bool,
     test_path_dialog: bool,
     confirm: Option<Action>,
     pub close_requested: bool,
@@ -325,7 +326,17 @@ pub struct Studio {
     last_submitted: u64,
     autosave_schedule: crate::autosave::AutosaveDebounce,
     recovery_saving: bool,
-    theme_dark: bool,
+    appearance_mode: crate::workspace::AppearanceMode,
+    accent_scheme: crate::workspace::AccentScheme,
+    custom_accent_rgb: Option<[u8; 3]>,
+    custom_accent_hex: String,
+    system_dark: bool,
+    appearance_cache: Option<(
+        crate::workspace::AppearanceMode,
+        crate::workspace::AccentScheme,
+        Option<[u8; 3]>,
+        bool,
+    )>,
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
     pan_cursor: Option<[f64; 2]>,
@@ -402,6 +413,11 @@ impl Studio {
             .cloned()
             .filter_map(|layout| load_reference_texture(&context, layout).ok())
             .collect();
+        let appearance_mode = preferences.effective_appearance_mode();
+        let custom_accent_rgb = preferences.custom_accent_rgb;
+        let custom_accent_hex = custom_accent_rgb
+            .map(crate::color_controls::format_hex_rgb)
+            .unwrap_or_else(|| "#A78BFA".into());
         let status = if recovery.is_some() {
             "Ready — local recovery enabled".into()
         } else {
@@ -429,6 +445,7 @@ impl Studio {
             picker: None,
             manual_file_dialog: false,
             manual_file_action: None,
+            manual_file_submit: false,
             test_path_dialog,
             confirm: None,
             close_requested: false,
@@ -443,7 +460,15 @@ impl Studio {
             last_submitted: 0,
             autosave_schedule: Default::default(),
             recovery_saving: false,
-            theme_dark: preferences.dark_theme,
+            appearance_mode,
+            accent_scheme: preferences.accent_scheme,
+            custom_accent_rgb,
+            custom_accent_hex,
+            system_dark: window
+                .theme()
+                .map(|theme| theme == winit::window::Theme::Dark)
+                .unwrap_or(preferences.dark_theme),
+            appearance_cache: None,
             navigation: Default::default(),
             touches: Default::default(),
             pan_cursor: None,
@@ -475,6 +500,25 @@ impl Studio {
         session: &mut CanvasSession,
     ) -> (bool, bool) {
         use winit::event::{ElementState, WindowEvent as E};
+        // The deterministic path-entry dialog is only enabled by the Xvfb
+        // workflow harness. Latch its submit key at the winit boundary: egui
+        // text editing and platform shortcut handling can otherwise consume
+        // Enter before the modal observes it.
+        if self.test_path_dialog
+            && self.manual_file_dialog
+            && let E::KeyboardInput { event, .. } = event
+            && event.state == ElementState::Pressed
+            && matches!(
+                event.physical_key,
+                winit::keyboard::PhysicalKey::Code(
+                    winit::keyboard::KeyCode::Enter | winit::keyboard::KeyCode::NumpadEnter
+                )
+            )
+        {
+            self.manual_file_submit = true;
+            window.request_redraw();
+            return (true, true);
+        }
         if let E::CursorMoved { position, .. } = event {
             self.mouse_position = Some([position.x, position.y]);
         }
@@ -932,7 +976,10 @@ impl Studio {
             return Err("Workspace preference directory is unavailable".into());
         };
         let mut preferences = crate::workspace::WorkspacePreferences {
-            dark_theme: self.theme_dark,
+            dark_theme: self.appearance_mode.is_dark(self.system_dark),
+            appearance_mode: Some(self.appearance_mode),
+            accent_scheme: self.accent_scheme,
+            custom_accent_rgb: self.custom_accent_rgb,
             brush_panel_width: self.brush_panel_width,
             show_controls: self.show_controls,
             references: self
@@ -975,12 +1022,6 @@ impl Studio {
         approved: &mut bool,
     ) {
         let mut workspace_changed = false;
-        if self.theme_dark {
-            ctx.set_visuals(egui::Visuals::dark());
-        } else {
-            ctx.set_visuals(egui::Visuals::light());
-        }
-
         if !self.welcome {
             egui::TopBottomPanel::top("document tools").show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -992,13 +1033,25 @@ impl Studio {
                                 self.new_dialog = true;
                                 ui.close();
                             }
-                            if ui.button("Open project…     Ctrl+O").clicked() {
+                            if crate::studio_icons::menu_button(
+                                ui,
+                                crate::studio_icons::Icon::Open,
+                                "Open project…     Ctrl+O",
+                            )
+                            .clicked()
+                            {
                                 self.picker_from_welcome = false;
                                 self.picker = Some(FileRequest::OpenProject);
                                 ui.close();
                             }
                             ui.separator();
-                            if ui.button("Save     Ctrl+S").clicked() {
+                            if crate::studio_icons::menu_button(
+                                ui,
+                                crate::studio_icons::Icon::Save,
+                                "Save     Ctrl+S",
+                            )
+                            .clicked()
+                            {
                                 actions.push(Action::Save);
                                 ui.close();
                             }
@@ -1073,36 +1126,56 @@ impl Studio {
                             }
                         });
                         ui.menu_button("Edit", |ui| {
-                            if ui
-                                .add_enabled(
-                                    session.live().project().undo_count() > 0,
-                                    egui::Button::new("Undo     Ctrl+Z"),
-                                )
-                                .clicked()
+                            if crate::studio_icons::menu_button_enabled(
+                                ui,
+                                crate::studio_icons::Icon::Undo,
+                                "Undo     Ctrl+Z",
+                                session.live().project().undo_count() > 0,
+                            )
+                            .clicked()
                             {
                                 actions.push(Action::Undo);
                                 ui.close();
                             }
-                            if ui
-                                .add_enabled(
-                                    session.live().project().redo_count() > 0,
-                                    egui::Button::new("Redo     Ctrl+Y"),
-                                )
-                                .clicked()
+                            if crate::studio_icons::menu_button_enabled(
+                                ui,
+                                crate::studio_icons::Icon::Redo,
+                                "Redo     Ctrl+Y",
+                                session.live().project().redo_count() > 0,
+                            )
+                            .clicked()
                             {
                                 actions.push(Action::Redo);
                                 ui.close();
                             }
                             ui.separator();
-                            if ui.button("Deselect     Ctrl+D").clicked() {
+                            if crate::studio_icons::menu_button(
+                                ui,
+                                crate::studio_icons::Icon::Deselect,
+                                "Deselect     Ctrl+D",
+                            )
+                            .clicked()
+                            {
                                 actions.push(Action::Deselect);
                                 ui.close();
                             }
-                            if ui.button("Fill selection").clicked() {
+                            if crate::studio_icons::menu_button(
+                                ui,
+                                crate::studio_icons::Icon::Fill,
+                                "Fill selection     Ctrl+F",
+                            )
+                            .clicked()
+                            {
                                 actions.push(Action::Fill(false));
                                 ui.close();
                             }
-                            if ui.button("Erase selection").clicked() {
+                            if crate::studio_icons::menu_button(
+                                ui,
+                                crate::studio_icons::Icon::Eraser,
+                                "Erase selection     Ctrl+X",
+                            )
+                            .clicked()
+                            {
                                 actions.push(Action::Fill(true));
                                 ui.close();
                             }
@@ -1132,9 +1205,98 @@ impl Studio {
                             }
                         });
                         ui.menu_button("View", |ui| {
-                            workspace_changed |= ui
-                                .checkbox(&mut self.theme_dark, "Dark appearance")
-                                .changed();
+                            ui.label("Appearance");
+                            for (mode, label) in [
+                                (crate::workspace::AppearanceMode::Dark, "Dark"),
+                                (crate::workspace::AppearanceMode::Light, "Light"),
+                                (
+                                    crate::workspace::AppearanceMode::FollowSystem,
+                                    "Follow System",
+                                ),
+                            ] {
+                                workspace_changed |= ui
+                                    .selectable_value(&mut self.appearance_mode, mode, label)
+                                    .changed();
+                            }
+                            ui.separator();
+                            ui.label("Accent color");
+                            egui::ComboBox::from_id_salt("studio accent scheme")
+                                .selected_text(match self.accent_scheme {
+                                    crate::workspace::AccentScheme::Violet => "Violet",
+                                    crate::workspace::AccentScheme::Blue => "Blue",
+                                    crate::workspace::AccentScheme::Teal => "Teal",
+                                    crate::workspace::AccentScheme::Coral => "Coral",
+                                    crate::workspace::AccentScheme::Green => "Green",
+                                    crate::workspace::AccentScheme::Neutral => "Neutral",
+                                    crate::workspace::AccentScheme::Custom => "Custom",
+                                })
+                                .show_ui(ui, |ui| {
+                                    for (scheme, label) in [
+                                        (crate::workspace::AccentScheme::Violet, "Violet"),
+                                        (crate::workspace::AccentScheme::Blue, "Blue"),
+                                        (crate::workspace::AccentScheme::Teal, "Teal"),
+                                        (crate::workspace::AccentScheme::Coral, "Coral"),
+                                        (crate::workspace::AccentScheme::Green, "Green"),
+                                        (crate::workspace::AccentScheme::Neutral, "Neutral"),
+                                        (crate::workspace::AccentScheme::Custom, "Custom HEX…"),
+                                    ] {
+                                        workspace_changed |= ui
+                                            .selectable_value(
+                                                &mut self.accent_scheme,
+                                                scheme,
+                                                label,
+                                            )
+                                            .changed();
+                                    }
+                                });
+                            if self.accent_scheme == crate::workspace::AccentScheme::Custom
+                                && self.custom_accent_rgb.is_none()
+                            {
+                                self.custom_accent_rgb = Some([0xA7, 0x8B, 0xFA]);
+                                workspace_changed = true;
+                            }
+                            if self.accent_scheme == crate::workspace::AccentScheme::Custom {
+                                ui.horizontal(|ui| {
+                                    ui.label("HEX");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.custom_accent_hex)
+                                            .char_limit(7)
+                                            .desired_width(88.0),
+                                    );
+                                    let preview = crate::color_controls::parse_hex_rgb(
+                                        &self.custom_accent_hex,
+                                    )
+                                    .or(self.custom_accent_rgb)
+                                    .unwrap_or([0xA7, 0x8B, 0xFA]);
+                                    let (preview_rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(24.0, 24.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().rect_filled(
+                                        preview_rect.shrink(2.0),
+                                        4.0,
+                                        egui::Color32::from_rgb(preview[0], preview[1], preview[2]),
+                                    );
+                                    ui.painter().rect_stroke(
+                                        preview_rect.shrink(2.0),
+                                        4.0,
+                                        ui.visuals().widgets.noninteractive.bg_stroke,
+                                        egui::StrokeKind::Inside,
+                                    );
+                                    if ui.button("Apply").clicked() {
+                                        if let Some(color) = crate::color_controls::parse_hex_rgb(
+                                            &self.custom_accent_hex,
+                                        ) {
+                                            self.custom_accent_rgb = Some(color);
+                                            workspace_changed = true;
+                                            self.status = "Studio accent updated".into();
+                                        } else {
+                                            self.status =
+                                                "Enter a six-digit accent such as #A78BFA".into();
+                                        }
+                                    }
+                                });
+                            }
                             ui.separator();
                             ui.label("0  Fit canvas");
                             ui.label("F11  Full screen");
@@ -1179,43 +1341,83 @@ impl Studio {
                     ui.vertical_centered(|ui| {
                         ui.add_space(8.0);
                         for (tool, icon, name, shortcut) in [
-                            (EditTool::Brush, "✎", "Brush", "B"),
-                            (EditTool::Rectangle, "▱", "Rectangle selection", "M"),
-                            (EditTool::Ellipse, "◯", "Ellipse selection", "E"),
-                            (EditTool::Lasso, "⌁", "Freehand lasso", "K"),
-                            (EditTool::Eyedropper, "⌖", "Eyedropper", "I"),
+                            (
+                                EditTool::Brush,
+                                crate::studio_icons::Icon::Brush,
+                                "Brush",
+                                "B",
+                            ),
+                            (
+                                EditTool::Rectangle,
+                                crate::studio_icons::Icon::Rectangle,
+                                "Rectangle selection",
+                                "M",
+                            ),
+                            (
+                                EditTool::Ellipse,
+                                crate::studio_icons::Icon::Ellipse,
+                                "Ellipse selection",
+                                "E",
+                            ),
+                            (
+                                EditTool::Lasso,
+                                crate::studio_icons::Icon::Lasso,
+                                "Freehand lasso",
+                                "K",
+                            ),
+                            (
+                                EditTool::Eyedropper,
+                                crate::studio_icons::Icon::Eyedropper,
+                                "Eyedropper",
+                                "I",
+                            ),
                         ] {
-                            let response = ui.add_sized(
+                            let response = crate::studio_icons::button(
+                                ui,
+                                icon,
+                                name,
+                                Some(shortcut),
+                                self.tool == tool,
                                 [46.0, 46.0],
-                                egui::Button::new(egui::RichText::new(icon).size(24.0))
-                                    .selected(self.tool == tool),
                             );
-                            if response
-                                .on_hover_text(format!("{name} ({shortcut})"))
-                                .clicked()
-                            {
+                            if response.clicked() {
                                 self.tool = tool;
                             }
                         }
                         ui.separator();
-                        if ui
-                            .add_sized([46.0, 42.0], egui::Button::new("◌"))
-                            .on_hover_text("Deselect (Ctrl+D)")
-                            .clicked()
+                        if crate::studio_icons::button(
+                            ui,
+                            crate::studio_icons::Icon::Deselect,
+                            "Deselect",
+                            Some("Ctrl+D"),
+                            false,
+                            [46.0, 42.0],
+                        )
+                        .clicked()
                         {
                             actions.push(Action::Deselect);
                         }
-                        if ui
-                            .add_sized([46.0, 42.0], egui::Button::new("▣"))
-                            .on_hover_text("Fill selection")
-                            .clicked()
+                        if crate::studio_icons::button(
+                            ui,
+                            crate::studio_icons::Icon::Fill,
+                            "Fill selection",
+                            Some("Ctrl+F"),
+                            false,
+                            [46.0, 42.0],
+                        )
+                        .clicked()
                         {
                             actions.push(Action::Fill(false));
                         }
-                        if ui
-                            .add_sized([46.0, 42.0], egui::Button::new("▧"))
-                            .on_hover_text("Erase selection")
-                            .clicked()
+                        if crate::studio_icons::button(
+                            ui,
+                            crate::studio_icons::Icon::Eraser,
+                            "Erase selection",
+                            Some("Ctrl+X"),
+                            false,
+                            [46.0, 42.0],
+                        )
+                        .clicked()
                         {
                             actions.push(Action::Fill(true));
                         }
@@ -1295,7 +1497,11 @@ ui.add(egui::Label::new(pen_status).truncate());
                                 });
 
                             ui.horizontal(|ui| {
-                                ui.label("Color");
+                                crate::studio_icons::label(
+                                    ui,
+                                    crate::studio_icons::Icon::Color,
+                                    "Color",
+                                );
                                 ui.color_edit_button_srgb(&mut project.brush.color);
                                 let mut eraser = project.brush.kind == BrushKind::Eraser;
                                 if ui.checkbox(&mut eraser, "Erase").changed() {
@@ -1517,7 +1723,13 @@ ui.add(egui::Label::new(pen_status).truncate());
                                 }
                             });
 
-                            ui.heading("Layers");
+                            ui.horizontal(|ui| {
+                                crate::studio_icons::label(
+                                    ui,
+                                    crate::studio_icons::Icon::Layers,
+                                    "Layers",
+                                );
+                            });
                             ui.horizontal(|ui| {
                                 if ui.button("+").clicked() {
                                     actions.push(Action::Add);
@@ -1759,8 +1971,18 @@ ui.add(egui::Label::new(pen_status).truncate());
                     self.picker = Some(FileRequest::OpenProject);
                     self.welcome = false;
                 }
-                if ui.button("Preferences and appearance").clicked() {
-                    self.theme_dark = !self.theme_dark;
+                if crate::studio_icons::menu_button(
+                    ui,
+                    crate::studio_icons::Icon::Settings,
+                    "Preferences and appearance",
+                )
+                .clicked()
+                {
+                    self.appearance_mode = if self.appearance_mode.is_dark(self.system_dark) {
+                        crate::workspace::AppearanceMode::Light
+                    } else {
+                        crate::workspace::AppearanceMode::Dark
+                    };
                     if let Err(error) = self.persist_workspace() {
                         self.status = format!("Could not save appearance preference: {error}");
                     }
@@ -1954,7 +2176,8 @@ ui.add(egui::Label::new(pen_status).truncate());
                 // Plain Enter works in the new-document form but can be consumed
                 // by this focused text field. Read it before the TextEdit handles
                 // the event so the headless workflow can reliably submit the path.
-                let submit = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let submit = std::mem::take(&mut self.manual_file_submit)
+                    || ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
                 ui.horizontal(|ui| {
                     if ui.button("Continue").clicked() || submit {
@@ -1962,10 +2185,12 @@ ui.add(egui::Label::new(pen_status).truncate());
                             actions.push(action);
                         }
                         self.manual_file_dialog = false;
+                        self.manual_file_submit = false;
                     }
                     if ui.button("Cancel").clicked() {
                         self.manual_file_action = None;
                         self.manual_file_dialog = false;
+                        self.manual_file_submit = false;
                     }
                 });
             });
@@ -2017,6 +2242,24 @@ ui.add(egui::Label::new(pen_status).truncate());
             self.pan_cursor = None;
             self.edit_pointer = None;
             self.edit_points.clear();
+        }
+        if let Some(theme) = window.theme() {
+            self.system_dark = theme == winit::window::Theme::Dark;
+        }
+        let appearance_key = (
+            self.appearance_mode,
+            self.accent_scheme,
+            self.custom_accent_rgb,
+            self.system_dark,
+        );
+        if self.appearance_cache != Some(appearance_key) {
+            self.context.set_visuals(crate::appearance::visuals(
+                self.appearance_mode,
+                self.system_dark,
+                self.accent_scheme,
+                self.custom_accent_rgb,
+            ));
+            self.appearance_cache = Some(appearance_key);
         }
         let raw = self.input.take_egui_input(window);
         let ctx = self.context.clone();

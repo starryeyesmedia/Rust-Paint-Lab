@@ -1,5 +1,80 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Phase 8.1 — Studio refinement (active)
+
+The Phase 8.1 working slice is in progress on
+`feature/studio-overdrive-phase-8`. It preserves the Phase 8 document, draft,
+autosave and recovery work below.
+
+### Completed in the current working slice (not yet pushed)
+
+- Reference import now accepts common phone/reference photos up to 32 MiB on
+  disk, 16,384 pixels per source edge, and 64 MiB of decoded source data. Large
+  sources are reduced to a maximum 1,448-pixel edge before GPU upload, keeping
+  each texture under 8 MiB. Per-file failures include an actionable reason and
+  do not discard successfully imported siblings. The app reports the original
+  image dimensions, persists accessible source paths/layout and requests another
+  frame after texture creation. The current texture is a workspace preview; image
+  pixels never enter document state or PNG/OpenRaster export. A generated
+  2400 × 1800 JPEG test covers bounded import, oversize-file rejection, duplicate
+  handling and partial success. Source decode and GPU rendering have not been
+  exercised on the user's Windows device, so the precise original failure for
+  that photo remains unconfirmed.
+- Replaced toolbar/menu Unicode symbols with original egui vector geometry for
+  the functional Brush, Eraser, Rectangle, Ellipse, Lasso, Eyedropper, Deselect,
+  Fill, Undo, Redo, Open, Save, Layers, Color and Settings actions. Buttons retain
+  readable labels, tooltips, selected state and their existing click/key behavior.
+  An egui geometry test confirms every icon emits shapes; a separate window-level
+  visual check is still pending.
+- Added the shared Midnight Violet appearance palette and complementary light
+  palette, Dark/Light/Follow System modes, built-in Violet/Blue/Teal/Coral/Green/
+  Neutral accents and validated custom HEX entry. Appearance state is in local
+  workspace preferences, not artwork. Older preferences migrate from `dark_theme`;
+  invalid custom settings fall back safely. Contrast tests check normal text at
+  4.5:1 and active control contrast at 3:1 for supported palette combinations.
+- macOS Actions run `40123065344` passed the draft persistence test and the full
+  platform build/lint path; this verifies the atomic unique temp-directory fix
+  introduced in `f8db5a5`.
+- The Linux picker smoke still failed on `f8db5a5`: after Ctrl+Enter the title
+  remained `TEST FILE PICKER`. The current uncommitted fix latches Enter/Numpad
+  Enter at the winit boundary only when the test-only path dialog is active, then
+  submits through the same action path. Ordinary users continue to receive the
+  native file dialog. This requires a fresh Xvfb Actions run; local Xvfb is not
+  installed in this environment.
+
+### Current local validation
+
+- Formatting and strict workspace Clippy passed after the new changes.
+- `cargo test --workspace --locked` passed, **171 Rust tests**, including the
+  new vector icon, palette contrast/follow-system, JPEG reference import, old
+  preference migration, and draft temp-directory concurrency tests.
+- `cargo build --workspace --locked` passed.
+- The offscreen GPU smoke passed on Mesa llvmpipe/OpenGL, including existing
+  replay/live/document preview, commit, cancel, undo and redo pixel checks.
+- `xvfb-run`/`Xvfb` is absent locally; the actual Linux picker smoke remains CI
+  dependent. The existing Linux smoke in run `40123065344` reached the modal but
+  could not submit it.
+- Run [`40123065344`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40123065344)
+  is based on `f8db5a5`: macOS passed; Linux failed at the native-window workflow
+  step waiting for `artwork.rpl`; Windows has built/uploaded the separate stylus
+  artifact and was still compiling the canvas executable at last inspection.
+  No cross-platform pass is claimed for that run.
+
+### Next Phase 8.1 work
+
+1. Commit and push the current verified UI/reference slice, then verify the new
+   winit-latched picker workflow and all three platform jobs. Preserve both
+   Windows artifacts.
+2. Obtain a real Windows run of Add Reference Images with small PNG, phone JPEG,
+   multiple selections, one bad file, cancellation and restart persistence; record
+   the dialog/result/status behavior before declaring the confirmed issue fixed.
+3. Window-level inspect Midnight Violet/icons and exercise appearance persistence
+   and custom contrast; improve the current compact Brush/Layers controls without
+   removing supported behavior.
+4. Continue with bounded recent artwork colors and reference-board pan/zoom/lock/
+   reset controls. Full draggable docking, a richer welcome screen, HSV selection,
+   and a complete accessibility audit remain outstanding.
+
 This is the active continuation record. Phase 7 work remains documented in
 [the Phase 7 record](PHASE7-STUDIO-PROGRESS.md); it is preserved and not repeated.
 

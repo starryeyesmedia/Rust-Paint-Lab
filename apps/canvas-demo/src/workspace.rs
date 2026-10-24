@@ -7,6 +7,43 @@ pub const MAX_REFERENCE_PATH: usize = 4096;
 pub const MAX_PREFERENCES_BYTES: usize = 64 * 1024;
 pub const MAX_RECENT_DOCUMENT_SIZES: usize = 8;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppearanceMode {
+    Dark,
+    Light,
+    FollowSystem,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccentScheme {
+    #[default]
+    Violet,
+    Blue,
+    Teal,
+    Coral,
+    Green,
+    Neutral,
+    Custom,
+}
+
+impl AppearanceMode {
+    pub fn is_dark(self, system_dark: bool) -> bool {
+        match self {
+            Self::Dark => true,
+            Self::Light => false,
+            Self::FollowSystem => system_dark,
+        }
+    }
+}
+
+impl Default for AppearanceMode {
+    fn default() -> Self {
+        Self::Dark
+    }
+}
+
 fn default_visible() -> bool {
     true
 }
@@ -37,6 +74,13 @@ pub struct ReferenceLayout {
 pub struct WorkspacePreferences {
     pub version: u32,
     pub dark_theme: bool,
+    /// Missing on legacy version-1 settings; derive the mode from `dark_theme`.
+    #[serde(default)]
+    pub appearance_mode: Option<AppearanceMode>,
+    #[serde(default)]
+    pub accent_scheme: AccentScheme,
+    #[serde(default)]
+    pub custom_accent_rgb: Option<[u8; 3]>,
     pub brush_panel_width: f32,
     #[serde(default = "default_visible")]
     pub show_controls: bool,
@@ -98,6 +142,9 @@ impl Default for WorkspacePreferences {
         Self {
             version: 1,
             dark_theme: true,
+            appearance_mode: Some(AppearanceMode::Dark),
+            accent_scheme: AccentScheme::Violet,
+            custom_accent_rgb: None,
             brush_panel_width: 260.0,
             show_controls: true,
             references: Vec::new(),
@@ -108,6 +155,14 @@ impl Default for WorkspacePreferences {
 }
 
 impl WorkspacePreferences {
+    pub fn effective_appearance_mode(&self) -> AppearanceMode {
+        self.appearance_mode.unwrap_or(if self.dark_theme {
+            AppearanceMode::Dark
+        } else {
+            AppearanceMode::Light
+        })
+    }
+
     /// Reject unknown schemas and bound untrusted disk data before creating UI.
     pub fn validate(&mut self) -> bool {
         if self.version != 1 || !self.brush_panel_width.is_finite() || !self.new_document.validate()
@@ -115,6 +170,9 @@ impl WorkspacePreferences {
             return false;
         }
         self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
+        if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
+            self.accent_scheme = AccentScheme::Violet;
+        }
         let mut seen = Vec::new();
         self.recent_document_sizes.retain(|size| {
             if !size.valid() || seen.contains(size) {
@@ -226,6 +284,30 @@ mod tests {
         assert_eq!(preferences.new_document.height, 1000.0);
         assert!(!preferences.new_document.transparent);
         assert!(preferences.show_controls);
+        assert_eq!(preferences.appearance_mode, None);
+        assert_eq!(preferences.accent_scheme, AccentScheme::Violet);
+        assert_eq!(
+            preferences.effective_appearance_mode(),
+            AppearanceMode::Light
+        );
+    }
+
+    #[test]
+    fn appearance_settings_roundtrip_and_invalid_custom_scheme_falls_back_safely() {
+        let mut preferences = WorkspacePreferences {
+            appearance_mode: Some(AppearanceMode::FollowSystem),
+            accent_scheme: AccentScheme::Custom,
+            custom_accent_rgb: Some([144, 104, 220]),
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored, preferences);
+        restored.custom_accent_rgb = None;
+        assert!(restored.validate());
+        assert_eq!(restored.accent_scheme, AccentScheme::Violet);
     }
 
     #[test]
