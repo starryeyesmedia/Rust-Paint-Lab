@@ -37,8 +37,15 @@ impl Recovery {
         let savepath = path.clone();
         let worker = thread::spawn(move || {
             let mut store = Store::new(savepath);
+            let journal_path = store.path.with_extension("rpl.journal");
+            let mut journal = super::journal::Journal::new(journal_path);
             while let Ok(request) = rx.recv() {
-                let result = store.save(&request.state).map_err(|e| e.to_string());
+                // Append the self-contained checkpoint first. A crash between
+                // the journal sync and snapshot replacement is still recoverable.
+                let result = journal
+                    .append(&request.state)
+                    .and_then(|()| store.save(&request.state))
+                    .map_err(|e| e.to_string());
                 let _ = done.try_send(result.clone());
                 if let Some(reply) = request.reply {
                     let _ = reply.send(result);
@@ -111,7 +118,15 @@ pub fn available(directory: &Path) -> Vec<PathBuf> {
         {
             path = path.with_extension("");
         }
-        if path.extension().is_none_or(|e| e != "rpl") {
+        if path.extension().is_some_and(|e| e == "journal") {
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let Some(base) = name.strip_suffix(".journal") else {
+                continue;
+            };
+            path = path.with_file_name(base);
+        } else if path.extension().is_none_or(|e| e != "rpl") {
             continue;
         }
 
@@ -168,9 +183,17 @@ pub fn remove(directory: &Path, path: &Path) -> Result<(), PaintError> {
     if backup.exists() {
         fs::remove_file(backup)?;
     }
+    let journal = path.with_extension("rpl.journal");
+    if journal.exists() {
+        fs::remove_file(journal)?;
+    }
     drop(lock);
     drop(owner);
     let _ = fs::remove_file(lock_path);
+    let _ = fs::remove_file(
+        path.with_extension("rpl.journal")
+            .with_extension("journal.lock"),
+    );
     let _ = fs::remove_file(owner_path);
     Ok(())
 }
@@ -179,6 +202,10 @@ pub fn remove(directory: &Path, path: &Path) -> Result<(), PaintError> {
 /// The caller opens a new unsaved document and must tell the user if fallback
 /// lost newer edits; neither source file is modified during recovery.
 pub fn restore(path: &Path) -> Result<(State, bool), PaintError> {
+    let journal = super::journal::Journal::new(path.with_extension("rpl.journal"));
+    if let Ok(result) = journal.restore() {
+        return Ok(result);
+    }
     match crate::storage::load(path) {
         Ok(state) => Ok((state, false)),
         Err(primary) => {
@@ -188,5 +215,31 @@ pub fn restore(path: &Path) -> Result<(State, bool), PaintError> {
                 Err(_) => Err(primary),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod journal_tests {
+    use super::*;
+    use crate::Engine;
+
+    #[test]
+    fn journal_checkpoint_is_discoverable_if_snapshot_replace_was_interrupted() {
+        let dir = std::env::temp_dir().join(format!("rpl-journal-recovery-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let recovery = Recovery::start(&dir).unwrap();
+        let mut engine = Engine::new(32, 32, 96).unwrap();
+        engine.add_layer().unwrap();
+        recovery.flush(engine.state().clone()).unwrap();
+        let path = recovery.path.clone();
+        drop(recovery);
+        fs::remove_file(&path).unwrap();
+        assert!(available(&dir).contains(&path));
+        let (restored, fallback) = restore(&path).unwrap();
+        assert!(!fallback);
+        assert_eq!(restored.layers.len(), 2);
+        remove(&dir, &path).unwrap();
+        assert!(!path.with_extension("rpl.journal").exists());
+        let _ = fs::remove_dir_all(dir);
     }
 }

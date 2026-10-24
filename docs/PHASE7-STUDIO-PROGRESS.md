@@ -16,8 +16,13 @@ not evidence that a workflow is complete.
   same-ID contact in follow-up commit `43009eb`.
 - The Phase 5 X11 smoke had an obsolete paper-exit cancellation expectation; its
   updated artboard-reentry and focus-cancel checks are in `51cfcef`.
-- Latest inherited three-platform Actions run: `40056494303`, successful on
-  Windows, Linux, and macOS. The Phase 7 branch has not yet run CI.
+- Latest three-platform Actions run for code checkpoint `e3665de`:
+  [`40059871822`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40059871822),
+  successful on Windows, Linux, and macOS, including the separate Windows
+  diagnostic and canvas artifact builds.
+- At resume, local HEAD was `069802c` (documentation only) and origin was
+  `47996f6`; both were retained. New code changes have not yet been pushed or
+  run through Actions.
 - No merge, release, or public exposure is authorized.
 
 ## Completed checkpoint 7A: artboard crossing and stroke continuity
@@ -45,8 +50,11 @@ identity, true cancellation, document pixels across disconnected segments, demo
 geometry, native pen travel around an off-paper margin with disconnected geometry
 and exact-counter preservation, and an offscreen GPU pixel assertion for both
 sides of an unpainted gap.
-The real alpha window workflow still passes. No physical Windows boundary, capture,
-pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoint.
+The real alpha window workflow still passes. The user has since verified on a
+Samsung Galaxy Book2 Pro 360 that leaving the artboard no longer makes a live
+stroke disappear. This confirms the reported artboard-exit behavior on that
+device only; capture theft, focus loss, pen pressure/tilt interpolation, DPI edge
+cases, and storage failure behavior remain unverified on physical Windows hardware.
 
 ### Validation on this checkpoint
 
@@ -65,14 +73,18 @@ pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoi
   not Windows linking or execution.
 - `40059380023` exposed the outdated Linux X11 paper-exit cancellation expectation;
   the smoke now checks paper re-entry plus separate focus cancellation and passed
-  locally. CI run `40059871822` for latest code `e3665de` is in progress on Windows,
-  Linux, and macOS. The last successful API status query showed macOS completed
-  successfully and Windows/Linux in their workspace test steps. Subsequent GitHub
-  API calls returned HTTP 401 because the environment's `GH_TOKEN` was rejected,
-  so the final Windows/Linux status could not be read here. Recheck run
-  `40059871822` before relying on CI. Earlier runs were stopped after being
-  superseded; only `40059871822` is the final matrix run for this code.
+  locally. Run `40059871822` completed successfully on all three platforms. Its
+  Windows leg built both portable applications and uploaded both artifacts. The
+  Windows artifact is CI output, not physical hardware validation.
 - Physical Windows stylus/capture and modest-hardware performance: not tested here.
+- The user separately verified on a Galaxy Book2 Pro 360 that artboard exit no
+  longer makes a live stroke disappear. This confirms only that reported boundary
+  behavior on that device; no other pen/capture/storage behavior is inferred.
+- Recovery journal checkpoint local validation: workspace formatting, Clippy,
+  tests, build, required Vulkan GPU pixel checks, forced-crash alpha workflow, and
+  Linux live mouse X11 smoke passed. The workspace suite contains 139 tests after
+  this addition. Windows GNU cross-check and GitHub Actions for this checkpoint
+  remain outstanding.
 
 ## Architecture decisions
 
@@ -93,10 +105,19 @@ pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoi
 ## Partial and unimplemented checkpoints
 
 - **7B Artwork preservation:** native save, verified backup, bounded per-document
-  snapshot recovery, and fault-injection exist. A durable operation journal with
-  replay of completed edits is not implemented. Explicit saving/export still has
-  synchronous UI paths; do not replace snapshot recovery until a journal has passed
-  interrupted-write, duplicate-operation, corruption, and real-workflow tests.
+  snapshot recovery, and fault-injection exist. New work adds a bounded append-only
+  journal of complete checksummed native snapshots. It is integrated into recovery:
+  checkpoints are journaled before replacing the `.rpl` snapshot, so an interrupted
+  replacement remains recoverable. Identical state records are idempotent; truncated
+  or corrupted tails return the previous complete record; journal-only recovery is
+  discoverable; the existing snapshot and `.bak` remain fallbacks. The journal is
+  capped at two maximum project payloads and compacts atomically to the newest full
+  state when needed. This is not an operation WAL, does not retain undo history, and
+  still has a checkpoint interval in which a hard crash can lose recent work.
+  Remaining work includes process-kill integration coverage after journal sync,
+  fault injection around append/compaction, Windows power-loss validation, recovery
+  retention UX, and background export responsiveness. Do not claim comprehensive
+  crash/power-loss protection.
 - **7C Workspace:** current alpha has functional controls, but the egui panel layout
   remains developer-oriented; no Draw/Illustrate/Animate workspace system, docking,
   native file picker, or system-theme following.
@@ -122,24 +143,15 @@ pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoi
 
 ## Known issues and exact next steps
 
-1. Push the verified 7A checkpoint and confirm the new Windows/Linux/macOS Actions
-   matrix; inspect the Windows canvas and separate stylus diagnostic artifacts.
-2. Perform the boundary acceptance exercise on Windows: start inside, exit each
-   artboard edge while remaining in the app, travel around an outside margin,
-   re-enter, release; confirm no disappearing preview or bridge. Repeat with native
-   S Pen and inspect pressure/tilt at the clipping edge. Separately test focus,
-   actual capture theft, and leaving the window still cancel.
-3. Continue 7B only after reviewing `paint-document` storage/recovery and the current
-   app close/save path. Prototype an append-only, versioned operation journal with
-   bounded record sizes and checksums. First support a small set of deterministic
-   committed operations and replay into a scratch document; keep snapshots as the
-   recovery fallback until crash injection proves correct recovery and idempotence.
-4. Add tests for journal truncation/corruption, repeated checkpoint replay, operation
-   ordering, writer conflicts, cleanup, and failure preserving the previous valid
-   project. Extend `scripts/alpha-workflow-smoke.py` to force-kill after a durable
-   journal append and verify recovery through the actual UI.
-5. Only then evaluate background saving/progress and continue toward 7C/7D. Keep the
-   v1 reader compatible and never rewrite a user's source project during migration.
+1. Finish full validation, then add process termination and injected append/compaction
+   failures to the real alpha workflow. Confirm journal recovery opens and saves as
+   a new native project without touching the source artwork.
+2. Measure journal write cost and disk growth on sparse and dense documents. Revisit
+   checkpoint cadence or delta encoding only with measured data; preserve the two-
+   snapshot hard cap and legacy snapshot fallback.
+3. After 7B has crash/recovery evidence, proceed to 7C persistent adaptable layouts
+   and a usable reference overlay. Keep the v1 reader compatible and never rewrite a
+   user's source project during migration.
 
 Do not describe hardware behavior, Windows runtime behavior, journal durability, or
 low-end performance as verified until tested on the corresponding hardware and

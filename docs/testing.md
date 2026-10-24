@@ -127,7 +127,8 @@ See [Galaxy Book interactive checklist](live-mouse.md#manual-galaxy-book-checkli
 `cargo test -p paint-document --locked` tests brush determinism, pressure semantics,
 opacity versus flow, endpoint smoothing, scratch cancellation/concurrency, layers,
 bounded history, blend invariants, corrupted/truncated native files, injected save
-failures, external-change conflicts, recovery ownership/flush and PNG round trips.
+failures, external-change conflicts, recovery ownership/flush, journal tail recovery,
+idempotent checkpoint append, and PNG round trips.
 The existing offscreen runner now also checks real raster shader pixels across
 preview, cancellation, commit, undo and redo. A missing adapter remains SKIPPED;
 Linux CI requires software GPU execution. Existing 70 Rust tests are preserved.
@@ -174,7 +175,7 @@ history. Physical coalescing/capture/promotion behavior remains on the manual li
 
 ## Current Overdrive workspace (2026-10-24)
 
-The latest local suite contains **129 Rust tests** across input normalization and
+Before the journal continuation, the suite contained **129 Rust tests** across input normalization and
 lifecycle, stroke routing, canvas, native-history deduplication, raster brush/document,
 editing, recovery preferences, OpenRaster, and brush preset IO. Three canvas unit tests
 cover bounded lasso cancellation and native save-path selection; two document tests
@@ -193,6 +194,13 @@ outside gap remains unpainted while both in-paper segments render. Linux/Xvfb al
 workflow remains the full save/edit/recovery integration check; physical Windows
 pen pressure, capture behavior, display scaling, and Iris Xe rendering still require
 manual testing.
+
+The recovery snapshot journal adds three tests (139 current Rust tests total):
+latest-state selection and idempotent duplicates, truncated/checksum-corrupt tail
+fallback, and discovery/restoration when a checkpoint journal exists but its paired
+snapshot replacement is absent. The actual alpha smoke still exercises forced
+process termination with the integrated recovery worker; Windows power-loss behavior
+and filesystem durability remain untested.
 
 ```sh
 cargo test --locked -p paint-stroke --test routing

@@ -221,6 +221,12 @@ painting. GPU display uses only a composited texture; small strokes upload dirty
 tiles rather than rebuilding the full document. Metadata operations can invalidate
 all tiles. The CPU document is authoritative and editable without GPU resources.
 
+Recovery writes a bounded append-only sequence of complete native snapshot records
+alongside the existing atomic snapshot and verified backup. Replay selects the most
+recent complete validated state, so retries are idempotent; a damaged tail falls
+back to the previous record. This is not yet an operation-level journal and does
+not retain undo history. See RPL-ALPHA-FORMAT.md for the record layout and limits.
+
 Layer blend math is encoded-sRGB (not fully linear-light or ICC managed). Display
 converts unpremultiplied samples to linear output for the sRGB surface. Export writes
 straight-alpha PNG with sRGB/DPI metadata. See RPL-ALPHA-FORMAT.md for native storage,

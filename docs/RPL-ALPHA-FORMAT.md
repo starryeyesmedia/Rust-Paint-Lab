@@ -36,9 +36,26 @@ A bounded background writer retains at most one queued and one running immutable
 snapshot; a destructive action/close waits for a successful flushed checkpoint.
 An active owner's checkpoints are excluded from recovery choices. Previous snapshot
 backups survive replacement. The UI exposes recovery choices on next launch.
-This is **snapshot recovery**, not yet a complete per-operation WAL/journal. A hard
-crash can lose work after the last completed checkpoint. Checkpoint retention and
-obsolete-file cleanup are still manual; no recovery file is silently deleted.
+
+Each background checkpoint is also written to a sibling `.rpl.journal` file using
+the versioned `RPLJRN01` record format: magic, monotonically increasing u64 record
+sequence, u64 payload length, a complete checksummed v1 `.rpl` snapshot payload,
+and SHA-256 over the record header and payload. Repeated identical snapshots are
+idempotent. Recovery uses the latest complete, valid record; an incomplete or
+corrupt tail falls back to the previous complete record, and the existing `.rpl`
+snapshot plus `.bak` remain fallback paths. The journal is limited to two maximum
+project snapshots; when an append would exceed that cap it atomically compacts to
+the new full-state checkpoint. Each record is validated with the native format's
+existing allocation limits before use. Recovery cleanup removes the journal with
+its associated snapshot after obtaining the session ownership lock.
+
+This is a **full-state snapshot journal**, not a per-operation WAL: it does not
+store individual strokes or editing commands, and it does not preserve the undo
+stack. Checkpoint cadence remains controlled by the app, so a hard crash can lose
+work since the most recently synced journal record. A checksum detects accidental
+corruption, not malicious tampering. Checkpoint retention and obsolete-file cleanup
+remain explicit/manual; no recovery file is silently deleted. Physical power-loss
+behavior and filesystem durability have not been certified.
 
 Not stored: undo stack, original stroke paths, native performance counters, vector
 objects, layer groups/masks, selections, ICC profiles, or timelapse. These features

@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 pub mod brush;
 pub mod editing;
+pub mod journal;
 pub mod openraster;
 pub mod recent;
 pub mod storage;

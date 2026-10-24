@@ -73,6 +73,9 @@ fn corrupted_recovery_falls_back_to_verified_backup_without_modifying_either() {
     let p = r.path.clone();
     drop(r);
     assert_eq!(recovery::restore(&p).unwrap().0.layers.len(), 2);
+    // Exercise the verified snapshot-backup fallback independently from the
+    // append-only recovery journal, which can otherwise restore the latest state.
+    std::fs::remove_file(p.with_extension("rpl.journal")).unwrap();
     std::fs::write(&p, b"interrupted or corrupted snapshot").unwrap();
     let (state, backup) = recovery::restore(&p).unwrap();
     assert!(backup);
@@ -94,6 +97,7 @@ fn orphaned_backup_is_discovered_recoverable_and_can_be_cleaned_up() {
     r.flush(e.state().clone()).unwrap();
     let path = r.path.clone();
     drop(r);
+    std::fs::remove_file(path.with_extension("rpl.journal")).unwrap();
     std::fs::remove_file(&path).unwrap();
     assert!(recovery::available(&dir).contains(&path));
     let (_, backup) = recovery::restore(&path).unwrap();

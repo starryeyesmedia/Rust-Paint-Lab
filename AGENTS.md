@@ -136,7 +136,12 @@ document, lock concurrent writers, and wait for confirmed durable recovery befor
 replacing dirty work. Cancelled previews never enter history or storage. Exercise
 fault-injection, corruption, round trips and the real alpha window workflow after
 storage/UI changes. Never claim snapshots are a full operation journal or full ICC
-color management. See docs/overdrive-user-guide.md for actual supported controls.
+color management. Recovery also appends bounded, checksummed complete-state records
+to a local `.rpl.journal` before replacing the existing recovery snapshot. This
+supplement does not contain editing operations or undo history; preserve the `.rpl`
+snapshot and verified `.bak` fallback. Do not describe it as comprehensive
+crash/power-loss protection without process-kill and platform durability evidence.
+See docs/overdrive-user-guide.md for actual supported controls.
 
 Optional SourceCounter is exact adapter-clock metadata with a nonzero frequency;
 preserve it through lifecycle and stroke routing. Do not compare unrelated clock

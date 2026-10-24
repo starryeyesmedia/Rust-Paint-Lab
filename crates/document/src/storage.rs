@@ -9,7 +9,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 const MAGIC: &[u8; 8] = b"RPLALP01";
-const MAX_FILE: usize = 160 * 1024 * 1024;
+pub(crate) const MAX_FILE: usize = 160 * 1024 * 1024;
 const MAX_BRUSH_FILE: usize = 16 * 1024;
 static NONCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Copy, PartialEq, Eq)]
