@@ -172,15 +172,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('Escape');assert process.wait(timeout=20)==0
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'reopened workspace');focus(display,window,2,0);send()
-            ctrl('o');path_prompt();key('Return')
+            ctrl('o');path_prompt();ctrl('Return')
             status('artwork.rpl')
             # Save and reload a custom versioned brush preset through the app UI.
-            ctrl_shift('b');path_prompt();key('Return')
+            ctrl_shift('b');path_prompt();ctrl('Return')
             preset=directory/'artwork.rplbrush'
             wait(lambda: preset.exists(),'custom brush preset save')
             preset_data=json.loads(preset.read_text())
             assert preset_data['version']==1 and preset_data['brush']['kind']=='Round'
-            ctrl_alt('b');path_prompt();key('Return');ctrl('s')
+            ctrl_alt('b');path_prompt();ctrl('Return');ctrl('s')
             wait(lambda: native_state(project)['brush']==preset_data['brush'],'brush preset load and project save')
             # Exercise actual selection-tool ownership and transactional fill.
             time.sleep(0.5)
@@ -201,7 +201,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             with zipfile.ZipFile(ora) as archive:
                 assert archive.namelist()[0]=='mimetype' and archive.read('mimetype')==b'image/openraster'
                 assert archive.testzip() is None and b'<layer' in archive.read('stack.xml')
-            ctrl_shift('o');path_prompt();key('Return');status('*');ctrl('s')
+            ctrl_shift('o');path_prompt();ctrl('Return');status('*');ctrl('s')
             imported=directory/'imported-artwork.rpl'
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
             recovery_dir=directory/'state/rust-paint-lab/recovery'

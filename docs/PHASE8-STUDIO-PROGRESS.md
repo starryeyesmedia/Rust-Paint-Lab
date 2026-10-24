@@ -35,7 +35,8 @@ This is the active continuation record. Phase 7 work remains documented in
   workspace-only and cannot enter artwork exports.
 - `RPL_TEST_PATH_DIALOG=1` plus optional `RPL_TEST_DOCUMENT_NAME` selects a
   deterministic path-entry test harness for Xvfb only. Normal usage does not ask
-  artists to type paths. Linux native dialogs use the XDG portal and require a
+  artists to type paths. Its Continue action uses Ctrl+Enter so it works while the
+  path text field has focus. Linux native dialogs use the XDG portal and require a
   desktop portal service.
 - The Windows stylus diagnostic, live drawing pipeline, recovery journal, and
   existing exporters were not changed.
@@ -139,9 +140,18 @@ This is the active continuation record. Phase 7 work remains documented in
   llvmpipe GPU pixel smoke also passed.
 - GitHub Actions for `af1a879` ([40118673479](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118673479))
   failed immediately with all platform jobs assigned runner ID 0 and no steps.
-  Retrying the failed jobs produced the same pre-setup failure. The prior pushed
-  commit's run [40118528397](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118528397)
-  is still progressing; no platform-green result for `af1a879` is claimed.
+  Retrying the failed jobs produced the same pre-setup failure. Run
+  [40118752060](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118752060)
+  for the progress-record-only follow-up hit the same runner provisioning error.
+  The prior pushed commit's run
+  [40118528397](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118528397)
+  is progressing, but is not a check of the panel-visibility change.
+- Linux UI smoke in earlier run
+  [40118257862](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118257862)
+  reached the test-only file picker but timed out because synthetic plain Enter
+  was consumed by the focused path field. The smoke now submits the test-only
+  picker with Ctrl+Enter, which the modal handles explicitly. This correction
+  awaits Xvfb CI verification.
 - The Linux Xvfb real-window workflow still cannot be exercised in this container
   because `xvfb-run` is absent. Latest platform CI must confirm the native window,
   dialogs, artifact packaging, and smoke script.
@@ -189,16 +199,12 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Rerun CI after the current platform jobs release capacity; verify Windows,
-   Linux, macOS and the downloadable canvas/stylus artifacts for `af1a879`.
-2. Resolve any Xvfb welcome/New Document/Open smoke failures using the test-only
-   dialog markers and current-window-title diagnostics.
-3. Continue functional workspace work: recent-color palette and more complete
+1. Verify the Ctrl+Enter picker fix in Linux Xvfb CI and get a fresh successful
+   Windows/Linux/macOS run with the canvas and stylus artifacts.
+2. Continue functional workspace work: recent-color palette and more complete
    layer workflow, then accessible rearrangeable panels and reference-board
    navigation. Do not mark dockable panels or a full artist workspace complete
    until those behaviors exist and have window-level tests.
-3. Continue a more useful layer/color workflow and close-save failure coverage in
-   the real window workflow.
 
 No physical Windows picker, stylus, touch, power-loss, or hardware-performance
 validation has been performed in this phase.

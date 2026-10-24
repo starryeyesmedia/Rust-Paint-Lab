@@ -1849,7 +1849,7 @@ ui.add(egui::Label::new(pen_status).truncate());
                 ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
                 ui.horizontal(|ui| {
                     if ui.button("Continue").clicked()
-                        || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        || ui.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Enter))
                     {
                         if let Some(action) = self.manual_file_action.take() {
                             actions.push(action);
