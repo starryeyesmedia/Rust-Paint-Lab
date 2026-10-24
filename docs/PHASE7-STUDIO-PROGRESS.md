@@ -22,10 +22,10 @@ not evidence that a workflow is complete.
   diagnostic and canvas artifact builds.
 - At resume, local HEAD was `069802c` (documentation only) and origin was
   `47996f6`; both were retained and pushed with recovery checkpoint `299506e`.
-- Actions run [`40104839157`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40104839157)
-  for code checkpoint `97ad1b7` is running on Windows, Linux, and macOS. It includes
-  bounded compaction, writer-exclusion tests, and checked sequence overflow. Earlier
-  runs `40104691001` and `40104767897` were for superseded checkpoints.
+- Actions run [`40104914603`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40104914603)
+  for code checkpoint `6001265` is queued for Windows, Linux, and macOS. It includes
+  bounded compaction, writer-exclusion tests, checked sequence overflow, and clearer
+  recovery fallback messaging. Earlier runs are superseded checkpoints.
 - No merge, release, or public exposure is authorized.
 
 ## Completed checkpoint 7A: artboard crossing and stroke continuity
@@ -85,8 +85,8 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
   behavior on that device; no other pen/capture/storage behavior is inferred.
 - Recovery journal checkpoint local validation: formatting, Clippy, all workspace
   tests (141), build, required Vulkan GPU pixels, forced-crash alpha workflow, Linux
-  live mouse X11 smoke, and Windows GNU target check/Clippy passed for `97ad1b7`.
-  Actions for that exact code commit are still running; no hosted result is claimed yet.
+  live mouse X11 smoke, and Windows GNU target check/Clippy passed for `6001265`.
+  The exact hosted matrix is queued; no hosted result is claimed yet.
 
 ## Architecture decisions
 
