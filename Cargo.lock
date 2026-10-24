@@ -276,10 +276,13 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui-winit",
+ "image",
  "paint-document",
  "paint-input",
  "paint-stroke",
  "pollster",
+ "serde",
+ "serde_json",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
@@ -911,6 +914,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@ path, screenshots, user input recording, or additional Python packages.
 """
 import ctypes as c
 from pathlib import Path
-import os, tempfile, hashlib, struct, json, zipfile
+import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii
 import subprocess
 import time
 
@@ -100,17 +100,41 @@ def ctrl_alt(name):
     code=keycode(display,keysym(b'Alt_L'));key_event(display,code,1,0);ctrl(name);key_event(display,code,0,0);send()
 def valid_project(path):
     if not path.exists(): return False
-    data=path.read_bytes()
+    return valid_project_bytes(path.read_bytes())
+def valid_project_bytes(data):
     if len(data)<48 or data[:8]!=b'RPLALP01' or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return False
     n=struct.unpack('<I',data[8:12])[0]
     return struct.unpack('<I',data[12+n:16+n])[0]
+def latest_journal_checkpoint(path):
+    if not path.exists(): return None
+    data=path.read_bytes();offset=0;last_sequence=0;latest=None
+    while offset<len(data):
+        if len(data)-offset<56 or data[offset:offset+8]!=b'RPLJRN01': return None
+        sequence,length=struct.unpack('<QQ',data[offset+8:offset+24])
+        end=offset+24+length;record_end=end+32
+        if sequence<=last_sequence or record_end>len(data): return None
+        if hashlib.sha256(data[offset:end]).digest()!=data[end:record_end]: return None
+        payload=data[offset+24:end]
+        if valid_project_bytes(payload) is False: return None
+        latest=payload;last_sequence=sequence;offset=record_end
+    return latest
 def native_state(path):
     data=path.read_bytes();n=struct.unpack('<I',data[8:12])[0]
     return json.loads(data[12:12+n])
+def png_chunk(kind, data):
+    body=kind+data
+    return struct.pack('>I',len(data))+body+struct.pack('>I',binascii.crc32(body)&0xffffffff)
 with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     directory=Path(folder)
     executable=Path(__file__).resolve().parent.parent/'target/debug/canvas-demo'
     env={**os.environ,'XDG_STATE_HOME':str(directory/'state')}
+    # Load a persisted external reference window. It is intentionally magenta;
+    # the exported PNG below must still contain only project artwork.
+    reference=directory/'reference.png'
+    reference.write_bytes(b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(b'\x00\xff\x00\xff\xff'))+png_chunk(b'IEND',b''))
+    prefs=directory/'state/rust-paint-lab/workspace.json'
+    prefs.parent.mkdir(parents=True)
+    prefs.write_text(json.dumps({'version':1,'dark_theme':False,'brush_panel_width':280.0,'references':[{'path':str(reference),'position':[620.0,100.0],'size':[320.0,260.0],'opacity':0.7}]}))
     with (directory/'application.log').open('w') as log:
         process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
         try:
@@ -134,6 +158,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: png.exists(),'PNG export')
             data=png.read_bytes();assert data[:8]==b'\x89PNG\r\n\x1a\n'
             assert struct.unpack('>II',data[16:24])==(800,500)
+            assert json.loads(prefs.read_text())['references'][0]['path']==str(reference)
             key('Escape');assert process.wait(timeout=20)==0
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'reopened workspace');focus(display,window,2,0);send()
@@ -171,21 +196,33 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
             recovery_dir=directory/'state/rust-paint-lab/recovery'
             snapshot=wait(lambda: next((p for p in sorted(recovery_dir.glob('recovery-*.rpl'),reverse=True) if valid_project(p)),None),'initial recovery checkpoint')
+            journal_path=Path(str(snapshot)+'.journal')
+            assert latest_journal_checkpoint(journal_path)==snapshot.read_bytes(),'initial checkpoint has a complete synced journal record'
             before=snapshot.read_bytes()
+            journal_before=journal_path.read_bytes()
             key('b');move(230,350);click_button(1,True);move(400,470);click_button(1,False);status('*')
             wait(lambda: valid_project(snapshot) and snapshot.read_bytes()!=before,'latest committed artwork checkpoint')
             recovered_bytes=snapshot.read_bytes()
+            wait(lambda: journal_path.read_bytes()!=journal_before and latest_journal_checkpoint(journal_path)==recovered_bytes,'latest checkpoint is durably journaled before process termination')
+            preserved_artwork=imported.read_bytes()
             process.kill();assert process.wait(timeout=10)!=0
+            # Exercise recovery from the durable journal without its paired snapshot.
+            snapshot.unlink()
             time.sleep(0.2)
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'workspace after forced crash');focus(display,window,2,0);send();time.sleep(0.5)
             ctrl_shift('r');status('*');ctrl('s')
             recovered=directory/'recovered-artwork.rpl'
-            wait(lambda: recovered.exists() and recovered.read_bytes()==recovered_bytes and '*' not in title(window),'forced-crash recovery restores exact checkpoint bytes')
+            wait(lambda: recovered.exists() and recovered.read_bytes()==recovered_bytes and '*' not in title(window),'forced-crash journal recovery restores exact checkpoint bytes')
+            assert imported.read_bytes()==preserved_artwork,'journal recovery leaves existing native artwork unchanged'
 
 
             key('Escape');assert process.wait(timeout=20)==0
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, forced-crash recovery, clean close)')
+            saved_preferences=json.loads(prefs.read_text())
+            assert saved_preferences['dark_theme'] is False
+            assert saved_preferences['references'][0]['path']==str(reference)
+            assert 180.0<=saved_preferences['brush_panel_width']<=640.0
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, persistent theme/reference board, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)
             close_display(display)

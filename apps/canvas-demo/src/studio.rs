@@ -14,6 +14,88 @@ use paint_document::{
 use std::path::PathBuf;
 use winit::window::Window;
 
+struct ReferenceImage {
+    layout: crate::workspace::ReferenceLayout,
+    texture: egui::TextureHandle,
+}
+
+const MAX_REFERENCE_FILE_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_REFERENCE_PIXELS: usize = 2_048 * 2_048;
+const MAX_REFERENCE_TEXTURE_BYTES: usize = 8 * 1024 * 1024;
+
+fn load_reference_texture(
+    context: &egui::Context,
+    layout: crate::workspace::ReferenceLayout,
+) -> Result<ReferenceImage, String> {
+    let metadata = std::fs::metadata(&layout.path).map_err(|e| e.to_string())?;
+    if metadata.len() > MAX_REFERENCE_FILE_BYTES {
+        return Err("Reference image file exceeds the 32 MiB limit".into());
+    }
+    let mut reader = image::ImageReader::open(&layout.path)
+        .and_then(|reader| reader.with_guessed_format())
+        .map_err(|e| e.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(2048);
+    limits.max_image_height = Some(2048);
+    limits.max_alloc = Some(MAX_REFERENCE_TEXTURE_BYTES as u64);
+    reader.limits(limits);
+    let decoded = reader.decode().map_err(|e| e.to_string())?;
+    let (width, height) = (decoded.width() as usize, decoded.height() as usize);
+    if width == 0
+        || height == 0
+        || width
+            .checked_mul(height)
+            .is_none_or(|pixels| pixels > MAX_REFERENCE_PIXELS)
+        || width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .is_none_or(|bytes| bytes > MAX_REFERENCE_TEXTURE_BYTES)
+    {
+        return Err("Reference image exceeds the 2048 × 2048 / 8 MiB decoded limit".into());
+    }
+    let rgba = decoded.into_rgba8();
+    let image = egui::ColorImage::from_rgba_unmultiplied([width, height], rgba.as_raw());
+    let name = layout
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("reference image");
+    let texture = context.load_texture(name, image, egui::TextureOptions::LINEAR);
+    Ok(ReferenceImage { layout, texture })
+}
+
+#[cfg(test)]
+mod reference_tests {
+    use super::*;
+
+    #[test]
+    fn external_reference_decodes_into_a_ui_texture() {
+        let path = std::env::temp_dir().join(format!(
+            "rpl-reference-{}-{}.png",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let image = image::RgbaImage::from_pixel(2, 3, image::Rgba([240, 16, 120, 255]));
+        image.save(&path).unwrap();
+        let loaded = load_reference_texture(
+            &egui::Context::default(),
+            crate::workspace::ReferenceLayout {
+                path: path.clone(),
+                position: [0.0, 0.0],
+                size: [300.0, 300.0],
+                opacity: 0.5,
+            },
+        )
+        .unwrap();
+        assert_eq!(loaded.texture.size(), [2, 3]);
+        assert_eq!(loaded.layout.path, path);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LassoAppend {
     Unchanged,
@@ -58,6 +140,7 @@ enum Action {
     Recover(PathBuf),
     Recent(PathBuf),
     RemoveRecovery(PathBuf),
+    AddReference(PathBuf),
     Undo,
     Redo,
     Add,
@@ -115,6 +198,10 @@ pub struct Studio {
     ui_drag: bool,
     pub last_upload_us: u128,
     pub last_frame_us: u128,
+    preferences_path: Option<PathBuf>,
+    reference_path: String,
+    references: Vec<ReferenceImage>,
+    brush_panel_width: f32,
 }
 impl Studio {
     pub fn new(g: &Renderer, window: &Window, format: wgpu::TextureFormat) -> Self {
@@ -146,6 +233,21 @@ impl Studio {
             .as_ref()
             .and_then(|p| paint_document::recent::Recent::load(p).ok())
             .unwrap_or_default();
+        let preferences_path = dir
+            .as_ref()
+            .ok()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("workspace.json"));
+        let preferences = preferences_path
+            .as_ref()
+            .and_then(|p| crate::workspace::load(p))
+            .unwrap_or_default();
+        let references = preferences
+            .references
+            .iter()
+            .cloned()
+            .filter_map(|layout| load_reference_texture(&context, layout).ok())
+            .collect();
         let status = if recovery.is_some() {
             "Ready — local recovery enabled".into()
         } else {
@@ -174,7 +276,7 @@ impl Studio {
             recent_path,
             cleanup: None,
             last_submitted: 0,
-            theme_dark: true,
+            theme_dark: preferences.dark_theme,
             navigation: Default::default(),
             touches: Default::default(),
             pan_cursor: None,
@@ -190,6 +292,10 @@ impl Studio {
             ui_drag: false,
             last_upload_us: 0,
             last_frame_us: 0,
+            preferences_path,
+            reference_path: String::new(),
+            brush_panel_width: preferences.brush_panel_width,
+            references,
         }
     }
     pub fn window_event(
@@ -590,6 +696,35 @@ impl Studio {
             && session.live().project().dirty()
             && self.last_submitted != session.live().project().revision
     }
+    fn persist_workspace(&self) -> Result<(), String> {
+        let Some(path) = &self.preferences_path else {
+            return Err("Workspace preference directory is unavailable".into());
+        };
+        let mut preferences = crate::workspace::WorkspacePreferences {
+            dark_theme: self.theme_dark,
+            brush_panel_width: self.brush_panel_width,
+            references: self
+                .references
+                .iter()
+                .map(|reference| reference.layout.clone())
+                .collect(),
+            ..Default::default()
+        };
+        if !preferences.validate() {
+            return Err("Workspace preferences failed validation".into());
+        }
+        let bytes = serde_json::to_vec_pretty(&preferences).map_err(|e| e.to_string())?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let temporary = path.with_extension(format!("json.tmp-{}", std::process::id()));
+        std::fs::write(&temporary, bytes).map_err(|e| e.to_string())?;
+        #[cfg(windows)]
+        if path.exists() {
+            std::fs::remove_file(path).map_err(|e| e.to_string())?;
+        }
+        std::fs::rename(&temporary, path).map_err(|e| e.to_string())
+    }
     fn widgets(
         &mut self,
         ctx: &egui::Context,
@@ -598,6 +733,7 @@ impl Studio {
         central: &mut egui::Rect,
         approved: &mut bool,
     ) {
+        let mut workspace_changed = false;
         if self.theme_dark {
             ctx.set_visuals(egui::Visuals::dark());
         } else {
@@ -689,7 +825,7 @@ impl Studio {
                     actions.push(Action::Redo);
                 }
 
-                ui.checkbox(&mut self.theme_dark, "Dark");
+                workspace_changed |= ui.checkbox(&mut self.theme_dark, "Dark").changed();
             });
             ui.horizontal_wrapped(|ui| {
                 let old = self.tool;
@@ -722,6 +858,30 @@ impl Studio {
                     actions.push(Action::Fill(true));
                 }
             });
+            ui.horizontal(|ui| {
+                ui.label("Reference image");
+                ui.add_sized(
+                    [260.0, ui.spacing().interact_size.y],
+                    egui::TextEdit::singleline(&mut self.reference_path)
+                        .char_limit(crate::workspace::MAX_REFERENCE_PATH)
+                        .hint_text("PNG or JPEG file path"),
+                );
+                let can_add = self.references.len() < crate::workspace::MAX_REFERENCES;
+                if ui
+                    .add_enabled(can_add, egui::Button::new("Add to board"))
+                    .clicked()
+                {
+                    actions.push(Action::AddReference(PathBuf::from(
+                        self.reference_path.trim(),
+                    )));
+                    self.reference_path.clear();
+                }
+                ui.small(format!(
+                    "{} / {}",
+                    self.references.len(),
+                    crate::workspace::MAX_REFERENCES
+                ));
+            });
         });
 
         egui::TopBottomPanel::bottom("status").show(ctx,|ui|{
@@ -739,8 +899,9 @@ ui.add(egui::Label::new(pen_status).truncate());
 }
 );
 
-        egui::SidePanel::right("painting controls")
-            .default_width(240.0)
+        let side_panel = egui::SidePanel::right("painting controls")
+            .default_width(self.brush_panel_width)
+            .resizable(true)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.heading("Brush");
@@ -1024,12 +1185,81 @@ ui.add(egui::Label::new(pen_status).truncate());
                     }
                 });
             });
+        let panel_width = side_panel.response.rect.width();
+        if (panel_width - self.brush_panel_width).abs() > 0.5 {
+            self.brush_panel_width = panel_width.clamp(180.0, 640.0);
+            workspace_changed = true;
+        }
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
                 *central = ui.available_rect_before_wrap();
             });
+
+        for reference in &mut self.references {
+            let title = reference
+                .layout
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("Reference");
+            let reference_id = reference.layout.path.clone();
+            let mut open = true;
+            let mut remove_requested = false;
+            let before = reference.layout.clone();
+            let response = egui::Window::new(title)
+                .id(egui::Id::new(("reference-board", reference_id)))
+                .open(&mut open)
+                .resizable(true)
+                .default_pos(egui::pos2(before.position[0], before.position[1]))
+                .default_size(egui::vec2(before.size[0], before.size[1]))
+                .show(ctx, |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut reference.layout.opacity, 0.05..=1.0)
+                            .text("Overlay opacity"),
+                    );
+                    let available = ui.available_size().max(egui::vec2(64.0, 64.0));
+                    let source_size = reference.texture.size_vec2();
+                    let scale = (available.x / source_size.x).min(available.y / source_size.y);
+                    let fitted = source_size * scale.max(0.0);
+                    let mut image = egui::Image::new((reference.texture.id(), source_size))
+                        .fit_to_exact_size(fitted);
+                    image = image.tint(egui::Color32::from_white_alpha(
+                        (reference.layout.opacity * 255.0).round() as u8,
+                    ));
+                    ui.add(image);
+                    if ui.button("Remove reference").clicked() {
+                        remove_requested = true;
+                    }
+                });
+            if let Some(response) = response {
+                let rect = response.response.rect;
+                reference.layout.position = [rect.min.x, rect.min.y];
+                reference.layout.size = [rect.width(), rect.height()];
+                workspace_changed |= reference.layout != before;
+            }
+            if !open || remove_requested {
+                workspace_changed = true;
+                reference.layout.opacity = 0.0;
+            }
+        }
+        if self
+            .references
+            .iter()
+            .any(|reference| reference.layout.size[0] == 0.0)
+        {
+            // Invalid persisted geometry is sanitized by WorkspacePreferences.
+            workspace_changed = true;
+        }
+        self.references
+            .retain(|reference| reference.layout.opacity >= 0.05);
+        if workspace_changed
+            && !ctx.input(|input| input.pointer.any_down())
+            && let Err(error) = self.persist_workspace()
+        {
+            self.status = format!("Could not save workspace layout: {error}");
+        }
 
         if let Some(path) = self.cleanup.clone() {
             egui::Modal::new(egui::Id::new("delete recovery checkpoint")).show(ctx, |ui| {
@@ -1139,6 +1369,41 @@ ui.add(egui::Label::new(pen_status).truncate());
         });
 
         for a in actions {
+            if let Action::AddReference(path) = a {
+                if self.references.len() >= crate::workspace::MAX_REFERENCES {
+                    self.status = "Reference board is full (six images maximum)".into();
+                    continue;
+                }
+                let index = self.references.len();
+                if self
+                    .references
+                    .iter()
+                    .any(|reference| reference.layout.path == path)
+                {
+                    self.status = "That image is already on the reference board".into();
+                    continue;
+                }
+                let layout = crate::workspace::ReferenceLayout {
+                    path,
+                    position: [40.0 + index as f32 * 28.0, 80.0 + index as f32 * 24.0],
+                    size: [360.0, 300.0],
+                    opacity: 0.72,
+                };
+                match load_reference_texture(&ctx, layout) {
+                    Ok(reference) => {
+                        self.references.push(reference);
+                        if let Err(error) = self.persist_workspace() {
+                            self.status = format!("Reference added; layout save failed: {error}");
+                        } else {
+                            self.status = "Reference added to the workspace board".into();
+                        }
+                    }
+                    Err(error) => {
+                        self.status = format!("Reference image could not be loaded: {error}")
+                    }
+                }
+                continue;
+            }
             if matches!(
                 a,
                 Action::New
@@ -1304,6 +1569,9 @@ ui.add(egui::Label::new(pen_status).truncate());
                 paint_document::recovery::remove(&paint_document::recovery::directory()?, &path)?;
                 self.recovery_files.retain(|p| p != &path);
                 self.status = "Selected recovery checkpoint and backup removed".into();
+            }
+            Action::AddReference(_) => {
+                return Err("Reference import is handled by the workspace".into());
             }
             Action::Fill(erase) => project.fill_selection(erase)?,
             Action::Deselect => project.set_selection(None)?,

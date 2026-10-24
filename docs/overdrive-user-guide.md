@@ -44,6 +44,14 @@ Document, file-path, recovery, close, and cleanup prompts are blocking modal dia
 the workspace behind them does not accept drawing or toolbar input. Saving an
 untitled document after a PNG export chooses the matching `.rpl` project path.
 
+The top reference row accepts a PNG/JPEG file path; press **Add to board** for each
+image (up to six). Each floating reference window can be moved, resized, assigned an
+overlay opacity, or removed. Theme, right-panel width, and reference arrangement are
+stored in a separate local `workspace.json`; reference images stay linked to their
+files and never become document layers or appear in PNG/OpenRaster exports. Files
+are limited to 32 MiB and decoded textures to 2048 × 2048 / 8 MiB each. Use a
+reachable local file path; a native file browser is not available yet.
+
 Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+O open path dialog, Enter confirms;
 Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one by path;
 F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved

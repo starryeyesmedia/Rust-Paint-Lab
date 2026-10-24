@@ -12,11 +12,12 @@ safe Rust with no GPU or GUI dependency. Cargo.lock pins the complete graph.
 | winit | 0.30.13 exact | Desktop window/input lifecycle | Apache-2.0 |
 | egui / egui-winit / egui-wgpu | 0.33.3 exact | Functional workspace controls and integration | MIT OR Apache-2.0 |
 | pollster | 0.4.0 exact | Initialization future executor | MIT OR Apache-2.0 |
-| serde / serde_json | 1.0.228 / 1.0.154 | Metadata and brush presets | MIT OR Apache-2.0 |
+| serde / serde_json | 1.0.229 / 1.0.154 | Metadata, brush presets and workspace preferences | MIT OR Apache-2.0 |
 | sha2 | 0.10.9 | Native project SHA-256 integrity | MIT OR Apache-2.0 |
 | png | 0.18.1 | PNG import/export | MIT OR Apache-2.0 |
 | zip | 9.0.5 exact | Bounded OpenRaster ZIP, deflate only | MIT |
 | roxmltree | 0.21.1 exact | Bounded stack.xml; DTD disabled | MIT OR Apache-2.0 |
+| image | 0.25.10 exact | Bounded PNG/JPEG decoding for external workspace references | MIT OR Apache-2.0 |
 
 ## Compatibility decision
 
@@ -27,7 +28,11 @@ Existing GPU and replay tests must pass after this change. winit is unchanged.
 wgpu native device limits are bounded; no advanced optional GPU feature is required.
 Windows retains system FXC and static CRT packaging. Driver support remains necessary.
 
-Egui provides keyboard navigation, visible focus and light/dark contrast. AccessKit
+The reference board enables only PNG/JPEG codecs, limits files to 32 MiB, decoded
+textures to 2048 × 2048 / 8 MiB each, and the board to six images. Those image
+textures remain UI-only and are not stored in the native artwork or exports. The
+image crate and enabled zune JPEG decoder are included in the canvas artifact's
+generated third-party notices. Egui provides keyboard navigation, visible focus and light/dark contrast. AccessKit
 semantic accessibility is not enabled yet; this is a documented gap. Egui clipboard
 integration brings image packages transitively, but those codecs are not advertised
 as implemented application import/export features. Font notices include bundled

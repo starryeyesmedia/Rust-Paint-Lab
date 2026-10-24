@@ -195,7 +195,7 @@ workflow remains the full save/edit/recovery integration check; physical Windows
 pen pressure, capture behavior, display scaling, and Iris Xe rendering still require
 manual testing.
 
-The recovery snapshot journal adds five tests (141 current Rust tests total):
+The original recovery-journal checkpoint covered five tests (141 Rust tests at that checkpoint):
 latest-state selection and idempotent duplicates, truncated/checksum-corrupt tail
 fallback, discovery/restoration when its paired snapshot replacement is absent,
 writer exclusion, and bounded compaction. The actual alpha smoke exercises forced
@@ -208,3 +208,36 @@ cargo test --locked -p canvas-demo --test mouse --test pen --test navigation
 cargo test --locked -p paint-document --test document
 RPL_REQUIRE_GPU=1 WGPU_BACKEND=vulkan cargo test --locked -p canvas-demo --test gpu_smoke
 ```
+
+## Phase 7B journal and first 7C workspace slice
+
+`paint-document` journal tests inject partial append, post-tail-truncation, and
+pre-compaction-replacement failures. They require the last complete record to remain
+restorable, and a corrupted journal never changes an independently saved native
+project. The Linux/Xvfb alpha workflow waits for a complete journal record after a
+real app edit, kills the process, removes the paired snapshot, starts the application
+again, invokes Recover, and checks exact project bytes plus source-file preservation.
+This tests process termination after the journal checkpoint. It does not simulate
+Windows kernel/filesystem behavior or sudden power loss.
+
+The metrics example has repeatable sparse/dense journal modes:
+
+```sh
+cargo run --release --locked -p paint-document --example metrics -- --journal-sparse
+cargo run --release --locked -p paint-document --example metrics -- --journal-dense
+```
+
+RSS is sampled from Linux `/proc`; other hosts report it unavailable. Results in
+`docs/PHASE7-STUDIO-PROGRESS.md` are for this container only. The alpha UI smoke
+starts with a persisted external reference image and verifies the image remains a
+workspace preference outside the exported document. `canvas-demo` unit tests cover
+schema/version checks, geometry sanitization and six-image limits. Manual Windows
+checks are still required for reference-window dragging, resizing, opacity, theme
+and panel-width persistence, and integrated GPU memory.
+
+
+The 7B/7C continuation adds three journal/storage regressions and four workspace
+tests, for **148 Rust tests**. The new workspace tests cover preference JSON versioning,
+geometry/count/file-size limits, and a real PNG-to-egui texture decode. The journal
+smoke validates journal-only recovery through the application after a forced process
+termination. The reference-board paths/layout are persisted separately from artwork.

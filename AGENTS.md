@@ -73,6 +73,11 @@ program; deliver tested vertical slices and maintain docs/OVERDRIVE-PROGRESS.md.
   RPL_REQUIRE_GPU=1 and tests the window under Xvfb. See docs/canvas-demo.md.
 - Preserve both separate Windows artifacts and their notices; use
   scripts/canvas-licenses.py when dependency versions change.
+- Keep workspace preferences separate from native artwork. Reference-board images
+  are UI-only; impose file, dimension, image-count and GPU texture limits before
+  decoding/upload, and never feed them to document compositing or export. Persist
+  only paths/layout/appearance, not embedded image bytes. Test that recovery and
+  exported artwork cannot be modified by reference-board state.
 
 ## Live mouse conventions
 - Feed mouse samples through Processor and Router; primary button only, with

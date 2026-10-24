@@ -89,6 +89,31 @@ fn corrupted_recovery_falls_back_to_verified_backup_without_modifying_either() {
 }
 
 #[test]
+fn corrupted_journal_records_never_modify_an_existing_valid_project() {
+    let dir = directory("journal-isolation");
+    let mut engine = Engine::new(32, 32, 300).unwrap();
+    engine.add_layer().unwrap();
+    let artwork = dir.join("owned-artwork.rpl");
+    Store::new(artwork.clone()).save(engine.state()).unwrap();
+    let artwork_bytes = std::fs::read(&artwork).unwrap();
+
+    let recovery_writer = recovery::Recovery::start(&dir).unwrap();
+    recovery_writer.flush(engine.state().clone()).unwrap();
+    let checkpoint = recovery_writer.path.clone();
+    drop(recovery_writer);
+
+    // Corrupt only recovery material. Recovery may use its snapshot fallback,
+    // but it must never rewrite the separately saved artwork project.
+    let journal_path = checkpoint.with_extension("rpl.journal");
+    let mut journal_bytes = std::fs::read(&journal_path).unwrap();
+    *journal_bytes.last_mut().unwrap() ^= 0x01;
+    std::fs::write(&journal_path, journal_bytes).unwrap();
+    assert_eq!(recovery::restore(&checkpoint).unwrap().0.layers.len(), 2);
+    assert_eq!(std::fs::read(&artwork).unwrap(), artwork_bytes);
+    assert_eq!(Store::open(artwork.clone()).unwrap().1.layers.len(), 2);
+}
+
+#[test]
 fn orphaned_backup_is_discovered_recoverable_and_can_be_cleaned_up() {
     let dir = directory("orphaned-backup");
     let e = Engine::new(32, 32, 300).unwrap();

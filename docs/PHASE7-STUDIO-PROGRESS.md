@@ -90,6 +90,26 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
   live mouse X11 smoke, and Windows GNU target check/Clippy passed for `6001265`.
   GitHub Actions `40104914603` then passed all three desktop platforms, including
   software GPU and Linux app workflows plus both portable Windows package builds.
+- Phase 7B continuation adds deterministic failures after torn-tail truncation,
+  partial append, and before atomic compaction replacement. The real alpha/X11
+  integration smoke now waits until the app's durable journal record matches the
+  committed recovery checkpoint, kills the process, removes only the paired
+  recovery snapshot, and invokes the app's recovery workflow from the journal. It
+  verifies exact recovered bytes and confirms an independently saved `.rpl` remains
+  byte-identical. Existing `.rpl`/`.bak` fallback and v1 reader are unchanged.
+- Journal benchmark (Linux container, release build, 4096² single-layer fixture;
+  Linux `/proc` RSS sampling): sparse one-tile payload 16,824 bytes, each record
+  grows the journal by about 16.9 KB, writes 98/104 µs, RSS 1,468→1,780 KB. Dense
+  4096-tile payload 67,174,824 bytes, each record grows the journal by 67.2 MB,
+  writes 162/381 ms, RSS 67,388→199,328 KB, peak RSS 264,888 KB. Dense timing and
+  memory include full snapshot encoding, temporary state clone, checksum, journal
+  read/validation, and durable write; these are environment measurements, not
+  target-device guarantees. Dense checkpoints can transiently require multiple
+  project-sized buffers, so low-memory stress testing remains outstanding.
+- Linux smoke passed with real application recovery after the forced process kill;
+  it also starts with a persisted external PNG reference and checks that the board
+  remains workspace metadata while PNG export stays in document coordinates. This
+  is app workflow coverage, not Windows power-loss validation.
 
 ## Architecture decisions
 
@@ -117,16 +137,23 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
   or corrupted tails return the previous complete record; journal-only recovery is
   discoverable; the existing snapshot and `.bak` remain fallbacks. The journal is
   capped at two maximum project payloads and compacts atomically to the newest full
-  state when needed. Dedicated tests exercise compaction and writer exclusion. This
-  is not an operation WAL, does not retain undo history, and
+  state when needed. Injected partial-append, tail-truncation, and pre-replace
+  compaction failures preserve a previous valid record. Linux process-kill
+  integration now recovers from journal-only state and proves an existing artwork
+  file is untouched. This is not an operation WAL, does not retain undo history, and
   still has a checkpoint interval in which a hard crash can lose recent work.
-  Remaining work includes process-kill integration coverage after journal sync,
-  fault injection around append/compaction, Windows power-loss validation, recovery
-  retention UX, and background export responsiveness. Do not claim comprehensive
-  crash/power-loss protection.
-- **7C Workspace:** current alpha has functional controls, but the egui panel layout
-  remains developer-oriented; no Draw/Illustrate/Animate workspace system, docking,
-  native file picker, or system-theme following.
+  Append calls sync journal file data, but physical Windows filesystem behavior,
+  directory-entry durability, sudden power removal, disk controller caches, and
+  full-disk behavior remain unverified. Legacy snapshots and `.bak` remain enabled.
+  Do not claim comprehensive crash/power-loss protection.
+- **7C Workspace (first slice):** light/dark theme and brush-panel width persist in
+  `workspace.json`; the resizable brush panel remains egui-native. A reference board
+  accepts up to six external PNG/JPEG file paths, opens independently draggable and
+  resizable windows, persists their paths/placement/size/opacity, and excludes these
+  images from document/export state. Decode/file/texture bounds are enforced.
+  Automated Linux startup/export coverage and preference schema tests pass. Still
+  missing: native file picker, dock/snap controls, panel layout modes, low-memory
+  aggregation testing, accessibility audit, and physical touch interaction.
 - **7D Document v2:** v1 raster document/layers/history are implemented. No editable
   vector/live-media/animation content variants or migration to a new format version.
 - **7E Vector:** no editable vector engine or SVG import/export.
@@ -149,16 +176,26 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
 
 ## Known issues and exact next steps
 
-1. Finish full validation, then add process termination and injected append/compaction
-   failures to the real alpha workflow. Confirm journal recovery opens and saves as
-   a new native project without touching the source artwork.
-2. Measure journal write cost and disk growth on sparse and dense documents. Revisit
-   checkpoint cadence or delta encoding only with measured data; preserve the two-
-   snapshot hard cap and legacy snapshot fallback.
-3. After 7B has crash/recovery evidence, proceed to 7C persistent adaptable layouts
-   and a usable reference overlay. Keep the v1 reader compatible and never rewrite a
-   user's source project during migration.
+1. Run full workspace, GPU, and target checks, commit and push this verified slice;
+   check GitHub Actions and preserve the Windows portable canvas artifact.
+2. Add pixel-level noninclusion verification to the Linux reference-board smoke and
+   manually exercise multi-window drag/resize/opacity persistence on Windows.
+3. Continue 7C with dock/snap affordances and a native image picker; then improve the
+   brush/layer workspace. Keep the reference board outside document/export state.
+4. Test recovery under Windows file replacement and power-loss simulations where
+   safely available. Preserve `.rpl`/`.bak` fallback until that evidence exists.
 
 Do not describe hardware behavior, Windows runtime behavior, journal durability, or
 low-end performance as verified until tested on the corresponding hardware and
 failure modes.
+
+### Current continuation validation (working tree)
+
+Formatting, workspace Clippy with warnings denied, all **148 Rust tests**, workspace
+build, Windows GNU target check and target-specific Clippy passed after the 7B/7C
+changes. The required Vulkan offscreen GPU pixel suite passed on Mesa llvmpipe. Linux
+X11 alpha recovery smoke passed journal-only forced-kill recovery, persisted reference
+startup, independent artwork preservation, and normal save/export workflows. CI for
+this continuation has not run yet; the prior validated CI is `40104914603` for
+`6001265`. The new Windows release build/artifact and all three platform checks must
+be verified after push. No Windows hardware or sudden-power-loss test was available.

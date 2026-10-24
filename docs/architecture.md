@@ -262,3 +262,11 @@ loading changes the active brush and an ordinary project save stores those setti
 in the document metadata. This keeps brush presets portable without coupling the
 brush engine to dialogs or platform APIs. Filesystems without hard-link support
 fail safely, and an existing preset must be given a different filename.
+
+The first 7C workspace slice stores theme, brush-panel width, and external reference
+window paths/placement/size/opacity in a separate versioned `workspace.json` under
+the local application state directory. Reference images decode to bounded egui
+textures; they are neither layers nor part of document composition/export. The
+resizable tool panel and floating reference windows use egui's normal drag/resize
+behavior. A native file picker, snapping/docking affordances, and accessibility
+audit are still pending. Preferences are not artwork data and can be safely reset.
