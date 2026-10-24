@@ -50,9 +50,9 @@ pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoi
 
 ### Validation on this checkpoint
 
-- Full local suite and required GPU check cover `0fce7fa`; `43009eb` additionally
-  passed the focused pen tests and workspace Clippy; the updated X11 script in
-  `51cfcef` passed locally.
+- Full local validation of `e3665de`: formatting, Clippy, all **136 tests**, build,
+  required Vulkan GPU runner, Windows GNU target check/Clippy, and updated Linux
+  X11 live-window smoke all passed.
 - `cargo fmt --all -- --check`: passed.
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`: passed.
 - `cargo test --workspace --locked`: passed, **136 tests**.
@@ -63,10 +63,11 @@ pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoi
   PNG/OpenRaster paths and forced-process recovery workflow).
 - Windows GNU target workspace check and Clippy: passed. This is cross-checking,
   not Windows linking or execution.
-- `40059380023` passed the macOS job but exposed the outdated Linux X11 smoke
-  expectation and did not complete Windows. The smoke was updated and passes
-  locally. `43009eb` is under three-platform CI; final code+smoke run
-  `40059750826` for `51cfcef` is pending.
+- `40059380023` exposed the outdated Linux X11 paper-exit cancellation expectation;
+  the smoke now checks paper re-entry plus separate focus cancellation and passed
+  locally. CI run `40059871822` for latest code `e3665de` is in progress on Windows,
+  Linux, and macOS. Earlier commits were also pushed; only the latest matrix run is
+  the final CI result for the branch.
 - Physical Windows stylus/capture and modest-hardware performance: not tested here.
 
 ## Architecture decisions

@@ -63,9 +63,9 @@ A future brush engine consumes samples into provisional geometry/dabs. The futur
 renderer displays committed content and each provisional preview separately.
 Cancel must be able to remove a preview without contaminating committed content;
 do not draw irreversible preview pixels into a committed target. On Commit the
-future document model accepts the finalized result and the renderer retires the
-preview without double drawing it. These are contracts for future consumers;
-there is no transaction store, brush implementation, or undo stack here.
+document engine accepts finalized brush pixels and the renderer retires the preview
+without double drawing it. The Router itself keeps no transaction payload, brush
+implementation, or undo stack.
 
 `BreakStrokeSegment` is an adapter-directed path discontinuity for cases such as
 artboard clipping. The app clips physical pointer motion to its transformed paper
