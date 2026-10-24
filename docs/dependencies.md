@@ -12,9 +12,11 @@ safe Rust with no GPU or GUI dependency. Cargo.lock pins the complete graph.
 | winit | 0.30.13 exact | Desktop window/input lifecycle | Apache-2.0 |
 | egui / egui-winit / egui-wgpu | 0.33.3 exact | Functional workspace controls and integration | MIT OR Apache-2.0 |
 | pollster | 0.4.0 exact | Initialization future executor | MIT OR Apache-2.0 |
-| serde / serde_json | 1.0.228 / 1.0.150 | Metadata and brush presets | MIT OR Apache-2.0 |
+| serde / serde_json | 1.0.228 / 1.0.154 | Metadata and brush presets | MIT OR Apache-2.0 |
 | sha2 | 0.10.9 | Native project SHA-256 integrity | MIT OR Apache-2.0 |
 | png | 0.18.1 | PNG import/export | MIT OR Apache-2.0 |
+| zip | 9.0.5 exact | Bounded OpenRaster ZIP, deflate only | MIT |
+| roxmltree | 0.21.1 exact | Bounded stack.xml; DTD disabled | MIT OR Apache-2.0 |
 
 ## Compatibility decision
 
@@ -58,3 +60,7 @@ The owner has not selected a license for Rust Paint Lab's original code; third-p
 notices are not a distribution license for the application itself. Before adding
 or upgrading packages, update the lockfile, inventory, and notices; inspect
 maintenance, MSRV, enabled features, target compatibility, and licensing again.
+
+OpenRaster uses current zip 9.0.5 (Rust 1.88) after investigating zip 6 and the
+current release. A bounded directory preflight runs before ZIP library entry-table
+allocation. No encryption/extra codecs are enabled. See openraster.md for limits.

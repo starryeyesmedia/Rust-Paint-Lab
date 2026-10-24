@@ -119,3 +119,9 @@ paths are local preferences, capped at 20, never sent anywhere. Recovery “Dele
 opens an explicit confirmation for a selected inactive checkpoint and its backup.
 Verify a separate saved project first. Active owners and ordinary artwork filenames
 are refused. There is no automatic age-based deletion; preservation takes priority.
+
+OpenRaster: **Export ORA** / Ctrl+Shift+E keeps supported raster layers; **Open ORA** /
+Ctrl+Shift+O imports into a new unsaved native document. Background becomes a layer;
+locks, brush presets and history are omitted. Groups/masks/nonzero offsets and
+unsupported blend modes are rejected. Save `.rpl` afterward. See openraster.md for
+exact capabilities/limits. External application interoperability still needs testing.

@@ -134,6 +134,7 @@ Declared SPDX expressions come from verified crate manifests. See dependencies.m
 | ndk | 0.9.0 | MIT OR Apache-2.0 |
 | ndk-context | 0.1.1 | MIT OR Apache-2.0 |
 | ndk-sys | 0.6.0+11769913 | MIT OR Apache-2.0 |
+| nix | 0.31.3 | MIT |
 | nohash-hasher | 0.2.0 | Apache-2.0 OR MIT |
 | num-traits | 0.2.19 | MIT OR Apache-2.0 |
 | num_enum | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
@@ -196,6 +197,7 @@ Declared SPDX expressions come from verified crate manifests. See dependencies.m
 | redox_syscall | 0.5.18 | MIT |
 | redox_syscall | 0.9.5 | MIT |
 | renderdoc-sys | 1.1.0 | MIT OR Apache-2.0 |
+| roxmltree | 0.21.1 | MIT OR Apache-2.0 |
 | rustc-hash | 1.1.0 | Apache-2.0/MIT |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT |
 | rustc_version | 0.4.1 | MIT OR Apache-2.0 |
@@ -243,6 +245,7 @@ Declared SPDX expressions come from verified crate manifests. See dependencies.m
 | tracing-core | 0.1.36 | MIT |
 | ttf-parser | 0.25.1 | MIT OR Apache-2.0 |
 | type-map | 0.5.1 | MIT/Apache-2.0 |
+| typed-path | 0.12.4 | MIT OR Apache-2.0 |
 | typenum | 1.20.1 | MIT OR Apache-2.0 |
 | unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |
@@ -308,6 +311,7 @@ Declared SPDX expressions come from verified crate manifests. See dependencies.m
 | xml-rs | 0.8.29 | MIT |
 | zerocopy | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | zerocopy-derive | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |
+| zip | 9.0.5 | MIT |
 | zlib-rs | 0.6.8 | Zlib |
 | zmij | 1.0.23 | MIT |
 | zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib |

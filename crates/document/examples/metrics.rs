@@ -61,6 +61,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bytes.len(),
             e.take_damage().len()
         );
+        let temp = std::env::temp_dir().join(format!(
+            "rpl-metrics-{}-{size}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        std::fs::create_dir(&temp)?;
+        let mut store = storage::Store::new(temp.join("measured.rpl"));
+        let start = Instant::now();
+        for _ in 0..3 {
+            store.save(e.state())?;
+        }
+        let save = start.elapsed();
+        let start = Instant::now();
+        let recovery = paint_document::recovery::Recovery::start(&temp)?;
+        recovery.flush(e.state().clone())?;
+        let checkpoint = start.elapsed();
+        drop(recovery);
+        let start = Instant::now();
+        storage::export_png(&temp.join("image.png"), &e)?;
+        let png = start.elapsed();
+        println!(
+            "{size}x{size}: 3 durable saves={}ms recovery checkpoint={}ms PNG={}ms history_payload={:?}",
+            save.as_millis(),
+            checkpoint.as_millis(),
+            png.as_millis(),
+            e.history_bytes()
+        );
+        std::fs::remove_dir_all(temp)?;
     }
     Ok(())
 }

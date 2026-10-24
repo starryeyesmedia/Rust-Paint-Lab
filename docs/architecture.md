@@ -221,3 +221,8 @@ Processor/Router and clips raster dabs against the active selection. Selection-t
 gestures are shell editing actions, not an alternative painting stream. Large lasso
 fills/transforms prepare bounded bit masks with scanline intersections rather than
 retesting every polygon edge for every output pixel. No feathering is claimed.
+
+`paint-document::openraster` is an explicit interchange boundary, not native storage.
+It converts supported raster layers to individual PNG assets plus stack.xml and
+rejects unsupported editing structures. The shell imports into a fresh unsaved
+native document, preserving the prior project/recovery lineage. See openraster.md.

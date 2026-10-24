@@ -154,3 +154,11 @@ original native file is restored byte-for-byte. Physical pen editing remains unt
 Navigation and noncanonical-file regressions bring the suite to 103 Rust tests,
 plus the separate GPU pixel runner. Touch gesture math is synthetic; physical
 Windows touch/pen arbitration is still untested.
+
+OpenRaster adds seven portable tests (113 Rust tests total) and independent Python
+ZIP validation in the real window workflow. See openraster.md for deliberately
+unsupported input and allocation protections. External app roundtrips are pending.
+
+Independent X/Y tilt azimuth regression brings the current suite to 114 Rust tests.
+The metrics example now measures actual durable saves, flushed recovery and PNG,
+not only in-memory encode/decode. Cloud numbers are in OVERDRIVE-PROGRESS.md.

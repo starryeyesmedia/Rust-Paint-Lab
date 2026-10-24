@@ -93,7 +93,7 @@ pub fn load(path: &Path) -> Result<State, PaintError> {
         .read_to_end(&mut bytes)?;
     decode(&bytes)
 }
-fn temporary(path: &Path) -> PathBuf {
+pub(crate) fn temporary(path: &Path) -> PathBuf {
     path.with_file_name(format!(
         ".{}.tmp-{}-{}",
         path.file_name().unwrap_or_default().to_string_lossy(),
@@ -202,6 +202,9 @@ impl Store {
     }
 }
 pub fn export_png(path: &Path, engine: &crate::Engine) -> Result<(), PaintError> {
+    if engine.active_count() > 0 {
+        return Err(PaintError::Busy);
+    }
     if path.extension().is_none_or(|e| e != "png") {
         return Err(PaintError::Invalid);
     }
@@ -300,7 +303,7 @@ pub fn import_png(path: &Path, engine: &mut crate::Engine) -> Result<(), PaintEr
             let t = std::sync::Arc::make_mut(tile);
             let j = ((y % TILE * TILE + x % TILE) * 4) as usize;
             for k in 0..3 {
-                t[j + k] = (u32::from(c[k]) * u32::from(c[3]) / 255) as u8;
+                t[j + k] = ((u32::from(c[k]) * u32::from(c[3]) + 127) / 255) as u8;
             }
             t[j + 3] = c[3];
         }

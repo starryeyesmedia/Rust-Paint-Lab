@@ -6,7 +6,7 @@ path, screenshots, user input recording, or additional Python packages.
 """
 import ctypes as c
 from pathlib import Path
-import os, tempfile, hashlib, struct, json
+import os, tempfile, hashlib, struct, json, zipfile
 import subprocess
 import time
 
@@ -94,6 +94,8 @@ def status(text):
 
 def ctrl(name):
     code=keycode(display,keysym(b'Control_L'));key_event(display,code,1,0);key(name);key_event(display,code,0,0);send()
+def ctrl_shift(name):
+    code=keycode(display,keysym(b'Shift_L'));key_event(display,code,1,0);ctrl(name);key_event(display,code,0,0);send()
 def valid_project(path):
     if not path.exists(): return False
     data=path.read_bytes()
@@ -146,8 +148,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             move(300,300);click_button(4,True);click_button(4,False);time.sleep(0.2)
             key('0');ctrl('s')
             wait(lambda: project.read_bytes()==saved,'zoom and fit preserve artwork')
+            ctrl_shift('e');ora=directory/'artwork.ora'
+            wait(lambda: ora.exists(),'layered OpenRaster export')
+            with zipfile.ZipFile(ora) as archive:
+                assert archive.namelist()[0]=='mimetype' and archive.read('mimetype')==b'image/openraster'
+                assert archive.testzip() is None and b'<layer' in archive.read('stack.xml')
+            ctrl_shift('o');time.sleep(0.3);key('Return');status('*');ctrl('s')
+            imported=directory/'imported-artwork.rpl'
+            wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
+
             key('Escape');assert process.wait(timeout=20)==0
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, rectangle selection/fill/undo, zoom/fit, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, clean close)')
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)
             close_display(display)

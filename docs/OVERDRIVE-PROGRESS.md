@@ -173,3 +173,34 @@ Matrix confirmation: 276b76c / Actions 40051986737 succeeded on Windows, Linux a
 macOS, including portable Windows canvas/diagnostic packaging and native Unix
 packages. The write-handle correction resolved the Windows test failure. Newer
 selection/navigation/preferences commits still require their own final matrix check.
+
+
+## Restricted OpenRaster checkpoint
+
+Added real layered OpenRaster export/import with UI and shortcuts. Preserve order,
+names, visibility/opacity, implemented blends and PNG pixels; native background
+becomes a layer. Warn about omitted locks/presets/history; reject unsupported groups,
+masks, nonzero offsets and blend modes. ZIP directory is preflighted before parser
+allocation; XML/PNG/decompression/allocation limits, CRC, no extraction and no-clobber
+publication apply. Maintained zip9.0.5 and roxmltree0.21.1 added after Rust1.90/MSRV
+investigation. PNG alpha conversion now rounds premultiplication/unpremultiplication
+so representable premultiplied channels survive interchange. Export refuses active
+previews. Seven tests cover round trips, background, unsupported features, corrupted/
+oversized directories, DTD/malformed input, alpha preservation and invalid XML names.
+
+Local suite: 114 Rust tests plus GPU runner, formatting/Clippy/build, Windows cross-
+lint; real window workflow now exports ORA, validates it with Python's independent
+ZIP reader, imports it and saves a new editable native project. Full matrix pending
+for this slice. Earlier selection/navigation runs 40052433677 / 40052797512 succeeded
+on all three platforms. No external painting-app roundtrip/hardware claim.
+
+Independent X/Y tilt now influences calligraphy azimuth when both axes are available;
+single-axis/unsupported fallbacks remain explicit and raw samples remain unchanged.
+One synthetic regression asserts different X/Y outputs. Final release benchmark on
+the cloud EPYC host (one run, ordinary background load): 2048² 1474ms / 4096² 2274ms
+for 1000 strokes; encode22/68ms, decode22/65ms, 32 undo+redo24/88ms, three durable
+native saves202/686ms, flushed recovery34/119ms, PNG126/499ms. Combined process peak
+RSS312848KiB via Linux resource.getrusage (not GPU/driver memory). Both retain32 undo
+steps; history payload18,694,144 /60,702,720 bytes. Disk results are the cloud local
+filesystem, not the user's Windows disk. Workload and measurements are reproducible
+with the metrics example; no 60FPS/hardware latency assertion.

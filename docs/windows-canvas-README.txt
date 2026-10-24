@@ -122,6 +122,12 @@ opens an explicit confirmation for a selected inactive checkpoint and its backup
 Verify a separate saved project first. Active owners and ordinary artwork filenames
 are refused. There is no automatic age-based deletion; preservation takes priority.
 
+OpenRaster: **Export ORA** / Ctrl+Shift+E keeps supported raster layers; **Open ORA** /
+Ctrl+Shift+O imports into a new unsaved native document. Background becomes a layer;
+locks, brush presets and history are omitted. Groups/masks/nonzero offsets and
+unsupported blend modes are rejected. Save `.rpl` afterward. See openraster.md for
+exact capabilities/limits. External application interoperability still needs testing.
+
 TROUBLESHOOTING
 Requires Windows 10 x64 and a compatible Direct3D 12 adapter/driver.
 Run .\canvas-demo.exe from PowerShell to retain startup errors. System graphics

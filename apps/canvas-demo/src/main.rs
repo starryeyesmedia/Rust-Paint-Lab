@@ -388,7 +388,9 @@ impl ApplicationHandler for App {
                                 PhysicalKey::Code(KeyCode::Digit0) => Some('0'),
                                 PhysicalKey::Code(KeyCode::KeyB) => Some('b'),
                                 PhysicalKey::Code(KeyCode::KeyM) => Some('m'),
-                                PhysicalKey::Code(KeyCode::KeyE) => Some('e'),
+                                PhysicalKey::Code(KeyCode::KeyE) => {
+                                    Some(if self.modifiers.shift_key() { 'q' } else { 'e' })
+                                }
                                 PhysicalKey::Code(KeyCode::KeyK) => Some('k'),
                                 PhysicalKey::Code(KeyCode::KeyI) => Some('i'),
                                 _ => None,
@@ -404,8 +406,12 @@ impl ApplicationHandler for App {
                                 PhysicalKey::Code(KeyCode::KeyZ) => Some('z'),
                                 PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
                                 PhysicalKey::Code(KeyCode::KeyS) => Some('s'),
-                                PhysicalKey::Code(KeyCode::KeyO) => Some('o'),
-                                PhysicalKey::Code(KeyCode::KeyE) => Some('e'),
+                                PhysicalKey::Code(KeyCode::KeyO) => {
+                                    Some(if self.modifiers.shift_key() { 'a' } else { 'o' })
+                                }
+                                PhysicalKey::Code(KeyCode::KeyE) => {
+                                    Some(if self.modifiers.shift_key() { 'q' } else { 'e' })
+                                }
                                 PhysicalKey::Code(KeyCode::KeyF) => Some('f'),
                                 PhysicalKey::Code(KeyCode::KeyD) => Some('d'),
                                 PhysicalKey::Code(KeyCode::KeyX) => Some('x'),

@@ -72,3 +72,7 @@ Exact Objective-C workspace revision notice supplements:
 
 malloc_buf 0.0.6 declares MIT/Steven Sheldon; published archive omits license text.
 Canonical SPDX MIT supplement follows the documented block approach.
+
+The egui root MIT/Apache supplements also cover epaint_default_fonts 0.33.3
+wrapper code (same revision); the notice generator retains both these texts and
+all shipped font notices rather than using one as a substitute for the other.

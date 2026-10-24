@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 pub mod brush;
 pub mod editing;
+pub mod openraster;
 pub mod recent;
 pub mod storage;
 use brush::{Brush, BrushKind};
@@ -22,6 +23,7 @@ pub type TileMap = BTreeMap<TileKey, Arc<Vec<u8>>>;
 #[derive(Debug)]
 pub enum PaintError {
     Invalid,
+    Format(String),
     Limit,
     Locked,
     Busy,
@@ -33,6 +35,9 @@ pub enum PaintError {
 impl std::fmt::Display for PaintError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Format(message) => {
+                write!(f, "Unsupported or invalid interchange file: {message}")
+            }
             Self::Invalid => write!(f, "Invalid or unsupported document data or settings"),
             Self::Limit => write!(
                 f,
@@ -531,7 +536,20 @@ impl Engine {
             .clamp(0.0, f64::from(self.state.height)) as u32;
         let angle = t.brush.angle
             + if t.brush.tilt {
-                f64::from(s.tilt_degrees[0].unwrap_or(0.0)).to_radians()
+                match s.tilt_degrees {
+                    [Some(x), Some(y)] => {
+                        let x = f64::from(x).to_radians().tan();
+                        let y = f64::from(y).to_radians().tan();
+                        if x.abs() + y.abs() < 0.00001 {
+                            0.0
+                        } else {
+                            y.atan2(x)
+                        }
+                    }
+                    [Some(x), None] => f64::from(x).to_radians(),
+                    [None, Some(y)] => f64::from(y).to_radians(),
+                    [None, None] => 0.0,
+                }
             } else {
                 0.0
             };
@@ -650,7 +668,7 @@ impl Engine {
                             out[dst + c] = if a == 0 {
                                 0
                             } else {
-                                (u32::from(tile[src + c]) * 255 / a).min(255) as u8
+                                ((u32::from(tile[src + c]) * 255 + a / 2) / a).min(255) as u8
                             };
                         }
                         out[dst + 3] = a as u8;

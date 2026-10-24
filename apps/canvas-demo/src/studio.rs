@@ -25,6 +25,8 @@ enum Action {
     SaveAs,
     Export,
     Import,
+    ImportOra,
+    ExportOra,
     Recover(PathBuf),
     Recent(PathBuf),
     RemoveRecovery(PathBuf),
@@ -472,10 +474,20 @@ impl Studio {
     }
     pub fn shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
-        if key == 'o' {
-            self.action = Some(Action::Open);
+        if key == 'o' || key == 'a' {
+            self.action = Some(if key == 'a' {
+                Action::ImportOra
+            } else {
+                Action::Open
+            });
             self.file_dialog = true;
             return;
+        }
+        if key == 'q' {
+            self.path = PathBuf::from(&self.path)
+                .with_extension("ora")
+                .to_string_lossy()
+                .into();
         }
         if key == 'e' {
             self.path = PathBuf::from(&self.path)
@@ -488,6 +500,7 @@ impl Studio {
             'y' => Action::Redo,
             's' => Action::Save,
             'e' => Action::Export,
+            'q' => Action::ExportOra,
             'f' => Action::Fill(false),
             'd' => Action::Deselect,
             'x' => Action::Fill(true),
@@ -550,6 +563,18 @@ impl Studio {
                     self.file_dialog = true;
                 }
 
+                if ui.button("Open ORA").clicked() {
+                    self.action = Some(Action::ImportOra);
+                    self.file_dialog = true;
+                }
+                if ui.button("Export ORA").clicked() {
+                    self.path = PathBuf::from(&self.path)
+                        .with_extension("ora")
+                        .to_string_lossy()
+                        .into();
+                    self.action = Some(Action::ExportOra);
+                    self.file_dialog = true;
+                }
                 if ui.button("Export PNG").clicked() {
                     self.path = PathBuf::from(&self.path)
                         .with_extension("png")
@@ -1030,7 +1055,11 @@ self.close_requested=false;
         for a in actions {
             if matches!(
                 a,
-                Action::New | Action::Open | Action::Recover(_) | Action::Recent(_)
+                Action::New
+                    | Action::Open
+                    | Action::Recover(_)
+                    | Action::Recent(_)
+                    | Action::ImportOra
             ) && session.live().project().dirty()
                 && self.confirm.is_none()
                 && !approved
@@ -1130,6 +1159,21 @@ self.close_requested=false;
     fn execute(&mut self, a: Action, session: &mut CanvasSession) -> Result<(), Failure> {
         let project = session.live_mut().project_mut();
         match a {
+            Action::ImportOra => {
+                let state = paint_document::openraster::load(std::path::Path::new(&self.path))?;
+                let next = Recovery::start(&paint_document::recovery::directory()?)?;
+                *project = Engine::from_state(state)?;
+                project.revision = 1;
+                self.recovery = Some(next);
+                self.store = None;
+                self.path = "imported-artwork.rpl".into();
+                self.last_submitted = u64::MAX;
+                self.status="OpenRaster imported. Save As .rpl to retain native editing. Layer locks/presets/history are not in ORA; resolution rounds to integer DPI".into();
+            }
+            Action::ExportOra => {
+                paint_document::openraster::export(std::path::Path::new(&self.path), project)?;
+                self.status="OpenRaster exported: raster layers retained; background becomes a layer. Locks, presets and history are omitted".into();
+            }
             Action::RemoveRecovery(path) => {
                 paint_document::recovery::remove(&paint_document::recovery::directory()?, &path)?;
                 self.recovery_files.retain(|p| p != &path);
@@ -1226,7 +1270,10 @@ self.close_requested=false;
                 storage::export_png(std::path::Path::new(&self.path), project)?;
                 self.status = "PNG exported (flattened 8-bit sRGB RGBA)".into();
             }
-            Action::Import => storage::import_png(std::path::Path::new(&self.path), project)?,
+            Action::Import => {
+                storage::import_png(std::path::Path::new(&self.path), project)?;
+                self.status="PNG imported as 8-bit encoded-sRGB. ICC profiles, animation and 16-bit precision are not preserved".into();
+            }
         }
         Ok(())
     }

@@ -515,3 +515,24 @@ fn open_tracks_actual_bytes_of_valid_noncanonical_metadata() {
     let (mut store, state) = Store::open(p).unwrap();
     store.save(&state).unwrap();
 }
+
+#[test]
+fn independent_tilt_axes_rotate_calligraphy_and_unsupported_tilt_is_valid() {
+    let render = |tilt| {
+        let mut e = Engine::new(64, 64, 300).unwrap();
+        e.brush = Brush::preset(BrushKind::Calligraphy);
+        let mut s = sample(32.0, 32.0, Some(1.0));
+        s.tilt_degrees = tilt;
+        e.apply(&C::BeginStroke {
+            stroke_id: StrokeId(1),
+            sample: s,
+        })
+        .unwrap();
+        e.rgba()
+    };
+    assert_ne!(
+        render([Some(30.0), Some(0.0)]),
+        render([Some(0.0), Some(30.0)])
+    );
+    assert_ne!(render([None, None]), render([None, Some(30.0)]));
+}

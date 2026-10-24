@@ -30,7 +30,7 @@ SUPPLEMENTAL.update({
     ("gpu-descriptor","0.3.2"): ["descriptor-APACHE.txt","descriptor-MIT.txt"],
     ("gpu-descriptor-types","0.2.0"): ["descriptor-APACHE.txt","descriptor-MIT.txt"],
 })
-for package in ["egui","emath","ecolor","epaint","egui-wgpu","egui-winit"]:
+for package in ["egui","emath","ecolor","epaint","epaint_default_fonts","egui-wgpu","egui-winit"]:
     SUPPLEMENTAL[(package,"0.33.3")]=["egui-APACHE.txt","egui-MIT.txt"]
 
 SUPPLEMENTAL.update({('objc-sys', '0.3.5'): ['objc-4fc083f1.txt'], ('objc2', '0.5.3'): ['objc-5237cbf0.txt'], ('objc2', '0.6.5'): ['objc-d7d2fa23.txt'], ('objc2-app-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-app-kit', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-cloud-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-contacts', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-data', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-foundation', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-core-graphics', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-core-image', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-location', '0.2.2'): ['objc-e282618b.txt'], ('objc2-encode', '4.1.0'): ['objc-8d214f54.txt'], ('objc2-foundation', '0.2.2'): ['objc-e282618b.txt'], ('objc2-foundation', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-io-surface', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-link-presentation', '0.2.2'): ['objc-e282618b.txt'], ('objc2-metal', '0.2.2'): ['objc-e282618b.txt'], ('objc2-metal', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-quartz-core', '0.2.2'): ['objc-e282618b.txt'], ('objc2-quartz-core', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-symbols', '0.2.2'): ['objc-e282618b.txt'], ('objc2-ui-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-uniform-type-identifiers', '0.2.2'): ['objc-e282618b.txt'], ('objc2-user-notifications', '0.2.2'): ['objc-e282618b.txt'], ('malloc_buf', '0.0.6'): ['malloc-MIT.txt']})
@@ -76,8 +76,7 @@ else:
         files = sorted(p for p in folder.rglob("*") if p.is_file() and
             (p.name.lower().startswith(("license", "licence", "copying", "notice", "copyright"))
              or (p.suffix.lower()==".txt" and "fonts" in p.parts)))
-        if not files:
-            files = [ROOT / "docs/licenses/canvas-supplemental" / f for f in SUPPLEMENTAL.get((name, version), [])]
+        files += [ROOT / "docs/licenses/canvas-supplemental" / f for f in SUPPLEMENTAL.get((name, version), [])]
         if not files:
             raise SystemExit(f"Missing notice files for {name} {version}; investigate upstream before packaging")
         text += ["", "=" * 72, f"{name} {version}", f"Declared license: {package['license']}",
