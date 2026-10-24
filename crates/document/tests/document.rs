@@ -160,7 +160,7 @@ fn brush_presets_roundtrip_with_bounded_no_clobber_storage() {
     assert_eq!(storage::load_brush_preset(&path).unwrap(), brush);
     assert!(matches!(
         storage::save_brush_preset(&path, &Brush::default()),
-        Err(PaintError::Io(_))
+        Err(PaintError::Conflict)
     ));
 
     std::fs::write(&path, vec![b' '; 16 * 1024 + 1]).unwrap();

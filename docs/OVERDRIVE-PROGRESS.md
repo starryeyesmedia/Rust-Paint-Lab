@@ -292,5 +292,9 @@ No dependency was added.
 At this point local format, Clippy, workspace build and all **129 Rust tests** pass;
 the required Mesa llvmpipe Vulkan pixel runner passes. The updated interactive alpha
 workflow passes with brush preset roundtrip included. Windows GNU cross-target check
-and Clippy pass. Actions for the preceding f6ab0a1 checkpoint are still in progress;
-this brush change has not yet been committed or covered by CI.
+and Clippy pass. The brush workflow was committed as `173bf1c`; Actions run
+`40056386139` is in progress. A final local refinement maps an existing-preset
+collision to the explicit conflict error, with matching test expectation; architecture
+and test docs now describe the format. That small refinement is not yet committed or
+covered by CI. Earlier modal/lasso checkpoint `f6ab0a1` is also awaiting Actions
+completion.

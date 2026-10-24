@@ -267,7 +267,13 @@ pub fn save_brush_preset(path: &Path, brush: &crate::brush::Brush) -> Result<(),
         let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         file.write_all(&data)?;
         file.sync_all()?;
-        fs::hard_link(&tmp, path)?;
+        match fs::hard_link(&tmp, path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(PaintError::Conflict);
+            }
+            Err(error) => return Err(error.into()),
+        }
         #[cfg(unix)]
         File::open(
             path.parent()

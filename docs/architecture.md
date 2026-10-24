@@ -233,3 +233,12 @@ future velocity/latency work. Windows attaches POINTER_INFO.PerformanceCount plu
 QueryPerformanceFrequency when available; no conversion to coarse mouse timing.
 The shared structs/router preserve it, and replay v2 supplies deterministic coverage.
 Native v1 documents persist raster artwork, not raw input or performance counters.
+
+Custom brush settings use the existing version-1 `Brush::encode/decode` schema and
+are stored as standalone `.rplbrush` JSON files. The document storage boundary
+validates extension/schema/settings, bounds reads to 16 KiB, and publishes with a
+same-directory atomic no-clobber hard link. The GUI provides typed-path save/load;
+loading changes the active brush and an ordinary project save stores those settings
+in the document metadata. This keeps brush presets portable without coupling the
+brush engine to dialogs or platform APIs. Filesystems without hard-link support
+fail safely, and an existing preset must be given a different filename.

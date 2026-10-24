@@ -171,3 +171,14 @@ physical S Pen remains a manual check. No auto-recording of device input is adde
 Four native raw-history identity tests bring the suite to 124 Rust tests. They are
 portable adapter-helper tests, not mocked claims that Windows delivered hardware
 history. Physical coalescing/capture/promotion behavior remains on the manual list.
+
+## Current Overdrive workspace (2026-10-24)
+
+The latest local suite contains **129 Rust tests** across input normalization and
+lifecycle, stroke routing, canvas, native-history deduplication, raster brush/document,
+editing, recovery preferences, OpenRaster, and brush preset IO. Three canvas unit tests
+cover bounded lasso cancellation and native save-path selection; two document tests
+exercise `.rplbrush` roundtrip, validation, size limits and no-clobber behavior. The
+Linux/Xvfb alpha integration workflow also uses actual keyboard events to save a
+preset, load it, save the project and compare brush metadata. This complements (not
+replaces) the portable unit tests.
