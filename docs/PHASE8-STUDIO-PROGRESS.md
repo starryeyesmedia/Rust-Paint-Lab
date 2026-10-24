@@ -143,11 +143,12 @@ work below.
 - The smoke decodes its exported PNG and asserts that the independent reference
   image's magenta sentinel pixel does not leak into artwork.
 - The Linux alpha workflow passed in Actions run `40125273125` with the corrected
-  sequence. The Windows and macOS jobs are still in progress. The preceding
-  `40124892298` Windows and macOS jobs both passed and uploaded
+  sequence. Its Windows and macOS jobs passed and uploaded
   `rust-paint-lab-windows-diagnostic`, `rust-paint-lab-canvas-demo`, and the
-  macOS alpha artifact; its Linux job failed at the recovery ordering described
-  above.
+  macOS alpha artifact; Linux has passed formatting, Clippy, tests, build, and
+  all window/recovery smoke checks and is packaging the Linux alpha. The
+  preceding `40124892298` Windows and macOS jobs also passed, while its Linux
+  job failed at the recovery ordering described above.
 
 ### Reference-board navigation slice in `8d2328a`
 
