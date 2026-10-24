@@ -149,7 +149,7 @@ work below.
   macOS alpha artifact; its Linux job failed at the recovery ordering described
   above.
 
-### Reference-board navigation slice (working tree after `8df1340`)
+### Reference-board navigation slice in `8d2328a`
 
 - Each reference window now supports wheel zoom (bounded from 25% to 800%),
   drag-to-pan inside a clipped image viewport, a position lock, and Reset View.
@@ -165,8 +165,8 @@ work below.
 
 ### Next Phase 8.1 work
 
-1. Commit the reference navigation slice and verify the in-progress platform run
-   `40125273125`, including both Windows artifacts and macOS packaging.
+1. Verify Actions run `40125783796` for the reference-navigation code, including
+   Linux workflow smoke, both Windows artifacts and macOS packaging.
 2. Obtain a real Windows run of Add Reference Images with small PNG, phone JPEG,
    multiple selections, one bad file, cancellation and restart persistence; record
    the dialog/result/status behavior before declaring the confirmed issue fixed.
