@@ -11,7 +11,7 @@ use paint_document::{
     recovery::Recovery,
     storage::{self, Store},
 };
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 use winit::window::Window;
 
 struct ReferenceImage {
@@ -219,6 +219,8 @@ pub struct Studio {
     cleanup: Option<PathBuf>,
     draft_cleanup: Option<PathBuf>,
     last_submitted: u64,
+    autosave_schedule: crate::autosave::AutosaveDebounce,
+    recovery_saving: bool,
     theme_dark: bool,
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
@@ -330,6 +332,8 @@ impl Studio {
             cleanup: None,
             draft_cleanup: None,
             last_submitted: 0,
+            autosave_schedule: Default::default(),
+            recovery_saving: false,
             theme_dark: preferences.dark_theme,
             navigation: Default::default(),
             touches: Default::default(),
@@ -664,6 +668,17 @@ impl Studio {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Untitled".into())
     }
+    pub fn test_prompt_label(&self) -> Option<&'static str> {
+        if !self.test_path_dialog {
+            None
+        } else if self.manual_file_dialog {
+            Some("TEST FILE PICKER")
+        } else if self.new_dialog {
+            Some("TEST NEW DOCUMENT")
+        } else {
+            None
+        }
+    }
     pub fn blocks_canvas(&self) -> bool {
         self.welcome
             || self.new_dialog
@@ -787,9 +802,20 @@ impl Studio {
         self.close_requested = true;
     }
     pub fn needs_autosave(&self, session: &CanvasSession) -> bool {
-        self.recovery.is_some()
-            && session.live().project().dirty()
-            && self.last_submitted != session.live().project().revision
+        self.autosave_deadline(session)
+            .is_some_and(|deadline| Instant::now() >= deadline)
+    }
+    pub fn autosave_deadline(&self, session: &CanvasSession) -> Option<Instant> {
+        let project = session.live().project();
+        (self.recovery.is_some()
+            && !session.live().active()
+            && project.dirty()
+            && self.last_submitted != project.revision)
+            .then(|| self.autosave_schedule.deadline())
+            .flatten()
+    }
+    pub fn recovery_save_pending(&self) -> bool {
+        self.recovery_saving
     }
     fn persist_workspace(&self) -> Result<(), String> {
         let Some(path) = &self.preferences_path else {
@@ -1085,14 +1111,28 @@ impl Studio {
                 self.edit_points.clear();
             }
 
-            egui::TopBottomPanel::bottom("status").show(ctx,|ui|{
-if let Some(error)=session.live().document_error(){
-ui.colored_label(egui::Color32::LIGHT_RED,error);
-}
-
-else{
-ui.label(&self.status);
-}
+            egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+let project = session.live().project();
+let save_status = if self.recovery_saving {
+    "Saving recovery"
+} else if project.dirty() && self.recovery.is_some() {
+    "Unsaved changes · recovery available"
+} else if project.dirty() {
+    "Unsaved changes"
+} else if self.store.is_some() {
+    "Saved"
+} else {
+    "Untitled document"
+};
+ui.horizontal(|ui| {
+    ui.strong(save_status);
+    ui.separator();
+    if let Some(error)=session.live().document_error(){
+        ui.colored_label(egui::Color32::LIGHT_RED,error);
+    } else {
+        ui.label(&self.status);
+    }
+});
 ui.small(format!("{}×{} | {} dpi | {} tiles | {} undo | CPU composite/upload-submit {} µs | frame {} µs",session.live().project().state().width,session.live().project().state().height,session.live().project().state().dpi,session.live().project().state().tile_count(),session.live().project().undo_count(),self.last_upload_us,self.last_frame_us));
 let pen_status=if let Some(p)=session.live().last_pen(){format!("Pen {:?} | pressure {} | tilt X {} / Y {} | barrel {} | eraser {}",p.phase,p.pressure.map(|v|format!("{v:.2}")).unwrap_or_else(||"unavailable".into()),p.tilt_degrees[0].map(|v|format!("{v:.0}°")).unwrap_or_else(||"unavailable".into()),p.tilt_degrees[1].map(|v|format!("{v:.0}°")).unwrap_or_else(||"unavailable".into()),p.buttons.barrel,p.buttons.eraser||p.buttons.inverted)}else{"Mouse / native Windows pen · hover ring shows selected brush diameter".into()};
 ui.add(egui::Label::new(pen_status).truncate());
@@ -2001,19 +2041,35 @@ ui.add(egui::Label::new(pen_status).truncate());
             }
         }
         session.live_mut().project_mut().sync_brush_settings();
+        let now = Instant::now();
+        let project = session.live().project();
+        self.autosave_schedule
+            .observe(project.revision, project.dirty(), now);
         if let Some(recovery) = &self.recovery {
             for result in recovery.poll() {
-                self.status = match result {
-                    Ok(()) => "Recovery checkpoint complete".into(),
-                    Err(e) => format!("RECOVERY FAILED: {e}; save project manually"),
-                };
+                self.recovery_saving = false;
+                match result {
+                    Ok(()) => self.status = "Recovery checkpoint complete".into(),
+                    Err(e) => {
+                        self.last_submitted = u64::MAX;
+                        self.autosave_schedule.retry_later(now);
+                        self.status = format!("RECOVERY FAILED: {e}; will retry shortly")
+                    }
+                }
             }
             let project = session.live().project();
             if project.dirty()
                 && self.last_submitted != project.revision
-                && recovery.submit(project.state().clone())
+                && !session.live().active()
+                && self.autosave_schedule.ready(now)
             {
-                self.last_submitted = project.revision;
+                if recovery.submit(project.state().clone()) {
+                    self.last_submitted = project.revision;
+                    self.autosave_schedule.submitted();
+                    self.recovery_saving = true;
+                } else {
+                    self.autosave_schedule.retry_later(now);
+                }
             }
         }
         self.input

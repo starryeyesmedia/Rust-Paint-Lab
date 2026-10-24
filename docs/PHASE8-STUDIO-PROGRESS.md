@@ -64,8 +64,9 @@ This is the active continuation record. Phase 7 work remains documented in
 
 - `cargo fmt --all --check`: passed.
 - Workspace Clippy with `-D warnings`: passed.
-- `cargo test --workspace --locked`: passed, **160 tests**, including draft cleanup
-  and backward-compatible, validated document-setup preference persistence.
+- `cargo test --workspace --locked`: passed, **162 tests**, including draft cleanup,
+  backward-compatible document-setup preferences, and deterministic autosave
+  debounce/retry behavior.
 - `cargo build --workspace --locked`: passed.
 - Required offscreen pixel test passed on Mesa llvmpipe/OpenGL. Forcing Vulkan in
   this container did not find a Vulkan adapter; the default backend selected
@@ -81,8 +82,10 @@ This is the active continuation record. Phase 7 work remains documented in
   0.6.2` notice). The assertion and full upstream license/provenance were corrected
   in the next pushed commit. Run [`40116926028`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40116926028)
   then passed macOS but failed the Linux alpha window smoke while waiting for the
-  reopened window title to show `artwork.rpl`; Windows was still compiling. The
-  draft cleanup and remembered setup commits are newer and still require CI.
+  reopened window title to show `artwork.rpl`; Windows was still compiling. Draft
+  cleanup, remembered settings, and menu/palette commits are newer and still require
+  CI. The latest Actions run is in progress for the menu/palette commit; autosave
+  debounce and test-prompt synchronization are locally validated but unpushed.
 - The second close-save/draft slice has passed focused `canvas-demo` tests and
   now passes complete workspace tests/build/Clippy, required local GPU smoke, and
   Windows GNU target check/Clippy. License generation passes for both Windows MSVC
@@ -103,6 +106,15 @@ This is the active continuation record. Phase 7 work remains documented in
   tool names, shortcut tooltips, and touch-sized targets. Selection fill, erase,
   and deselect actions remain directly below the tools. Menu entries invoke existing
   supported operations; this does not add unsupported shape or transform tools.
+- Recovery checkpoints now coalesce dirty revisions until 700 ms without a new edit
+  and are not submitted during active pointer contact. A full worker queue or write
+  failure backs off for two seconds instead of retrying continuously. The event loop
+  sleeps until the next checkpoint deadline and requests a frame only when due. The
+  footer distinguishes saved, untitled, unsaved, and active recovery-save states.
+  Explicit Save and close-time flush retain their existing semantics.
+- The Xvfb window workflow waits for test-only title markers before confirming New
+  Document and native-file-picker test prompts. This removes fixed-delay UI races and
+  includes the current window title in failed status assertions.
 
 ## Partial and unimplemented Phase 8 requirements
 
@@ -114,9 +126,9 @@ This is the active continuation record. Phase 7 work remains documented in
   presets, or automated app-level reopen/export dimension workflow. Preset dimensions
   are bounded to current format.
 - Drafts now have a confirmation-gated remove action, but there is still no
-  rename, pin, or age sorting. Continuous debounced autosave and a full save-state
-  indicator remain unfinished; the existing recovery worker still checkpoints
-  committed revisions.
+  rename, pin, or age sorting. Recovery checkpoints debounce dirty changes and
+  expose basic save status, but store full committed snapshots rather than
+  incremental edits.
 - File dialogs have compiled on native Linux and Windows GNU targets; Windows,
   Linux portal, and macOS visual/runtime behavior needs CI or manual verification.
 - The first compact menus and vertical tool palette are implemented, but there are
@@ -146,10 +158,11 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Push the locally validated menu/palette slice and rerun CI; verify Linux
-   welcome/open/save smoke, Windows package build, macOS packaging, and artifacts.
-2. Investigate the Linux reopen timeout from the latest workflow output; add a
-   visible test-harness dialog state or deterministic open interaction if needed.
+1. Push the locally validated autosave and test-prompt synchronization slice, then
+   rerun CI; verify Linux welcome/open/save smoke, Windows package build, macOS
+   packaging, and artifacts.
+2. Use the test-only dialog marker and improved failure title to diagnose the Linux
+   reopen timeout if it persists.
 3. Continue compact brush/layer/color controls and close-save failure coverage in
    the real window workflow.
 

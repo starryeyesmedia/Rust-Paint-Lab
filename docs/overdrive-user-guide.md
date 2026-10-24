@@ -87,11 +87,16 @@ drafts are retained, and a full draft list prevents silent closure until Save As
 succeeds or the user cancels. These are normal editable documents, separate from
 disposable recovery checkpoints. Recovery writes local committed-document
 snapshots plus a bounded, checksummed journal of complete states on a background
-worker. A damaged journal tail falls back to its previous complete snapshot; the
+worker. Dirty revisions coalesce until 700 ms without a new edit before a checkpoint
+is submitted; a busy writer or failure retries after two seconds. The footer shows
+saved/unsaved state and when a recovery checkpoint is actively saving. These are
+recovery checkpoints, not writes to the named project file: use Save for that.
+A damaged journal tail falls back to its previous complete snapshot; the
 existing recovery `.rpl` and `.bak` remain additional fallbacks. Closing or replacing
 dirty work waits for a confirmed checkpoint. The journal is not an operation log
 and does not preserve undo history; a crash can lose edits since the last completed
-checkpoint. No raw input is automatically recorded.
+checkpoint. A forced kill or power loss during the debounce window can lose changes
+since the last completed checkpoint. No raw input is automatically recorded.
 
 Recovery choices appear in the right panel on next launch. Recover into a new
 unsaved document and Save As a normal `.rpl`. Each document switch keeps its own

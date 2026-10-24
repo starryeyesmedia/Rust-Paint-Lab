@@ -89,7 +89,16 @@ def key(name):
     send()
 
 def status(text):
-    return wait(lambda: text in title(window), text)
+    try:
+        return wait(lambda: text in title(window), text)
+    except AssertionError as error:
+        raise AssertionError(f'{error}; current window title: {title(window)!r}') from error
+
+def path_prompt():
+    return wait(lambda: 'TEST FILE PICKER' in title(window), 'test file picker is visible')
+
+def new_document_prompt():
+    return wait(lambda: 'TEST NEW DOCUMENT' in title(window), 'new document dialog is visible')
 
 
 def ctrl(name):
@@ -142,7 +151,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             focus(display,window,2,0);send()
             # Let font/layout requests settle before testing drawing ownership.
             time.sleep(0.5)
-            ctrl('n');time.sleep(0.25);key('Return');time.sleep(0.5)
+            ctrl('n');new_document_prompt();key('Return');time.sleep(0.5)
             move(180,250);click_button(1,True);move(400,400);click_button(1,False)
             status('*')
             ctrl('s');project=directory/'artwork.rpl'
@@ -163,15 +172,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('Escape');assert process.wait(timeout=20)==0
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'reopened workspace');focus(display,window,2,0);send()
-            ctrl('o');time.sleep(0.3);key('Return')
+            ctrl('o');path_prompt();key('Return')
             status('artwork.rpl')
             # Save and reload a custom versioned brush preset through the app UI.
-            ctrl_shift('b');time.sleep(0.3);key('Return')
+            ctrl_shift('b');path_prompt();key('Return')
             preset=directory/'artwork.rplbrush'
             wait(lambda: preset.exists(),'custom brush preset save')
             preset_data=json.loads(preset.read_text())
             assert preset_data['version']==1 and preset_data['brush']['kind']=='Round'
-            ctrl_alt('b');time.sleep(0.3);key('Return');ctrl('s')
+            ctrl_alt('b');path_prompt();key('Return');ctrl('s')
             wait(lambda: native_state(project)['brush']==preset_data['brush'],'brush preset load and project save')
             # Exercise actual selection-tool ownership and transactional fill.
             time.sleep(0.5)
@@ -192,7 +201,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             with zipfile.ZipFile(ora) as archive:
                 assert archive.namelist()[0]=='mimetype' and archive.read('mimetype')==b'image/openraster'
                 assert archive.testzip() is None and b'<layer' in archive.read('stack.xml')
-            ctrl_shift('o');time.sleep(0.3);key('Return');status('*');ctrl('s')
+            ctrl_shift('o');path_prompt();key('Return');status('*');ctrl('s')
             imported=directory/'imported-artwork.rpl'
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
             recovery_dir=directory/'state/rust-paint-lab/recovery'

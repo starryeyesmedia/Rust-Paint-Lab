@@ -200,6 +200,7 @@ struct App {
     needs_redraw: bool,
     alpha: bool,
     modifiers: winit::keyboard::ModifiersState,
+    recovery_poll_deadline: Option<Instant>,
 }
 impl App {
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: impl std::fmt::Display) {
@@ -555,6 +556,15 @@ impl ApplicationHandler for App {
                                 self.session.scenario().name()
                             )
                         };
+                        let title = if let Some(prompt) = g
+                            .studio
+                            .as_ref()
+                            .and_then(|studio| studio.test_prompt_label())
+                        {
+                            format!("{title} | {prompt}")
+                        } else {
+                            title
+                        };
                         let presented = g.draw(&mut self.session)?;
                         // Publish the ready title only after the first layout and frame.
                         if presented {
@@ -593,22 +603,67 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if !self.occluded
-            && self.graphics.as_ref().is_some_and(|g| !g.size.contains(&0))
-            && (self.needs_redraw
+        let can_render =
+            !self.occluded && self.graphics.as_ref().is_some_and(|g| !g.size.contains(&0));
+        if !can_render {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        }
+        let now = Instant::now();
+        let autosave_deadline = self
+            .graphics
+            .as_ref()
+            .and_then(|g| g.studio.as_ref())
+            .and_then(|s| s.autosave_deadline(&self.session));
+        let autosave_due = autosave_deadline.is_some_and(|deadline| now >= deadline);
+        let recovery_pending = self
+            .graphics
+            .as_ref()
+            .and_then(|g| g.studio.as_ref())
+            .is_some_and(|s| s.recovery_save_pending());
+        if recovery_pending {
+            let deadline = *self
+                .recovery_poll_deadline
+                .get_or_insert(now + Duration::from_millis(100));
+            let frame_tick_needed = self.needs_redraw
                 || (self.exit_after_demo && self.alpha)
-                || self
-                    .graphics
-                    .as_ref()
-                    .and_then(|g| g.studio.as_ref())
-                    .is_some_and(|s| s.needs_autosave(&self.session))
                 || (self.session.mode() == Mode::Replay
                     && !self.paused
-                    && !self.session.replay_finished()))
+                    && !self.session.replay_finished());
+            let poll_due = now >= deadline;
+            if poll_due || autosave_due {
+                if let Some(g) = &self.graphics {
+                    g.window.request_redraw();
+                }
+                self.recovery_poll_deadline = Some(now + Duration::from_millis(100));
+            }
+            if frame_tick_needed || autosave_due {
+                event_loop
+                    .set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(16)));
+            } else {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(if poll_due {
+                    now + Duration::from_millis(16)
+                } else {
+                    deadline
+                }));
+            }
+            return;
+        }
+        self.recovery_poll_deadline = None;
+        if autosave_due {
+            if let Some(g) = &self.graphics {
+                g.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(16)));
+        } else if self.needs_redraw
+            || (self.exit_after_demo && self.alpha)
+            || (self.session.mode() == Mode::Replay
+                && !self.paused
+                && !self.session.replay_finished())
         {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(16),
-            ));
+            event_loop.set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(16)));
+        } else if let Some(deadline) = autosave_deadline {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
@@ -650,6 +705,7 @@ fn main() -> Result<(), Failure> {
         needs_redraw: true,
         alpha,
         modifiers: winit::keyboard::ModifiersState::empty(),
+        recovery_poll_deadline: None,
     };
     event_loop.run_app(&mut app)?;
     if let Some(error) = app.failure {
