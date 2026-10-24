@@ -144,6 +144,9 @@ This is the active continuation record. Phase 7 work remains documented in
   The same runner-provisioning failure affected runs
   [40118673479](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118673479)
   and [40118752060](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118752060).
+  Retrying the latest run for this progress update
+  ([40118971603](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118971603))
+  failed the same way, before any platform steps could start.
   Superseded in-progress runs were canceled to free Actions capacity.
 - Linux UI smoke in earlier run
   [40118257862](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40118257862)
@@ -155,6 +158,9 @@ This is the active continuation record. Phase 7 work remains documented in
 - The Linux Xvfb real-window workflow still cannot be exercised in this container
   because `xvfb-run` is absent. Latest platform CI must confirm the native window,
   dialogs, artifact packaging, and smoke script.
+- A Windows GNU workspace `cargo check --target x86_64-pc-windows-gnu` passes for
+  the current code. This does not replace the Windows MSVC build, packaging, or
+  runtime checks in Actions.
 
 ## Partial and unimplemented Phase 8 requirements
 
