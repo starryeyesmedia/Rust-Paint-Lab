@@ -23,7 +23,9 @@ not evidence that a workflow is complete.
 - At resume, local HEAD was `069802c` (documentation only) and origin was
   `47996f6`; both were retained and pushed with recovery checkpoint `299506e`.
 - Actions run [`40104914603`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40104914603)
-  for code checkpoint `6001265` is queued for Windows, Linux, and macOS. It includes
+  for code checkpoint `6001265` completed successfully on Windows, Linux, and macOS.
+  Its Windows artifacts `rust-paint-lab-windows-diagnostic` and
+  `rust-paint-lab-canvas-demo` are available and unexpired. The matrix includes
   bounded compaction, writer-exclusion tests, checked sequence overflow, and clearer
   recovery fallback messaging. Earlier runs are superseded checkpoints.
 - No merge, release, or public exposure is authorized.
@@ -86,7 +88,8 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
 - Recovery journal checkpoint local validation: formatting, Clippy, all workspace
   tests (141), build, required Vulkan GPU pixels, forced-crash alpha workflow, Linux
   live mouse X11 smoke, and Windows GNU target check/Clippy passed for `6001265`.
-  The exact hosted matrix is queued; no hosted result is claimed yet.
+  GitHub Actions `40104914603` then passed all three desktop platforms, including
+  software GPU and Linux app workflows plus both portable Windows package builds.
 
 ## Architecture decisions
 
