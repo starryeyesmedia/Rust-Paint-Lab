@@ -113,3 +113,9 @@ on interruption. This is a basic palm-avoidance policy, not anatomical palm reje
 Actual Windows multi-touch delivery and simultaneous S Pen behavior need hardware
 testing. Navigation cancels a provisional stroke before changing its transform and
 never edits committed pixels or enters history. Canvas rotation is not implemented.
+
+Recent projects appear in the right panel after a successful native save/open;
+paths are local preferences, capped at 20, never sent anywhere. Recovery “Delete…”
+opens an explicit confirmation for a selected inactive checkpoint and its backup.
+Verify a separate saved project first. Active owners and ordinary artwork filenames
+are refused. There is no automatic age-based deletion; preservation takes priority.

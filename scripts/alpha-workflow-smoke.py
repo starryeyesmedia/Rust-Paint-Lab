@@ -6,7 +6,7 @@ path, screenshots, user input recording, or additional Python packages.
 """
 import ctypes as c
 from pathlib import Path
-import os, tempfile, hashlib, struct
+import os, tempfile, hashlib, struct, json
 import subprocess
 import time
 
@@ -116,6 +116,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('s');project=directory/'artwork.rpl'
             wait(lambda: valid_project(project) and '*' not in title(window),'valid saved raster project')
             initial=project.read_bytes()
+            recent=directory/'state/rust-paint-lab/recent.json'
+            assert json.loads(recent.read_text())['paths']==[str(project.resolve())]
             ctrl('z');ctrl('s')
             wait(lambda: valid_project(project)==0 and project.read_bytes()!=initial,'undo saved with no tiles')
             ctrl('y');ctrl('s')

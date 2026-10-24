@@ -26,6 +26,8 @@ enum Action {
     Export,
     Import,
     Recover(PathBuf),
+    Recent(PathBuf),
+    RemoveRecovery(PathBuf),
     Undo,
     Redo,
     Add,
@@ -63,6 +65,9 @@ pub struct Studio {
     pub close_ready: bool,
     recovery: Option<Recovery>,
     recovery_files: Vec<PathBuf>,
+    recent: paint_document::recent::Recent,
+    recent_path: Option<PathBuf>,
+    cleanup: Option<PathBuf>,
     last_submitted: u64,
     theme_dark: bool,
     navigation: crate::navigation::Navigation,
@@ -102,6 +107,15 @@ impl Studio {
             .map(|p| paint_document::recovery::available(p))
             .unwrap_or_default();
         let recovery = dir.as_ref().ok().and_then(|p| Recovery::start(p).ok());
+        let recent_path = dir
+            .as_ref()
+            .ok()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("recent.json"));
+        let recent = recent_path
+            .as_ref()
+            .and_then(|p| paint_document::recent::Recent::load(p).ok())
+            .unwrap_or_default();
         let status = if recovery.is_some() {
             "Ready — local recovery enabled".into()
         } else {
@@ -126,6 +140,9 @@ impl Studio {
             close_ready: false,
             recovery,
             recovery_files: files,
+            recent,
+            recent_path,
+            cleanup: None,
             last_submitted: 0,
             theme_dark: true,
             navigation: Default::default(),
@@ -428,6 +445,17 @@ impl Studio {
             _ => EditTool::Brush,
         };
     }
+    fn remember(&mut self, path: &std::path::Path) {
+        let result = self.recent.remember(path).and_then(|_| {
+            self.recent_path
+                .as_ref()
+                .ok_or(paint_document::PaintError::Invalid)
+                .and_then(|p| self.recent.save(p))
+        });
+        if let Err(e) = result {
+            self.status = format!("Artwork file succeeded; recent-list update failed: {e}");
+        }
+    }
     pub fn project_label(&self) -> String {
         self.store
             .as_ref()
@@ -436,7 +464,11 @@ impl Studio {
             .unwrap_or_else(|| "Untitled".into())
     }
     pub fn blocks_canvas(&self) -> bool {
-        self.new_dialog || self.file_dialog || self.confirm.is_some() || self.close_requested
+        self.new_dialog
+            || self.file_dialog
+            || self.confirm.is_some()
+            || self.close_requested
+            || self.cleanup.is_some()
     }
     pub fn shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
@@ -483,6 +515,497 @@ impl Studio {
             && session.live().project().dirty()
             && self.last_submitted != session.live().project().revision
     }
+    fn widgets(
+        &mut self,
+        ctx: &egui::Context,
+        session: &mut CanvasSession,
+        actions: &mut Vec<Action>,
+        central: &mut egui::Rect,
+        approved: &mut bool,
+    ) {
+        if self.theme_dark {
+            ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            ctx.set_visuals(egui::Visuals::light());
+        }
+
+        egui::TopBottomPanel::top("document tools").show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.heading("Rust Paint Lab");
+                if ui.button("New").clicked() {
+                    self.new_dialog = true;
+                }
+
+                if ui.button("Open").clicked() {
+                    self.action = Some(Action::Open);
+                    self.file_dialog = true;
+                }
+
+                if ui.button("Save").clicked() {
+                    actions.push(Action::Save);
+                }
+
+                if ui.button("Save as").clicked() {
+                    self.action = Some(Action::SaveAs);
+                    self.file_dialog = true;
+                }
+
+                if ui.button("Export PNG").clicked() {
+                    self.path = PathBuf::from(&self.path)
+                        .with_extension("png")
+                        .to_string_lossy()
+                        .into();
+                    self.action = Some(Action::Export);
+                    self.file_dialog = true;
+                }
+
+                if ui.button("Import PNG").clicked() {
+                    self.action = Some(Action::Import);
+                    self.file_dialog = true;
+                }
+
+                if ui
+                    .add_enabled(
+                        session.live().project().undo_count() > 0,
+                        egui::Button::new("Undo"),
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::Undo);
+                }
+
+                if ui
+                    .add_enabled(
+                        session.live().project().redo_count() > 0,
+                        egui::Button::new("Redo"),
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::Redo);
+                }
+
+                ui.checkbox(&mut self.theme_dark, "Dark");
+            });
+            ui.horizontal_wrapped(|ui| {
+                let old = self.tool;
+
+                for (tool, label) in [
+                    (EditTool::Brush, "Brush B"),
+                    (EditTool::Rectangle, "Rect M"),
+                    (EditTool::Ellipse, "Ellipse E"),
+                    (EditTool::Lasso, "Lasso K"),
+                    (EditTool::Eyedropper, "Pick I"),
+                ] {
+                    ui.selectable_value(&mut self.tool, tool, label);
+                }
+
+                if old != self.tool {
+                    session.mouse(MouseEvent::Interrupted, 0);
+                    self.edit_pointer = None;
+                    self.edit_points.clear();
+                }
+
+                if ui.button("Deselect").clicked() {
+                    actions.push(Action::Deselect);
+                }
+
+                if ui.button("Fill").clicked() {
+                    actions.push(Action::Fill(false));
+                }
+
+                if ui.button("Delete pixels").clicked() {
+                    actions.push(Action::Fill(true));
+                }
+            });
+        });
+
+        egui::TopBottomPanel::bottom("status").show(ctx,|ui|{
+if let Some(error)=session.live().document_error(){
+ui.colored_label(egui::Color32::LIGHT_RED,error);
+}
+else{
+ui.label(&self.status);
+}
+ui.small(format!("{}×{} | {} dpi | {} tiles | {} undo | CPU composite/upload-submit {} µs | frame {} µs",session.live().project().state().width,session.live().project().state().height,session.live().project().state().dpi,session.live().project().state().tile_count(),session.live().project().undo_count(),self.last_upload_us,self.last_frame_us));
+}
+);
+
+        egui::SidePanel::right("painting controls")
+            .default_width(240.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("Brush");
+                    let project = session.live_mut().project_mut();
+
+                    egui::ComboBox::from_label("Preset")
+                        .selected_text(format!("{:?}", project.brush.kind))
+                        .show_ui(ui, |ui| {
+                            for k in [
+                                BrushKind::Round,
+                                BrushKind::Ink,
+                                BrushKind::Pencil,
+                                BrushKind::Marker,
+                                BrushKind::Airbrush,
+                                BrushKind::Soft,
+                                BrushKind::Textured,
+                                BrushKind::Calligraphy,
+                                BrushKind::Eraser,
+                                BrushKind::Wash,
+                            ] {
+                                if ui
+                                    .selectable_label(project.brush.kind == k, format!("{k:?}"))
+                                    .clicked()
+                                {
+                                    let color = project.brush.color;
+                                    project.brush = Brush::preset(k);
+                                    project.brush.color = color;
+                                }
+                            }
+                        });
+
+                    ui.color_edit_button_srgb(&mut project.brush.color);
+
+                    ui.add(egui::Slider::new(&mut project.brush.size, 1.0..=256.0).text("Size"));
+                    ui.add(
+                        egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0).text("Opacity"),
+                    );
+                    ui.add(egui::Slider::new(&mut project.brush.flow, 0.0..=1.0).text("Flow"));
+                    ui.add(
+                        egui::Slider::new(&mut project.brush.hardness, 0.0..=1.0).text("Hardness"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut project.brush.spacing, 0.05..=1.0).text("Spacing"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut project.brush.smoothing, 0.0..=1.0)
+                            .text("Smoothing"),
+                    );
+                    ui.add(
+                        egui::Slider::new(
+                            &mut project.brush.angle,
+                            -std::f64::consts::PI..=std::f64::consts::PI,
+                        )
+                        .text("Angle"),
+                    );
+
+                    ui.checkbox(&mut project.brush.pressure_size, "Pressure size");
+                    ui.checkbox(&mut project.brush.pressure_opacity, "Pressure opacity");
+                    ui.checkbox(&mut project.brush.tilt, "Tilt angle");
+
+                    ui.separator();
+                    let mut transparent = project.state().background.is_none();
+
+                    if ui
+                        .checkbox(&mut transparent, "Transparent background")
+                        .changed()
+                        && let Err(e) = project.edit(|s| {
+                            s.background = if transparent { None } else { Some([255; 3]) };
+                            Ok(())
+                        })
+                    {
+                        self.status = e.to_string();
+                    }
+
+                    ui.collapsing("Edit selected pixels", |ui| {
+                        ui.label("Selected layer only; outside canvas is clipped.");
+
+                        ui.horizontal(|ui| {
+                            ui.label("Move X/Y");
+                            ui.add(
+                                egui::DragValue::new(&mut self.transform_offset[0])
+                                    .range(-4096.0..=4096.0),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut self.transform_offset[1])
+                                    .range(-4096.0..=4096.0),
+                            );
+                        });
+
+                        ui.add(
+                            egui::Slider::new(&mut self.transform_scale, 0.1..=4.0).text("Scale"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut self.transform_angle, -180.0..=180.0)
+                                .text("Rotation"),
+                        );
+
+                        let bounds = project
+                            .state()
+                            .selection
+                            .as_ref()
+                            .map(Selection::bounds)
+                            .unwrap_or([
+                                0.0,
+                                0.0,
+                                project.state().width as f64,
+                                project.state().height as f64,
+                            ]);
+
+                        let cx = (bounds[0] + bounds[2]) / 2.0;
+                        let cy = (bounds[1] + bounds[3]) / 2.0;
+
+                        if ui.button("Apply transform").clicked() {
+                            let a = self.transform_angle.to_radians();
+                            let (sin, cos) = a.sin_cos();
+                            let c = cos * self.transform_scale;
+                            let b = sin * self.transform_scale;
+                            actions.push(Action::Transform([
+                                c,
+                                b,
+                                -b,
+                                c,
+                                cx - c * cx + b * cy + self.transform_offset[0],
+                                cy - b * cx - c * cy + self.transform_offset[1],
+                            ]));
+                        }
+
+                        ui.horizontal(|ui| {
+                            if ui.button("Flip H").clicked() {
+                                actions.push(Action::Transform([
+                                    -1.0,
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                    2.0 * cx,
+                                    0.0,
+                                ]));
+                            }
+
+                            if ui.button("Flip V").clicked() {
+                                actions.push(Action::Transform([
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    -1.0,
+                                    0.0,
+                                    2.0 * cy,
+                                ]));
+                            }
+                        });
+
+                        if ui
+                            .add_enabled(
+                                project.state().selection.is_some(),
+                                egui::Button::new("Crop document to selection bounds"),
+                            )
+                            .clicked()
+                        {
+                            actions.push(Action::Crop);
+                        }
+                    });
+
+                    ui.heading("Layers");
+                    ui.horizontal(|ui| {
+                        if ui.button("+").clicked() {
+                            actions.push(Action::Add);
+                        }
+
+                        if ui.button("Duplicate").clicked() {
+                            actions.push(Action::Duplicate);
+                        }
+
+                        if ui.button("Delete").clicked() {
+                            actions.push(Action::Delete);
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Up").clicked() {
+                            actions.push(Action::Move(1));
+                        }
+
+                        if ui.button("Down").clicked() {
+                            actions.push(Action::Move(-1));
+                        }
+
+                        if ui.button("Clear layer").clicked() {
+                            actions.push(Action::Clear);
+                        }
+                    });
+
+                    let selected = project.state().selected;
+
+                    let layers: Vec<_> = project
+                        .state()
+                        .layers
+                        .iter()
+                        .rev()
+                        .map(|l| {
+                            (
+                                l.id,
+                                l.name.clone(),
+                                l.visible,
+                                l.locked,
+                                l.opacity,
+                                l.blend,
+                            )
+                        })
+                        .collect();
+
+                    for (id, mut name, mut visible, mut locked, mut opacity, mut blend) in layers {
+                        ui.group(|ui| {
+                            if ui.selectable_label(id == selected, &name).clicked() {
+                                actions.push(Action::Select(id));
+                            }
+
+                            let mut changed = ui
+                                .add(egui::TextEdit::singleline(&mut name).char_limit(64))
+                                .changed();
+
+                            changed |= ui.checkbox(&mut visible, "Visible").changed();
+                            changed |= ui.checkbox(&mut locked, "Lock").changed();
+                            changed |= ui
+                                .add(egui::Slider::new(&mut opacity, 0..=255).text("Layer opacity"))
+                                .changed();
+
+                            let old = blend;
+                            egui::ComboBox::from_id_salt(("blend", id))
+                                .selected_text(format!("{blend:?}"))
+                                .show_ui(ui, |ui| {
+                                    for b in [
+                                        Blend::Normal,
+                                        Blend::Multiply,
+                                        Blend::Screen,
+                                        Blend::Overlay,
+                                    ] {
+                                        ui.selectable_value(&mut blend, b, format!("{b:?}"));
+                                    }
+                                });
+                            changed |= old != blend;
+
+                            if changed {
+                                actions
+                                    .push(Action::Layer(id, name, visible, locked, opacity, blend));
+                            }
+                        });
+                    }
+
+                    ui.separator();
+                    ui.label("L: paint · P/1/2/3: replay");
+                    ui.label("Ctrl-Z / Ctrl-Y: history");
+
+                    if !self.recent.paths.is_empty() {
+                        ui.collapsing("Recent projects", |ui| {
+                            for path in self.recent.paths.clone() {
+                                if ui
+                                    .button(path.file_name().unwrap_or_default().to_string_lossy())
+                                    .on_hover_text(path.to_string_lossy())
+                                    .clicked()
+                                {
+                                    actions.push(Action::Recent(path));
+                                }
+                            }
+                        });
+                    }
+                    if !self.recovery_files.is_empty() {
+                        ui.heading("Recover artwork");
+                        for p in self.recovery_files.clone() {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .button(p.file_name().unwrap_or_default().to_string_lossy())
+                                    .clicked()
+                                {
+                                    actions.push(Action::Recover(p.clone()));
+                                }
+                                if ui.button("Delete…").clicked() {
+                                    self.cleanup = Some(p);
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                *central = ui.available_rect_before_wrap();
+            });
+
+        if let Some(path) = self.cleanup.clone() {
+            egui::Window::new("Delete recovery checkpoint?").collapsible(false).show(ctx,|ui|{
+                ui.label(path.to_string_lossy());ui.label("Deletes this checkpoint and its backup. First verify an independent saved project. Active sessions and ordinary artwork files are protected.");
+                if ui.button("Delete this recovery and backup").clicked(){actions.push(Action::RemoveRecovery(path));self.cleanup=None;}
+                if ui.button("Cancel").clicked(){self.cleanup=None;}
+            });
+        }
+        if self.new_dialog {
+            egui::Window::new("New document")
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    ui.add(egui::Slider::new(&mut self.new_width, 64..=4096).text("Width"));
+                    ui.add(egui::Slider::new(&mut self.new_height, 64..=4096).text("Height"));
+                    ui.add(egui::Slider::new(&mut self.new_dpi, 72..=1200).text("DPI"));
+                    if ui.button("Create").clicked() {
+                        actions.push(Action::New);
+                        self.new_dialog = false;
+                    }
+
+                    if ui.button("Cancel").clicked() {
+                        self.new_dialog = false;
+                    }
+                });
+        }
+
+        if self.file_dialog {
+            egui::Window::new("Project / image path").collapsible(false).show(ctx,|ui|{
+ui.label("Enter a full path or a file in the current folder. RPL for editable projects; PNG for images.");
+ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
+if ui.button("Continue").clicked()||ui.input(|i|i.key_pressed(egui::Key::Enter)){
+if let Some(a)=self.action.take(){
+actions.push(a);
+}
+self.file_dialog=false;
+}
+
+if ui.button("Cancel").clicked(){
+self.file_dialog=false;
+self.action=None;
+}
+}
+);
+        }
+
+        if self.confirm.is_some() {
+            egui::Window::new("Preserve unsaved artwork").collapsible(false).show(ctx,|ui|{
+ui.label("Save first, or retain a recovery checkpoint before replacing this document.");
+if ui.button("Keep recovery and continue").clicked(){
+if self.preserve(session).is_ok(){
+*approved=true;
+actions.push(self.confirm.take().unwrap());
+}
+else{
+self.status="Recovery unavailable: save current artwork before continuing".into();
+}
+}
+
+if ui.button("Cancel").clicked(){
+self.confirm=None;
+}
+}
+);
+        }
+
+        if self.close_requested {
+            egui::Window::new("Close artwork?").collapsible(false).show(ctx,|ui|{
+ui.label("Unsaved artwork will be retained in local recovery. Save the project for an explicit editable file.");
+if ui.button("Save project and close").clicked(){
+actions.push(Action::Save);
+self.action=Some(Action::Save);
+}
+
+if ui.button("Keep recovery and close").clicked(){
+match self.preserve(session){
+Ok(())=>self.close_ready=true,Err(e)=>self.status=e.to_string()}
+}
+
+if ui.button("Cancel").clicked(){
+self.close_requested=false;
+}
+}
+);
+        }
+    }
     pub fn frame(
         &mut self,
         window: &Window,
@@ -500,366 +1023,15 @@ impl Studio {
         let mut actions = Vec::new();
         let mut central = egui::Rect::NOTHING;
         let mut approved = false;
-        let mut output=ctx.run(raw,|ctx|{
-
-            if self.theme_dark{
-ctx.set_visuals(egui::Visuals::dark());
-}
-else{
-ctx.set_visuals(egui::Visuals::light());
-}
-
-            egui::TopBottomPanel::top("document tools").show(ctx,|ui|{
-ui.horizontal_wrapped(|ui|{
-
-                ui.heading("Rust Paint Lab");
-if ui.button("New").clicked(){
-self.new_dialog=true;
-}
-
-                if ui.button("Open").clicked(){
-self.action=Some(Action::Open);
-self.file_dialog=true;
-}
-
-                if ui.button("Save").clicked(){
-actions.push(Action::Save);
-}
-
-                if ui.button("Save as").clicked(){
-self.action=Some(Action::SaveAs);
-self.file_dialog=true;
-}
-
-                if ui.button("Export PNG").clicked(){
-self.path=PathBuf::from(&self.path).with_extension("png").to_string_lossy().into();
-self.action=Some(Action::Export);
-self.file_dialog=true;
-}
-
-                if ui.button("Import PNG").clicked(){
-self.action=Some(Action::Import);
-self.file_dialog=true;
-}
-
-                if ui.add_enabled(session.live().project().undo_count()>0,egui::Button::new("Undo")).clicked(){
-actions.push(Action::Undo);
-}
-
-                if ui.add_enabled(session.live().project().redo_count()>0,egui::Button::new("Redo")).clicked(){
-actions.push(Action::Redo);
-}
-
-                ui.checkbox(&mut self.theme_dark,"Dark");
-
-            }
-);
-ui.horizontal_wrapped(|ui|{
-
-                let old=self.tool;
-
-                for (tool,label) in [(EditTool::Brush,"Brush B"),(EditTool::Rectangle,"Rect M"),(EditTool::Ellipse,"Ellipse E"),(EditTool::Lasso,"Lasso K"),(EditTool::Eyedropper,"Pick I")] {
-ui.selectable_value(&mut self.tool,tool,label);
-}
-
-                if old!=self.tool {
-session.mouse(MouseEvent::Interrupted,0);
-self.edit_pointer=None;
-self.edit_points.clear();
-}
-
-                if ui.button("Deselect").clicked(){
-actions.push(Action::Deselect);
-}
-
-                if ui.button("Fill").clicked(){
-actions.push(Action::Fill(false));
-}
-
-                if ui.button("Delete pixels").clicked(){
-actions.push(Action::Fill(true));
-}
-
-
-            }
-);
-}
-);
-
-            egui::TopBottomPanel::bottom("status").show(ctx,|ui|{
-if let Some(error)=session.live().document_error(){
-ui.colored_label(egui::Color32::LIGHT_RED,error);
-}
-else{
-ui.label(&self.status);
-}
-ui.small(format!("{}×{} | {} dpi | {} tiles | {} undo | CPU composite/upload-submit {} µs | frame {} µs",session.live().project().state().width,session.live().project().state().height,session.live().project().state().dpi,session.live().project().state().tile_count(),session.live().project().undo_count(),self.last_upload_us,self.last_frame_us));
-}
-);
-
-            egui::SidePanel::right("painting controls").default_width(240.0).show(ctx,|ui|{
-egui::ScrollArea::vertical().show(ui,|ui|{
-
-                ui.heading("Brush");
-let project=session.live_mut().project_mut();
-
-                egui::ComboBox::from_label("Preset").selected_text(format!("{:?}",project.brush.kind)).show_ui(ui,|ui|{
-for k in [BrushKind::Round,BrushKind::Ink,BrushKind::Pencil,BrushKind::Marker,BrushKind::Airbrush,BrushKind::Soft,BrushKind::Textured,BrushKind::Calligraphy,BrushKind::Eraser,BrushKind::Wash]{
-if ui.selectable_label(project.brush.kind==k,format!("{k:?}")).clicked(){
-let color=project.brush.color;
-project.brush=Brush::preset(k);
-project.brush.color=color;
-}
-}
-}
-);
-
-                ui.color_edit_button_srgb(&mut project.brush.color);
-
-                ui.add(egui::Slider::new(&mut project.brush.size,1.0..=256.0).text("Size"));
-ui.add(egui::Slider::new(&mut project.brush.opacity,0.0..=1.0).text("Opacity"));
-ui.add(egui::Slider::new(&mut project.brush.flow,0.0..=1.0).text("Flow"));
-ui.add(egui::Slider::new(&mut project.brush.hardness,0.0..=1.0).text("Hardness"));
-ui.add(egui::Slider::new(&mut project.brush.spacing,0.05..=1.0).text("Spacing"));
-ui.add(egui::Slider::new(&mut project.brush.smoothing,0.0..=1.0).text("Smoothing"));
-ui.add(egui::Slider::new(&mut project.brush.angle,-std::f64::consts::PI..=std::f64::consts::PI).text("Angle"));
-
-                ui.checkbox(&mut project.brush.pressure_size,"Pressure size");
-ui.checkbox(&mut project.brush.pressure_opacity,"Pressure opacity");
-ui.checkbox(&mut project.brush.tilt,"Tilt angle");
-
-                ui.separator();
-let mut transparent=project.state().background.is_none();
-
-                if ui.checkbox(&mut transparent,"Transparent background").changed()
-                    && let Err(e)=project.edit(|s|{
-s.background=if transparent{
-None}
-else{
-Some([255;
-3])}
-;
-Ok(())}
-){
-self.status=e.to_string();
-}
-
-                ui.collapsing("Edit selected pixels",|ui|{
-
-                    ui.label("Selected layer only; outside canvas is clipped.");
-
-                    ui.horizontal(|ui|{
-ui.label("Move X/Y");
-ui.add(egui::DragValue::new(&mut self.transform_offset[0]).range(-4096.0..=4096.0));
-ui.add(egui::DragValue::new(&mut self.transform_offset[1]).range(-4096.0..=4096.0));
-}
-);
-
-                    ui.add(egui::Slider::new(&mut self.transform_scale,0.1..=4.0).text("Scale"));
-ui.add(egui::Slider::new(&mut self.transform_angle,-180.0..=180.0).text("Rotation"));
-
-                    let bounds=project.state().selection.as_ref().map(Selection::bounds).unwrap_or([0.0,0.0,project.state().width as f64,project.state().height as f64]);
-
-                    let cx=(bounds[0]+bounds[2])/2.0;
-let cy=(bounds[1]+bounds[3])/2.0;
-
-                    if ui.button("Apply transform").clicked(){
-let a=self.transform_angle.to_radians();
-let(sin,cos)=a.sin_cos();
-let c=cos*self.transform_scale;
-let b=sin*self.transform_scale;
-actions.push(Action::Transform([c,b,-b,c,cx-c*cx+b*cy+self.transform_offset[0],cy-b*cx-c*cy+self.transform_offset[1]]));
-}
-
-                    ui.horizontal(|ui|{
-if ui.button("Flip H").clicked(){
-actions.push(Action::Transform([-1.0,0.0,0.0,1.0,2.0*cx,0.0]));
-}
-
-if ui.button("Flip V").clicked(){
-actions.push(Action::Transform([1.0,0.0,0.0,-1.0,0.0,2.0*cy]));
-}
-}
-);
-
-                    if ui.add_enabled(project.state().selection.is_some(),egui::Button::new("Crop document to selection bounds")).clicked(){
-actions.push(Action::Crop);
-}
-
-                }
-);
-
-                ui.heading("Layers");
-ui.horizontal(|ui|{
-if ui.button("+").clicked(){
-actions.push(Action::Add);
-}
-
-if ui.button("Duplicate").clicked(){
-actions.push(Action::Duplicate);
-}
-
-if ui.button("Delete").clicked(){
-actions.push(Action::Delete);
-}
-}
-);
-
-                ui.horizontal(|ui|{
-if ui.button("Up").clicked(){
-actions.push(Action::Move(1));
-}
-
-if ui.button("Down").clicked(){
-actions.push(Action::Move(-1));
-}
-
-if ui.button("Clear layer").clicked(){
-actions.push(Action::Clear);
-}
-}
-);
-
-                let selected=project.state().selected;
-
-                let layers:Vec<_>=project.state().layers.iter().rev().map(|l|(l.id,l.name.clone(),l.visible,l.locked,l.opacity,l.blend)).collect();
-
-                for(id,mut name,mut visible,mut locked,mut opacity,mut blend)in layers{
-
-                    ui.group(|ui|{
-if ui.selectable_label(id==selected,&name).clicked(){
-actions.push(Action::Select(id));
-}
-
-                        let mut changed=ui.add(egui::TextEdit::singleline(&mut name).char_limit(64)).changed();
-
-                        changed|=ui.checkbox(&mut visible,"Visible").changed();
-changed|=ui.checkbox(&mut locked,"Lock").changed();
-changed|=ui.add(egui::Slider::new(&mut opacity,0..=255).text("Layer opacity")).changed();
-
-                        let old=blend;
-egui::ComboBox::from_id_salt(("blend",id)).selected_text(format!("{blend:?}")).show_ui(ui,|ui|{
-for b in [Blend::Normal,Blend::Multiply,Blend::Screen,Blend::Overlay]{
-ui.selectable_value(&mut blend,b,format!("{b:?}"));
-}
-}
-);
-changed|=old!=blend;
-
-                        if changed{
-actions.push(Action::Layer(id,name,visible,locked,opacity,blend));
-}
-
-                    }
-);
-
-                }
-
-                ui.separator();
-ui.label("L: paint · P/1/2/3: replay");
-ui.label("Ctrl-Z / Ctrl-Y: history");
-
-                if !self.recovery_files.is_empty(){
-ui.heading("Recover artwork");
-for p in self.recovery_files.clone(){
-if ui.button(p.file_name().unwrap_or_default().to_string_lossy()).clicked(){
-actions.push(Action::Recover(p));
-}
-}
-}
-
-            }
-);
-}
-);
-
-            egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx,|ui|{
-central=ui.available_rect_before_wrap();
-}
-);
-
-            if self.new_dialog{
-egui::Window::new("New document").collapsible(false).show(ctx,|ui|{
-ui.add(egui::Slider::new(&mut self.new_width,64..=4096).text("Width"));
-ui.add(egui::Slider::new(&mut self.new_height,64..=4096).text("Height"));
-ui.add(egui::Slider::new(&mut self.new_dpi,72..=1200).text("DPI"));
-if ui.button("Create").clicked(){
-actions.push(Action::New);
-self.new_dialog=false;
-}
-
-if ui.button("Cancel").clicked(){
-self.new_dialog=false;
-}
-}
-);
-}
-
-            if self.file_dialog{
-egui::Window::new("Project / image path").collapsible(false).show(ctx,|ui|{
-ui.label("Enter a full path or a file in the current folder. RPL for editable projects; PNG for images.");
-ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
-if ui.button("Continue").clicked()||ui.input(|i|i.key_pressed(egui::Key::Enter)){
-if let Some(a)=self.action.take(){
-actions.push(a);
-}
-self.file_dialog=false;
-}
-
-if ui.button("Cancel").clicked(){
-self.file_dialog=false;
-self.action=None;
-}
-}
-);
-}
-
-            if self.confirm.is_some(){
-egui::Window::new("Preserve unsaved artwork").collapsible(false).show(ctx,|ui|{
-ui.label("Save first, or retain a recovery checkpoint before replacing this document.");
-if ui.button("Keep recovery and continue").clicked(){
-if self.preserve(session).is_ok(){
-approved=true;
-actions.push(self.confirm.take().unwrap());
-}
-else{
-self.status="Recovery unavailable: save current artwork before continuing".into();
-}
-}
-
-if ui.button("Cancel").clicked(){
-self.confirm=None;
-}
-}
-);
-}
-
-            if self.close_requested{
-egui::Window::new("Close artwork?").collapsible(false).show(ctx,|ui|{
-ui.label("Unsaved artwork will be retained in local recovery. Save the project for an explicit editable file.");
-if ui.button("Save project and close").clicked(){
-actions.push(Action::Save);
-self.action=Some(Action::Save);
-}
-
-if ui.button("Keep recovery and close").clicked(){
-match self.preserve(session){
-Ok(())=>self.close_ready=true,Err(e)=>self.status=e.to_string()}
-}
-
-if ui.button("Cancel").clicked(){
-self.close_requested=false;
-}
-}
-);
-}
-
-        }
-);
+        let mut output = ctx.run(raw, |ctx| {
+            self.widgets(ctx, session, &mut actions, &mut central, &mut approved)
+        });
 
         for a in actions {
-            if matches!(a, Action::New | Action::Open | Action::Recover(_))
-                && session.live().project().dirty()
+            if matches!(
+                a,
+                Action::New | Action::Open | Action::Recover(_) | Action::Recent(_)
+            ) && session.live().project().dirty()
                 && self.confirm.is_none()
                 && !approved
             {
@@ -958,6 +1130,11 @@ self.close_requested=false;
     fn execute(&mut self, a: Action, session: &mut CanvasSession) -> Result<(), Failure> {
         let project = session.live_mut().project_mut();
         match a {
+            Action::RemoveRecovery(path) => {
+                paint_document::recovery::remove(&paint_document::recovery::directory()?, &path)?;
+                self.recovery_files.retain(|p| p != &path);
+                self.status = "Selected recovery checkpoint and backup removed".into();
+            }
             Action::Fill(erase) => project.fill_selection(erase)?,
             Action::Deselect => project.set_selection(None)?,
             Action::Transform(m) => project.transform_selection(m)?,
@@ -1006,8 +1183,8 @@ self.close_requested=false;
                 self.path = "new-artwork.rpl".into();
                 self.last_submitted = u64::MAX;
             }
-            Action::Open | Action::Recover(_) => {
-                let path = if let Action::Recover(p) = &a {
+            Action::Open | Action::Recover(_) | Action::Recent(_) => {
+                let path = if let Action::Recover(p) | Action::Recent(p) = &a {
                     p.clone()
                 } else {
                     PathBuf::from(&self.path)
@@ -1022,7 +1199,9 @@ self.close_requested=false;
                     project.revision = 1;
                 } else {
                     self.path = store.path.to_string_lossy().into();
+                    let path = store.path.clone();
                     self.store = Some(store);
+                    self.remember(&path);
                 }
                 self.last_submitted = u64::MAX;
             }
@@ -1040,6 +1219,8 @@ self.close_requested=false;
                     self.close_ready = true;
                 }
                 self.status = "Editable project saved; previous valid file retained as .bak".into();
+                let path = self.store.as_ref().unwrap().path.clone();
+                self.remember(&path);
             }
             Action::Export => {
                 storage::export_png(std::path::Path::new(&self.path), project)?;

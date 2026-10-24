@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 pub mod brush;
 pub mod editing;
+pub mod recent;
 pub mod storage;
 use brush::{Brush, BrushKind};
 use paint_stroke::{StrokeCommand, StrokeId, StrokeSample};

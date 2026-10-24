@@ -102,15 +102,12 @@ pub fn available(directory: &Path) -> Vec<PathBuf> {
     let Ok(items) = fs::read_dir(directory) else {
         return Vec::new();
     };
-    let mut files: Vec<_> = items
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "rpl"))
-        .collect();
-    files.sort();
-    files.reverse();
-    files.truncate(20);
-    files.retain(|path| {
+    let mut files = Vec::with_capacity(21);
+    for item in items.filter_map(Result::ok) {
+        let path = item.path();
+        if path.extension().is_none_or(|e| e != "rpl") {
+            continue;
+        }
         let Ok(owner) = OpenOptions::new()
             .read(true)
             .write(true)
@@ -118,9 +115,52 @@ pub fn available(directory: &Path) -> Vec<PathBuf> {
             .truncate(false)
             .open(path.with_extension("owner"))
         else {
-            return false;
+            continue;
         };
-        owner.try_lock().is_ok()
-    });
+        if owner.try_lock().is_err() {
+            continue;
+        }
+        files.push(path);
+        files.sort();
+        files.reverse();
+        files.truncate(20);
+    }
     files
+}
+/// Explicit user-confirmed cleanup only. Refuse arbitrary paths and active owners.
+pub fn remove(directory: &Path, path: &Path) -> Result<(), PaintError> {
+    if path.parent() != Some(directory)
+        || path.extension().is_none_or(|e| e != "rpl")
+        || !path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("recovery-"))
+    {
+        return Err(PaintError::Invalid);
+    }
+    let owner_path = path.with_extension("owner");
+    let owner = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&owner_path)?;
+    owner.try_lock().map_err(|_| PaintError::Busy)?;
+    let lock_path = path.with_extension("rpl.lock");
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)?;
+    lock.try_lock().map_err(|_| PaintError::Busy)?;
+    fs::remove_file(path)?;
+    let backup = path.with_extension("rpl.bak");
+    if backup.exists() {
+        fs::remove_file(backup)?;
+    }
+    drop(lock);
+    drop(owner);
+    let _ = fs::remove_file(lock_path);
+    let _ = fs::remove_file(owner_path);
+    Ok(())
 }

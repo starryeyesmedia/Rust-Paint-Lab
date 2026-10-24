@@ -153,3 +153,23 @@ also exercised wheel zoom/fit without changing saved artwork. Windows write-hand
 fix run 40051986737 passed native tests and reached release canvas compilation;
 Linux/macOS jobs succeeded and published native development artifacts. Verify final
 matrix/artifacts after all changes; do not treat pending compilation as success.
+
+## Recent documents and recovery maintenance
+
+Added bounded local recent-project preferences with real UI open actions, plus
+explicit confirmed recovery/backup deletion. Active owners and ordinary artwork
+are protected; discovery retains only 20 paths in memory even in large directories
+and filters active owners before selecting recent candidates. No automatic deletion.
+Three additional tests cover preferences bounds/roundtrip/corruption, active-owner
+cleanup refusal and bounded discovery with inactive older files. Current total:
+106 Rust tests plus GPU runner. UI code is split into widget construction and frame
+execution for readable formatting and clearer action ownership.
+
+P0 gaps remaining: snapshot recovery rather than operation journal, asynchronous
+explicit save, advanced stabilizer/high-resolution stored native timing, and physical
+Windows painting/storage certification. Not a finished production replacement.
+
+Matrix confirmation: 276b76c / Actions 40051986737 succeeded on Windows, Linux and
+macOS, including portable Windows canvas/diagnostic packaging and native Unix
+packages. The write-handle correction resolved the Windows test failure. Newer
+selection/navigation/preferences commits still require their own final matrix check.
