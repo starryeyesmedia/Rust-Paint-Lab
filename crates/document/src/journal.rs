@@ -247,16 +247,22 @@ impl Journal {
 mod tests {
     use super::*;
     use crate::Engine;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static NEXT_PATH_ID: AtomicU64 = AtomicU64::new(0);
 
     fn path() -> PathBuf {
         std::env::temp_dir().join(format!(
-            "rpl-journal-{}-{}.journal",
+            "rpl-journal-{}-{}-{}.journal",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_PATH_ID.fetch_add(1, Ordering::Relaxed)
         ))
     }
     fn revise(engine: &mut Engine, name: &str) {
