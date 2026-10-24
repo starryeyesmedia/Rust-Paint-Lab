@@ -10,6 +10,12 @@ not evidence that a workflow is complete.
 - Working branch: `feature/studio-overdrive-phase-7`.
 - Branch base: documentation checkpoint `fc1f0f8`, which follows validated code
   checkpoint `bdea96f` on `feature/overdrive-painting-alpha`.
+- First Phase 7 implementation checkpoint: `0fce7fa` (artboard clipping and
+  transaction continuity).
+- Duplicate pen Downs outside paper are ignored without cancelling an existing
+  same-ID contact in follow-up commit `43009eb`.
+- The Phase 5 X11 smoke had an obsolete paper-exit cancellation expectation; its
+  updated artboard-reentry and focus-cancel checks are in `51cfcef`.
 - Latest inherited three-platform Actions run: `40056494303`, successful on
   Windows, Linux, and macOS. The Phase 7 branch has not yet run CI.
 - No merge, release, or public exposure is authorized.
@@ -36,12 +42,17 @@ unchanged. No additional event loop or capture behavior was introduced.
 
 Automated coverage includes clipping after zoom/pan, re-entry under the same stroke
 identity, true cancellation, document pixels across disconnected segments, demo
-geometry, and an offscreen GPU pixel assertion for both sides of an unpainted gap.
+geometry, native pen travel around an off-paper margin with disconnected geometry
+and exact-counter preservation, and an offscreen GPU pixel assertion for both
+sides of an unpainted gap.
 The real alpha window workflow still passes. No physical Windows boundary, capture,
 pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoint.
 
 ### Validation on this checkpoint
 
+- Full local suite and required GPU check cover `0fce7fa`; `43009eb` additionally
+  passed the focused pen tests and workspace Clippy; the updated X11 script in
+  `51cfcef` passed locally.
 - `cargo fmt --all -- --check`: passed.
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`: passed.
 - `cargo test --workspace --locked`: passed, **136 tests**.
@@ -52,7 +63,10 @@ pressure interpolation, DPI, or Iris Xe test has been performed in this checkpoi
   PNG/OpenRaster paths and forced-process recovery workflow).
 - Windows GNU target workspace check and Clippy: passed. This is cross-checking,
   not Windows linking or execution.
-- Windows/Linux/macOS GitHub Actions: pending for the Phase 7 commit.
+- `40059380023` passed the macOS job but exposed the outdated Linux X11 smoke
+  expectation and did not complete Windows. The smoke was updated and passes
+  locally. `43009eb` is under three-platform CI; final code+smoke run
+  `40059750826` for `51cfcef` is pending.
 - Physical Windows stylus/capture and modest-hardware performance: not tested here.
 
 ## Architecture decisions

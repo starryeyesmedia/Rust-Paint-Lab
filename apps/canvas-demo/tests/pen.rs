@@ -77,13 +77,22 @@ fn pen_is_excluded_from_replay_and_clips_artboard_crossings() {
     outside.position_px = [0.0, 116.0];
     session.pen(outside);
     assert!(session.live().active());
-    let mut reentered = sample(1, 5, Phase::Move);
-    reentered.position_px = [831.0, 116.0];
+    let mut margin = sample(1, 5, Phase::Move);
+    margin.position_px = [0.0, 531.0];
+    session.pen(margin);
+    margin.timestamp_ms = 6;
+    margin.position_px = [831.0, 531.0];
+    session.pen(margin);
+    margin.timestamp_ms = 7;
+    margin.position_px = [831.0, 400.0];
+    session.pen(margin);
+    let mut reentered = sample(1, 8, Phase::Move);
+    reentered.position_px = [700.0, 400.0];
     reentered.pressure = Some(0.9);
     reentered.source_counter = paint_input::SourceCounter::new(300, 1_000);
     session.pen(reentered);
-    let mut up = sample(1, 6, Phase::Up);
-    up.position_px = [831.0, 116.0];
+    let mut up = sample(1, 9, Phase::Up);
+    up.position_px = [700.0, 400.0];
     session.pen(up);
     assert!(!session.live().active());
     let points = session.scene().committed().values().next().unwrap();
@@ -97,7 +106,15 @@ fn pen_is_excluded_from_replay_and_clips_artboard_crossings() {
             .iter()
             .any(|p| p.pressure.is_some_and(|pressure| pressure > 0.85))
     );
-    assert!(points.iter().all(|p| p.source_counter.is_none()));
+    assert!(
+        points
+            .iter()
+            .any(|p| p.source_counter == paint_input::SourceCounter::new(300, 1_000))
+    );
+    assert!(points.iter().any(|p| {
+        (p.position_document.0[0] - 800.0).abs() < 1e-8 && p.source_counter.is_none()
+    }));
+    assert_eq!(session.scene().mesh([832, 532]).unwrap().len(), 48);
 }
 
 #[test]

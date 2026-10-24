@@ -39,6 +39,7 @@ and interrupted fixtures. No input is recorded automatically.
 | Command | Consumer responsibility |
 | --- | --- |
 | BeginStroke | Allocate an isolated provisional transaction and start a preview |
+| BreakStrokeSegment | Continue the same provisional transaction as a disconnected subpath; reset interpolation without commit/cancel |
 | UpdateStroke | Extend only that provisional transaction |
 | CommitStroke | Include the final sample, finalize that transaction exactly once, then retire its preview |
 | CancelStroke | Discard that transaction and preview; do not add completed document content |
@@ -65,6 +66,17 @@ do not draw irreversible preview pixels into a committed target. On Commit the
 future document model accepts the finalized result and the renderer retires the
 preview without double drawing it. These are contracts for future consumers;
 there is no transaction store, brush implementation, or undo stack here.
+
+`BreakStrokeSegment` is an adapter-directed path discontinuity for cases such as
+artboard clipping. The app clips physical pointer motion to its transformed paper
+rectangle. Before routing a re-entry sample, it calls
+`Router::break_before_next_move(pointer_id)`. The next valid Move retains its
+`StrokeId` and sample attributes but tells downstream consumers not to interpolate
+from the prior in-paper point. The document brush resets segment spacing and the
+legacy canvas stores a path break. This is not an input lifecycle transition and
+does not alter the Processor contact. Focus loss, capture loss, leaving the window,
+and invalid data still produce true cancellation. A contact beginning outside
+paper never starts a painting transaction.
 
 ## Routing policy
 
@@ -108,7 +120,8 @@ document = (physical_client_pixels - origin_client_px) / zoom
 +x points right and +y down. At zoom=1, one document unit occupies one physical
 client pixel. Translation [10,-20] and zoom=2 maps client [14,-12] to document
 [2,4]. This is not a DIP/DPI conversion, perspective transform, rotation, clipping,
-or gesture controller. Negative/out-of-window positions are valid finite data.
+or gesture controller. Negative/out-of-window positions are valid finite data at
+this shared router boundary; the canvas adapter clips live samples to its paper.
 
 Viewport fields are private so invalid values cannot be introduced after
 construction. Mapping rejects nonfinite source points and finite arithmetic that
@@ -121,9 +134,9 @@ will be a separate validated boundary.
 
 ## Current limitations and next milestone
 
-No UI hit testing, eraser tool policy, gestures, palm rejection, pressure curves,
-smoothing/prediction, history processing, rasterization, or document mutation.
-The router remains graphics-independent and unchanged by Phase 4. Its commands
-now feed the separate [replay canvas](canvas-demo.md), which demonstrates isolated
-previews and commit/cancel rendering. The native diagnostic remains unchanged.
-Tests are synthetic and do not verify Galaxy Book pen hardware.
+No UI hit testing, gestures, palm rejection, pressure curves, prediction, or native
+pen window adapter live in this crate. The router remains graphics-independent.
+Its commands feed the [canvas and document engine](architecture.md), which keep
+provisional content separate through commit/cancel and reset raster spacing at a
+clipped path break. The native diagnostic remains a separate app. Tests are
+synthetic and do not verify Galaxy Book pen hardware.
