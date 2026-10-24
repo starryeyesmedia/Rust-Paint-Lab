@@ -125,3 +125,10 @@ Ctrl+Shift+O imports into a new unsaved native document. Background becomes a la
 locks, brush presets and history are omitted. Groups/masks/nonzero offsets and
 unsupported blend modes are rejected. Save `.rpl` afterward. See openraster.md for
 exact capabilities/limits. External application interoperability still needs testing.
+
+Ctrl+Shift+R restores the latest inactive recovery into a new unsaved document.
+If the primary snapshot is corrupt or missing, a verified `.bak` is offered through
+the same recovery entry; status explicitly warns that newer edits may be missing.
+Neither source is rewritten. Save the restored work under a normal native filename.
+A missing/corrupt primary plus missing/corrupt backup reports an error and keeps the
+current artwork. Force-kill testing in CI uses disposable synthetic artwork only.

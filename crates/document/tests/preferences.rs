@@ -61,3 +61,43 @@ fn recovery_listing_is_bounded_and_does_not_hide_older_inactive_files() {
     drop(owners);
     assert_eq!(recovery::available(&dir).len(), 20);
 }
+
+#[test]
+fn corrupted_recovery_falls_back_to_verified_backup_without_modifying_either() {
+    let dir = directory("fallback");
+    let mut e = Engine::new(32, 32, 300).unwrap();
+    let r = recovery::Recovery::start(&dir).unwrap();
+    r.flush(e.state().clone()).unwrap();
+    e.add_layer().unwrap();
+    r.flush(e.state().clone()).unwrap();
+    let p = r.path.clone();
+    drop(r);
+    assert_eq!(recovery::restore(&p).unwrap().0.layers.len(), 2);
+    std::fs::write(&p, b"interrupted or corrupted snapshot").unwrap();
+    let (state, backup) = recovery::restore(&p).unwrap();
+    assert!(backup);
+    assert_eq!(state.layers.len(), 1);
+    assert_eq!(
+        std::fs::read(&p).unwrap(),
+        b"interrupted or corrupted snapshot"
+    );
+    std::fs::write(p.with_extension("rpl.bak"), b"also corrupt").unwrap();
+    assert!(recovery::restore(&p).is_err());
+}
+
+#[test]
+fn orphaned_backup_is_discovered_recoverable_and_can_be_cleaned_up() {
+    let dir = directory("orphaned-backup");
+    let e = Engine::new(32, 32, 300).unwrap();
+    let r = recovery::Recovery::start(&dir).unwrap();
+    r.flush(e.state().clone()).unwrap();
+    r.flush(e.state().clone()).unwrap();
+    let path = r.path.clone();
+    drop(r);
+    std::fs::remove_file(&path).unwrap();
+    assert!(recovery::available(&dir).contains(&path));
+    let (_, backup) = recovery::restore(&path).unwrap();
+    assert!(backup);
+    recovery::remove(&dir, &path).unwrap();
+    assert!(!path.with_extension("rpl.bak").exists());
+}

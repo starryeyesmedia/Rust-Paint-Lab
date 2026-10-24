@@ -412,6 +412,9 @@ impl ApplicationHandler for App {
                                 PhysicalKey::Code(KeyCode::KeyE) => {
                                     Some(if self.modifiers.shift_key() { 'q' } else { 'e' })
                                 }
+                                PhysicalKey::Code(KeyCode::KeyR) if self.modifiers.shift_key() => {
+                                    Some('v')
+                                }
                                 PhysicalKey::Code(KeyCode::KeyF) => Some('f'),
                                 PhysicalKey::Code(KeyCode::KeyD) => Some('d'),
                                 PhysicalKey::Code(KeyCode::KeyX) => Some('x'),

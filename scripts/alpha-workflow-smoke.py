@@ -156,9 +156,23 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl_shift('o');time.sleep(0.3);key('Return');status('*');ctrl('s')
             imported=directory/'imported-artwork.rpl'
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
+            recovery_dir=directory/'state/rust-paint-lab/recovery'
+            snapshot=wait(lambda: next((p for p in sorted(recovery_dir.glob('recovery-*.rpl'),reverse=True) if valid_project(p)),None),'initial recovery checkpoint')
+            before=snapshot.read_bytes()
+            key('b');move(230,350);click_button(1,True);move(400,470);click_button(1,False);status('*')
+            wait(lambda: valid_project(snapshot) and snapshot.read_bytes()!=before,'latest committed artwork checkpoint')
+            recovered_bytes=snapshot.read_bytes()
+            process.kill();assert process.wait(timeout=10)!=0
+            time.sleep(0.2)
+            process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
+            window=wait(find_window,'workspace after forced crash');focus(display,window,2,0);send();time.sleep(0.5)
+            ctrl_shift('r');status('*');ctrl('s')
+            recovered=directory/'recovered-artwork.rpl'
+            wait(lambda: recovered.exists() and recovered.read_bytes()==recovered_bytes and '*' not in title(window),'forced-crash recovery restores exact checkpoint bytes')
+
 
             key('Escape');assert process.wait(timeout=20)==0
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, forced-crash recovery, clean close)')
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)
             close_display(display)

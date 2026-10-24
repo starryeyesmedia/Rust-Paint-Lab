@@ -204,3 +204,21 @@ RSS312848KiB via Linux resource.getrusage (not GPU/driver memory). Both retain32
 steps; history payload18,694,144 /60,702,720 bytes. Disk results are the cloud local
 filesystem, not the user's Windows disk. Workload and measurements are reproducible
 with the metrics example; no 60FPS/hardware latency assertion.
+
+## Crash-recovery acceptance checkpoint
+
+Added checksum-verified backup fallback with explicit lost-newer-edits warning and
+recovery of orphaned `.bak` checkpoints when the primary is missing. Recovery opens
+a new unsaved document, never rewrites the source. Ctrl+Shift+R exposes latest
+recovery. Two more tests verify corrupt-both refusal, fallback preservation and
+orphan discovery/cleanup (116 Rust tests total). The real Linux window test now
+force-kills the app after a durable committed snapshot, restarts it, restores via
+the actual UI shortcut, saves and asserts byte-for-byte checkpoint equality. This
+is genuine process interruption testing, not a hardware/power-loss claim.
+
+Dependency audit: cargo-audit0.22.2, RustSec DB84d943a6deeb8cc6c6f632531aaf4f1c62275239
+(updated2026-10-23),315 packages: no known vulnerability advisories. Two informational
+unmaintained warnings remain: paste1.0.15 (RUSTSEC-2024-0436, graphics macro chain),
+ttf-parser0.25.1 (RUSTSEC-2026-0192, egui fonts). Do not claim a warning-free audit;
+upstream GUI/font updates under pinned Rust1.90 need evaluation. No custom fonts
+are imported by this app. Audit tool is external dev tooling, not a product dependency.

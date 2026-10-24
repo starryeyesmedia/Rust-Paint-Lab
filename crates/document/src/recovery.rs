@@ -104,10 +104,17 @@ pub fn available(directory: &Path) -> Vec<PathBuf> {
     };
     let mut files = Vec::with_capacity(21);
     for item in items.filter_map(Result::ok) {
-        let path = item.path();
+        let mut path = item.path();
+        if path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().ends_with(".rpl.bak"))
+        {
+            path = path.with_extension("");
+        }
         if path.extension().is_none_or(|e| e != "rpl") {
             continue;
         }
+
         let Ok(owner) = OpenOptions::new()
             .read(true)
             .write(true)
@@ -122,6 +129,7 @@ pub fn available(directory: &Path) -> Vec<PathBuf> {
         }
         files.push(path);
         files.sort();
+        files.dedup();
         files.reverse();
         files.truncate(20);
     }
@@ -153,7 +161,9 @@ pub fn remove(directory: &Path, path: &Path) -> Result<(), PaintError> {
         .truncate(false)
         .open(&lock_path)?;
     lock.try_lock().map_err(|_| PaintError::Busy)?;
-    fs::remove_file(path)?;
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
     let backup = path.with_extension("rpl.bak");
     if backup.exists() {
         fs::remove_file(backup)?;
@@ -163,4 +173,20 @@ pub fn remove(directory: &Path, path: &Path) -> Result<(), PaintError> {
     let _ = fs::remove_file(lock_path);
     let _ = fs::remove_file(owner_path);
     Ok(())
+}
+
+/// Restore the latest valid snapshot, falling back only to its verified backup.
+/// The caller opens a new unsaved document and must tell the user if fallback
+/// lost newer edits; neither source file is modified during recovery.
+pub fn restore(path: &Path) -> Result<(State, bool), PaintError> {
+    match crate::storage::load(path) {
+        Ok(state) => Ok((state, false)),
+        Err(primary) => {
+            let backup = path.with_extension("rpl.bak");
+            match crate::storage::load(&backup) {
+                Ok(state) => Ok((state, true)),
+                Err(_) => Err(primary),
+            }
+        }
+    }
 }

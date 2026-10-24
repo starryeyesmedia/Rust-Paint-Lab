@@ -474,6 +474,18 @@ impl Studio {
     }
     pub fn shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
+        if key == 'v' {
+            if let Some(path) = self.recovery_files.first().cloned() {
+                if session.live().project().dirty() {
+                    self.confirm = Some(Action::Recover(path));
+                } else if let Err(e) = self.execute(Action::Recover(path), session) {
+                    self.status = e.to_string();
+                }
+            } else {
+                self.status = "No inactive recovery checkpoints found".into();
+            }
+            return;
+        }
         if key == 'o' || key == 'a' {
             self.action = Some(if key == 'a' {
                 Action::ImportOra
@@ -1227,8 +1239,19 @@ self.close_requested=false;
                 self.path = "new-artwork.rpl".into();
                 self.last_submitted = u64::MAX;
             }
-            Action::Open | Action::Recover(_) | Action::Recent(_) => {
-                let path = if let Action::Recover(p) | Action::Recent(p) = &a {
+            Action::Recover(path) => {
+                let (state, fallback) = paint_document::recovery::restore(&path)?;
+                let next = Recovery::start(&paint_document::recovery::directory()?)?;
+                *project = Engine::from_state(state)?;
+                project.revision = 1;
+                self.recovery = Some(next);
+                self.path = "recovered-artwork.rpl".into();
+                self.store = None;
+                self.last_submitted = u64::MAX;
+                self.status=if fallback{"RECOVERED BACKUP: latest checkpoint was invalid; newer edits may be missing. Save As a new native project"}else{"Recovery restored into a new unsaved document; Save As a native project"}.into();
+            }
+            Action::Open | Action::Recent(_) => {
+                let path = if let Action::Recent(p) = &a {
                     p.clone()
                 } else {
                     PathBuf::from(&self.path)
@@ -1237,16 +1260,10 @@ self.close_requested=false;
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
                 *project = Engine::from_state(state)?;
                 self.recovery = Some(next);
-                if matches!(a, Action::Recover(_)) {
-                    self.path = "recovered-artwork.rpl".into();
-                    self.store = None;
-                    project.revision = 1;
-                } else {
-                    self.path = store.path.to_string_lossy().into();
-                    let path = store.path.clone();
-                    self.store = Some(store);
-                    self.remember(&path);
-                }
+                self.path = store.path.to_string_lossy().into();
+                let path = store.path.clone();
+                self.store = Some(store);
+                self.remember(&path);
                 self.last_submitted = u64::MAX;
             }
             Action::Save | Action::SaveAs => {
