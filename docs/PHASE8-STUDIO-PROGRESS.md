@@ -49,6 +49,10 @@ This is the active continuation record. Phase 7 work remains documented in
   project reader. The list is capped at eight and a failed/full draft save blocks
   close until Save As succeeds or the user cancels. No old draft is deleted
   automatically.
+- The welcome screen now offers an explicit confirmation before removing a draft.
+  The removal routine accepts only a regular `draft-*.rpl` child of the drafts
+  directory and removes its matching storage backup; it rejects symlinks, ordinary
+  artwork paths, and paths outside the managed folder. Cleanup is never automatic.
 - Empty new documents also become drafts on normal close, so configured dimensions
   and background survive even before a stroke is drawn. Brush-setting changes now
   become revisioned document metadata once synchronized, so recovery/close detects
@@ -60,8 +64,8 @@ This is the active continuation record. Phase 7 work remains documented in
 
 - `cargo fmt --all --check`: passed.
 - Workspace Clippy with `-D warnings`: passed.
-- `cargo test --workspace --locked`: passed, **156 tests** after the first draft/close
-  slice and brush-metadata revision tracking.
+- `cargo test --workspace --locked`: passed, **158 tests**, including draft cleanup
+  path validation and storage-backup removal.
 - `cargo build --workspace --locked`: passed.
 - Required offscreen pixel test passed on Mesa llvmpipe/OpenGL. Forcing Vulkan in
   this container did not find a Vulkan adapter; the default backend selected
@@ -72,17 +76,21 @@ This is the active continuation record. Phase 7 work remains documented in
   does not provide `xvfb-run`. CI is configured to run it and now starts with the
   welcome/New Document flow in the test-only path-entry mode.
 - GitHub Actions run [`40116227316`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40116227316)
-  for `d29bd2f` is not fully green: Linux's real window workflow still asserted
-  the old 800 × 500 demo document after New Document began using 1600 × 1000; this
-  assertion is corrected locally. macOS packaging found the new `block2 0.6.2`
-  upstream license note was missing from the supplemental map; the full upstream
-  `LICENSE.md` and revision provenance are now added locally. Windows was still
-  building when the report was updated. These fixes require a new CI run.
+  for `d29bd2f` failed in the Linux window assertion (which expected the old 800 ×
+  500 demo size) and macOS supplemental license generation (missing the `block2
+  0.6.2` notice). The assertion and full upstream license/provenance were corrected
+  in the next pushed commit. Its Actions run is still in progress; the new draft
+  cleanup is an uncommitted local slice and needs its own Actions run.
 - The second close-save/draft slice has passed focused `canvas-demo` tests and
   now passes complete workspace tests/build/Clippy, required local GPU smoke, and
   Windows GNU target check/Clippy. License generation passes for both Windows MSVC
   and macOS ARM64 target graphs (152 and 164 packages respectively). The real alpha
   Xvfb workflow remains unavailable locally.
+- A third slice adds safe, user-confirmed cleanup of persistent drafts so a full
+  draft quota can be managed without weakening the bounded storage policy. Its
+  regression tests cover backup cleanup and reject unrelated/outside paths. Local
+  fmt, strict Clippy, workspace tests/build, and the required llvmpipe GPU smoke
+  all pass for this slice.
 
 ## Partial and unimplemented Phase 8 requirements
 
@@ -92,10 +100,10 @@ This is the active continuation record. Phase 7 work remains documented in
 - Document setup has no remembered settings/recent-dimension list, explicit unit
   presets for physical paper beyond current pixel presets, or automated app-level
   reopen/export dimension workflow. Preset dimensions are bounded to current format.
-- Drafts do not yet have a management/removal UI. At the eight-draft cap, use Save
-  As or cancel; cleanup controls must not delete an active document or its only
-  valid copy. Continuous debounced autosave and a full save-state indicator remain
-  unfinished; the existing recovery worker still checkpoints committed revisions.
+- Drafts now have a confirmation-gated remove action, but there is still no
+  rename, pin, or age sorting. Continuous debounced autosave and a full save-state
+  indicator remain unfinished; the existing recovery worker still checkpoints
+  committed revisions.
 - File dialogs have compiled on native Linux and Windows GNU targets; Windows,
   Linux portal, and macOS visual/runtime behavior needs CI or manual verification.
 - Workspace still has the previous dense top toolbar. Vertical tool palette, proper
@@ -124,15 +132,14 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Finish the complete local Rust validation after the draft/close changes and rerun
-   Windows GNU check/Clippy.
-2. Push the corrected Linux dimension assertion and new macOS `block2` notice, then
-   verify Linux save/reopen/recovery smoke, macOS packaging, Windows package build,
-   and the portable canvas artifact.
-3. Add automated close-save conflict/failure tests through the real window workflow
-   (currently blocked locally by missing `xvfb-run`) and verify unnamed draft restart.
-4. Add safe draft management and remember the last document-setup settings, then
-   continue the vertical tool palette/menu and compact brush/layer controls.
+1. Commit/push the draft cleanup slice and rerun the cross-platform build after it.
+2. Verify Linux save/reopen/recovery smoke, macOS packaging, Windows package build,
+   and the portable canvas artifact on the latest commit.
+3. Run the real alpha window workflow in CI to verify close-save failure choices,
+   startup dialogs, and draft restart behavior (locally blocked by missing
+   `xvfb-run`).
+4. Remember the last document-setup settings, then continue the vertical tool
+   palette/menu and compact brush/layer controls.
 
 No physical Windows picker, stylus, touch, power-loss, or hardware-performance
 validation has been performed in this phase.

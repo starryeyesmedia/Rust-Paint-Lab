@@ -141,6 +141,7 @@ enum Action {
     Recover(PathBuf),
     Recent(PathBuf),
     RemoveRecovery(PathBuf),
+    RemoveDraft(PathBuf),
     AddReference(PathBuf),
     Undo,
     Redo,
@@ -216,6 +217,7 @@ pub struct Studio {
     recent: paint_document::recent::Recent,
     recent_path: Option<PathBuf>,
     cleanup: Option<PathBuf>,
+    draft_cleanup: Option<PathBuf>,
     last_submitted: u64,
     theme_dark: bool,
     navigation: crate::navigation::Navigation,
@@ -325,6 +327,7 @@ impl Studio {
             recent,
             recent_path,
             cleanup: None,
+            draft_cleanup: None,
             last_submitted: 0,
             theme_dark: preferences.dark_theme,
             navigation: Default::default(),
@@ -1415,12 +1418,21 @@ ui.add(egui::Label::new(pen_status).truncate());
                 if !self.drafts.is_empty() {
                     ui.separator();
                     ui.heading("Persistent drafts");
+                    let mut remove = None;
                     for path in self.drafts.iter().take(crate::drafts::MAX_DRAFTS) {
-                        if ui.button(crate::drafts::display_name(path)).clicked() {
-                            self.picker_from_welcome = true;
-                            actions.push(Action::Recent(path.clone()));
-                            self.welcome = false;
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button(crate::drafts::display_name(path)).clicked() {
+                                self.picker_from_welcome = true;
+                                actions.push(Action::Recent(path.clone()));
+                                self.welcome = false;
+                            }
+                            if ui.small_button("Remove…").clicked() {
+                                remove = Some(path.clone());
+                            }
+                        });
+                    }
+                    if let Some(path) = remove {
+                        self.draft_cleanup = Some(path);
                     }
                 }
                 ui.separator();
@@ -1440,6 +1452,19 @@ ui.add(egui::Label::new(pen_status).truncate());
                 }
                 if ui.button("Cancel").clicked() {
                     self.cleanup = None;
+                }
+            });
+        } else if let Some(path) = self.draft_cleanup.clone() {
+            egui::Modal::new(egui::Id::new("delete persistent draft")).show(ctx, |ui| {
+                ui.heading("Remove this saved draft?");
+                ui.label(crate::drafts::display_name(&path));
+                ui.label("This permanently removes the selected draft and its backup. It does not affect other projects or the active document.");
+                if ui.button("Remove draft and backup").clicked() {
+                    actions.push(Action::RemoveDraft(path));
+                    self.draft_cleanup = None;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.draft_cleanup = None;
                 }
             });
         } else if self.new_dialog {
@@ -1896,6 +1921,11 @@ ui.add(egui::Label::new(pen_status).truncate());
                 paint_document::recovery::remove(&paint_document::recovery::directory()?, &path)?;
                 self.recovery_files.retain(|p| p != &path);
                 self.status = "Selected recovery checkpoint and backup removed".into();
+            }
+            Action::RemoveDraft(path) => {
+                crate::drafts::remove(&path)?;
+                self.drafts = crate::drafts::list();
+                self.status = "Selected draft and backup removed".into();
             }
             Action::AddReference(_) => {
                 return Err("Reference import is handled by the workspace".into());

@@ -59,6 +59,32 @@ pub fn list_in(directory: &Path) -> Vec<PathBuf> {
     drafts
 }
 
+/// Remove one explicitly selected draft and its storage backup. The candidate
+/// must be a direct, regular child of the draft directory; symlinks and paths
+/// outside that directory are never followed or deleted.
+pub fn remove_in(directory: &Path, candidate: &Path) -> Result<(), PaintError> {
+    if candidate.parent() != Some(directory) || !is_draft(candidate) {
+        return Err(PaintError::Invalid);
+    }
+    let metadata = fs::symlink_metadata(candidate)?;
+    if !metadata.file_type().is_file() {
+        return Err(PaintError::Invalid);
+    }
+    fs::remove_file(candidate)?;
+    let backup = candidate.with_extension("rpl.bak");
+    match fs::symlink_metadata(&backup) {
+        Ok(metadata) if metadata.file_type().is_file() => fs::remove_file(backup)?,
+        Ok(_) => return Err(PaintError::Invalid),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+pub fn remove(candidate: &Path) -> Result<(), PaintError> {
+    remove_in(&directory()?, candidate)
+}
+
 pub fn create(state: &State, display: &str) -> Result<(Store, PathBuf), PaintError> {
     create_in(state, display, &directory()?)
 }
@@ -147,6 +173,42 @@ mod tests {
         fs::write(dir.join("artwork.rpl"), b"not a draft").unwrap();
         fs::write(dir.join("draft-not-a-project.txt"), b"ignore").unwrap();
         assert!(list_in(&dir).is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn explicit_removal_only_deletes_a_draft_and_its_backup() {
+        let dir = temp_dir();
+        let state = State::new(8, 8, 96).unwrap();
+        let (mut store, path) = create_in(&state, "remove me", &dir).unwrap();
+        store.save(&state).unwrap();
+        let backup = path.with_extension("rpl.bak");
+        assert!(backup.exists());
+        remove_in(&dir, &path).unwrap();
+        assert!(!path.exists());
+        assert!(!backup.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn removal_rejects_non_draft_and_outside_paths() {
+        let dir = temp_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let artwork = dir.join("artwork.rpl");
+        fs::write(&artwork, b"keep").unwrap();
+        assert!(matches!(
+            remove_in(&dir, &artwork),
+            Err(PaintError::Invalid)
+        ));
+        let outside = dir.parent().unwrap().join("draft-1-2-3-outside.rpl");
+        fs::write(&outside, b"keep").unwrap();
+        assert!(matches!(
+            remove_in(&dir, &outside),
+            Err(PaintError::Invalid)
+        ));
+        assert!(artwork.exists());
+        assert!(outside.exists());
+        fs::remove_file(outside).unwrap();
         fs::remove_dir_all(dir).unwrap();
     }
 }
