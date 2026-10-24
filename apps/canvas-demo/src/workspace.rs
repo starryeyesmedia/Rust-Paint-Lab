@@ -7,6 +7,16 @@ pub const MAX_REFERENCE_PATH: usize = 4096;
 pub const MAX_PREFERENCES_BYTES: usize = 64 * 1024;
 pub const MAX_RECENT_DOCUMENT_SIZES: usize = 8;
 pub const MAX_RECENT_BRUSH_COLORS: usize = 12;
+pub const MIN_REFERENCE_ZOOM: f32 = 0.25;
+pub const MAX_REFERENCE_ZOOM: f32 = 8.0;
+
+fn default_reference_zoom() -> f32 {
+    1.0
+}
+
+fn default_reference_pan() -> [f32; 2] {
+    [0.0, 0.0]
+}
 
 pub fn remember_brush_color(colors: &mut Vec<[u8; 3]>, color: [u8; 3]) {
     colors.retain(|existing| *existing != color);
@@ -75,6 +85,12 @@ pub struct ReferenceLayout {
     pub position: [f32; 2],
     pub size: [f32; 2],
     pub opacity: f32,
+    #[serde(default = "default_reference_zoom")]
+    pub view_zoom: f32,
+    #[serde(default = "default_reference_pan")]
+    pub view_pan: [f32; 2],
+    #[serde(default)]
+    pub position_locked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -211,13 +227,19 @@ impl WorkspacePreferences {
                 || path_len > MAX_REFERENCE_PATH
                 || !reference.position.iter().all(|v| v.is_finite())
                 || !reference.size.iter().all(|v| v.is_finite())
+                || !reference.view_pan.iter().all(|v| v.is_finite())
                 || !reference.opacity.is_finite()
+                || !reference.view_zoom.is_finite()
             {
                 return false;
             }
             reference.position = reference.position.map(|v| v.clamp(-10000.0, 10000.0));
             reference.size = reference.size.map(|v| v.clamp(180.0, 1600.0));
             reference.opacity = reference.opacity.clamp(0.05, 1.0);
+            reference.view_zoom = reference
+                .view_zoom
+                .clamp(MIN_REFERENCE_ZOOM, MAX_REFERENCE_ZOOM);
+            reference.view_pan = reference.view_pan.map(|v| v.clamp(-10000.0, 10000.0));
             true
         });
         true
@@ -239,6 +261,9 @@ mod tests {
             position: [f32::NAN, 12.0],
             size: [100.0, 5000.0],
             opacity: 2.0,
+            view_zoom: 1.0,
+            view_pan: [0.0, 0.0],
+            position_locked: false,
         });
         assert!(preferences.validate());
         // Non-finite persisted geometry is discarded rather than reaching egui.
@@ -248,6 +273,9 @@ mod tests {
             position: [12.0, -10.0],
             size: [100.0, 5000.0],
             opacity: 2.0,
+            view_zoom: 1.0,
+            view_pan: [0.0, 0.0],
+            position_locked: false,
         });
         assert!(preferences.validate());
         assert_eq!(preferences.references[0].size, [180.0, 1600.0]);
@@ -256,6 +284,22 @@ mod tests {
         let mut restored: WorkspacePreferences = serde_json::from_slice(&json).unwrap();
         assert!(restored.validate());
         assert_eq!(restored, preferences);
+    }
+
+    #[test]
+    fn legacy_reference_layout_defaults_navigation_and_validation_bounds_it() {
+        let mut preferences: WorkspacePreferences = serde_json::from_str(
+            r#"{"version":1,"dark_theme":true,"brush_panel_width":260,"show_controls":true,"references":[{"path":"reference.png","position":[10,20],"size":[360,300],"opacity":0.7}]}"#,
+        )
+        .unwrap();
+        assert_eq!(preferences.references[0].view_zoom, 1.0);
+        assert_eq!(preferences.references[0].view_pan, [0.0, 0.0]);
+        assert!(!preferences.references[0].position_locked);
+        preferences.references[0].view_zoom = 100.0;
+        preferences.references[0].view_pan = [20_000.0, -20_000.0];
+        assert!(preferences.validate());
+        assert_eq!(preferences.references[0].view_zoom, MAX_REFERENCE_ZOOM);
+        assert_eq!(preferences.references[0].view_pan, [10_000.0, -10_000.0]);
     }
 
     #[test]
@@ -272,6 +316,9 @@ mod tests {
                 position: [0.0, 0.0],
                 size: [300.0, 300.0],
                 opacity: 0.5,
+                view_zoom: 1.0,
+                view_pan: [0.0, 0.0],
+                position_locked: false,
             });
         }
         assert!(preferences.validate());

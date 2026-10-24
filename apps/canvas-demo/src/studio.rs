@@ -116,6 +116,9 @@ fn add_reference_path(
         position: [40.0 + index as f32 * 28.0, 80.0 + index as f32 * 24.0],
         size: [360.0, 300.0],
         opacity: 0.72,
+        view_zoom: 1.0,
+        view_pan: [0.0, 0.0],
+        position_locked: false,
     };
     load_reference_texture(context, layout)
         .map(|reference| references.push(reference))
@@ -146,6 +149,38 @@ fn reference_contains_client(
         && point[1] <= f64::from(layout.position[1] + layout.size[1])
 }
 
+fn reference_image_rect(
+    viewport: egui::Rect,
+    source_size: egui::Vec2,
+    zoom: f32,
+    pan: [f32; 2],
+) -> Option<egui::Rect> {
+    if !viewport.is_finite()
+        || viewport.width() <= 0.0
+        || viewport.height() <= 0.0
+        || !source_size.is_finite()
+        || source_size.x <= 0.0
+        || source_size.y <= 0.0
+        || !zoom.is_finite()
+        || !pan.iter().all(|value| value.is_finite())
+    {
+        return None;
+    }
+    let fit = (viewport.width() / source_size.x).min(viewport.height() / source_size.y);
+    let size = source_size
+        * fit
+        * zoom.clamp(
+            crate::workspace::MIN_REFERENCE_ZOOM,
+            crate::workspace::MAX_REFERENCE_ZOOM,
+        );
+    let center = viewport.center()
+        + egui::vec2(
+            pan[0].clamp(-10000.0, 10000.0),
+            pan[1].clamp(-10000.0, 10000.0),
+        );
+    Some(egui::Rect::from_center_size(center, size))
+}
+
 #[cfg(test)]
 mod reference_tests {
     use super::*;
@@ -157,11 +192,30 @@ mod reference_tests {
             position: [10.0, 20.0],
             size: [100.0, 80.0],
             opacity: 0.7,
+            view_zoom: 1.0,
+            view_pan: [0.0, 0.0],
+            position_locked: false,
         };
         assert!(reference_contains_client(&layout, [220.0, 100.0], 2.0));
         assert!(!reference_contains_client(&layout, [19.0, 100.0], 2.0));
         assert!(!reference_contains_client(&layout, [0.0, 0.0], 0.0));
         assert!(!reference_contains_client(&layout, [f64::NAN, 0.0], 1.0));
+    }
+
+    #[test]
+    fn reference_image_zoom_and_pan_map_to_bounded_viewport_geometry() {
+        let viewport = egui::Rect::from_min_size(egui::pos2(20.0, 30.0), egui::vec2(200.0, 100.0));
+        let fitted =
+            reference_image_rect(viewport, egui::vec2(100.0, 50.0), 1.0, [0.0, 0.0]).unwrap();
+        assert_eq!(fitted, viewport);
+        let zoomed =
+            reference_image_rect(viewport, egui::vec2(100.0, 50.0), 2.0, [10.0, -5.0]).unwrap();
+        assert_eq!(zoomed.size(), egui::vec2(400.0, 200.0));
+        assert_eq!(zoomed.center(), viewport.center() + egui::vec2(10.0, -5.0));
+        assert!(reference_image_rect(viewport, egui::Vec2::ZERO, 1.0, [0.0, 0.0]).is_none());
+        assert!(
+            reference_image_rect(viewport, egui::vec2(1.0, 1.0), f32::NAN, [0.0, 0.0]).is_none()
+        );
     }
 
     #[test]
@@ -183,6 +237,9 @@ mod reference_tests {
                 position: [0.0, 0.0],
                 size: [300.0, 300.0],
                 opacity: 0.5,
+                view_zoom: 1.0,
+                view_pan: [0.0, 0.0],
+                position_locked: false,
             },
         )
         .unwrap();
@@ -2027,6 +2084,7 @@ impl Studio {
                 let response = egui::Window::new(title)
                     .id(egui::Id::new(("reference-board", reference_id)))
                     .open(&mut open)
+                    .movable(!before.position_locked)
                     .resizable(true)
                     .default_pos(egui::pos2(before.position[0], before.position[1]))
                     .default_size(egui::vec2(before.size[0], before.size[1]))
@@ -2039,18 +2097,58 @@ impl Studio {
                             egui::Slider::new(&mut reference.layout.opacity, 0.05..=1.0)
                                 .text("Overlay opacity"),
                         );
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut reference.layout.position_locked, "Lock position");
+                            if ui.button("Reset view").clicked() {
+                                reference.layout.view_zoom = 1.0;
+                                reference.layout.view_pan = [0.0, 0.0];
+                            }
+                            ui.small(format!("{:.0}%", reference.layout.view_zoom * 100.0));
+                            if ui.button("Remove").clicked() {
+                                remove_requested = true;
+                            }
+                        });
+                        ui.small("Scroll to zoom · drag to pan");
                         let available = ui.available_size().max(egui::vec2(64.0, 64.0));
                         let source_size = reference.texture.size_vec2();
-                        let scale = (available.x / source_size.x).min(available.y / source_size.y);
-                        let fitted = source_size * scale.max(0.0);
-                        let mut image = egui::Image::new((reference.texture.id(), source_size))
-                            .fit_to_exact_size(fitted);
-                        image = image.tint(egui::Color32::from_white_alpha(
-                            (reference.layout.opacity * 255.0).round() as u8,
-                        ));
-                        ui.add(image);
-                        if ui.button("Remove reference").clicked() {
-                            remove_requested = true;
+                        let (viewport, image_response) =
+                            ui.allocate_exact_size(available, egui::Sense::drag());
+                        if image_response.hovered() {
+                            let scroll_y = ui.input(|input| input.smooth_scroll_delta.y);
+                            if scroll_y != 0.0 {
+                                reference.layout.view_zoom =
+                                    (reference.layout.view_zoom * (scroll_y * 0.002).exp()).clamp(
+                                        crate::workspace::MIN_REFERENCE_ZOOM,
+                                        crate::workspace::MAX_REFERENCE_ZOOM,
+                                    );
+                            }
+                        }
+                        if image_response.dragged() {
+                            let delta = image_response.drag_delta();
+                            reference.layout.view_pan[0] =
+                                (reference.layout.view_pan[0] + delta.x).clamp(-10000.0, 10000.0);
+                            reference.layout.view_pan[1] =
+                                (reference.layout.view_pan[1] + delta.y).clamp(-10000.0, 10000.0);
+                        }
+                        if let Some(image_rect) = reference_image_rect(
+                            viewport,
+                            source_size,
+                            reference.layout.view_zoom,
+                            reference.layout.view_pan,
+                        ) {
+                            ui.painter().with_clip_rect(viewport).image(
+                                reference.texture.id(),
+                                image_rect,
+                                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                                egui::Color32::from_white_alpha(
+                                    (reference.layout.opacity * 255.0).round() as u8,
+                                ),
+                            );
+                        }
+                        if image_response.dragged() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        } else if image_response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                         }
                     });
                 if let Some(response) = response {

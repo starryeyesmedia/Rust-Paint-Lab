@@ -128,26 +128,53 @@ work below.
 - Persistence/ordering/bounds and named touch-sized swatches have automated tests.
 - Formatting, strict Clippy, all **175 workspace tests**, workspace build, llvmpipe
   GPU smoke, and Windows GNU workspace check/Clippy pass locally for this slice.
-  The current Actions run is still building/testing Windows and packaging macOS;
-  Linux reaches the recovery smoke but fails because the test saves the imported
-  project before waiting for its debounced recovery snapshot. The product only
-  checkpoints dirty work, so the workflow order is being corrected to wait for
-  the checkpoint before explicit Save. The smoke also now decodes its real PNG
-  export and checks that the magenta reference sentinel is absent from artwork.
+  At the time of this commit, Actions run `40124892298` had passed Windows and
+  macOS but failed Linux because the smoke saved the imported project before
+  waiting for its debounced recovery snapshot. Recovery checkpoints are only
+  submitted while the project is dirty.
+
+### Recovery and export smoke correction in `8df1340`
+
+- Reordered the Xvfb workflow to observe a valid recovery checkpoint while the
+  imported project is still dirty, then explicitly save it. The test continues
+  through a durable journal append, forced process termination, recovery with
+  the paired snapshot removed, byte-for-byte checkpoint comparison, and an
+  assertion that the previously saved source project remains unchanged.
+- The smoke decodes its exported PNG and asserts that the independent reference
+  image's magenta sentinel pixel does not leak into artwork.
+- The Linux alpha workflow passed in Actions run `40125273125` with the corrected
+  sequence. The Windows and macOS jobs are still in progress. The preceding
+  `40124892298` Windows and macOS jobs both passed and uploaded
+  `rust-paint-lab-windows-diagnostic`, `rust-paint-lab-canvas-demo`, and the
+  macOS alpha artifact; its Linux job failed at the recovery ordering described
+  above.
+
+### Reference-board navigation slice (working tree after `8df1340`)
+
+- Each reference window now supports wheel zoom (bounded from 25% to 800%),
+  drag-to-pan inside a clipped image viewport, a position lock, and Reset View.
+  Zoom, pan, lock, opacity, size and window position persist as workspace state.
+- Version-1 preferences without navigation fields load with fit-view, zero-pan,
+  unlocked defaults. Invalid or extreme saved zoom/pan values are rejected or
+  clamped before reaching egui. Tests cover legacy defaults and the image fit,
+  zoom, pan and invalid-geometry conversions.
+- Workspace state remains isolated from the document and export pipeline.
+  Local formatting, strict Clippy, all **177 workspace tests**, workspace build,
+  and llvmpipe GPU smoke pass. Actual Windows touch/stylus interaction with the
+  floating reference board has not been hardware tested.
 
 ### Next Phase 8.1 work
 
-1. Commit the recovery-smoke ordering and reference/export assertion, then verify
-   the Xvfb workflow and all three platform jobs. Preserve both Windows artifacts.
+1. Commit the reference navigation slice and verify the in-progress platform run
+   `40125273125`, including both Windows artifacts and macOS packaging.
 2. Obtain a real Windows run of Add Reference Images with small PNG, phone JPEG,
    multiple selections, one bad file, cancellation and restart persistence; record
    the dialog/result/status behavior before declaring the confirmed issue fixed.
 3. Window-level inspect Midnight Violet/icons, the new Brush/Layers layout and
    appearance persistence/custom contrast; test panel resize and reference-window
    move/resize/opacity input routing.
-4. Continue with reference-board pan/zoom/lock/reset controls. Full draggable
-   docking, a richer welcome screen, HSV selection, and a complete accessibility
-   audit remain outstanding.
+4. Full draggable docking, a richer welcome screen, HSV selection, and a complete
+   accessibility audit remain outstanding.
 
 This is the active continuation record. Phase 7 work remains documented in
 [the Phase 7 record](PHASE7-STUDIO-PROGRESS.md); it is preserved and not repeated.
