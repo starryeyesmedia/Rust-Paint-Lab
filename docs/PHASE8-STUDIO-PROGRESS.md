@@ -97,6 +97,12 @@ This is the active continuation record. Phase 7 work remains documented in
   units, DPI, background, and transparency. Older version-1 preference files load
   with safe defaults; malformed or out-of-range settings are rejected before they
   reach the setup dialog.
+- The permanent row of file-operation buttons is now a compact File/Edit/Image/
+  Layer/View/Window/Help menu bar. Primary brush, rectangle, ellipse, lasso, and
+  eyedropper tools moved into a 64-point vertical palette with selected states,
+  tool names, shortcut tooltips, and touch-sized targets. Selection fill, erase,
+  and deselect actions remain directly below the tools. Menu entries invoke existing
+  supported operations; this does not add unsupported shape or transform tools.
 
 ## Partial and unimplemented Phase 8 requirements
 
@@ -113,9 +119,10 @@ This is the active continuation record. Phase 7 work remains documented in
   committed revisions.
 - File dialogs have compiled on native Linux and Windows GNU targets; Windows,
   Linux portal, and macOS visual/runtime behavior needs CI or manual verification.
-- Workspace still has the previous dense top toolbar. Vertical tool palette, proper
-  menus, docking/snap groups, accessibility review, and polished brush/layer/color
-  controls are not yet implemented.
+- The first compact menus and vertical tool palette are implemented, but there are
+  no draggable/dockable panels, snap previews, palette placement/size preferences,
+  complete accessibility review, or polished color/brush/layer panels. Menu
+  categories remain limited to currently supported actions.
 - Reference board supports multiple selected references but still lacks internal
   zoom/pan, rotation, lock, project-scoped configurations, native drag/drop, and
   color sampling.
@@ -139,12 +146,12 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Exact next steps
 
-1. Push the locally validated document-setup preference persistence slice.
-2. Resolve and rerun the Linux window workflow failure from startup/reopen tests;
-   verify macOS packaging, Windows package build, and canvas artifact on the latest
-   commit.
-3. Continue the vertical tool palette/menu and compact brush/layer controls, then
-   add close-save conflict/failure coverage to the real window workflow.
+1. Push the locally validated menu/palette slice and rerun CI; verify Linux
+   welcome/open/save smoke, Windows package build, macOS packaging, and artifacts.
+2. Investigate the Linux reopen timeout from the latest workflow output; add a
+   visible test-harness dialog state or deterministic open interaction if needed.
+3. Continue compact brush/layer/color controls and close-save failure coverage in
+   the real window workflow.
 
 No physical Windows picker, stylus, touch, power-loss, or hardware-performance
 validation has been performed in this phase.

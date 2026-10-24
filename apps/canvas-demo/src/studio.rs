@@ -845,133 +845,245 @@ impl Studio {
 
         if !self.welcome {
             egui::TopBottomPanel::top("document tools").show(ctx, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.heading("Rust Paint Lab");
-                    if ui.button("New").clicked() {
-                        self.new_from_welcome = false;
-                        self.new_dialog = true;
-                    }
-
-                    if ui.button("Open").clicked() {
-                        self.picker_from_welcome = false;
-                        self.picker = Some(FileRequest::OpenProject);
-                    }
-
-                    if ui.button("Save").clicked() {
-                        actions.push(Action::Save);
-                    }
-
-                    if ui.button("Save as").clicked() {
-                        self.picker = Some(FileRequest::SaveProjectAs);
-                    }
-
-                    if ui.button("Save brush…").clicked() {
-                        self.path = PathBuf::from(&self.path)
-                            .with_extension("rplbrush")
-                            .to_string_lossy()
-                            .into();
-                        self.picker = Some(FileRequest::SaveBrush);
-                    }
-
-                    if ui.button("Load brush…").clicked() {
-                        self.path = PathBuf::from(&self.path)
-                            .with_extension("rplbrush")
-                            .to_string_lossy()
-                            .into();
-                        self.picker = Some(FileRequest::LoadBrush);
-                    }
-
-                    if ui.button("Open ORA").clicked() {
-                        self.picker = Some(FileRequest::ImportOra);
-                    }
-                    if ui.button("Export ORA").clicked() {
-                        self.path = PathBuf::from(&self.path)
-                            .with_extension("ora")
-                            .to_string_lossy()
-                            .into();
-                        self.picker = Some(FileRequest::ExportOra);
-                    }
-                    if ui.button("Export PNG").clicked() {
-                        self.path = PathBuf::from(&self.path)
-                            .with_extension("png")
-                            .to_string_lossy()
-                            .into();
-                        self.picker = Some(FileRequest::ExportPng);
-                    }
-
-                    if ui.button("Import PNG").clicked() {
-                        self.picker = Some(FileRequest::ImportPng);
-                    }
-
-                    if ui
-                        .add_enabled(
-                            session.live().project().undo_count() > 0,
-                            egui::Button::new("Undo"),
-                        )
-                        .clicked()
-                    {
-                        actions.push(Action::Undo);
-                    }
-
-                    if ui
-                        .add_enabled(
-                            session.live().project().redo_count() > 0,
-                            egui::Button::new("Redo"),
-                        )
-                        .clicked()
-                    {
-                        actions.push(Action::Redo);
-                    }
-
-                    workspace_changed |= ui.checkbox(&mut self.theme_dark, "Dark").changed();
-                });
-                ui.horizontal_wrapped(|ui| {
-                    let old = self.tool;
-
-                    for (tool, label) in [
-                        (EditTool::Brush, "Brush B"),
-                        (EditTool::Rectangle, "Rect M"),
-                        (EditTool::Ellipse, "Ellipse E"),
-                        (EditTool::Lasso, "Lasso K"),
-                        (EditTool::Eyedropper, "Pick I"),
-                    ] {
-                        ui.selectable_value(&mut self.tool, tool, label);
-                    }
-
-                    if old != self.tool {
-                        session.mouse(MouseEvent::Interrupted, 0);
-                        self.edit_pointer = None;
-                        self.edit_points.clear();
-                    }
-
-                    if ui.button("Deselect").clicked() {
-                        actions.push(Action::Deselect);
-                    }
-
-                    if ui.button("Fill").clicked() {
-                        actions.push(Action::Fill(false));
-                    }
-
-                    if ui.button("Delete pixels").clicked() {
-                        actions.push(Action::Fill(true));
-                    }
-                });
                 ui.horizontal(|ui| {
-                    ui.label("Reference board");
-                    let can_add = self.references.len() < crate::workspace::MAX_REFERENCES;
-                    if ui
-                        .add_enabled(can_add, egui::Button::new("Browse / Add images…"))
-                        .clicked()
-                    {
-                        self.picker = Some(FileRequest::AddReferences);
-                    }
-                    ui.small(format!(
-                        "{} / {}",
-                        self.references.len(),
-                        crate::workspace::MAX_REFERENCES
-                    ));
+                    ui.heading("Rust Paint Lab");
+                    egui::MenuBar::new().ui(ui, |ui| {
+                        ui.menu_button("File", |ui| {
+                            if ui.button("New document…     Ctrl+N").clicked() {
+                                self.new_from_welcome = false;
+                                self.new_dialog = true;
+                                ui.close();
+                            }
+                            if ui.button("Open project…     Ctrl+O").clicked() {
+                                self.picker_from_welcome = false;
+                                self.picker = Some(FileRequest::OpenProject);
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui.button("Save     Ctrl+S").clicked() {
+                                actions.push(Action::Save);
+                                ui.close();
+                            }
+                            if ui.button("Save As…").clicked() {
+                                self.picker = Some(FileRequest::SaveProjectAs);
+                                ui.close();
+                            }
+                            ui.menu_button("Import", |ui| {
+                                if ui.button("Raster image (PNG)…").clicked() {
+                                    self.picker = Some(FileRequest::ImportPng);
+                                    ui.close();
+                                }
+                                if ui.button("OpenRaster project…").clicked() {
+                                    self.picker = Some(FileRequest::ImportOra);
+                                    ui.close();
+                                }
+                                if ui.button("Reference images…").clicked() {
+                                    self.picker = Some(FileRequest::AddReferences);
+                                    ui.close();
+                                }
+                            });
+                            ui.menu_button("Export", |ui| {
+                                if ui.button("PNG image…     Ctrl+E").clicked() {
+                                    self.path = PathBuf::from(&self.path)
+                                        .with_extension("png")
+                                        .to_string_lossy()
+                                        .into();
+                                    self.picker = Some(FileRequest::ExportPng);
+                                    ui.close();
+                                }
+                                if ui.button("OpenRaster project…     Ctrl+Shift+E").clicked() {
+                                    self.path = PathBuf::from(&self.path)
+                                        .with_extension("ora")
+                                        .to_string_lossy()
+                                        .into();
+                                    self.picker = Some(FileRequest::ExportOra);
+                                    ui.close();
+                                }
+                            });
+                            ui.separator();
+                            if ui.button("Load brush preset…     Ctrl+Alt+B").clicked() {
+                                self.path = PathBuf::from(&self.path)
+                                    .with_extension("rplbrush")
+                                    .to_string_lossy()
+                                    .into();
+                                self.picker = Some(FileRequest::LoadBrush);
+                                ui.close();
+                            }
+                            if ui.button("Save brush preset…     Ctrl+Shift+B").clicked() {
+                                self.path = PathBuf::from(&self.path)
+                                    .with_extension("rplbrush")
+                                    .to_string_lossy()
+                                    .into();
+                                self.picker = Some(FileRequest::SaveBrush);
+                                ui.close();
+                            }
+                            if !self.recent.paths.is_empty() {
+                                ui.menu_button("Recent projects", |ui| {
+                                    for path in self.recent.paths.clone().into_iter().take(8) {
+                                        let label =
+                                            path.file_name().unwrap_or_default().to_string_lossy();
+                                        if ui
+                                            .button(label)
+                                            .on_hover_text(path.display().to_string())
+                                            .clicked()
+                                        {
+                                            actions.push(Action::Recent(path));
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                        ui.menu_button("Edit", |ui| {
+                            if ui
+                                .add_enabled(
+                                    session.live().project().undo_count() > 0,
+                                    egui::Button::new("Undo     Ctrl+Z"),
+                                )
+                                .clicked()
+                            {
+                                actions.push(Action::Undo);
+                                ui.close();
+                            }
+                            if ui
+                                .add_enabled(
+                                    session.live().project().redo_count() > 0,
+                                    egui::Button::new("Redo     Ctrl+Y"),
+                                )
+                                .clicked()
+                            {
+                                actions.push(Action::Redo);
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui.button("Deselect     Ctrl+D").clicked() {
+                                actions.push(Action::Deselect);
+                                ui.close();
+                            }
+                            if ui.button("Fill selection").clicked() {
+                                actions.push(Action::Fill(false));
+                                ui.close();
+                            }
+                            if ui.button("Erase selection").clicked() {
+                                actions.push(Action::Fill(true));
+                                ui.close();
+                            }
+                        });
+                        ui.menu_button("Image", |ui| {
+                            if ui.button("Crop to selection").clicked() {
+                                actions.push(Action::Crop);
+                                ui.close();
+                            }
+                        });
+                        ui.menu_button("Layer", |ui| {
+                            if ui.button("New layer").clicked() {
+                                actions.push(Action::Add);
+                                ui.close();
+                            }
+                            if ui.button("Duplicate selected layer").clicked() {
+                                actions.push(Action::Duplicate);
+                                ui.close();
+                            }
+                            if ui.button("Delete selected layer").clicked() {
+                                actions.push(Action::Delete);
+                                ui.close();
+                            }
+                            if ui.button("Clear selected layer").clicked() {
+                                actions.push(Action::Clear);
+                                ui.close();
+                            }
+                        });
+                        ui.menu_button("View", |ui| {
+                            workspace_changed |= ui
+                                .checkbox(&mut self.theme_dark, "Dark appearance")
+                                .changed();
+                            ui.separator();
+                            ui.label("0  Fit canvas");
+                            ui.label("F11  Full screen");
+                        });
+                        ui.menu_button("Window", |ui| {
+                            let can_add = self.references.len() < crate::workspace::MAX_REFERENCES;
+                            if ui
+                                .add_enabled(can_add, egui::Button::new("Add reference images…"))
+                                .clicked()
+                            {
+                                self.picker = Some(FileRequest::AddReferences);
+                                ui.close();
+                            }
+                            ui.label(format!(
+                                "Reference board: {} / {}",
+                                self.references.len(),
+                                crate::workspace::MAX_REFERENCES
+                            ));
+                            ui.label("Brush and Layers are in the right panel");
+                        });
+                        ui.menu_button("Help", |ui| {
+                            ui.label("Rust Paint Lab — original alpha studio");
+                            ui.separator();
+                            ui.label("B Brush · M Rectangle · E Ellipse");
+                            ui.label("K Lasso · I Eyedropper");
+                            ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
+                            ui.label("Ctrl+Z / Ctrl+Y Undo / Redo · Esc Close");
+                        });
+                    });
                 });
             });
+
+            let old_tool = self.tool;
+            egui::SidePanel::left("tool palette")
+                .resizable(false)
+                .exact_width(64.0)
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(8.0);
+                        for (tool, icon, name, shortcut) in [
+                            (EditTool::Brush, "✎", "Brush", "B"),
+                            (EditTool::Rectangle, "▱", "Rectangle selection", "M"),
+                            (EditTool::Ellipse, "◯", "Ellipse selection", "E"),
+                            (EditTool::Lasso, "⌁", "Freehand lasso", "K"),
+                            (EditTool::Eyedropper, "⌖", "Eyedropper", "I"),
+                        ] {
+                            let response = ui.add_sized(
+                                [46.0, 46.0],
+                                egui::Button::new(egui::RichText::new(icon).size(24.0))
+                                    .selected(self.tool == tool),
+                            );
+                            if response
+                                .on_hover_text(format!("{name} ({shortcut})"))
+                                .clicked()
+                            {
+                                self.tool = tool;
+                            }
+                        }
+                        ui.separator();
+                        if ui
+                            .add_sized([46.0, 42.0], egui::Button::new("◌"))
+                            .on_hover_text("Deselect (Ctrl+D)")
+                            .clicked()
+                        {
+                            actions.push(Action::Deselect);
+                        }
+                        if ui
+                            .add_sized([46.0, 42.0], egui::Button::new("▣"))
+                            .on_hover_text("Fill selection")
+                            .clicked()
+                        {
+                            actions.push(Action::Fill(false));
+                        }
+                        if ui
+                            .add_sized([46.0, 42.0], egui::Button::new("▧"))
+                            .on_hover_text("Erase selection")
+                            .clicked()
+                        {
+                            actions.push(Action::Fill(true));
+                        }
+                    });
+                });
+            if old_tool != self.tool {
+                session.mouse(MouseEvent::Interrupted, 0);
+                self.edit_pointer = None;
+                self.edit_points.clear();
+            }
 
             egui::TopBottomPanel::bottom("status").show(ctx,|ui|{
 if let Some(error)=session.live().document_error(){

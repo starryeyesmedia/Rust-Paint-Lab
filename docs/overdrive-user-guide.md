@@ -41,8 +41,13 @@ session-only and bounded (up to 32 snapshots, 128 MiB unique tile payload per hi
 large documents with many changed tiles can retain fewer steps. Limits produce an error, never silently
 discard older committed artwork.
 
-Toolbar: New, Open, Save, Save As, Export PNG, Import PNG, Save brush, Load brush,
-Undo/Redo, Dark/Light. These file actions open the operating-system file browser.
+Use the compact File menu for New/Open/Save, image import/export, brush presets,
+and recent projects. Edit contains Undo/Redo and selection fill/erase; Image contains
+Crop; Layer contains the existing layer operations; View switches appearance; Window
+offers reference images; Help lists the main shortcuts. The five primary tools are
+in the rounded vertical palette left of the canvas. Each icon has a name and shortcut
+tooltip, and selection/utility actions sit below them. File actions open the
+operating-system file browser.
 Brush presets are versioned `.rplbrush` JSON files; load/save validates settings and
 saving refuses to replace an existing preset. New/Open safeguard dirty artwork with
 recovery confirmation. Save As and
