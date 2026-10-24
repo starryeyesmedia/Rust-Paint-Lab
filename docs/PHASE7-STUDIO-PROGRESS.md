@@ -22,9 +22,10 @@ not evidence that a workflow is complete.
   diagnostic and canvas artifact builds.
 - At resume, local HEAD was `069802c` (documentation only) and origin was
   `47996f6`; both were retained and pushed with recovery checkpoint `299506e`.
-- Actions run [`40104691001`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40104691001)
-  for `299506e` started on Windows, Linux, and macOS; it was in progress at the
-  latest query. A follow-up compaction/writer regression is being validated.
+- Actions run [`40104767897`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40104767897)
+  for final checkpoint `b7151bd` is running on Windows, Linux, and macOS. The
+  preceding run `40104691001` is for `299506e` and does not include compaction and
+  writer-exclusion tests.
 - No merge, release, or public exposure is authorized.
 
 ## Completed checkpoint 7A: artboard crossing and stroke continuity
@@ -82,11 +83,10 @@ cases, and storage failure behavior remain unverified on physical Windows hardwa
 - The user separately verified on a Galaxy Book2 Pro 360 that artboard exit no
   longer makes a live stroke disappear. This confirms only that reported boundary
   behavior on that device; no other pen/capture/storage behavior is inferred.
-- Recovery journal checkpoint local validation: workspace formatting, Clippy,
-  tests, build, required Vulkan GPU pixel checks, forced-crash alpha workflow, Linux
-  live mouse X11 smoke, and Windows GNU cross-check/Clippy passed for `299506e` with
-  139 tests. Two more focused tests now cover compaction and writer exclusion (141
-  tests total); these latest changes need full revalidation and cross-platform Actions.
+- Recovery journal checkpoint local validation: formatting, Clippy, all workspace
+  tests (141), build, required Vulkan GPU pixels, forced-crash alpha workflow, Linux
+  live mouse X11 smoke, and Windows GNU target check/Clippy passed for `b7151bd`.
+  Actions for that exact commit are still running; no hosted result is claimed yet.
 
 ## Architecture decisions
 
