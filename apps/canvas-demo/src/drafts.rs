@@ -125,14 +125,23 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "rpl-drafts-{}-{}",
-            std::process::id(),
-            SystemTime::now()
+        static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+        let temp_root = std::env::temp_dir();
+        loop {
+            let nonce = NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed);
+            let nanos = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ))
+                .expect("system clock is after the Unix epoch")
+                .as_nanos();
+            let path = temp_root.join(format!("rpl-drafts-{}-{nanos}-{nonce}", std::process::id()));
+            // Atomic directory creation makes the test path unique even when
+            // parallel tests observe the same clock tick on coarse filesystems.
+            match fs::create_dir(&path) {
+                Ok(()) => return path,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("could not create test draft directory {path:?}: {error}"),
+            }
+        }
     }
 
     #[test]
@@ -164,6 +173,22 @@ mod tests {
             Err(PaintError::Limit)
         ));
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn parallel_test_directories_are_atomically_unique() {
+        let workers = (0..32)
+            .map(|_| std::thread::spawn(temp_dir))
+            .collect::<Vec<_>>();
+        let directories = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(directories.len(), 32);
+        assert!(directories.iter().all(|directory| directory.is_dir()));
+        for directory in directories {
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[test]

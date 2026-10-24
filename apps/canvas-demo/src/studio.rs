@@ -17,10 +17,13 @@ use winit::window::Window;
 struct ReferenceImage {
     layout: crate::workspace::ReferenceLayout,
     texture: egui::TextureHandle,
+    source_size: [u32; 2],
 }
 
 const MAX_REFERENCE_FILE_BYTES: u64 = 32 * 1024 * 1024;
-const MAX_REFERENCE_PIXELS: usize = 2_048 * 2_048;
+const MAX_REFERENCE_SOURCE_EDGE: u32 = 16_384;
+const MAX_REFERENCE_DECODE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_REFERENCE_PREVIEW_EDGE: u32 = 1_448;
 const MAX_REFERENCE_TEXTURE_BYTES: usize = 8 * 1024 * 1024;
 
 fn load_reference_texture(
@@ -29,31 +32,47 @@ fn load_reference_texture(
 ) -> Result<ReferenceImage, String> {
     let metadata = std::fs::metadata(&layout.path).map_err(|e| e.to_string())?;
     if metadata.len() > MAX_REFERENCE_FILE_BYTES {
-        return Err("Reference image file exceeds the 32 MiB limit".into());
+        return Err(
+            "reference file exceeds 32 MiB; resize or export a smaller JPEG/PNG and try again"
+                .into(),
+        );
     }
     let mut reader = image::ImageReader::open(&layout.path)
         .and_then(|reader| reader.with_guessed_format())
         .map_err(|e| e.to_string())?;
     let mut limits = image::Limits::default();
-    limits.max_image_width = Some(2048);
-    limits.max_image_height = Some(2048);
-    limits.max_alloc = Some(MAX_REFERENCE_TEXTURE_BYTES as u64);
+    limits.max_image_width = Some(MAX_REFERENCE_SOURCE_EDGE);
+    limits.max_image_height = Some(MAX_REFERENCE_SOURCE_EDGE);
+    limits.max_alloc = Some(MAX_REFERENCE_DECODE_BYTES);
     reader.limits(limits);
-    let decoded = reader.decode().map_err(|e| e.to_string())?;
-    let (width, height) = (decoded.width() as usize, decoded.height() as usize);
-    if width == 0
-        || height == 0
-        || width
-            .checked_mul(height)
-            .is_none_or(|pixels| pixels > MAX_REFERENCE_PIXELS)
-        || width
-            .checked_mul(height)
-            .and_then(|pixels| pixels.checked_mul(4))
-            .is_none_or(|bytes| bytes > MAX_REFERENCE_TEXTURE_BYTES)
-    {
-        return Err("Reference image exceeds the 2048 × 2048 / 8 MiB decoded limit".into());
+    let decoded = reader.decode().map_err(|error| match error {
+        image::ImageError::Limits(_) => format!(
+            "Reference exceeds safe decode limits ({} px per edge / {} MiB source memory); resize it or export a smaller JPEG/PNG",
+            MAX_REFERENCE_SOURCE_EDGE,
+            MAX_REFERENCE_DECODE_BYTES / (1024 * 1024)
+        ),
+        error => error.to_string(),
+    })?;
+    let source_size = [decoded.width(), decoded.height()];
+    if source_size.contains(&0) {
+        return Err("Reference image has an empty dimension".into());
     }
-    let rgba = decoded.into_rgba8();
+    let preview = if source_size[0] > MAX_REFERENCE_PREVIEW_EDGE
+        || source_size[1] > MAX_REFERENCE_PREVIEW_EDGE
+    {
+        decoded.thumbnail(MAX_REFERENCE_PREVIEW_EDGE, MAX_REFERENCE_PREVIEW_EDGE)
+    } else {
+        decoded
+    };
+    let rgba = preview.into_rgba8();
+    let (width, height) = (rgba.width() as usize, rgba.height() as usize);
+    let decoded_bytes = width
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "Reference preview dimensions overflow the safe limit".to_string())?;
+    if decoded_bytes > MAX_REFERENCE_TEXTURE_BYTES {
+        return Err("Reference preview exceeds the 8 MiB GPU texture budget".into());
+    }
     let image = egui::ColorImage::from_rgba_unmultiplied([width, height], rgba.as_raw());
     let name = layout
         .path
@@ -61,7 +80,46 @@ fn load_reference_texture(
         .and_then(|name| name.to_str())
         .unwrap_or("reference image");
     let texture = context.load_texture(name, image, egui::TextureOptions::LINEAR);
-    Ok(ReferenceImage { layout, texture })
+    Ok(ReferenceImage {
+        layout,
+        texture,
+        source_size,
+    })
+}
+
+fn add_reference_path(
+    context: &egui::Context,
+    references: &mut Vec<ReferenceImage>,
+    path: PathBuf,
+) -> Result<(), String> {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "reference image".into());
+    if references.len() >= crate::workspace::MAX_REFERENCES {
+        return Err(format!(
+            "{name}: the reference board is full ({} images maximum)",
+            crate::workspace::MAX_REFERENCES
+        ));
+    }
+    if references
+        .iter()
+        .any(|reference| reference.layout.path == path)
+    {
+        return Err(format!(
+            "{name}: this image is already on the reference board"
+        ));
+    }
+    let index = references.len();
+    let layout = crate::workspace::ReferenceLayout {
+        path,
+        position: [40.0 + index as f32 * 28.0, 80.0 + index as f32 * 24.0],
+        size: [360.0, 300.0],
+        opacity: 0.72,
+    };
+    load_reference_texture(context, layout)
+        .map(|reference| references.push(reference))
+        .map_err(|error| format!("{name}: {error}"))
 }
 
 #[cfg(test)]
@@ -93,6 +151,49 @@ mod reference_tests {
         assert_eq!(loaded.texture.size(), [2, 3]);
         assert_eq!(loaded.layout.path, path);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn reference_board_adds_jpeg_and_downscales_photos_with_partial_failure_feedback() {
+        let dir = std::env::temp_dir().join(format!(
+            "rpl-reference-import-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let large_jpeg = dir.join("phone-photo.jpg");
+        image::RgbImage::from_pixel(2400, 1800, image::Rgb([120, 80, 200]))
+            .save(&large_jpeg)
+            .unwrap();
+        let missing = dir.join("missing.png");
+        let mut references = Vec::new();
+        let context = egui::Context::default();
+
+        add_reference_path(&context, &mut references, large_jpeg.clone()).unwrap();
+        let reference = &references[0];
+        assert_eq!(reference.source_size, [2400, 1800]);
+        assert!(reference.texture.size()[0] <= MAX_REFERENCE_PREVIEW_EDGE as usize);
+        assert!(reference.texture.size()[1] <= MAX_REFERENCE_PREVIEW_EDGE as usize);
+        assert_eq!(references[0].layout.path, large_jpeg);
+
+        let error = add_reference_path(&context, &mut references, missing).unwrap_err();
+        assert!(error.contains("missing.png"));
+        assert_eq!(
+            references.len(),
+            1,
+            "successful imports survive later errors"
+        );
+        let duplicate = references[0].layout.path.clone();
+        assert!(
+            add_reference_path(&context, &mut references, duplicate)
+                .unwrap_err()
+                .contains("already on the reference board")
+        );
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
 
@@ -1584,6 +1685,10 @@ ui.add(egui::Label::new(pen_status).truncate());
                     .default_pos(egui::pos2(before.position[0], before.position[1]))
                     .default_size(egui::vec2(before.size[0], before.size[1]))
                     .show(ctx, |ui| {
+                        ui.small(format!(
+                            "{} × {} px source · preview scaled to fit the GPU budget",
+                            reference.source_size[0], reference.source_size[1]
+                        ));
                         ui.add(
                             egui::Slider::new(&mut reference.layout.opacity, 0.05..=1.0)
                                 .text("Overlay opacity"),
@@ -1846,11 +1951,13 @@ ui.add(egui::Label::new(pen_status).truncate());
         } else if self.manual_file_dialog {
             egui::Modal::new(egui::Id::new("test project file path")).show(ctx, |ui| {
                 ui.heading("Test workflow file path");
+                // Plain Enter works in the new-document form but can be consumed
+                // by this focused text field. Read it before the TextEdit handles
+                // the event so the headless workflow can reliably submit the path.
+                let submit = ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
                 ui.horizontal(|ui| {
-                    if ui.button("Continue").clicked()
-                        || ui.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Enter))
-                    {
+                    if ui.button("Continue").clicked() || submit {
                         if let Some(action) = self.manual_file_action.take() {
                             actions.push(action);
                         }
@@ -1999,6 +2106,8 @@ ui.add(egui::Label::new(pen_status).truncate());
             }
         }
 
+        let mut reference_imported = 0;
+        let mut reference_errors = Vec::new();
         for a in actions {
             if matches!(a, Action::RetryClose) {
                 if let Err(error) = self.save_for_close(session) {
@@ -2009,37 +2118,9 @@ ui.add(egui::Label::new(pen_status).truncate());
                 continue;
             }
             if let Action::AddReference(path) = a {
-                if self.references.len() >= crate::workspace::MAX_REFERENCES {
-                    self.status = "Reference board is full (six images maximum)".into();
-                    continue;
-                }
-                let index = self.references.len();
-                if self
-                    .references
-                    .iter()
-                    .any(|reference| reference.layout.path == path)
-                {
-                    self.status = "That image is already on the reference board".into();
-                    continue;
-                }
-                let layout = crate::workspace::ReferenceLayout {
-                    path,
-                    position: [40.0 + index as f32 * 28.0, 80.0 + index as f32 * 24.0],
-                    size: [360.0, 300.0],
-                    opacity: 0.72,
-                };
-                match load_reference_texture(&ctx, layout) {
-                    Ok(reference) => {
-                        self.references.push(reference);
-                        if let Err(error) = self.persist_workspace() {
-                            self.status = format!("Reference added; layout save failed: {error}");
-                        } else {
-                            self.status = "Reference added to the workspace board".into();
-                        }
-                    }
-                    Err(error) => {
-                        self.status = format!("Reference image could not be loaded: {error}")
-                    }
+                match add_reference_path(&ctx, &mut self.references, path) {
+                    Ok(()) => reference_imported += 1,
+                    Err(error) => reference_errors.push(error),
                 }
                 continue;
             }
@@ -2069,6 +2150,27 @@ ui.add(egui::Label::new(pen_status).truncate());
             } else if opening_from_welcome {
                 self.picker_from_welcome = false;
             }
+            window.request_redraw();
+        }
+        if reference_imported > 0 || !reference_errors.is_empty() {
+            let mut status = if reference_imported == 0 {
+                "No reference images were added".to_string()
+            } else {
+                if let Err(error) = self.persist_workspace() {
+                    reference_errors.push(format!("layout persistence failed: {error}"));
+                }
+                format!(
+                    "Added {reference_imported} reference image(s); large previews are scaled for the GPU budget"
+                )
+            };
+            if !reference_errors.is_empty() {
+                status.push_str(" · ");
+                status.push_str(&reference_errors.join(" · "));
+            }
+            self.status = status;
+            // The picker returns after egui has produced this frame's texture
+            // delta. Request another frame so newly loaded reference textures
+            // are uploaded and the floating image windows become visible.
             window.request_redraw();
         }
         let sf = f64::from(output.pixels_per_point);
