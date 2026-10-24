@@ -240,7 +240,11 @@ impl App {
                     let _source_counter = event.performance_count;
                     if let Some(g) = &mut self.graphics
                         && let Some(studio) = &mut g.studio
-                        && studio.native_pen_ui(&event.sample, g.window.scale_factor())
+                        && studio.native_pen_ui(
+                            &event.sample,
+                            g.window.scale_factor(),
+                            &mut self.session,
+                        )
                     {
                         event.sample.phase = paint_input::Phase::Cancel;
                         event.sample.in_contact = false;
@@ -313,7 +317,7 @@ impl ApplicationHandler for App {
         if let Some(g) = &mut self.graphics
             && let Some(studio) = &mut g.studio
         {
-            let (blocked, repaint) = studio.window_event(&g.window, &event);
+            let (blocked, repaint) = studio.window_event(&g.window, &event, &mut self.session);
             if repaint {
                 g.window.request_redraw();
             }
@@ -379,6 +383,21 @@ impl ApplicationHandler for App {
                         if studio.context.wants_keyboard_input() {
                             return Ok(());
                         }
+                        if !self.modifiers.control_key() {
+                            let key = match event.physical_key {
+                                PhysicalKey::Code(KeyCode::KeyB) => Some('b'),
+                                PhysicalKey::Code(KeyCode::KeyM) => Some('m'),
+                                PhysicalKey::Code(KeyCode::KeyE) => Some('e'),
+                                PhysicalKey::Code(KeyCode::KeyK) => Some('k'),
+                                PhysicalKey::Code(KeyCode::KeyI) => Some('i'),
+                                _ => None,
+                            };
+                            if let Some(key) = key {
+                                studio.tool_shortcut(key, &mut self.session);
+                                g.window.request_redraw();
+                                return Ok(());
+                            }
+                        }
                         if self.modifiers.control_key() {
                             let key = match event.physical_key {
                                 PhysicalKey::Code(KeyCode::KeyZ) => Some('z'),
@@ -386,6 +405,9 @@ impl ApplicationHandler for App {
                                 PhysicalKey::Code(KeyCode::KeyS) => Some('s'),
                                 PhysicalKey::Code(KeyCode::KeyO) => Some('o'),
                                 PhysicalKey::Code(KeyCode::KeyE) => Some('e'),
+                                PhysicalKey::Code(KeyCode::KeyF) => Some('f'),
+                                PhysicalKey::Code(KeyCode::KeyD) => Some('d'),
+                                PhysicalKey::Code(KeyCode::KeyX) => Some('x'),
                                 _ => None,
                             };
                             if let Some(key) = key {

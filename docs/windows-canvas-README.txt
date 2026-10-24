@@ -83,6 +83,28 @@ appear in status; destructive actions stop if preservation cannot succeed.
 Known gaps and continuation steps: [progress](OVERDRIVE-PROGRESS.md).
 Standalone `stylus-diagnostic.exe` remains separately packaged and unchanged.
 
+## Selection and editing slice
+
+B selects brush; M rectangle selection; E ellipse; K lasso; I eyedropper. Drag inside
+paper to select, then switch back to Brush to constrain painting to that selection.
+Selection outlines are black/white. Lasso is capped at 1024 points (2 document-pixel
+minimum spacing); complex shapes use even/odd pixel-center boundaries, no feathering.
+Leaving paper, focus loss, resize or mode change cancels an incomplete selection.
+
+Ctrl+F fills selected pixels (or whole selected layer if nothing is selected) with
+current color/opacity. Ctrl+X deletes selected pixels; this is **not clipboard cut**.
+Ctrl+D deselects. Toolbar buttons perform the same edits. Eyedropper samples the
+visible composite and rejects fully transparent pixels.
+
+Expand “Edit selected pixels” for move X/Y, uniform scale, rotation, horizontal/
+vertical flip and crop. Apply transform affects the selected layer, using nearest-
+neighbor sampling; content moved outside the document is clipped. Crop uses the
+selection bounding rectangle and affects all layers. Successful operations enter
+undo history, including dimensions/layer pixels; cancellation never does. Transform
+clears the selection; undo restores it. Selections are transient and not saved in
+`.rpl`; reopening preserves artwork, not a selection outline. There is no selection
+feathering, arbitrary transform handles or clipboard integration yet.
+
 TROUBLESHOOTING
 Requires Windows 10 x64 and a compatible Direct3D 12 adapter/driver.
 Run .\canvas-demo.exe from PowerShell to retain startup errors. System graphics

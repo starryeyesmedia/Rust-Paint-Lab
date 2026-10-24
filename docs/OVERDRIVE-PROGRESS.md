@@ -116,3 +116,21 @@ handles passed to sync_all for backup/PNG files, which Windows FlushFileBuffers
 requires write access for. Changed those to write handles; native matrix rerun is
 required to confirm. Added bounded failed-test tail annotations so exact errors
 remain accessible through the GitHub API. Never count this failed run as success.
+
+## Selection/editing checkpoint
+
+Implemented rectangle/ellipse/lasso selection gestures and outlines, brush selection
+clipping, fill/delete, composite eyedropper, selected-layer translation/uniform
+scale/rotation/flips and all-layer crop. These are real document operations with
+undo/redo, locks, nonfinite/singular transform rejection and bounded masks. Crop uses
+selection bounds, transforms use nearest neighbor and clip outside-canvas content.
+No feathering, transform handles or clipboard cut/paste. Selection state participates
+in session history but is deliberately not persisted by native v1.
+
+Seven core tests assert boundaries, lasso mask agreement, pixel edits/history,
+transforms, crop, eyedropper/locks and brush clipping/cancellation. Full suite now
+98 Rust tests plus GPU runner; local formatting/Clippy/build and Windows cross-lint
+pass. Real alpha OS workflow passed rectangle-select -> fill -> save -> undo -> save,
+restoring byte-for-byte original project data. Hardware UX still pending. Recent
+files, recovery cleanup/journal, groups/masks, navigation, interchange and P2 remain
+incomplete. Verify the next CI run before treating the checkpoint as matrix-validated.

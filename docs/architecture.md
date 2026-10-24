@@ -212,3 +212,12 @@ converts unpremultiplied samples to linear output for the sRGB surface. Export w
 straight-alpha PNG with sRGB/DPI metadata. See RPL-ALPHA-FORMAT.md for native storage,
 locking, backups, fault boundaries and recovery limitations. The UI owns file paths,
 modal input routing and preservation confirmations; it does not bypass transactions.
+
+The `paint-document::editing` module implements portable pixel-center rectangle,
+ellipse and bounded polygon selections, fill/delete, nearest-neighbor affine edits,
+eyedropper and all-layer crop. Editing snapshots retain transient selection state
+for undo, but the native v1 file intentionally skips it. Painting still traverses
+Processor/Router and clips raster dabs against the active selection. Selection-tool
+gestures are shell editing actions, not an alternative painting stream. Large lasso
+fills/transforms prepare bounded bit masks with scanline intersections rather than
+retesting every polygon edge for every output pixel. No feathering is claimed.

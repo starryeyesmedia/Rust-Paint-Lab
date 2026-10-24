@@ -2,6 +2,7 @@
 //! Pixels are premultiplied encoded-sRGB RGBA8; this is not ICC color management.
 #![forbid(unsafe_code)]
 pub mod brush;
+pub mod editing;
 pub mod storage;
 use brush::{Brush, BrushKind};
 use paint_stroke::{StrokeCommand, StrokeId, StrokeSample};
@@ -84,6 +85,8 @@ pub struct Layer {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct State {
+    #[serde(skip)]
+    pub selection: Option<editing::Selection>,
     pub width: u32,
     pub height: u32,
     pub dpi: u32,
@@ -95,6 +98,7 @@ pub struct State {
 impl State {
     pub fn new(width: u32, height: u32, dpi: u32) -> Result<Self, PaintError> {
         let s = Self {
+            selection: None,
             width,
             height,
             dpi,
@@ -127,6 +131,13 @@ impl State {
         }
         if !self.brush.validate() {
             return Err(PaintError::Invalid);
+        }
+        if let Some(selection) = &self.selection {
+            selection.validate()?;
+            let bounds = selection.bounds();
+            if bounds[2] > f64::from(self.width) || bounds[3] > f64::from(self.height) {
+                return Err(PaintError::Invalid);
+            }
         }
         let mut ids = BTreeSet::new();
         let mut total = 0;
@@ -526,6 +537,14 @@ impl Engine {
         let (sin, cos) = angle.sin_cos();
         for yy in miny..maxy {
             for xx in minx..maxx {
+                if self
+                    .state
+                    .selection
+                    .as_ref()
+                    .is_some_and(|s| !s.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5]))
+                {
+                    continue;
+                }
                 let dx = f64::from(xx) + 0.5 - x;
                 let dy = f64::from(yy) + 0.5 - y;
                 let shape = if t.brush.kind == BrushKind::Calligraphy {

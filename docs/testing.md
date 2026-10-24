@@ -146,3 +146,7 @@ physical pen, Windows filesystem, Iris Xe/RTX frame-rate or tablet UX certificat
 History hardening adds unique COW allocation accounting and 4 storage/history tests
 (91 total Rust tests). Run the same workspace suite and target-specific license
 notice generator when packaging additional desktop platforms.
+
+Selection/editing adds seven portable tests (98 total). The real alpha window
+workflow additionally selects a rectangle, fills, saves, undoes and verifies the
+original native file is restored byte-for-byte. Physical pen editing remains untested.

@@ -130,8 +130,18 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             window=wait(find_window,'reopened workspace');focus(display,window,2,0);send()
             ctrl('o');time.sleep(0.3);key('Return')
             status('artwork.rpl')
+            # Exercise actual selection-tool ownership and transactional fill.
+            time.sleep(0.5)
+            saved=project.read_bytes()
+            key('m');move(200,260);click_button(1,True);move(360,370);click_button(1,False)
+            assert '*' not in title(window), 'selection alone changed artwork'
+            ctrl('f');status('*');ctrl('s')
+            wait(lambda: project.read_bytes()!=saved and '*' not in title(window),'selected fill saved')
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==saved,'undo selected fill restores exact native artwork')
+            ctrl('d');key('b')
             key('Escape');assert process.wait(timeout=20)==0
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, save checksum, undo/redo, previous-file backup, PNG export, reopen, rectangle selection/fill/undo, clean close)')
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)
             close_display(display)
