@@ -82,7 +82,7 @@ work below.
   run [`40124176543`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40124176543)
   is testing that change in Xvfb; platform results are pending.
 
-### Working refinement after `75e6c5a` (not yet pushed)
+### Completed workspace refinement in `885b213`
 
 - The brush list now uses artist-facing names (for example, Hard round, Ink pen,
   Soft brush and “Wash · experimental”), and the erase toggle is labelled
@@ -96,11 +96,27 @@ work below.
   undo counts, or timing diagnostics; it presents save state, contextual status,
   pixel dimensions and DPI. Follow System appearance requests a frame when winit
   reports an OS theme change.
-- Formatting, strict Clippy, all **172 workspace tests**, workspace build, llvmpipe
-  GPU smoke, and Windows GNU workspace check/Clippy pass locally for this tree.
-  The actual Linux window cannot run locally because Xvfb is absent. No screenshot
-  from a running Studio window or physical Windows reference-board test is
-  available yet.
+- Formatting, strict Clippy, all **173 workspace tests**, workspace build, llvmpipe
+  GPU smoke, and Windows GNU workspace check/Clippy pass locally. The actual Linux
+  window cannot run locally because Xvfb is absent. No screenshot from a running
+  Studio window or physical Windows reference-board test is available yet.
+- GitHub Actions run [`40124642888`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40124642888)
+  is validating `885b213`; all platform jobs had reached full workspace tests at
+  last inspection. The test-only path-prompt fix, reference input guard, portable
+  Windows packages and Linux virtual-window workflow remain under CI validation.
+
+### Working color-palette slice after `885b213` (not yet pushed)
+
+- The Color section now shows a bounded recent brush-color palette. Selecting a
+  color updates the active brush; user-picked, HEX-entered and eyedropper colors
+  are remembered newest-first, deduplicated and capped at 12. Colors live in
+  local workspace preferences, are sanitized on load, and remain separate from
+  the accent color and document artwork. Existing version-1 preferences load with
+  an empty palette.
+- Persistence/ordering/bounds and named touch-sized swatches have automated tests.
+- Formatting, strict Clippy, all **175 workspace tests**, workspace build, llvmpipe
+  GPU smoke, and Windows GNU workspace check/Clippy pass locally for this slice.
+  Full platform CI is pending.
 
 ### Next Phase 8.1 work
 
@@ -113,9 +129,9 @@ work below.
 3. Window-level inspect Midnight Violet/icons, the new Brush/Layers layout and
    appearance persistence/custom contrast; test panel resize and reference-window
    move/resize/opacity input routing.
-4. Continue with bounded recent artwork colors and reference-board pan/zoom/lock/
-   reset controls. Full draggable docking, a richer welcome screen, HSV selection,
-   and a complete accessibility audit remain outstanding.
+4. Continue with reference-board pan/zoom/lock/reset controls. Full draggable
+   docking, a richer welcome screen, HSV selection, and a complete accessibility
+   audit remain outstanding.
 
 This is the active continuation record. Phase 7 work remains documented in
 [the Phase 7 record](PHASE7-STUDIO-PROGRESS.md); it is preserved and not repeated.

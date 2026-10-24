@@ -358,6 +358,8 @@ pub struct Studio {
     new_background: [u8; 3],
     new_transparent: bool,
     recent_document_sizes: Vec<crate::workspace::RecentDocumentSize>,
+    recent_brush_colors: Vec<[u8; 3]>,
+    observed_brush_color: Option<[u8; 3]>,
     hex_color: String,
     hex_color_for: Option<[u8; 3]>,
     new_dialog: bool,
@@ -460,6 +462,7 @@ impl Studio {
             .unwrap_or_default();
         let document_setup = preferences.new_document.clone();
         let recent_document_sizes = preferences.recent_document_sizes.clone();
+        let recent_brush_colors = preferences.recent_brush_colors.clone();
         let references = preferences
             .references
             .iter()
@@ -492,6 +495,8 @@ impl Studio {
             new_background: document_setup.background,
             new_transparent: document_setup.transparent,
             recent_document_sizes,
+            recent_brush_colors,
+            observed_brush_color: None,
             hex_color: String::new(),
             hex_color_for: None,
             new_dialog: false,
@@ -1071,6 +1076,7 @@ impl Studio {
                 transparent: self.new_transparent,
             },
             recent_document_sizes: self.recent_document_sizes.clone(),
+            recent_brush_colors: self.recent_brush_colors.clone(),
             ..Default::default()
         };
         if !preferences.validate() {
@@ -1634,6 +1640,30 @@ impl Studio {
                                     project.brush.color = rgb;
                                     self.hex_color = crate::color_controls::format_hex_rgb(rgb);
                                     self.hex_color_for = Some(rgb);
+                                }
+                            });
+                            ui.collapsing("Recent brush colors", |ui| {
+                                if self.recent_brush_colors.is_empty() {
+                                    ui.small("Colors you choose will appear here.");
+                                } else {
+                                    ui.horizontal_wrapped(|ui| {
+                                        for color in self.recent_brush_colors.clone() {
+                                            let hex = crate::color_controls::format_hex_rgb(color);
+                                            if crate::studio_icons::color_swatch(
+                                                ui,
+                                                egui::Color32::from_rgb(
+                                                    color[0], color[1], color[2],
+                                                ),
+                                                &format!("Brush color {hex}"),
+                                            )
+                                            .clicked()
+                                            {
+                                                project.brush.color = color;
+                                                self.hex_color = hex;
+                                                self.hex_color_for = Some(color);
+                                            }
+                                        }
+                                    });
                                 }
                             });
 
@@ -2506,6 +2536,16 @@ impl Studio {
             }
             window.request_redraw();
         }
+        let brush_color = session.live().project().brush.color;
+        if let Some(previous) = self.observed_brush_color
+            && previous != brush_color
+        {
+            crate::workspace::remember_brush_color(&mut self.recent_brush_colors, brush_color);
+            if let Err(error) = self.persist_workspace() {
+                self.status = format!("Could not save recent brush colors: {error}");
+            }
+        }
+        self.observed_brush_color = Some(brush_color);
         if reference_imported > 0 || !reference_errors.is_empty() {
             let mut status = if reference_imported == 0 {
                 "No reference images were added".to_string()

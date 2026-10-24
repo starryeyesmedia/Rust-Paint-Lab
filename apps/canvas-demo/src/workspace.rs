@@ -6,6 +6,13 @@ pub const MAX_REFERENCES: usize = 6;
 pub const MAX_REFERENCE_PATH: usize = 4096;
 pub const MAX_PREFERENCES_BYTES: usize = 64 * 1024;
 pub const MAX_RECENT_DOCUMENT_SIZES: usize = 8;
+pub const MAX_RECENT_BRUSH_COLORS: usize = 12;
+
+pub fn remember_brush_color(colors: &mut Vec<[u8; 3]>, color: [u8; 3]) {
+    colors.retain(|existing| *existing != color);
+    colors.insert(0, color);
+    colors.truncate(MAX_RECENT_BRUSH_COLORS);
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +96,8 @@ pub struct WorkspacePreferences {
     pub new_document: NewDocumentPreferences,
     #[serde(default)]
     pub recent_document_sizes: Vec<RecentDocumentSize>,
+    #[serde(default)]
+    pub recent_brush_colors: Vec<[u8; 3]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +159,7 @@ impl Default for WorkspacePreferences {
             references: Vec::new(),
             new_document: NewDocumentPreferences::default(),
             recent_document_sizes: Vec::new(),
+            recent_brush_colors: Vec::new(),
         }
     }
 }
@@ -184,6 +194,16 @@ impl WorkspacePreferences {
         });
         self.recent_document_sizes
             .truncate(MAX_RECENT_DOCUMENT_SIZES);
+        let mut seen_colors = Vec::new();
+        self.recent_brush_colors.retain(|color| {
+            if seen_colors.contains(color) {
+                false
+            } else {
+                seen_colors.push(*color);
+                true
+            }
+        });
+        self.recent_brush_colors.truncate(MAX_RECENT_BRUSH_COLORS);
         self.references.truncate(MAX_REFERENCES);
         self.references.retain_mut(|reference| {
             let path_len = reference.path.as_os_str().len();
@@ -308,6 +328,31 @@ mod tests {
         restored.custom_accent_rgb = None;
         assert!(restored.validate());
         assert_eq!(restored.accent_scheme, AccentScheme::Violet);
+    }
+
+    #[test]
+    fn recent_brush_colors_are_deduplicated_newest_first_and_bounded() {
+        let mut colors = Vec::new();
+        for value in 0..MAX_RECENT_BRUSH_COLORS as u8 + 2 {
+            remember_brush_color(&mut colors, [value, 20, 30]);
+        }
+        remember_brush_color(&mut colors, [2, 20, 30]);
+        assert_eq!(colors.len(), MAX_RECENT_BRUSH_COLORS);
+        assert_eq!(colors[0], [2, 20, 30]);
+        assert_eq!(colors.iter().filter(|&&c| c == [2, 20, 30]).count(), 1);
+
+        let mut preferences = WorkspacePreferences {
+            recent_brush_colors: colors.clone(),
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.recent_brush_colors, colors);
+        restored.recent_brush_colors = vec![[1, 2, 3], [1, 2, 3]];
+        assert!(restored.validate());
+        assert_eq!(restored.recent_brush_colors, vec![[1, 2, 3]]);
     }
 
     #[test]

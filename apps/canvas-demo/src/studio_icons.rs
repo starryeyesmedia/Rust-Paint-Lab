@@ -244,6 +244,25 @@ pub fn menu_button_enabled(
     response
 }
 
+pub fn color_swatch(ui: &mut egui::Ui, color: egui::Color32, label: &str) -> egui::Response {
+    let semantic_label = egui::RichText::new(label)
+        .size(1.0)
+        .color(egui::Color32::TRANSPARENT);
+    let response = ui.add_sized([32.0, 32.0], egui::Button::new(semantic_label).fill(color));
+    let border = if response.hovered() || response.has_focus() {
+        ui.visuals().selection.stroke
+    } else {
+        ui.visuals().widgets.noninteractive.bg_stroke
+    };
+    ui.painter().rect_stroke(
+        response.rect.shrink(1.0),
+        5.0,
+        border,
+        egui::StrokeKind::Inside,
+    );
+    response.on_hover_text(label)
+}
+
 pub fn label(ui: &mut egui::Ui, icon: Icon, name: &str) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::hover());
     paint(
@@ -287,5 +306,24 @@ mod tests {
             });
         });
         assert!(output.shapes.len() >= icons.len() * 2);
+    }
+
+    #[test]
+    fn recent_color_swatch_has_a_touch_sized_named_button() {
+        let context = egui::Context::default();
+        let mut width = 0.0;
+        let output = context.run(egui::RawInput::default(), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                let response = color_swatch(
+                    ui,
+                    egui::Color32::from_rgb(160, 80, 210),
+                    "Brush color #A050D2",
+                );
+                width = response.rect.width();
+                assert!(response.enabled());
+            });
+        });
+        assert!(width >= 32.0);
+        assert!(!output.shapes.is_empty());
     }
 }

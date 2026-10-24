@@ -32,8 +32,10 @@ controls visible. Presets use names such as Hard round, Ink pen and Soft brush;
 Wash is marked experimental. Size and opacity accept direct numeric entry; flow, hardness,
 spacing, tilt, angle, smoothing, and pressure responses are grouped under Advanced
 dynamics. Expand Color values for validated six-digit HEX and direct encoded-sRGB RGB
-entry; the color swatch still opens the color picker. Opacity caps the whole stroke
-while flow accumulates individual dabs. Wash
+entry; the color swatch still opens the color picker. Recent brush colors appear
+under Recent brush colors, newest first, and can be selected by mouse or touch.
+The list is capped at twelve unique local workspace colors and is independent of
+the interface accent. Opacity caps the whole stroke while flow accumulates individual dabs. Wash
 is a deterministic visual experiment, not a physical watercolor simulation. Airbrush
 deposits on movement, not continuously while stationary. There is no prediction.
 Smoothing is a simple low-pass filter, not a full stabilizer.
