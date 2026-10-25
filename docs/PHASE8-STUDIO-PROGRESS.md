@@ -590,7 +590,9 @@ and has a direct Advanced settings action that opens the existing inspector. Eac
 preset card has a small color-stroke preview; advanced dynamics and preset
 save/load remain in the existing controls. Favorites, search, and persisted
 flyout placement are not implemented yet. The flyout is movable/closable and
-reopened from the palette. Formatting, strict Clippy, all 189 tests, workspace
+reopened from the palette. The Accessibility menu now also persists a Reduce
+interface motion preference and sets egui's transition time to zero; legacy
+preferences default it off. Formatting, strict Clippy, all 190 tests, workspace
 build, llvmpipe GPU smoke, and Windows GNU cross-check/Clippy pass locally. The
 latest platform CI remains pending.
 

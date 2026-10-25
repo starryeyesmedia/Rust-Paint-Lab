@@ -6,6 +6,12 @@ pub const TOOL_TARGET: f32 = 48.0;
 pub const BUTTON_RADIUS: f32 = 8.0;
 pub const PANEL_RADIUS: f32 = 12.0;
 
+pub fn install_motion_preference(context: &egui::Context, reduced_motion: bool) {
+    context.style_mut(|style| {
+        style.animation_time = if reduced_motion { 0.0 } else { 0.1 };
+    });
+}
+
 pub fn install(context: &egui::Context) {
     context.style_mut(|style| {
         style.spacing.interact_size = egui::vec2(TOUCH_TARGET, TOUCH_TARGET);
@@ -40,5 +46,14 @@ mod tests {
             style.visuals.widgets.inactive.corner_radius,
             BUTTON_RADIUS.into()
         );
+    }
+
+    #[test]
+    fn reduced_motion_disables_interface_transition_animation() {
+        let context = egui::Context::default();
+        install_motion_preference(&context, true);
+        assert_eq!(context.style().animation_time, 0.0);
+        install_motion_preference(&context, false);
+        assert_eq!(context.style().animation_time, 0.1);
     }
 }

@@ -303,7 +303,9 @@ palettes, persists bounded interface scale and high-contrast preferences, and
 checks the shared 44-point egui interaction baseline. A generated AccessKit tree
 test checks representative toolbar/document labels and winit routes AccessKit
 actions through the existing application event loop. These are style, preference
-and integration tests, not a complete WCAG audit or screen-reader pass. See
+and integration tests, not a complete WCAG audit or screen-reader pass. A UI-token
+test verifies that the persisted reduced-motion setting sets egui transition time
+to zero. See
 `docs/accessibility-assessment.md` for untested Narrator/NVDA behavior.
 
 The thumbnail generator test checks deterministic bounded RGBA output, alpha,

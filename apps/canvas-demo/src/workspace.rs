@@ -161,6 +161,8 @@ pub struct WorkspacePreferences {
     pub inspector_tab: InspectorTab,
     #[serde(default)]
     pub high_contrast: bool,
+    #[serde(default)]
+    pub reduced_motion: bool,
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
     #[serde(default)]
@@ -237,6 +239,7 @@ impl Default for WorkspacePreferences {
             canvas_pan: [0.0, 0.0],
             inspector_tab: InspectorTab::Layers,
             high_contrast: false,
+            reduced_motion: false,
             ui_scale: 1.0,
             palette_dock: PaletteDock::Left,
             palette_collapsed: false,
@@ -449,6 +452,7 @@ mod tests {
         assert_eq!(preferences.canvas_pan, [0.0, 0.0]);
         assert_eq!(preferences.inspector_tab, InspectorTab::Layers);
         assert!(!preferences.high_contrast);
+        assert!(!preferences.reduced_motion);
         assert_eq!(preferences.ui_scale, 1.0);
         assert_eq!(preferences.palette_dock, PaletteDock::Left);
         assert!(!preferences.palette_collapsed);
@@ -488,6 +492,7 @@ mod tests {
     fn accessibility_preferences_persist_and_clamp_interface_scale() {
         let mut preferences = WorkspacePreferences {
             high_contrast: true,
+            reduced_motion: true,
             ui_scale: 1.35,
             ..Default::default()
         };
@@ -496,6 +501,7 @@ mod tests {
         let mut restored: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
         assert!(restored.validate());
         assert!(restored.high_contrast);
+        assert!(restored.reduced_motion);
         assert_eq!(restored.ui_scale, 1.35);
         restored.ui_scale = 9.0;
         assert!(restored.validate());

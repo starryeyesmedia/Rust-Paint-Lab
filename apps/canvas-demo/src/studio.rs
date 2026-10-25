@@ -37,6 +37,7 @@ type AppearanceKey = (
     Option<[u8; 3]>,
     bool,
     bool,
+    bool,
     u32,
 );
 
@@ -628,6 +629,7 @@ pub struct Studio {
     system_dark: bool,
     appearance_cache: Option<AppearanceKey>,
     high_contrast: bool,
+    reduced_motion: bool,
     ui_scale: f32,
     palette_dock: crate::workspace::PaletteDock,
     palette_collapsed: bool,
@@ -780,6 +782,7 @@ impl Studio {
                 .unwrap_or(preferences.dark_theme),
             appearance_cache: None,
             high_contrast: preferences.high_contrast,
+            reduced_motion: preferences.reduced_motion,
             ui_scale: preferences.ui_scale,
             palette_dock: preferences.palette_dock,
             palette_collapsed: preferences.palette_collapsed,
@@ -1600,6 +1603,7 @@ impl Studio {
             canvas_pan: self.navigation.pan,
             inspector_tab: self.inspector_tab,
             high_contrast: self.high_contrast,
+            reduced_motion: self.reduced_motion,
             ui_scale: self.ui_scale,
             palette_dock: self.palette_dock,
             palette_collapsed: self.palette_collapsed,
@@ -1925,6 +1929,9 @@ impl Studio {
                             workspace_changed |= ui
                                 .checkbox(&mut self.high_contrast, "High contrast controls")
                                 .changed();
+                            workspace_changed |= ui
+                                .checkbox(&mut self.reduced_motion, "Reduce interface motion")
+                                .changed();
                             ui.horizontal(|ui| {
                                 ui.label("Interface size");
                                 workspace_changed |= ui
@@ -1940,6 +1947,7 @@ impl Studio {
                                 self.custom_accent_rgb = None;
                                 self.custom_accent_hex = "#A78BFA".into();
                                 self.high_contrast = false;
+                                self.reduced_motion = false;
                                 self.ui_scale = 1.0;
                                 workspace_changed = true;
                                 ui.close();
@@ -3562,6 +3570,7 @@ impl Studio {
             self.custom_accent_rgb,
             self.system_dark,
             self.high_contrast,
+            self.reduced_motion,
             (self.ui_scale * 1000.0).round() as u32,
         );
         if self.appearance_cache != Some(appearance_key) {
@@ -3579,6 +3588,7 @@ impl Studio {
             }
             self.context.set_visuals(visuals);
             self.context.set_zoom_factor(self.ui_scale);
+            crate::ui_tokens::install_motion_preference(&self.context, self.reduced_motion);
             self.appearance_cache = Some(appearance_key);
         }
         let raw = self.input.take_egui_input(window);
