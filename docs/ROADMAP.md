@@ -134,19 +134,21 @@ continuation steps.
 
 ## Latest Phase 8.3 visual continuation — local checkpoint, Actions pending
 
-On 2026-10-25 the branch advanced locally from `0c1c145` with the temporary
-text-only BitchPixel Home identity, exact approved brand lines, wider illustrated
+On 2026-10-25 the branch advanced from `0c1c145` with the temporary text-only
+BitchPixel Home identity, exact approved brand lines, wider illustrated
 quick-start cards, visual/reflowing New Artwork preset cards, and responsive
-Brush panel placement and sizing. Recent-artwork and Reference screenshots now
+Brush panel placement and sizing. First-run Home now places working popular
+canvas choices and a custom/print-size action in the open side of its hero;
+recent-project Home uses the real thumbnail instead. Recent-artwork and Reference screenshots now
 assert pixels from actual painted and imported image fixtures, not only screenshot
 dimensions or color diversity. The Xvfb matrix captured and locally reviewed 22
 states. All 223 workspace tests passed with required llvmpipe/Vulkan GPU smoke;
-formatting, strict Clippy and workspace build passed. Code commit `fcbd6c6` is
-based on `0c1c145`; the adjacent screenshot/documentation commit adds the image
-assertions and updates the testing record. Cross-platform Actions verification is
-pending. The recent thumbnail, empty-state Home, visual preset selection and
-scrollable advanced settings are described in `PHASE8-STUDIO-PROGRESS.md` and
-`testing.md`.
+formatting, strict Clippy and workspace build passed. Code commits `fcbd6c6` and
+`769b9b2` are based on `0c1c145`; the adjacent screenshot/documentation commit
+adds image assertions and updates the testing record. Cross-platform Actions
+verification for these commits is pending. The recent thumbnail, first-run Home,
+visual preset selection and scrollable advanced settings are described in
+`PHASE8-STUDIO-PROGRESS.md` and `testing.md`.
 
 The Phase 8.3 design remains in progress. The current Home composition and
 floating tools still need refinement against the approved concept; panel docking

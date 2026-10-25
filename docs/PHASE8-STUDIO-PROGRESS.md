@@ -967,10 +967,11 @@ Windows assistive-technology validation remain outstanding.
 ### Major visual/workflow continuation — local reviewed checkpoint (2026-10-25)
 
 This continuation responds to the owner's explicit assessment that `0c1c145`
-still looked sparse and developer-oriented. It is implemented in code commit
-`fcbd6c6`, based on `0c1c145`. The screenshot assertions and synchronized
-documentation are committed alongside it; a new cross-platform Actions run is
-pending.
+still looked sparse and developer-oriented. The visual foundation is in code
+commit `fcbd6c6`, based on `0c1c145`; follow-on commit `769b9b2` adds working
+quick-start choices directly to the first-run Home hero. Screenshot assertions
+and synchronized documentation are committed alongside the visual pass; a new
+cross-platform Actions run is pending.
 Phase 8.3 remains active.
 
 - Home now uses a temporary text-only BitchPixel wordmark, the exact approved
@@ -980,6 +981,12 @@ Phase 8.3 remains active.
   projects only; no demo art is presented as user work. On wide displays the
   format cards and recent-artwork previews grow to use the available width. An
   intentional first-run empty state remains when no projects exist.
+- First-run Home now uses the open side of its hero for three working one-click
+  canvas formats and a Custom/print-size action instead of leaving an empty
+  image-sized area. When a real recent project exists, the hero shows that
+  project's cached artwork thumbnail and the full format strip follows below.
+  Narrow windows keep the format strip in the vertical scroll flow. The Xvfb
+  workflow waits for the first-run quick-start state marker before capture.
 - New Artwork now presents six named preset formats plus Custom as proportionally
   illustrated, keyboard-selectable cards with a visible selected state, live
   aspect/background preview, clear pixel/DPI labels and a primary Create canvas
@@ -1035,7 +1042,7 @@ Phase 8.3 remains active.
 
 ### Exact continuation from the local visual checkpoint
 
-1. Commit and push the reviewed implementation on
+1. Push the reviewed follow-on Home commit and progress update on
    `feature/studio-overdrive-phase-8`; do not merge or release.
 2. Wait for and record the new Windows, Linux and macOS Actions result. Inspect
    the Actions screenshot archive if it is downloadable, without treating

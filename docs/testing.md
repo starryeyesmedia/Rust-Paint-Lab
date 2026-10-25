@@ -342,13 +342,14 @@ real layers and a valid recovery checkpoint are present, and rejects
 blank/undersampled images. The current matrix captures 22 named states, including
 normal/narrow/wide Home, populated recent artwork, normal/narrow New Artwork,
 populated light/dark Layers and Recovery, and light/dark Reference, Brush and
-Color panels. The recent-artwork capture requires visible blue pixels from the
-real painted smoke-project thumbnail. Reference captures require pixels from a
-uniquely colored region of the imported reference image. The rendered windows are
-uploaded as `rust-paint-lab-studio-ui-smoke`. These screenshots validate the
-virtual Linux window, not Windows DPI, Narrator/NVDA or physical hardware. It
-explicitly checks that Escape dismisses the Brush flyout without
-closing the app before continuing to Layers. The test environment logs which
+Color panels. The first-run Home capture waits for its rendered quick-start
+format actions inside the hero. The recent-artwork capture requires visible blue
+pixels from the real painted smoke-project thumbnail. Reference captures require
+pixels from a uniquely colored region of the imported reference image. The
+rendered windows are uploaded as `rust-paint-lab-studio-ui-smoke`. These
+screenshots validate the virtual Linux window, not Windows DPI, Narrator/NVDA or
+physical hardware. It explicitly checks that Escape dismisses the Brush flyout
+without closing the app before continuing to Layers. The test environment logs which
 flyout Escape dismissed, derives the palette click target from the rendered
 button bounds, and exercises Ctrl+B as a keyboard alternative. The companion
 `rust-paint-lab-linux-ui-diagnostics`
