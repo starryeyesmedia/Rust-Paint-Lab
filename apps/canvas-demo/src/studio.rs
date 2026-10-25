@@ -28,6 +28,7 @@ struct RecentProjectCard {
     bytes: Option<u64>,
     dimensions: Option<(u32, u32, u32)>,
     opened_unix_seconds: u64,
+    thumbnail: Option<egui::TextureHandle>,
 }
 
 type AppearanceKey = (
@@ -39,7 +40,11 @@ type AppearanceKey = (
     u32,
 );
 
-fn recent_project_cards(recent: &paint_document::recent::Recent) -> Vec<RecentProjectCard> {
+fn recent_project_cards(
+    recent: &paint_document::recent::Recent,
+    context: &egui::Context,
+    thumbnail_directory: Option<&std::path::Path>,
+) -> Vec<RecentProjectCard> {
     recent
         .paths
         .iter()
@@ -53,6 +58,8 @@ fn recent_project_cards(recent: &paint_document::recent::Recent) -> Vec<RecentPr
                 bytes: metadata.map(|metadata| metadata.len()),
                 dimensions: storage::peek_dimensions(path),
                 opened_unix_seconds: recent.opened_unix_seconds.get(index).copied().unwrap_or(0),
+                thumbnail: thumbnail_directory
+                    .and_then(|directory| crate::home_thumbnails::load(directory, path, context)),
             }
         })
         .collect()
@@ -593,6 +600,7 @@ pub struct Studio {
     drafts: Vec<PathBuf>,
     recent: paint_document::recent::Recent,
     recent_cards: Vec<RecentProjectCard>,
+    thumbnail_directory: Option<PathBuf>,
     recent_path: Option<PathBuf>,
     cleanup: Option<PathBuf>,
     draft_cleanup: Option<PathBuf>,
@@ -661,11 +669,15 @@ impl Studio {
             .ok()
             .and_then(|p| p.parent())
             .map(|p| p.join("recent.json"));
+        let thumbnail_directory = recent_path
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(|directory| directory.join("home-thumbnails"));
         let recent = recent_path
             .as_ref()
             .and_then(|p| paint_document::recent::Recent::load(p).ok())
             .unwrap_or_default();
-        let recent_cards = recent_project_cards(&recent);
+        let recent_cards = recent_project_cards(&recent, &context, thumbnail_directory.as_deref());
         let preferences_path = dir
             .as_ref()
             .ok()
@@ -736,6 +748,7 @@ impl Studio {
             drafts: crate::drafts::list(),
             recent,
             recent_cards,
+            thumbnail_directory,
             recent_path,
             cleanup: None,
             draft_cleanup: None,
@@ -1371,7 +1384,18 @@ impl Studio {
         if let Err(e) = result {
             self.status = format!("Artwork file succeeded; recent-list update failed: {e}");
         }
-        self.recent_cards = recent_project_cards(&self.recent);
+        self.recent_cards = recent_project_cards(
+            &self.recent,
+            &self.context,
+            self.thumbnail_directory.as_deref(),
+        );
+    }
+    fn cache_home_thumbnail(&mut self, path: &std::path::Path, engine: &Engine) {
+        if let Some(directory) = &self.thumbnail_directory
+            && let Err(error) = crate::home_thumbnails::save(directory, path, engine)
+        {
+            self.status = format!("Artwork saved; Home preview was not cached: {error}");
+        }
     }
     pub fn project_label(&self) -> String {
         self.store
@@ -2988,7 +3012,7 @@ impl Studio {
                                     ui.vertical(|ui| {
                                         ui.label(egui::RichText::new("RUST PAINT LAB").small().strong().color(ui.visuals().hyperlink_color));
                                         ui.add_space(8.0);
-                                        ui.heading(egui::RichText::new("Make room for your next idea.").size(30.0));
+                                        ui.heading(egui::RichText::new("A quiet place to make something.").size(30.0).strong());
                                         ui.label("Your studio, references, and artwork stay on this device.");
                                     });
                                 });
@@ -3029,6 +3053,8 @@ impl Studio {
                                             egui::Grid::new("home recent projects").num_columns(2).spacing([14.0, 14.0]).show(ui, |ui| {
                                                 for (index, card) in self.recent_cards.iter().take(8).enumerate() {
                                                     let path = &card.path;
+                                                    let thumbnail = card.thumbnail.clone();
+                                                    let card_width = (screen.width() * 0.34).clamp(220.0, 420.0);
                                                     let name = path.file_stem().unwrap_or_default().to_string_lossy();
                                                     let details = if let Some(bytes) = card.bytes {
                                                         let size_mb = bytes as f64 / (1024.0 * 1024.0);
@@ -3039,9 +3065,20 @@ impl Studio {
                                                     };
                                                     let available = card.bytes.is_some();
                                                     let card = egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(10.0).inner_margin(14.0).show(ui, |ui| {
-                                                        ui.set_min_width((screen.width() * 0.34).clamp(220.0, 420.0));
-                                                        ui.set_min_height(88.0);
+                                                        ui.set_min_width(card_width);
+                                                        ui.set_min_height(220.0);
                                                         ui.vertical(|ui| {
+                                                            if let Some(texture) = thumbnail {
+                                                                let source_size = texture.size();
+                                                                let scale = ((card_width - 30.0) / source_size[0] as f32).min(116.0 / source_size[1] as f32);
+                                                                let image_size = egui::vec2(source_size[0] as f32 * scale, source_size[1] as f32 * scale);
+                                                                ui.add(egui::Image::new((texture.id(), image_size)).fit_to_exact_size(image_size));
+                                                            } else {
+                                                                egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(6.0).show(ui, |ui| {
+                                                                    ui.set_min_size(egui::vec2(card_width - 30.0, 116.0));
+                                                                    ui.centered_and_justified(|ui| { ui.weak("Preview will appear after opening or saving"); });
+                                                                });
+                                                            }
                                                             ui.label(egui::RichText::new(name).strong().size(16.0));
                                                             ui.label(egui::RichText::new(details).small());
                                                             if !available { ui.colored_label(ui.visuals().error_fg_color, "Missing project"); }
@@ -3917,6 +3954,7 @@ impl Studio {
                 self.path = store.path.to_string_lossy().into();
                 let path = store.path.clone();
                 self.store = Some(store);
+                self.cache_home_thumbnail(&path, project);
                 self.remember(&path);
                 self.last_submitted = u64::MAX;
                 self.welcome = false;
@@ -3938,6 +3976,7 @@ impl Studio {
                 }
                 self.status = "Editable project saved; previous valid file retained as .bak".into();
                 let path = self.store.as_ref().unwrap().path.clone();
+                self.cache_home_thumbnail(&path, project);
                 self.remember(&path);
             }
             Action::SaveBrush => {

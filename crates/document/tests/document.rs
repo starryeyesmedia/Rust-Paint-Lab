@@ -618,3 +618,28 @@ fn brush_setting_changes_become_dirty_revisioned_document_metadata_once() {
     engine.saved_revision = engine.revision;
     assert!(!engine.dirty());
 }
+
+#[test]
+fn home_thumbnail_is_deterministic_transparent_and_bounded() {
+    let mut state = State::new(4096, 2048, 300).unwrap();
+    state.background = None;
+    let engine = Engine::from_state(state).unwrap();
+    let (width, height, pixels) = engine.thumbnail_rgba(256, 160).unwrap();
+    assert_eq!((width, height), (256, 128));
+    assert_eq!(pixels.len(), width as usize * height as usize * 4);
+    assert!(pixels.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 0]));
+    assert_eq!(
+        engine.thumbnail_rgba(256, 160).unwrap(),
+        (width, height, pixels)
+    );
+    assert!(engine.thumbnail_rgba(0, 160).is_err());
+    assert!(engine.thumbnail_rgba(513, 160).is_err());
+    let solid = Engine::new(12, 6, 96).unwrap();
+    let (width, height, pixels) = solid.thumbnail_rgba(256, 160).unwrap();
+    assert_eq!((width, height), (12, 6));
+    assert!(
+        pixels
+            .chunks_exact(4)
+            .all(|pixel| pixel == [255, 255, 255, 255])
+    );
+}

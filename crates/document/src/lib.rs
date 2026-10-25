@@ -695,6 +695,72 @@ impl Engine {
         }
         out
     }
+
+    /// Produce a small, deterministic Home preview without allocating a full-size
+    /// flattened canvas. The per-row tile cache is bounded by document width.
+    pub fn thumbnail_rgba(
+        &self,
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<(u32, u32, Vec<u8>), PaintError> {
+        if max_width == 0 || max_height == 0 || max_width > 512 || max_height > 512 {
+            return Err(PaintError::Limit);
+        }
+        self.state.validate()?;
+        let (width, height) = if self.state.width <= max_width && self.state.height <= max_height {
+            (self.state.width, self.state.height)
+        } else if u64::from(max_width) * u64::from(self.state.height)
+            <= u64::from(max_height) * u64::from(self.state.width)
+        {
+            (
+                max_width,
+                ((u64::from(self.state.height) * u64::from(max_width))
+                    / u64::from(self.state.width))
+                .max(1) as u32,
+            )
+        } else {
+            (
+                ((u64::from(self.state.width) * u64::from(max_height))
+                    / u64::from(self.state.height))
+                .max(1) as u32,
+                max_height,
+            )
+        };
+        let mut pixels = vec![0; width as usize * height as usize * 4];
+        let mut cached_tile_y = u32::MAX;
+        let mut row_tiles = BTreeMap::<u32, Vec<u8>>::new();
+        for y in 0..height {
+            let source_y = (((u64::from(y) * 2 + 1) * u64::from(self.state.height))
+                / (u64::from(height) * 2))
+                .min(u64::from(self.state.height - 1)) as u32;
+            let tile_y = source_y / TILE;
+            if tile_y != cached_tile_y {
+                row_tiles.clear();
+                cached_tile_y = tile_y;
+            }
+            for x in 0..width {
+                let source_x = (((u64::from(x) * 2 + 1) * u64::from(self.state.width))
+                    / (u64::from(width) * 2))
+                    .min(u64::from(self.state.width - 1)) as u32;
+                let tile_x = source_x / TILE;
+                let tile = row_tiles
+                    .entry(tile_x)
+                    .or_insert_with(|| self.composite_tile((tile_x, tile_y)));
+                let source = (((source_y % TILE) * TILE + source_x % TILE) * 4) as usize;
+                let dest = ((y * width + x) * 4) as usize;
+                let alpha = u32::from(tile[source + 3]);
+                for channel in 0..3 {
+                    pixels[dest + channel] = if alpha == 0 {
+                        0
+                    } else {
+                        ((u32::from(tile[source + channel]) * 255 + alpha / 2) / alpha) as u8
+                    };
+                }
+                pixels[dest + 3] = alpha as u8;
+            }
+        }
+        Ok((width, height, pixels))
+    }
 }
 fn over(dst: &mut [u8], src: &[u8], erase: bool, opacity: u8, mode: Blend) {
     let sa = u32::from(src[3]) * u32::from(opacity) / 255;

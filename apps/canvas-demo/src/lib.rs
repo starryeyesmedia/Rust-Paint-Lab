@@ -6,6 +6,7 @@ pub mod color_controls;
 pub mod document_setup;
 pub mod drafts;
 pub mod gpu;
+pub mod home_thumbnails;
 pub mod interaction;
 pub mod native_history;
 pub mod navigation;

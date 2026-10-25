@@ -522,17 +522,19 @@ foundation; manual screen-reader and full tree/focus review are outstanding.
 
 ### Exact continuation
 
-1. Push this validated slice and check Windows/Linux/macOS CI, including both
-   Windows artifacts and the Linux alpha window workflow; record the run here.
-2. Continue Phase 8.3 with bounded Home artwork thumbnails and a dedicated
-   recovery manager with previews/confirmed cleanup. The current Home still lists
-   metadata and offers inline recovery buttons.
+1. Verify CI for `5ba5c5a`, `2a1fd15` and `01b49b3`; the latest CI runs are in
+   progress/queued. Preserve both Windows artifacts.
+2. Add image previews to the recovery manager after verifying bounded decoding and
+   fallback safety. Add an Xvfb workflow for opening the manager, recovering, and
+   confirming discard.
 3. Turn the palette into contextual Brush/Color/Layer/Reference flyouts and
    independently dockable/resizable panels; current handedness persists but only
-   changes docking defaults/reset behavior.
-4. Finish visual New Artwork cards/preview, image-first reference chrome, keyboard
-   focus traversal and responsive workspace persistence. Capture and inspect an
-   actual CI or local window screenshot before calling the UI review complete.
+   influences dock/reset defaults. Complete visual brush selection and make Layers
+   an optional detached panel.
+4. Finish Home slogan styling, New Artwork card/layout interaction tests,
+   image-first reference chrome, focus traversal and responsive workspace
+   persistence. Capture and inspect actual windows in CI or another available
+   virtual display before calling visual review complete.
 
 ### Visual document creation slice (in progress)
 
@@ -543,8 +545,7 @@ dimensions, DPI, background, saved presets and recent dimensions remain availabl
 under Advanced. The existing pixel-limit validation and sparse document creation
 path are unchanged. Formatting, strict Clippy, all 187 workspace tests, the
 workspace build, GPU pixel smoke, and Windows GNU cross-check/Clippy pass locally.
-The Linux/Xvfb interaction workflow is still pending for this edit. This does not yet provide
-the planned Home thumbnail cache or dedicated recovery manager.
+The Linux/Xvfb interaction workflow is still pending for this edit.
 
 The recovery manager now has an explicit entry point on Home and under File. It
 refreshes the safe inactive checkpoint list and shows a readable generated name,
@@ -555,6 +556,23 @@ dialog and continues to use the recovery module's directory/ownership checks. A
 visual image preview is not available yet; no unvalidated snapshot is decoded just
 for display. The code passes local build/test/GPU and Windows GNU compile/lint, but
 these latest controls have not yet been exercised by the Xvfb window workflow.
+
+Home now uses the requested slogan “A quiet place to make something.” as a large,
+strong theme-colored heading. Recent cards show real artwork thumbnails after a
+project has been opened or saved. The raster engine samples a maximum 256 × 160
+preview with a per-source-tile-row cache instead of flattening the full-resolution
+canvas; aspect ratio and alpha are preserved. The separate `home-thumbnails` cache
+is capped at eight PNGs, with 256 KiB input limits and invalidation by canonical
+project path, size and modification time. It is never read by document or export
+code. Projects without a cache show a message until opened or saved. Tests cover
+bounded/deterministic sampling, transparency, cache decoding, invalidation and
+pruning. Same-size rewrites that preserve file timestamps may delay cache
+invalidation until the next app open/save.
+
+Latest local validation after the thumbnail work: formatting, strict Clippy,
+**189 tests**, workspace build, llvmpipe GPU smoke, and Windows GNU cross-check and
+Clippy all pass. No local Xvfb is available for screenshot inspection or interaction
+testing. CI for the latest commits is still pending.
 
 The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,

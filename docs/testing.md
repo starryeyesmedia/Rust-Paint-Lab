@@ -300,7 +300,23 @@ the existing `Store` content-hash guard and also keep the window open.
 
 `canvas-demo` tests high-contrast text and control-edge contrast in light/dark
 palettes, persists bounded interface scale and high-contrast preferences, and
-checks the shared 44-point egui interaction baseline. These are style and
-preference tests, not a complete WCAG audit. The optional AccessKit bridge is not
-enabled yet; see `docs/accessibility-assessment.md` for event-loop integration
-requirements and untested Narrator/NVDA behavior.
+checks the shared 44-point egui interaction baseline. A generated AccessKit tree
+test checks representative toolbar/document labels and winit routes AccessKit
+actions through the existing application event loop. These are style, preference
+and integration tests, not a complete WCAG audit or screen-reader pass. See
+`docs/accessibility-assessment.md` for untested Narrator/NVDA behavior.
+
+The thumbnail generator test checks deterministic bounded RGBA output, alpha,
+aspect ratio and invalid output limits. The Home cache test checks bounded PNG
+decode, cache-key invalidation and pruning to eight files. Run:
+
+```sh
+cargo test --locked -p paint-document --test document home_thumbnail
+cargo test --locked -p canvas-demo --lib home_thumbnails
+```
+
+The artwork recovery manager exposes validated inactive snapshots from Home and
+File, shows bounded header metadata and size, and routes Recover through the
+existing replacement/preservation gate. Removal remains confirmed and uses the
+recovery module's ownership/path guards. This is not yet an automated Xvfb
+manager-interaction test, and the manager does not yet show decoded image previews.
