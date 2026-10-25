@@ -71,7 +71,7 @@ jobs:
           exit "$outcome"
       - name: Linux alpha artwork workflow smoke
         if: runner.os == 'Linux'
-        timeout-minutes: 3
+        timeout-minutes: 5
         env:
           WGPU_BACKEND: vulkan
           RPL_UI_SCREENSHOT_DIR: ${{ runner.temp }}/rpl-studio-ui

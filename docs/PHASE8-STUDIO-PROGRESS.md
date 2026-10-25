@@ -723,3 +723,52 @@ explicitly demonstrated or measured here.
    placement where the interaction model is stable, and continue the focus/screen
    reader review. Keep artwork and export state isolated from workspace-only images
    and controls.
+
+## Phase 8.3 visual integration pass — in progress
+
+The accepted `1220722` checkpoint is a base, not Phase 8.3 completion. The owner
+reported that the screenshots from Actions run `40226791860` were inspected and
+showed an underdeveloped visual hierarchy. The archive's blob host still returns
+HTTP 403 from this workspace, so the current pass uses those observations plus a
+broader automated capture matrix; no local claim of pixel-by-pixel review is made.
+
+### Implemented in this slice
+
+- Brush, Color and Layers floating panels now share a viewport/palette-aware
+  placement helper. Brush is resizable, max-bounded to the active window and
+  vertically scrollable; palette overlap, viewport clamp, narrow-window, and
+  preserved-user-position cases have unit coverage.
+- New Artwork orientation choices are keyboard-focusable, semantically named
+  cards with paper silhouettes sized to portrait, landscape and square aspect
+  ratios. The dialog width and content scroll area adapt to the available window;
+  the live background/transparent preview and exact dimensions remain present.
+- Home uses responsive gutters and headline sizing, 4.5:1-safe theme-aware accent
+  styling, taller artwork previews and clearer project metadata. Recent cards now
+  expose a named button in the accessibility tree.
+- The fixed inspector is optional and hidden by default for new/legacy settings
+  without an explicit visibility value; explicit saved visibility is retained.
+  `Ctrl+Shift+N` adds a real layer, and Layers remains available from the main
+  palette or `Ctrl+L`.
+- Reference zoom controls are touch-sized and have explicit accessible names.
+- Xvfb automation now captures light/dark and high-contrast Home, New Artwork,
+  Brush, Layers, Reference and Recovery screens at normal/narrow widths. It seeds
+  a valid native recovery checkpoint and creates three editable layers, and
+  rejects blank captures by sampled color diversity. CI execution is pending.
+
+### Validation and next steps
+
+- Pinned formatting and strict workspace Clippy passed; all **199 workspace
+  tests** passed, including populated-layer and Brush/format-card AccessKit-tree
+  checks. The workspace build and llvmpipe software-GPU pixel smoke passed.
+  Windows GNU workspace check and Clippy also passed after adding the target.
+- Python smoke syntax passes. No Xvfb is installed locally, so the live screenshot
+  run and actual image review remain CI dependent. The Actions archive blob host
+  currently returns HTTP 403 from this environment.
+- Narrator/NVDA and Windows UI Automation have not been exercised. This workspace
+  change preserves the native WM_POINTER observer and does not change the drawing
+  pipeline; it makes no new hardware-input verification claim.
+
+Next: push for the expanded cross-platform workflow, inspect its screenshots if
+artifact access is restored, fix any issues visible in those captures, and then
+produce the consolidated Windows evaluation artifact. Keep Phase 8.3 active until
+visual review and a Windows assistive-technology pass are recorded.

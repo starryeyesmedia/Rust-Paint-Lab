@@ -40,6 +40,7 @@ display = open_display(None)
 if not display:
     raise SystemExit('Xvfb/X11 display is required')
 root = root_window(display)
+captured_screenshots = {}
 x_error_count = 0
 def handle_x_error(_display, _event):
     global x_error_count
@@ -196,9 +197,25 @@ def capture_window(window, name):
             pixel=int.from_bytes(row[start:start+bytes_per_pixel],byte_order_name)
             rows.extend((component(pixel,masks[0]),component(pixel,masks[1]),component(pixel,masks[2]),255))
     raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
+    # Guard against capturing a blank, obscured, or uninitialized window while
+    # still allowing per-driver antialiasing and font differences.
+    sampled=set()
+    sample_stride=max(1,(width*height)//4096)
+    for index in range(0,width*height,sample_stride):
+        sample_y,sample_x=divmod(index,width)
+        start=sample_y*bytes_per_line+sample_x*bytes_per_pixel
+        pixel=int.from_bytes(pixel_data[start:start+bytes_per_pixel],byte_order_name)
+        sampled.add(tuple(component(pixel,mask) for mask in masks))
+    assert len(sampled)>18, f'{name} screenshot looks blank or was not fully rendered ({len(sampled)} sampled colors)'
     destination=Path(folder);destination.mkdir(parents=True,exist_ok=True)
     (destination/f'{name}.png').write_bytes(raw)
+    captured_screenshots[name] = (width, height)
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
+
+def resize_window(window, width, height):
+    assert resize(display, window, width, height)
+    sync(display, 0)
+    time.sleep(0.35)
 def decode_rgba_png(data):
     assert data[:8]==b'\x89PNG\r\n\x1a\n'
     offset=8;width=height=bit_depth=color_type=None;compressed=bytearray()
@@ -239,10 +256,29 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     directory=Path(folder)
     executable=Path(__file__).resolve().parent.parent/'target/debug/canvas-demo'
     env={**os.environ,'XDG_STATE_HOME':str(directory/'state'),'RPL_TEST_PATH_DIALOG':'1','RPL_TEST_DOCUMENT_NAME':'artwork'}
-    # Load a persisted external reference window. It is intentionally magenta;
-    # the exported PNG below must still contain only project artwork.
+    # Load a persisted, colorful reference-board illustration. The magenta
+    # sentinel at its first pixel must never leak into exported artwork.
     reference=directory/'reference.png'
-    reference.write_bytes(b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(b'\x00\xff\x00\xff\xff'))+png_chunk(b'IEND',b''))
+    reference_width, reference_height = 480, 320
+    reference_rows=bytearray()
+    for y in range(reference_height):
+        reference_rows.append(0)
+        for x_pixel in range(reference_width):
+            if x_pixel == 0 and y == 0:
+                color=(255,0,255,255)
+            elif (x_pixel-360)**2+(y-70)**2 < 38**2:
+                color=(255,205,112,255)
+            elif y > 230 or y > 180 and x_pixel < 130 + (y-180)*1.25:
+                color=(58,91,79,255)
+            elif y > 205 and x_pixel > 255 - (y-205)*1.35:
+                color=(80,103,120,255)
+            elif y > 270:
+                color=(34,58,54,255)
+            else:
+                blend=y/reference_height
+                color=(round(104-20*blend),round(148-28*blend),round(190-18*blend),255)
+            reference_rows.extend(color)
+    reference.write_bytes(b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',reference_width,reference_height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(reference_rows),6))+png_chunk(b'IEND',b''))
     prefs=directory/'state/rust-paint-lab/workspace.json'
     prefs.parent.mkdir(parents=True)
     prefs.write_text(json.dumps({'version':1,'dark_theme':False,'brush_panel_width':280.0,'references':[{'path':str(reference),'position':[620.0,100.0],'size':[320.0,260.0],'opacity':0.7}]}))
@@ -253,12 +289,19 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             focus(display,window,2,0);send()
             # Let font/layout requests settle before testing drawing ownership.
             time.sleep(0.5)
-            capture_window(window,'home')
+            resize_window(window,1280,800)
+            capture_window(window,'home-light-normal')
+            resize_window(window,640,480)
+            capture_window(window,'home-light-narrow')
+            resize_window(window,1280,800)
             ctrl('n');new_document_prompt();time.sleep(0.25)
-            capture_window(window,'new-document')
+            capture_window(window,'new-artwork-light-normal')
+            resize_window(window,640,480)
+            capture_window(window,'new-artwork-light-narrow')
+            resize_window(window,1280,800)
             key('Return');time.sleep(0.5)
-            capture_window(window,'canvas-workspace')
-            capture_window(window,'reference-board')
+            capture_window(window,'canvas-workspace-light')
+            capture_window(window,'reference-board-light')
             left, top, width, height, scale = wait(brush_rect, 'Brush control geometry')
             move(round((left + width / 2) * scale), round((top + height / 2) * scale))
             click_button(1, True)
@@ -266,7 +309,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_BRUSH_FLYOUT_OPENED' in (directory / 'application.log').read_text(),
                  'palette Brush control opens its flyout')
             time.sleep(0.25)
-            capture_window(window,'brush-library')
+            capture_window(window,'brush-library-light-normal')
+            resize_window(window,640,480)
+            capture_window(window,'brush-library-light-narrow')
+            resize_window(window,1280,800)
             key('Escape')
             time.sleep(0.3)
             assert process.poll() is None, 'Escape closed the application instead of dismissing Brush library'
@@ -282,7 +328,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Escape dismisses the keyboard-opened Brush flyout')
             ctrl('l');time.sleep(0.3)
             window=wait(find_window,'window after Ctrl+L opens Layers')
-            capture_window(window,'layers-panel')
+            ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
+            wait(lambda: 'UI_TEST_LAYERS_ADDED: 3' in (directory/'application.log').read_text(), 'Layers panel contains three real editable layers')
+            capture_window(window,'layers-panel-populated-light')
             ctrl('l')
             move(180,250);click_button(1,True);move(400,400);click_button(1,False)
             status('*')
@@ -342,7 +390,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             snapshot=wait(lambda: next((p for p in sorted(recovery_dir.glob('recovery-*.rpl'),reverse=True) if valid_project(p)),None),'initial recovery checkpoint')
             # Recovery snapshots are submitted only while the current document is
             # dirty. Wait for this checkpoint before an explicit save makes it clean.
-            ctrl_shift('m');time.sleep(0.4);capture_window(window,'recovery-manager');ctrl_shift('m')
+            ctrl_shift('m');time.sleep(0.4);capture_window(window,'recovery-manager-populated-light');ctrl_shift('m')
             ctrl('s')
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
             journal_path=Path(str(snapshot)+'.journal')
@@ -377,8 +425,45 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert any(thumb_directory.glob('rpl-*.png')),'saved artwork generated a Home thumbnail cache entry'
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'Home after reopening saved artwork');focus(display,window,2,0);send();time.sleep(0.5)
-            capture_window(window,'home-recent-artwork')
+            capture_window(window,'home-recent-artwork-light')
             key('Escape');assert process.wait(timeout=20)==0
+            # Exercise the same application windows under dark mode and high
+            # contrast. Seed Recovery with an independently validated .rpl file.
+            preferences=json.loads(prefs.read_text())
+            preferences['appearance_mode']='Dark';preferences['dark_theme']=True;preferences['high_contrast']=False
+            prefs.write_text(json.dumps(preferences))
+            recovery_dir.mkdir(parents=True,exist_ok=True)
+            visual_checkpoint=recovery_dir/'recovery-visual-checkpoint.rpl'
+            visual_checkpoint.write_bytes(recovered.read_bytes())
+            assert valid_project(visual_checkpoint),'dark-theme recovery fixture is a valid native project'
+            process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
+            window=wait(find_window,'dark Home after saved artwork restart');focus(display,window,2,0);send();time.sleep(0.5)
+            resize_window(window,1280,800);capture_window(window,'home-dark-normal')
+            resize_window(window,640,480);capture_window(window,'home-dark-narrow')
+            resize_window(window,1280,800)
+            ctrl('n');new_document_prompt();capture_window(window,'new-artwork-dark-normal');key('Return');time.sleep(0.4)
+            capture_window(window,'reference-board-dark')
+            ctrl('b');time.sleep(0.35);capture_window(window,'brush-library-dark')
+            key('Escape');ctrl('l');time.sleep(0.35);capture_window(window,'layers-panel-populated-dark')
+            ctrl_shift('m');time.sleep(0.35)
+            assert any(p.name.startswith('recovery-') and p.suffix=='.rpl' and valid_project(p) for p in recovery_dir.iterdir()), 'dark recovery manager has a valid checkpoint entry'
+            capture_window(window,'recovery-manager-populated-dark')
+            ctrl_shift('m')
+            key('Escape');assert process.wait(timeout=20)==0
+            preferences=json.loads(prefs.read_text());preferences['high_contrast']=True;prefs.write_text(json.dumps(preferences))
+            process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
+            window=wait(find_window,'high-contrast Home');focus(display,window,2,0);send();time.sleep(0.5)
+            capture_window(window,'home-dark-high-contrast')
+            key('Escape');assert process.wait(timeout=20)==0
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                required={'home-light-normal','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','layers-panel-populated-light','recovery-manager-populated-light','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','reference-board-dark','brush-library-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
+                missing=required-set(captured_screenshots)
+                assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
+                for name,(width,height) in captured_screenshots.items():
+                    if name.endswith('narrow'):
+                        assert width<=700 and height<=520,f'{name} was not captured at a narrow size: {width}x{height}'
+                    if name.endswith('normal'):
+                        assert width>=900 and height>=650,f'{name} was not captured at a normal size: {width}x{height}'
             print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)

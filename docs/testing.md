@@ -331,12 +331,13 @@ position/size, Brush flyout position and Color flyout position preferences cover
 migration defaults, finite checks, persistence and bounds.
 
 The Linux alpha-window workflow drives Home, New Artwork, workspace, reference
-board, Brush library, Layers panel and Recovery manager, then restarts the app and
-captures Home again with a cached recent-artwork preview. It stores the rendered
-windows in the `rust-paint-lab-studio-ui-smoke` Actions artifact. Inspect the Xvfb
-screenshots when the workflow succeeds; they are visual evidence for the
-virtual Linux window, not Windows DPI, Narrator/NVDA or physical hardware
-validation. It explicitly checks that Escape dismisses the Brush flyout without
+board, Brush library, Layers panel and Recovery manager, then restarts the app to
+capture recent artwork and dark/high-contrast appearances. It resizes the live
+window for narrow and normal captures, verifies that real layers and a valid
+recovery checkpoint are present, and rejects blank/undersampled images. The
+rendered windows are uploaded as `rust-paint-lab-studio-ui-smoke`. These screenshots
+validate the virtual Linux window, not Windows DPI, Narrator/NVDA or physical
+hardware. It explicitly checks that Escape dismisses the Brush flyout without
 closing the app before continuing to Layers. The test environment logs which
 flyout Escape dismissed, derives the palette click target from the rendered
 button bounds, and exercises Ctrl+B as a keyboard alternative. The companion
