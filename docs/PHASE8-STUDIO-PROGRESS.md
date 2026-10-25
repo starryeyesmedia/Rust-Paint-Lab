@@ -914,9 +914,11 @@ illustrations or adding nonfunctional destinations.
   run are pending until this checkpoint is pushed. No physical Windows test is
   claimed here.
 
-Next: push this integrated slice and let CI validate top-dock rendering and
-Windows font-notice packaging; inspect the 21-state Linux screenshot artifact if
-access becomes available; continue applying the design system to Home/New
+Commits `59cace0` and `232672e` are pushed. CI has not started for this
+checkpoint yet; the pushed docs commit used `[skip ci]`, so a normal follow-up
+commit will trigger validation of top-dock rendering and Windows font-notice
+packaging. Then inspect the 21-state Linux screenshot artifact if access becomes
+available and continue applying the design system to Home/New
 Artwork and other creative workflows. Do not issue another owner-facing
 evaluation build until the broader redesign and functional workflow improvements
 have accumulated and passed cross-platform checks. Narrator/NVDA and native
