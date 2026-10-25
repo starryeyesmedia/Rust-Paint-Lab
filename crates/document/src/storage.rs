@@ -94,6 +94,42 @@ pub fn load(path: &Path) -> Result<State, PaintError> {
         .read_to_end(&mut bytes)?;
     decode(&bytes)
 }
+
+/// Read only the bounded JSON header for lightweight recent-project labels.
+/// The result is informational and is never used to allocate or open artwork;
+/// `load` still performs complete size, structure and checksum validation.
+pub fn peek_dimensions(path: &Path) -> Option<(u32, u32, u32)> {
+    #[derive(serde::Deserialize)]
+    struct Header {
+        width: u32,
+        height: u32,
+        dpi: u32,
+    }
+
+    let mut file = File::open(path).ok()?;
+    if file.metadata().ok()?.len() > MAX_FILE as u64 {
+        return None;
+    }
+    let mut prefix = [0u8; 12];
+    file.read_exact(&mut prefix).ok()?;
+    if &prefix[..8] != MAGIC {
+        return None;
+    }
+    let metadata_len = u32::from_le_bytes(prefix[8..12].try_into().ok()?) as usize;
+    if metadata_len == 0 || metadata_len > 65536 {
+        return None;
+    }
+    let mut metadata = vec![0; metadata_len];
+    file.read_exact(&mut metadata).ok()?;
+    let header: Header = serde_json::from_slice(&metadata).ok()?;
+    if !(1..=4096).contains(&header.width)
+        || !(1..=4096).contains(&header.height)
+        || !(1..=9600).contains(&header.dpi)
+    {
+        return None;
+    }
+    Some((header.width, header.height, header.dpi))
+}
 pub(crate) fn temporary(path: &Path) -> PathBuf {
     path.with_file_name(format!(
         ".{}.tmp-{}-{}",
@@ -380,4 +416,28 @@ pub fn import_png(path: &Path, engine: &mut crate::Engine) -> Result<(), PaintEr
         s.selected = id;
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod recent_header_tests {
+    use super::*;
+
+    fn path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "rpl-header-{}-{}.rpl",
+            std::process::id(),
+            NONCE.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    #[test]
+    fn recent_dimension_peek_reads_only_bounded_valid_header_fields() {
+        let path = path();
+        let state = State::new(320, 240, 144).unwrap();
+        fs::write(&path, encode(&state).unwrap()).unwrap();
+        assert_eq!(peek_dimensions(&path), Some((320, 240, 144)));
+        fs::write(&path, b"RPLALP01\xff\xff\xff\xff").unwrap();
+        assert_eq!(peek_dimensions(&path), None);
+        let _ = fs::remove_file(path);
+    }
 }

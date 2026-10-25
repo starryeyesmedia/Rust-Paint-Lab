@@ -242,6 +242,34 @@ geometry/count/file-size limits, and a real PNG-to-egui texture decode. The jour
 smoke validates journal-only recovery through the application after a forced process
 termination. The reference-board paths/layout are persisted separately from artwork.
 
+## Phase 8.2 workspace and reference navigation
+
+The Home recent list reads no full project into memory. It reads at most the
+bounded native-format metadata header for dimensions/DPI and stores last-opened
+UTC seconds in the separate, backward-compatible `recent.json`. Missing files are
+shown as unavailable and cannot be opened from the stale card. The header peek is
+display-only; complete project opening still verifies total size, schema, tile
+structure and checksum. Tests cover old recent-list migration, timestamp/path
+ordering, malformed header rejection, navigation preference bounds, reference
+viewport clamping and focal-point zoom. `TouchTargetRouter` tests ensure contacts
+stay on one surface and clean up before IDs can be reused.
+
+Run the targeted tests with:
+
+```sh
+cargo test --locked -p paint-document recent_
+cargo test --locked -p canvas-demo --lib reference_
+cargo test --locked -p canvas-demo --test navigation
+```
+
+The tests exercise navigation math and surface ownership, not Windows Precision
+Touchpad delivery, touchscreen gesture latency, palm rejection, DPI transitions,
+or live egui hit testing on the Galaxy Book. Linux Xvfb window workflow is still
+required to verify that Home fully covers the canvas, cards transition into the
+existing open flow, and persistent controls work in a native window. No test
+currently checks thumbnail generation because the Home screen does not yet create
+or cache artwork thumbnails.
+
 ## Phase 8 startup, document setup, and native file selection
 
 `paint-document::document_setup` has hardware-free tests for pixel/inch/millimeter/

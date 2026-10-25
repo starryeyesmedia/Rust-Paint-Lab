@@ -18,6 +18,7 @@ pub enum Icon {
     Layers,
     Color,
     Settings,
+    Reference,
 }
 
 fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::Color32) {
@@ -189,6 +190,22 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
                 line((sin * 6.0, cos * 6.0), (sin * 8.0, cos * 8.0));
             }
         }
+        Icon::Reference => {
+            painter.rect_stroke(
+                rect(-8.0, -7.0, 8.0, 7.0),
+                1.5 * scale,
+                stroke,
+                StrokeKind::Inside,
+            );
+            painter.circle_filled(at(4.5, -3.5), 1.2 * scale, color);
+            path(&[
+                (-6.0, 4.0),
+                (-2.0, -1.0),
+                (1.0, 2.0),
+                (3.0, 0.0),
+                (6.0, 4.0),
+            ]);
+        }
     }
 }
 
@@ -296,6 +313,7 @@ mod tests {
             Icon::Layers,
             Icon::Color,
             Icon::Settings,
+            Icon::Reference,
         ];
         let context = egui::Context::default();
         let output = context.run(egui::RawInput::default(), |context| {

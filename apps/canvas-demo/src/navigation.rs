@@ -1,6 +1,7 @@
 //! Hardware-independent, bounded two-contact navigation. All positions are physical
 //! client pixels; the shell decides whether UI or active painting owns input.
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Navigation {
     pub zoom: f64,
@@ -62,6 +63,69 @@ pub struct TouchNavigation {
     contacts: BTreeMap<u64, [f64; 2]>,
     previous: Option<([u64; 2], [f64; 2], f64)>,
 }
+
+/// Captures each direct-touch contact to one navigation surface for its full
+/// lifetime. A gesture cannot start on the canvas and finish on a reference
+/// window, or combine contacts from different surfaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TouchTarget {
+    Canvas,
+    Reference(PathBuf),
+    Suppressed,
+}
+
+#[derive(Default)]
+pub struct TouchTargetRouter {
+    owners: BTreeMap<u64, TouchTarget>,
+    active: Option<TouchTarget>,
+    active_contacts: usize,
+}
+
+impl TouchTargetRouter {
+    pub fn start(&mut self, id: u64, requested: TouchTarget) -> TouchTarget {
+        if let Some(existing) = self.owners.get(&id) {
+            return existing.clone();
+        }
+        let target = if self.active_contacts == 0
+            || (self.active.as_ref() == Some(&requested) && self.active_contacts < 2)
+        {
+            requested
+        } else {
+            TouchTarget::Suppressed
+        };
+        if target != TouchTarget::Suppressed {
+            self.active = Some(target.clone());
+            self.active_contacts += 1;
+        }
+        self.owners.insert(id, target.clone());
+        target
+    }
+
+    pub fn target(&self, id: u64) -> Option<TouchTarget> {
+        self.owners.get(&id).cloned()
+    }
+
+    pub fn finish(&mut self, id: u64) {
+        if let Some(target) = self.owners.remove(&id)
+            && target != TouchTarget::Suppressed
+        {
+            self.active_contacts = self.active_contacts.saturating_sub(1);
+            if self.active_contacts == 0 {
+                self.active = None;
+            }
+        }
+    }
+
+    pub fn active_target(&self) -> Option<&TouchTarget> {
+        self.active.as_ref()
+    }
+
+    pub fn clear(&mut self) {
+        self.owners.clear();
+        self.active = None;
+        self.active_contacts = 0;
+    }
+}
 impl TouchNavigation {
     pub fn clear(&mut self) {
         self.contacts.clear();
@@ -114,5 +178,32 @@ impl TouchNavigation {
             to: center,
             ratio: distance / old_distance,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn touch_gesture_keeps_one_surface_owner_until_all_contacts_end() {
+        let reference = TouchTarget::Reference(PathBuf::from("moodboard.jpg"));
+        let mut router = TouchTargetRouter::default();
+        assert_eq!(router.start(1, reference.clone()), reference);
+        assert_eq!(router.start(2, reference.clone()), reference);
+        assert_eq!(router.start(3, reference.clone()), TouchTarget::Suppressed);
+        assert_eq!(
+            router.start(4, TouchTarget::Canvas),
+            TouchTarget::Suppressed
+        );
+        router.finish(1);
+        assert_eq!(router.active_target(), Some(&reference));
+        router.finish(2);
+        router.finish(3);
+        router.finish(4);
+        assert_eq!(router.active_target(), None);
+        assert_eq!(router.start(4, TouchTarget::Canvas), TouchTarget::Canvas);
+        router.clear();
+        assert_eq!(router.target(4), None);
     }
 }

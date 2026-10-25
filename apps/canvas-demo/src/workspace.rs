@@ -18,6 +18,22 @@ fn default_reference_pan() -> [f32; 2] {
     [0.0, 0.0]
 }
 
+fn default_canvas_zoom() -> f64 {
+    1.0
+}
+
+fn default_canvas_pan() -> [f64; 2] {
+    [0.0, 0.0]
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InspectorTab {
+    #[default]
+    Layers,
+    Brush,
+    Edit,
+}
+
 pub fn remember_brush_color(colors: &mut Vec<[u8; 3]>, color: [u8; 3]) {
     colors.retain(|existing| *existing != color);
     colors.insert(0, color);
@@ -114,6 +130,12 @@ pub struct WorkspacePreferences {
     pub recent_document_sizes: Vec<RecentDocumentSize>,
     #[serde(default)]
     pub recent_brush_colors: Vec<[u8; 3]>,
+    #[serde(default = "default_canvas_zoom")]
+    pub canvas_zoom: f64,
+    #[serde(default = "default_canvas_pan")]
+    pub canvas_pan: [f64; 2],
+    #[serde(default)]
+    pub inspector_tab: InspectorTab,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,6 +198,9 @@ impl Default for WorkspacePreferences {
             new_document: NewDocumentPreferences::default(),
             recent_document_sizes: Vec::new(),
             recent_brush_colors: Vec::new(),
+            canvas_zoom: 1.0,
+            canvas_pan: [0.0, 0.0],
+            inspector_tab: InspectorTab::Layers,
         }
     }
 }
@@ -191,11 +216,17 @@ impl WorkspacePreferences {
 
     /// Reject unknown schemas and bound untrusted disk data before creating UI.
     pub fn validate(&mut self) -> bool {
-        if self.version != 1 || !self.brush_panel_width.is_finite() || !self.new_document.validate()
+        if self.version != 1
+            || !self.brush_panel_width.is_finite()
+            || !self.canvas_zoom.is_finite()
+            || !self.canvas_pan.iter().all(|v| v.is_finite())
+            || !self.new_document.validate()
         {
             return false;
         }
         self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
+        self.canvas_zoom = self.canvas_zoom.clamp(0.25, 8.0);
+        self.canvas_pan = self.canvas_pan.map(|v| v.clamp(-32768.0, 32768.0));
         if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
             self.accent_scheme = AccentScheme::Violet;
         }
@@ -352,11 +383,37 @@ mod tests {
         assert!(!preferences.new_document.transparent);
         assert!(preferences.show_controls);
         assert_eq!(preferences.appearance_mode, None);
+        assert_eq!(preferences.canvas_zoom, 1.0);
+        assert_eq!(preferences.canvas_pan, [0.0, 0.0]);
+        assert_eq!(preferences.inspector_tab, InspectorTab::Layers);
         assert_eq!(preferences.accent_scheme, AccentScheme::Violet);
         assert_eq!(
             preferences.effective_appearance_mode(),
             AppearanceMode::Light
         );
+    }
+
+    #[test]
+    fn canvas_navigation_preferences_roundtrip_and_are_bounded() {
+        let mut preferences = WorkspacePreferences {
+            canvas_zoom: 3.25,
+            canvas_pan: [-1200.0, 740.5],
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.canvas_zoom, 3.25);
+        assert_eq!(restored.canvas_pan, [-1200.0, 740.5]);
+
+        restored.canvas_zoom = 99.0;
+        restored.canvas_pan = [-1_000_000.0, 1_000_000.0];
+        assert!(restored.validate());
+        assert_eq!(restored.canvas_zoom, 8.0);
+        assert_eq!(restored.canvas_pan, [-32768.0, 32768.0]);
+        restored.canvas_zoom = f64::NAN;
+        assert!(!restored.validate());
     }
 
     #[test]

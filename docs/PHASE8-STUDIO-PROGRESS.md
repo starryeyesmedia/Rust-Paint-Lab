@@ -391,3 +391,73 @@ This is the active continuation record. Phase 7 work remains documented in
 
 No physical Windows picker, stylus, touch, power-loss, or hardware-performance
 validation has been performed in this phase.
+
+## Phase 8.2 — Reference navigation and first artist Home/workspace slice
+
+### Implemented in the current working checkpoint
+
+- Reference windows now recover against `egui::Context::content_rect()` rather
+  than a large arbitrary coordinate bound. Saved windows are clamped on resize,
+  are limited to the visible area, and expose Center, Reset position, and an
+  independent image-view Reset. Zoom is bounded and pointer/finger anchored;
+  wheel zoom, two-contact pinch, and drag pan operate inside the image viewport.
+- Added a per-contact touch target router for the canvas, an individual reference,
+  or suppressed UI/out-of-surface input. A contact remains owned by its starting
+  surface; a second finger on another surface suppresses the gesture, and ending
+  both contacts clears ownership before pointer ID reuse. Stylus-active touch is
+  ignored. Winit touch, pinch, and pan events feed the existing navigation model;
+  they do not enter the painting input pipeline.
+- Canvas zoom and pan persist in bounded workspace preferences. A small zoom HUD
+  exposes percentage, zoom in/out, and Fit Canvas. Reset Workspace restores the
+  panel width/visibility, Layers tab, canvas view, and reference panel placement.
+- Replaced the centered welcome modal with an opaque full-window Home surface.
+  It has primary New/Open actions, a useful first-run state, recent project cards,
+  recoverable work and draft lists. Recent cards show the readable filename,
+  dimensions/DPI from a bounded header-only read, file size, last-opened age, and
+  an explicit missing-file state. `recent.json` now stores per-path UTC open times;
+  legacy path-only files load with an unavailable time and update on next open.
+  Full project validation/checksum still runs when opening. Recent metadata is
+  cached when Home opens/when a project is opened; artwork is not loaded for cards.
+- Split the right inspector into persisted Layers, Brush, and Edit tabs. Layers is
+  the default; selecting the Brush tool opens the Brush tab. Recovery deletion and
+  recent files were removed from the normal painting inspector. The reference
+  image action remains directly available from the left tool palette.
+
+### Validation and limitations
+
+- `cargo fmt --all --check`: passed after formatting.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: passed.
+- `cargo test --workspace --locked`: passed, **183 tests**, including the software
+  GPU pixel smoke on Mesa llvmpipe/OpenGL.
+- `cargo build --workspace --locked`: passed.
+- Windows GNU target workspace check and strict Clippy both passed. This is a
+  cross-check only, not a Windows executable build or runtime test.
+- The current Actions baseline before these uncommitted changes is commit `f06fa94`,
+  run [`40125783796`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40125783796),
+  which passed Windows, Linux, and macOS. A fresh Actions run for this checkpoint
+  is required after push; Linux Xvfb, platform builds and artifact upload remain
+  unverified for the new Home and inspector changes until that run completes.
+- No actual running-window screenshot was available here (Xvfb is absent). There
+  are no Home artwork thumbnails yet. Independent docking/snapping, panel dragging,
+  recovery manager views, arbitrary window layout presets, and broader accessibility
+  review remain incomplete. The reference panel has native egui move/resize rather
+  than independently dockable panels.
+- Synthetic unit tests validate route ownership, focal-point math, persistence
+  bounds and recent-header safety. Windows Precision Touchpad delivery, S Pen and
+  touchscreen interactions, high-DPI/multi-monitor moves, palm rejection, and
+  Iris Xe performance still require hands-on Windows validation. Trackpad events
+  may depend on the OS/window backend; no platform-specific gesture hook was added.
+
+### Exact continuation
+
+1. Review this checkpoint, then commit and push it on
+   `feature/studio-overdrive-phase-8` to start Windows/Linux/macOS CI and regenerate
+   the existing portable Windows canvas and stylus diagnostic artifacts.
+2. Check that the Linux Xvfb window smoke passes and verify the Home overlay, recent
+   open, workspace tabs, and reference gestures in the actual UI; fix failures before
+   starting another feature.
+3. Add a bounded thumbnail cache and an explicit recovery manager with readable
+   project labels/timestamps; verify stale paths and drafts remain safe.
+4. Implement panel move/resize/snap or docking behavior with interaction tests, then
+   validate touch/trackpad behavior on the Galaxy Book before declaring gestures
+   complete.

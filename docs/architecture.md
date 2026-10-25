@@ -263,19 +263,32 @@ in the document metadata. This keeps brush presets portable without coupling the
 brush engine to dialogs or platform APIs. Filesystems without hard-link support
 fail safely, and an existing preset must be given a different filename.
 
-The first 7C workspace slice stores theme, brush-panel width, and external reference
-window paths/placement/size/opacity in a separate versioned `workspace.json` under
-the local application state directory. Reference images decode to bounded egui
-textures; they are neither layers nor part of document composition/export. The
-resizable tool panel and floating reference windows use egui's normal drag/resize
-behavior. A native file picker, snapping/docking affordances, and accessibility
-audit are still pending. Preferences are not artwork data and can be safely reset.
+The Studio workspace stores theme, brush-panel width/visibility, current inspector
+tab, canvas zoom/pan, and external reference window paths/placement/size/opacity in
+a separate versioned `workspace.json` under the local application state directory.
+The inspector uses Layers, Brush, and Edit tabs; selecting the Brush tool opens its
+settings. The Window menu can restore the inspector or reset its layout and canvas
+view. The canvas has an explicit zoom percentage and Fit control. Reference images
+decode to bounded egui textures; they are neither layers nor part of document
+composition/export. Their panels clamp against the current egui content viewport,
+have independent view reset/position reset controls, and route two-contact
+touchscreen navigation to the image under both contacts. Each contact remains
+captured to its starting surface until it ends; a split-surface gesture is
+suppressed rather than affecting either reference or the canvas. Canvas touch uses
+the same navigation processor, and stylus-active touch is ignored. Preferences are
+not artwork data and are safely bounded/migrated when loaded. Independent draggable
+panels, edge snapping/docking, and complete accessibility review remain pending.
 
 ## Phase 8 startup and file selection slice
 
-The canvas shell starts with a welcome surface rather than making an artwork
-document the first visible screen. It offers new/open, recent projects and
-available recovery checkpoints; document replacement still passes through the
+The canvas shell starts with a full-window Home surface rather than making an
+artwork document or its placeholder visible behind an opening modal. It offers
+prominent new/open actions, recent-project cards with bounded header-only
+dimension/DPI labels, file size, persisted last-opened age, and explicit missing-file
+state, plus recoverable checkpoints and unnamed drafts. Existing `.rpl` recent
+lists migrate with an unavailable timestamp until next opened. Header-only metadata
+is informational: opening still uses the normal size, structure and checksum
+validation. Document replacement still passes through the
 existing preservation gate. The creation dialog resolves physical units to pixels
 using the requested DPI, validates the 4096-pixel edge limit before allocation,
 and only exposes the existing sRGB RGBA8 background choices and transparency.
