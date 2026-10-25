@@ -466,6 +466,11 @@ validation has been performed in this phase.
 
 ## Phase 8.3 — Accessibility foundation (active)
 
+The implementation notes below are chronological checkpoint records. Any earlier
+“pending CI” or “pending visual validation” statement describes that checkpoint;
+the current status and verification evidence are recorded at the end of this
+section.
+
 ### Accessibility foundation and palette slice (validated locally; awaiting CI)
 
 - Added a shared UI token module for spacing, rounded controls, and a 44-point
@@ -654,23 +659,34 @@ explicitly demonstrated or measured here.
   Brush before moving to Layers. `Ctrl+B` now also opens the flyout for keyboard
   access; the workflow tests both activation paths and preserves `Ctrl+Shift+B`
   and `Ctrl+Alt+B` for brush-preset save/load.
+- Actions run [`40226791860`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40226791860)
+  passed the complete Linux alpha artwork workflow with the measured palette
+  target, mouse-open and keyboard-open Brush paths, Escape dismissal, Layers,
+  Recovery, save/reopen and recent Home. It captured the full screenshot set.
+  Linux and macOS matrix jobs passed and produced their alpha/screenshot artifacts.
+  Windows formatting, Clippy, tests, workspace build, and stylus-diagnostic
+  package passed; the release canvas build, dependency inspection, and package
+  upload also passed. The run completed successfully on all three platforms and
+  uploaded `rust-paint-lab-canvas-demo` (5.8 MiB) and the preserved
+  `rust-paint-lab-windows-diagnostic` (163 KiB). The canvas package includes the
+  executable, Windows README, user guide, third-party notices, build record and
+  SHA-256 manifest.
 - Follow-up run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
   captured the same four screens but reported `BadWindow` while capturing Layers
   after the Escape/`Ctrl+L` sequence. Commit `09847df` moves Escape dismissal
   before egui's text-input shortcut guard, and run [`40225239895`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40225239895)
   confirms that Escape kept the app discoverable momentarily, but the app exited
   before Layers could be captured. Run `40225820070` reproduced that failure and
-  its failure diagnostics identified the missed click. Its Linux job failed;
-  Windows and macOS have not yet completed.
+  its failure diagnostics identified the missed click. Its Linux job failed.
 - Current local validation after the Layers panel, recovery preview and Escape
   handling: pinned Rust 1.90 formatting, strict workspace Clippy, workspace build,
   **193 workspace tests**, and the required llvmpipe GPU smoke passed. The new
   AccessKit test
   verifies labels from the real panel widget function, rather than a parallel
-  mock tree. Linux CI captured Home, New Artwork, canvas and reference board, but
-  the Brush/Layers/Recovery portion did not pass. Screenshots cannot currently be
-  downloaded here for visual inspection, and this environment has no Xvfb/display
-  server.
+  mock tree. Linux CI now passes the entire Xvfb workflow. Screenshots were
+  captured, but their image bytes cannot currently be downloaded here for visual
+  inspection: the Actions artifact API lists them, while the blob download returns
+  HTTP Forbidden. This environment has no Xvfb/display server.
 - Actions run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
   passed Windows and macOS checks and produced the Windows packages. Linux passed
   formatting, Clippy, tests, build, virtual-window startup, live mouse and the
@@ -681,10 +697,11 @@ explicitly demonstrated or measured here.
   diagnostic and canvas builds. Linux passed formatting, Clippy, all tests,
   build, virtual-window startup, live-mouse drawing, and captured four windows;
   the end-to-end artwork smoke then failed because Escape closed the window. The
-  Windows and macOS passed; Linux's follow-up escaped-panel sequence still needs
-  correction. Windows and Linux portable artifact
-  bytes could not be downloaded in this environment because GitHub's Actions
-  artifact blob hosts are blocked; API metadata remains accessible.
+  Windows and macOS passed at that checkpoint; the Linux Escape/palette issue is
+  now resolved by the measured-control workflow on `415ab57`. Windows and Linux
+  portable artifact bytes could not be downloaded in this environment because
+  GitHub's Actions artifact blob hosts are blocked; API metadata remains
+  accessible.
 - Narrator/NVDA and Windows UI Automation have not been exercised. AccessKit tree
   generation and semantic labels are tested, but full keyboard focus traversal,
   modal semantics and native screen-reader announcements remain open. Basic S Pen
@@ -693,12 +710,12 @@ explicitly demonstrated or measured here.
 
 ### Exact continuation from this checkpoint
 
-1. Validate the corrected palette click and explicit Brush-open/Escape-dismiss
-   checks, then finish the Layers/Recovery/recent-Home screenshot flow. Inspect
-   those captured images after resolving Actions artifact-host access.
-2. Download and verify the current Windows canvas and stylus artifacts, then
-   publish one consolidated Phase 8.3 Windows evaluation ZIP with a short guide;
-   do this only after the main workflow passes.
+1. Visually inspect the Linux screenshot artifact for first-run/recent Home, New
+   Artwork, canvas, reference board, Brush, Layers and Recovery when the Actions
+   artifact blob host is reachable. The workflow successfully captured this set.
+2. Download and launch `rust-paint-lab-canvas-demo` from run `40226791860`; verify
+   the package and its README on Windows 10. The separate stylus diagnostic is
+   retained in the same run. Do not treat compilation or CI as device validation.
 3. Complete a keyboard/focus pass across Home, New Artwork, recovery, Brush/Color/
    Layers flyouts, reference controls and appearance preferences. Report native
    Narrator/NVDA limitations until a Windows assistive-technology run is possible.

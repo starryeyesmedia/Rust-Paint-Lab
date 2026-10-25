@@ -49,15 +49,18 @@ recent-artwork thumbnails, compact reference controls, reduced motion, interface
 scaling and responsive Home cards. The floating Layers panel supports real layer
 actions with persisted position/size; bounded recovery previews load only on
 request after native-file validation. Formatting, strict Clippy, workspace build,
-193 tests and the software GPU smoke pass locally. Actions run `40225820070`
-failed its Linux UI workflow: the scripted click missed the Brush palette control,
-and the test-only log confirmed no flyout was open when Escape was pressed. Home,
-New Artwork, canvas and reference screenshots were captured; Layers, Recovery and
-recent Home did not run. The smoke is being tightened to wait for an explicit
-Brush-open signal and confirm Escape dismisses it. Windows and macOS checks from
-that run are still pending. Native Narrator/NVDA behavior and visual review of
-screenshots remain outstanding; the Actions blob host is blocked in this
-environment. Phase 8.3 is not complete. See
+193 tests and the software GPU smoke pass locally. Actions run `40226791860` has
+passed the complete Linux UI/artwork workflow: the test clicks the rendered Brush
+control by its measured bounds, exercises Ctrl+B and Escape, opens Layers and
+Recovery, saves/reopens artwork, and captures the Home, New Artwork, canvas,
+reference, Brush, Layers, Recovery, and recent-Home screens. Linux and macOS jobs
+passed and uploaded artifacts; Windows formatting, Clippy, tests and workspace
+build passed. All three jobs completed successfully; run `40226791860` uploaded
+the consolidated `rust-paint-lab-canvas-demo` package and retained the separate
+`rust-paint-lab-windows-diagnostic` artifact. Native Narrator/NVDA behavior and
+visual review of screenshots remain outstanding; Actions metadata is available,
+but artifact blob downloads return HTTP Forbidden in this environment. Phase 8.3
+is not complete. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are
 provisional.
