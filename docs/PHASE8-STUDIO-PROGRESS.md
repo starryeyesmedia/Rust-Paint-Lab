@@ -534,6 +534,17 @@ foundation; manual screen-reader and full tree/focus review are outstanding.
    focus traversal and responsive workspace persistence. Capture and inspect an
    actual CI or local window screenshot before calling the UI review complete.
 
+### Visual document creation slice (in progress)
+
+The New Artwork modal now leads with selectable Portrait, Landscape and Square
+format cards, followed by a live aspect-ratio preview that shows either the chosen
+solid color or a transparency checkerboard. Name remains prominent; exact units,
+dimensions, DPI, background, saved presets and recent dimensions remain available
+under Advanced. The existing pixel-limit validation and sparse document creation
+path are unchanged. Local compilation passed; full regression and the Linux/Xvfb
+interaction workflow are still pending for this edit. This does not yet provide
+the planned Home thumbnail cache or dedicated recovery manager.
+
 The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,
 palm rejection, pen/touch concurrency, DPI behavior and latency are still not

@@ -3110,8 +3110,79 @@ impl Studio {
             });
         } else if self.new_dialog {
             egui::Modal::new(egui::Id::new("new document")).show(ctx, |ui| {
-                ui.heading("New document");
+                ui.set_min_width(560.0);
+                ui.heading("Create a new canvas");
+                ui.label("Choose a starting format, then adjust exact dimensions if needed.");
+                ui.horizontal(|ui| {
+                    for (label, width, height) in [
+                        ("Portrait", 1800.0, 2400.0),
+                        ("Landscape", 2400.0, 1800.0),
+                        ("Square", 2048.0, 2048.0),
+                    ] {
+                        let selected = (self.new_width - width).abs() < 0.5
+                            && (self.new_height - height).abs() < 0.5;
+                        if ui
+                            .add_sized(
+                                [132.0, 62.0],
+                                egui::Button::selectable(selected, label),
+                            )
+                            .clicked()
+                        {
+                            self.new_unit = crate::document_setup::DocumentUnit::Pixels;
+                            self.new_width = width;
+                            self.new_height = height;
+                        }
+                    }
+                });
+                let preview_width: f32 = 128.0;
+                let aspect = (self.new_height / self.new_width).clamp(0.25, 4.0) as f32;
+                let preview_size = [preview_width.min(128.0 / aspect), (preview_width * aspect).min(128.0)];
+                ui.horizontal(|ui| {
+                    let (preview, _) = ui.allocate_exact_size(
+                        egui::vec2(preview_size[0], preview_size[1]),
+                        egui::Sense::hover(),
+                    );
+                    let painter = ui.painter();
+                    if self.new_transparent {
+                        let cell = 8.0;
+                        let colors = [ui.visuals().faint_bg_color, ui.visuals().extreme_bg_color];
+                        for y in 0..((preview.height() / cell).ceil() as i32) {
+                            for x in 0..((preview.width() / cell).ceil() as i32) {
+                                let rect = egui::Rect::from_min_size(
+                                    preview.min + egui::vec2(x as f32 * cell, y as f32 * cell),
+                                    egui::vec2(cell, cell),
+                                ).intersect(preview);
+                                painter.rect_filled(rect, 0.0, colors[((x + y) & 1) as usize]);
+                            }
+                        }
+                    } else {
+                        painter.rect_filled(
+                            preview,
+                            4.0,
+                            egui::Color32::from_rgb(
+                                self.new_background[0],
+                                self.new_background[1],
+                                self.new_background[2],
+                            ),
+                        );
+                    }
+                    painter.rect_stroke(preview, 4.0, ui.visuals().window_stroke, egui::StrokeKind::Inside);
+                    ui.vertical(|ui| {
+                        ui.strong("Canvas preview");
+                        if let (Some(width), Some(height)) = (
+                            self.new_unit.to_pixels(self.new_width, self.new_dpi),
+                            self.new_unit.to_pixels(self.new_height, self.new_dpi),
+                        ) {
+                            ui.label(format!("{width} × {height} px"));
+                        }
+                        ui.label(if self.new_transparent { "Transparent background" } else { "Solid background" });
+                        ui.label(format!("{} DPI", self.new_dpi));
+                    });
+                });
                 ui.add_sized([320.0, 36.0], egui::TextEdit::singleline(&mut self.new_name).hint_text("Document name"));
+                egui::CollapsingHeader::new("Advanced dimensions, presets and resolution")
+                    .default_open(true)
+                    .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Preset");
                     egui::ComboBox::from_id_salt("new-document-preset")
@@ -3180,6 +3251,7 @@ impl Studio {
                     ui.add(egui::DragValue::new(&mut self.new_dpi).range(1..=9600).suffix(" DPI"));
                     ui.color_edit_button_srgb(&mut self.new_background);
                     ui.checkbox(&mut self.new_transparent, "Transparent");
+                });
                 });
                 let dimensions = (
                     self.new_unit.to_pixels(self.new_width, self.new_dpi),
