@@ -550,6 +550,8 @@ The Linux/Xvfb interaction workflow is still pending for this edit.
 The recovery manager now has an explicit entry point on Home and under File. It
 refreshes the safe inactive checkpoint list and shows a readable generated name,
 project dimensions/DPI where the bounded metadata header is valid, and file size.
+It now also shows a relative checkpoint modification label when filesystem time is
+available.
 Recover continues through the existing unsaved-artwork preservation gate and
 opens recovery into a new unsaved project. Remove opens the existing confirmation
 dialog and continues to use the recovery module's directory/ownership checks. A

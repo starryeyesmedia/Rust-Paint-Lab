@@ -80,6 +80,20 @@ fn recent_opened_label(timestamp: u64) -> String {
     }
 }
 
+fn recovery_updated_label(timestamp: u64) -> String {
+    if timestamp == 0 {
+        return "Checkpoint time unavailable".into();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs());
+    match now.saturating_sub(timestamp) / 86_400 {
+        0 => "Updated today".into(),
+        1 => "Updated yesterday".into(),
+        days => format!("Updated {days} days ago"),
+    }
+}
+
 const MAX_REFERENCE_FILE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_REFERENCE_SOURCE_EDGE: u32 = 16_384;
 const MAX_REFERENCE_DECODE_BYTES: u64 = 64 * 1024 * 1024;
@@ -3162,7 +3176,13 @@ impl Studio {
                                 .strip_prefix("recovery-")
                                 .unwrap_or_else(|| path.file_stem().and_then(|name| name.to_str()).unwrap_or("Unsaved artwork"))
                                 .replace(['_', '-'], " ");
-                            let bytes = std::fs::metadata(&path).ok().map(|metadata| metadata.len());
+                            let metadata = std::fs::metadata(&path).ok();
+                            let bytes = metadata.as_ref().map(|metadata| metadata.len());
+                            let updated = metadata
+                                .and_then(|metadata| metadata.modified().ok())
+                                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map(|duration| recovery_updated_label(duration.as_secs()))
+                                .unwrap_or_else(|| "Checkpoint time unavailable".into());
                             let dimensions = storage::peek_dimensions(&path)
                                 .map(|(width, height, dpi)| format!("{width} × {height} px · {dpi} DPI"))
                                 .unwrap_or_else(|| "Project dimensions unavailable".into());
@@ -3172,6 +3192,7 @@ impl Studio {
                                         ui.vertical(|ui| {
                                             ui.strong(name);
                                             ui.label(dimensions);
+                                            ui.label(updated);
                                             ui.label(bytes.map(|size| format!("{} KiB", size.div_ceil(1024)))
                                                 .unwrap_or_else(|| "Checkpoint file unavailable".into()));
                                         });
