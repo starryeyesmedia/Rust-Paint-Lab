@@ -341,9 +341,10 @@ This is the active continuation record. Phase 7 work remains documented in
 
 ## Partial and unimplemented Phase 8 requirements
 
-- Welcome screen is not yet a full separate workspace with thumbnails, settings
-  pages, or session continuation. The engine's internal initial placeholder
-  remains hidden and input-blocked until the artist creates or opens a project.
+- Home is now a full-window surface with recent projects, but has no artwork
+  thumbnails, settings pages, or session continuation. The engine's internal
+  initial placeholder remains hidden and input-blocked until the artist creates
+  or opens a project.
 - Document setup remembers the last-created settings and eight recent pixel-size/DPI
   pairs, but has no explicit physical-paper preset catalog beyond current presets or
   automated app-level reopen/export dimension workflow. Preset dimensions remain
@@ -354,14 +355,15 @@ This is the active continuation record. Phase 7 work remains documented in
   incremental edits.
 - File dialogs have compiled on native Linux and Windows GNU targets; Windows,
   Linux portal, and macOS visual/runtime behavior needs CI or manual verification.
-- The first compact menus and vertical tool palette are implemented, and everyday
-  brush/color controls are less crowded, but there are no draggable/dockable panels,
+- The first compact menus, vertical tool palette, and tabbed Layers/Brush/Edit
+  inspector are implemented, and everyday brush/color controls are less crowded,
+  but there are no independently draggable/dockable panels,
   snap previews, palette placement/size preferences, complete accessibility review,
   brush thumbnails/library, HSV wheel, recent-color palette, or polished layer panel.
   Menu categories remain limited to currently supported actions.
-- Reference board supports multiple selected references but still lacks internal
-  zoom/pan, rotation, lock, project-scoped configurations, native drag/drop, and
-  color sampling.
+- Reference board supports multi-image import, bounded internal zoom/pan, touch
+  routing and lock/reset controls. It still lacks rotation, project-scoped
+  configurations, native drag/drop, and color sampling.
 - Shape tools, QuickShape, symmetry, Brush Studio, vector/animation/timelapse and
   natural-media work remain future tasks in the original request.
 
@@ -432,12 +434,15 @@ validation has been performed in this phase.
 - `cargo build --workspace --locked`: passed.
 - Windows GNU target workspace check and strict Clippy both passed. This is a
   cross-check only, not a Windows executable build or runtime test.
-- The current Actions baseline before these uncommitted changes is commit `f06fa94`,
-  run [`40125783796`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40125783796),
-  which passed Windows, Linux, and macOS. A fresh Actions run for this checkpoint
-  is required after push; Linux Xvfb, platform builds and artifact upload remain
-  unverified for the new Home and inspector changes until that run completes.
-- No actual running-window screenshot was available here (Xvfb is absent). There
+- GitHub Actions run [`40211959723`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40211959723)
+  for commit `1ad2b62` passed Windows, Linux, and macOS. Linux Xvfb passed the
+  virtual-window, live-mouse, and alpha artwork/recovery workflows. Windows
+  produced separate `rust-paint-lab-canvas-demo` and
+  `rust-paint-lab-windows-diagnostic` artifacts; Linux X64 and macOS ARM64 alpha
+  artifacts were also uploaded. These are CI builds and smoke checks, not physical
+  Windows touch/stylus hardware tests.
+- No actual running-window screenshot was available here (CI ran the application
+  under Xvfb). There
   are no Home artwork thumbnails yet. Independent docking/snapping, panel dragging,
   recovery manager views, arbitrary window layout presets, and broader accessibility
   review remain incomplete. The reference panel has native egui move/resize rather
@@ -450,14 +455,11 @@ validation has been performed in this phase.
 
 ### Exact continuation
 
-1. Review this checkpoint, then commit and push it on
-   `feature/studio-overdrive-phase-8` to start Windows/Linux/macOS CI and regenerate
-   the existing portable Windows canvas and stylus diagnostic artifacts.
-2. Check that the Linux Xvfb window smoke passes and verify the Home overlay, recent
-   open, workspace tabs, and reference gestures in the actual UI; fix failures before
-   starting another feature.
-3. Add a bounded thumbnail cache and an explicit recovery manager with readable
+1. Manually verify the Home layout, reference windows, touch/trackpad gestures, and
+   DPI behavior on the Galaxy Book; the automated CI window workflow passes, but it
+   cannot emulate the physical hardware surface.
+2. Add a bounded thumbnail cache and an explicit recovery manager with readable
    project labels/timestamps; verify stale paths and drafts remain safe.
-4. Implement panel move/resize/snap or docking behavior with interaction tests, then
+3. Implement panel move/resize/snap or docking behavior with interaction tests, then
    validate touch/trackpad behavior on the Galaxy Book before declaring gestures
    complete.
