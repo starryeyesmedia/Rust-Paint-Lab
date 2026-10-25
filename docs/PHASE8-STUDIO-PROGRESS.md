@@ -933,6 +933,10 @@ Windows assistive-technology validation remain outstanding.
 - The gallery now chooses one to four columns from the available content width
   and sizes cards from that width, keeping image previews prominent without
   horizontal overflow at tested phone, laptop and desktop widths.
+- On very wide displays, Home places the secondary recovery/continue section
+  below the full-width gallery instead of reserving half the viewport for it,
+  allowing the four-column layout to be used. Narrow displays remain stacked;
+  ordinary desktop widths retain the side-by-side layout.
 - Linux screenshot automation now includes Home at 1920 × 1080 to exercise and
   capture the four-column state. The screenshot job starts a 2200 × 1400 Xvfb
   display for that capture; normal/narrow states and other smoke workflows keep
@@ -943,7 +947,7 @@ Windows assistive-technology validation remain outstanding.
   and fit for 420, 800, 1280 and 1920 point content widths.
 - Local formatting, strict Clippy, the full workspace tests (including the
   llvmpipe GPU smoke), and workspace build passed after this change. The
-  workspace contains 203 tests; no desktop window screenshot is available from
+  workspace contains 204 tests; no desktop window screenshot is available from
   this local environment, so the responsive gallery is functionally covered
   but not visually inspected here.
 - The filename search commit `b81e099` is pushed. Actions runs

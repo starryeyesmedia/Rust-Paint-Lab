@@ -120,7 +120,7 @@ OFL Manrope/Syne typography, a purple-charcoal Midnight Violet palette, a
 persisted left/right/top/bottom/floating tool palette, and an HSV Color workflow
 with semantic/keyboard controls. The Home continuation adds a named,
 keyboard-accessible filter for recent local artwork and a responsive
-one-to-four-column artwork gallery. Formatting, strict Clippy, all 203 workspace
+one-to-four-column artwork gallery. Formatting, strict Clippy, all 204 workspace
 tests, GPU smoke and workspace build pass locally. The Linux UI workflow now
 adds a 1920 × 1080 Home capture for the four-column layout; its capture assertion
 and resulting 22-screen archive await CI. Actions run

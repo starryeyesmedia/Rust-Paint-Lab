@@ -104,6 +104,10 @@ fn recent_gallery_layout(available_width: f32) -> (usize, f32) {
     (columns, card_width)
 }
 
+fn home_sections_stacked(screen_width: f32) -> bool {
+    !(1050.0..1700.0).contains(&screen_width)
+}
+
 pub(crate) fn recent_search_field(ui: &mut egui::Ui, query: &mut String) {
     let response = ui.add(
         egui::TextEdit::singleline(query)
@@ -4320,7 +4324,7 @@ impl Studio {
                                     });
                                 ui.add_space(if screen.height() < 620.0 { 16.0 } else { 28.0 });
                                 ui.with_layout(
-                                    if screen.width() < 1050.0 {
+                                    if home_sections_stacked(screen.width()) {
                                         egui::Layout::top_down(egui::Align::Min)
                                     } else {
                                         egui::Layout::left_to_right(egui::Align::Min)
@@ -5414,8 +5418,8 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        LassoAppend, append_lasso_point, layer_thumbnail_samples, native_project_path,
-        recent_gallery_layout, recent_project_matches,
+        LassoAppend, append_lasso_point, home_sections_stacked, layer_thumbnail_samples,
+        native_project_path, recent_gallery_layout, recent_project_matches,
     };
     use std::path::{Path, PathBuf};
 
@@ -5481,6 +5485,13 @@ mod tests {
             let total = columns as f32 * card_width + 14.0 * (columns - 1) as f32;
             assert!(total <= available + 0.1, "cards overflow {available}px");
         }
+    }
+
+    #[test]
+    fn home_stacks_secondary_panel_on_narrow_and_wide_displays() {
+        assert!(home_sections_stacked(640.0));
+        assert!(!home_sections_stacked(1280.0));
+        assert!(home_sections_stacked(1920.0));
     }
 
     #[test]
