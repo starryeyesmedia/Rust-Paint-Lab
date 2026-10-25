@@ -2834,39 +2834,40 @@ impl Studio {
                                     (reference.layout.view_zoom * 1.25).min(8.0);
                             }
                         }
-                        if ui.small_button("Fit").on_hover_text("Fit image").clicked() {
-                            reference.layout.view_zoom = 1.0;
-                            reference.layout.view_pan = [0.0, 0.0];
-                        }
-                        if ui.small_button("Reset view").clicked() {
-                            reference.layout.view_zoom = 1.0;
-                            reference.layout.view_pan = [0.0, 0.0];
-                        }
-                        if ui
-                            .small_button("Center")
-                            .on_hover_text("Center reference panel")
-                            .clicked()
-                        {
-                            center_requested = true;
-                        }
-                        if ui
-                            .small_button("Reset pos")
-                            .on_hover_text("Reset reference panel position")
-                            .clicked()
-                        {
-                            reset_position_requested = true;
-                        }
-                        ui.checkbox(&mut reference.layout.position_locked, "Lock")
-                            .on_hover_text("Lock floating panel position");
                         ui.weak(format!("{:.0}%", reference.layout.view_zoom * 100.0));
-                        if ui.button("Remove").clicked() {
-                            remove_requested = true;
-                        }
+                        ui.menu_button("Reference controls", |ui| {
+                            if ui.button("Fit image to window").clicked() {
+                                reference.layout.view_zoom = 1.0;
+                                reference.layout.view_pan = [0.0, 0.0];
+                                ui.close();
+                            }
+                            if ui.button("Reset image view").clicked() {
+                                reference.layout.view_zoom = 1.0;
+                                reference.layout.view_pan = [0.0, 0.0];
+                                ui.close();
+                            }
+                            if ui.button("Center reference window").clicked() {
+                                center_requested = true;
+                                ui.close();
+                            }
+                            if ui.button("Reset window position").clicked() {
+                                reset_position_requested = true;
+                                ui.close();
+                            }
+                            ui.checkbox(
+                                &mut reference.layout.position_locked,
+                                "Lock window position",
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut reference.layout.opacity, 0.05..=1.0)
+                                    .text("Opacity"),
+                            );
+                            if ui.button("Remove reference…").clicked() {
+                                remove_requested = true;
+                                ui.close();
+                            }
+                        });
                     });
-                    ui.add(
-                        egui::Slider::new(&mut reference.layout.opacity, 0.05..=1.0)
-                            .text("Opacity"),
-                    );
                     let available = ui.available_size().max(egui::vec2(48.0, 48.0));
                     let source_size = reference.texture.size_vec2();
                     let (viewport, image_response) =

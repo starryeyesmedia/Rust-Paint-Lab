@@ -577,6 +577,12 @@ Latest local validation after the thumbnail work: formatting, strict Clippy,
 Clippy all pass. No local Xvfb is available for screenshot inspection or interaction
 testing. CI for the latest commits is still pending.
 
+The reference window toolbar has also been reduced to zoom-out, zoom-in, a zoom
+percentage, and a named Reference controls menu. Fit/reset, center, window-position
+reset, lock, opacity, and remove are keyboard-operable menu items, leaving more of
+the window for its image. The image remains the main window content. Local compile
+and Clippy pass; full regression and rendered-window validation are pending.
+
 The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,
 palm rejection, pen/touch concurrency, DPI behavior and latency are still not
