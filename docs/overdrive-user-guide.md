@@ -54,8 +54,11 @@ large documents with many changed tiles can retain fewer steps. Limits produce a
 discard older committed artwork.
 
 Use **Ctrl+B** or the Brush control in the primary palette to open the Brush
-library; Escape dismisses it. Use **Ctrl+L** or the Layers palette control for
-the floating layer panel. Use the compact File menu for New/Open/Save, image import/export, brush presets,
+library; it can be resized and scrolls on narrow windows; Escape dismisses it.
+Use **Ctrl+L** or the Layers palette control for the floating layer panel and
+**Ctrl+Shift+N** to add a layer. The optional right-side inspector starts hidden
+to leave the canvas and primary palette uncluttered; open it from Window when you
+need advanced brush dynamics or the full layer editor. Use the compact File menu for New/Open/Save, image import/export, brush presets,
 recent projects and the artwork recovery manager. Edit contains Undo/Redo and
 selection fill/erase; Image contains Crop; Layer contains the existing layer
 operations; View switches appearance and accessibility preferences; Window offers
@@ -99,7 +102,8 @@ selection and canvas navigation do not start under their visible bounds.
 
 Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+N New Document; Ctrl+O open project
 picker; Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
-Ctrl+L opens or closes the floating Layers panel; Ctrl+Shift+M opens or closes the
+Ctrl+L opens or closes the floating Layers panel; Ctrl+Shift+N adds a layer;
+Ctrl+Shift+M opens or closes the
 artwork recovery manager; Escape closes an active Brush/Color/Layers panel before
 the application close workflow. F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
 replays; Tab switches modes; R restarts; Space pauses. Replay never replaces live

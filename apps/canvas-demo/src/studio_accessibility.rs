@@ -39,6 +39,8 @@ mod tests {
         let context = egui::Context::default();
         context.enable_accesskit();
         let mut project = paint_document::Engine::new(32, 32, 300).unwrap();
+        project.add_layer().unwrap();
+        project.add_layer().unwrap();
         let mut actions = Vec::new();
         let output = context.run(Default::default(), |ctx| {
             egui::Window::new("Layers").show(ctx, |ui| {
@@ -61,5 +63,106 @@ mod tests {
                 "{label} missing from tree: {labels}"
             );
         }
+        for label in ["Paint 1", "Paint 2", "Paint 3"] {
+            assert!(
+                labels.contains(label),
+                "{label} missing from the populated layer tree: {labels}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_artwork_format_cards_have_semantic_names_in_the_accessibility_tree() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                for (name, width, height) in [
+                    ("Portrait", 1800.0, 2400.0),
+                    ("Landscape", 2400.0, 1800.0),
+                    ("Square", 2048.0, 2048.0),
+                ] {
+                    crate::studio::document_format_card(
+                        ui,
+                        name,
+                        width,
+                        height,
+                        name == "Square",
+                        120.0,
+                    );
+                }
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("format cards emit AccessKit nodes");
+        let labels = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in ["Portrait", "Landscape", "Square"] {
+            assert!(
+                labels.contains(label),
+                "{label} format card is missing from the accessibility tree: {labels}"
+            );
+        }
+        assert!(labels.contains("role: RadioButton"));
+        assert!(
+            labels.contains("toggled: True"),
+            "selected format is exposed to assistive technology: {labels}"
+        );
+        assert!(
+            labels.contains("toggled: False"),
+            "unselected formats are exposed to assistive technology: {labels}"
+        );
+    }
+
+    #[test]
+    fn brush_preset_cards_keep_artist_facing_names_in_the_accessibility_tree() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::brush_preset_card(
+                    ui,
+                    paint_document::brush::BrushKind::Round,
+                    true,
+                    [100, 40, 190],
+                );
+                crate::studio::brush_preset_card(
+                    ui,
+                    paint_document::brush::BrushKind::Ink,
+                    false,
+                    [100, 40, 190],
+                );
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("brush cards emit AccessKit nodes");
+        let labels = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in ["Hard round", "Ink pen"] {
+            assert!(
+                labels.contains(label),
+                "{label} missing from the Brush library accessibility tree: {labels}"
+            );
+        }
+        assert!(
+            labels.contains("toggled: True"),
+            "active brush preset is marked selected: {labels}"
+        );
+        assert!(
+            labels.contains("toggled: False"),
+            "inactive brush presets are marked unselected: {labels}"
+        );
     }
 }

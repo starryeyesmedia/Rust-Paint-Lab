@@ -78,6 +78,19 @@ fn readable_foreground(background: egui::Color32) -> egui::Color32 {
     }
 }
 
+/// Returns an accent suitable for heading-sized text (at least 4.5:1 against
+/// the chosen surface), while retaining the original hue as far as possible.
+pub fn readable_text_accent(accent: egui::Color32, surface: egui::Color32) -> egui::Color32 {
+    if contrast_ratio(accent, surface) >= 4.5 {
+        return accent;
+    }
+    let target = readable_foreground(surface);
+    (1..=100)
+        .map(|step| mix(accent, target, step as f32 / 100.0))
+        .find(|candidate| contrast_ratio(*candidate, surface) >= 4.5)
+        .unwrap_or(target)
+}
+
 pub fn visuals(
     mode: AppearanceMode,
     system_dark: bool,
@@ -250,6 +263,10 @@ mod tests {
                         visuals.panel_fill
                     ) >= 4.5
                 );
+                assert!(
+                    contrast_ratio(visuals.weak_text_color(), visuals.panel_fill) >= 4.5,
+                    "weak metadata text must remain readable in {mode:?} with {scheme:?}"
+                );
                 assert!(contrast_ratio(visuals.widgets.active.bg_fill, visuals.panel_fill) >= 3.0);
                 assert!(
                     contrast_ratio(
@@ -257,6 +274,29 @@ mod tests {
                         visuals.widgets.active.bg_fill
                     ) >= 4.5
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn heading_accent_is_readable_in_both_themes_and_high_contrast_states() {
+        for dark in [false, true] {
+            for high in [false, true] {
+                let mut palette = visuals(
+                    if dark {
+                        AppearanceMode::Dark
+                    } else {
+                        AppearanceMode::Light
+                    },
+                    dark,
+                    AccentScheme::Violet,
+                    None,
+                );
+                if high {
+                    palette = high_contrast(palette, dark);
+                }
+                let accent = readable_text_accent(palette.hyperlink_color, palette.panel_fill);
+                assert!(contrast_ratio(accent, palette.panel_fill) >= 4.5);
             }
         }
     }

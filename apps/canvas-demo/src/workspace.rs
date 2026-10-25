@@ -116,8 +116,8 @@ impl Default for AppearanceMode {
     }
 }
 
-fn default_visible() -> bool {
-    true
+fn default_show_controls() -> bool {
+    false
 }
 
 pub fn load(path: &std::path::Path) -> Option<WorkspacePreferences> {
@@ -160,7 +160,7 @@ pub struct WorkspacePreferences {
     #[serde(default)]
     pub custom_accent_rgb: Option<[u8; 3]>,
     pub brush_panel_width: f32,
-    #[serde(default = "default_visible")]
+    #[serde(default = "default_show_controls")]
     pub show_controls: bool,
     pub references: Vec<ReferenceLayout>,
     #[serde(default)]
@@ -254,7 +254,7 @@ impl Default for WorkspacePreferences {
             accent_scheme: AccentScheme::Violet,
             custom_accent_rgb: None,
             brush_panel_width: 260.0,
-            show_controls: true,
+            show_controls: false,
             references: Vec::new(),
             new_document: NewDocumentPreferences::default(),
             recent_document_sizes: Vec::new(),
@@ -516,7 +516,7 @@ mod tests {
         assert_eq!(preferences.brush_flyout_position, [104.0, 72.0]);
         assert_eq!(preferences.color_flyout_position, [104.0, 300.0]);
         assert!(!preferences.new_document.transparent);
-        assert!(preferences.show_controls);
+        assert!(!preferences.show_controls);
         assert_eq!(preferences.appearance_mode, None);
         assert_eq!(preferences.canvas_zoom, 1.0);
         assert_eq!(preferences.canvas_pan, [0.0, 0.0]);

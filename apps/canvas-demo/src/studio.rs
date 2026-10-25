@@ -95,6 +95,186 @@ fn recovery_updated_label(timestamp: u64) -> String {
     }
 }
 
+pub(crate) fn document_format_card(
+    ui: &mut egui::Ui,
+    label: &str,
+    width: f32,
+    height: f32,
+    selected: bool,
+    card_width: f32,
+) -> bool {
+    let size = egui::vec2(card_width, 116.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::RadioButton,
+            ui.is_enabled(),
+            selected,
+            label,
+        )
+    });
+    let visuals = ui.visuals();
+    let fill = if selected {
+        visuals.selection.bg_fill
+    } else if response.hovered() {
+        visuals.widgets.hovered.bg_fill
+    } else {
+        visuals.widgets.inactive.bg_fill
+    };
+    let outline = if selected {
+        visuals.selection.stroke
+    } else if response.has_focus() {
+        visuals.widgets.active.bg_stroke
+    } else {
+        visuals.widgets.inactive.bg_stroke
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, 10.0, fill);
+    painter.rect_stroke(rect, 10.0, outline, egui::StrokeKind::Inside);
+
+    // A paper silhouette makes format choice legible at a glance even when
+    // the label is translated or the dialog is narrow.
+    let ratio = width / height;
+    let paper_max = egui::vec2((card_width - 24.0).min(60.0), 62.0);
+    let paper_size = if ratio >= 1.0 {
+        egui::vec2(paper_max.x, paper_max.x / ratio)
+    } else {
+        egui::vec2(paper_max.y * ratio, paper_max.y)
+    };
+    let paper =
+        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 43.0), paper_size);
+    painter.rect_filled(paper, 3.0, visuals.extreme_bg_color);
+    painter.rect_stroke(
+        paper,
+        3.0,
+        egui::Stroke::new(1.5, visuals.text_color()),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        egui::pos2(rect.center().x, rect.bottom() - 20.0),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(14.0),
+        visuals.text_color(),
+    );
+    response.clicked()
+}
+
+pub(crate) fn brush_preset_card(
+    ui: &mut egui::Ui,
+    kind: BrushKind,
+    selected: bool,
+    color: [u8; 3],
+) -> bool {
+    let name = brush_display_name(kind);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(138.0, 68.0), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::RadioButton,
+            ui.is_enabled(),
+            selected,
+            name,
+        )
+    });
+    let visuals = ui.visuals();
+    let fill = if selected {
+        visuals.selection.bg_fill
+    } else if response.hovered() {
+        visuals.widgets.hovered.bg_fill
+    } else {
+        visuals.widgets.inactive.bg_fill
+    };
+    let stroke = if selected {
+        visuals.selection.stroke
+    } else if response.has_focus() {
+        visuals.widgets.active.bg_stroke
+    } else {
+        visuals.widgets.inactive.bg_stroke
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, 8.0, fill);
+    painter.rect_stroke(rect, 8.0, stroke, egui::StrokeKind::Inside);
+    let line_color = if kind == BrushKind::Eraser {
+        egui::Color32::from_rgb(239, 91, 124)
+    } else {
+        egui::Color32::from_rgb(color[0], color[1], color[2])
+    };
+    let y = rect.top() + 25.0;
+    let left = rect.left() + 18.0;
+    let right = rect.right() - 18.0;
+    match kind {
+        BrushKind::Soft | BrushKind::Airbrush => {
+            for index in 0..5 {
+                let x = left + (right - left) * index as f32 / 4.0;
+                let radius = if kind == BrushKind::Soft { 5.5 } else { 4.0 };
+                let alpha = if kind == BrushKind::Soft { 95 } else { 52 };
+                painter.circle_filled(
+                    egui::pos2(x, y),
+                    radius,
+                    egui::Color32::from_rgba_unmultiplied(
+                        line_color.r(),
+                        line_color.g(),
+                        line_color.b(),
+                        alpha,
+                    ),
+                );
+            }
+        }
+        BrushKind::Textured => {
+            for index in 0..11 {
+                let x = left + (right - left) * index as f32 / 10.0;
+                if index % 2 == 0 {
+                    painter.circle_filled(egui::pos2(x, y), 2.6, line_color);
+                }
+            }
+        }
+        BrushKind::Wash | BrushKind::Marker => {
+            painter.line_segment(
+                [egui::pos2(left, y), egui::pos2(right, y)],
+                egui::Stroke::new(
+                    if kind == BrushKind::Wash { 5.0 } else { 7.0 },
+                    egui::Color32::from_rgba_unmultiplied(
+                        line_color.r(),
+                        line_color.g(),
+                        line_color.b(),
+                        150,
+                    ),
+                ),
+            );
+        }
+        _ => {
+            painter.line_segment(
+                [egui::pos2(left, y), egui::pos2(right, y)],
+                egui::Stroke::new(
+                    if kind == BrushKind::Calligraphy {
+                        4.0
+                    } else if kind == BrushKind::Pencil {
+                        1.5
+                    } else {
+                        2.5
+                    },
+                    line_color,
+                ),
+            );
+            if kind == BrushKind::Eraser {
+                painter.circle_stroke(
+                    egui::pos2((left + right) * 0.5, y),
+                    6.0,
+                    egui::Stroke::new(1.5, visuals.text_color()),
+                );
+            }
+        }
+    }
+    painter.text(
+        egui::pos2(rect.center().x, rect.bottom() - 13.0),
+        egui::Align2::CENTER_CENTER,
+        name,
+        egui::FontId::proportional(13.0),
+        visuals.text_color(),
+    );
+    response.clicked()
+}
+
 const MAX_REFERENCE_FILE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_REFERENCE_SOURCE_EDGE: u32 = 16_384;
 const MAX_REFERENCE_DECODE_BYTES: u64 = 64 * 1024 * 1024;
@@ -1592,6 +1772,19 @@ impl Studio {
             self.new_dialog = true;
             return;
         }
+        if key == 'j' {
+            if let Err(error) = self.execute(Action::Add, session) {
+                self.status = error.to_string();
+            }
+            if self.test_path_dialog {
+                eprintln!(
+                    "UI_TEST_LAYERS_ADDED: {}",
+                    session.live().project().state().layers.len()
+                );
+            }
+            self.layers_flyout_open = true;
+            return;
+        }
         if key == 'q' {
             self.path = PathBuf::from(&self.path)
                 .with_extension("ora")
@@ -2178,6 +2371,7 @@ impl Studio {
                             ui.label("K Lasso · I Eyedropper");
                             ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
                             ui.label("Ctrl+L Floating Layers panel");
+                            ui.label("Ctrl+Shift+N New layer");
                             ui.label("Ctrl+Shift+M Artwork recovery manager");
                             ui.label("Ctrl+Z / Ctrl+Y Undo / Redo · Esc Close");
                         });
@@ -2924,6 +3118,15 @@ impl Studio {
 
             if self.layers_flyout_open {
                 let mut open = self.layers_flyout_open;
+                let layers_position = crate::studio_layout::flyout_position(
+                    screen,
+                    palette_response.response.rect,
+                    egui::vec2(self.layers_flyout_size[0], self.layers_flyout_size[1]),
+                    egui::pos2(
+                        self.layers_flyout_position[0],
+                        self.layers_flyout_position[1],
+                    ),
+                );
                 let panel = egui::Window::new("Layers")
                     .open(&mut open)
                     .resizable(true)
@@ -2931,10 +3134,11 @@ impl Studio {
                         self.layers_flyout_size[0],
                         self.layers_flyout_size[1],
                     ))
-                    .default_pos(egui::pos2(
-                        self.layers_flyout_position[0],
-                        self.layers_flyout_position[1],
+                    .max_size(egui::vec2(
+                        (screen.width() - 16.0).max(1.0),
+                        (screen.height() - 16.0).max(1.0),
                     ))
+                    .default_pos(layers_position)
                     .constrain_to(screen.shrink(8.0))
                     .show(ctx, |ui| {
                         layer_flyout_contents(ui, session.live_mut().project_mut(), actions);
@@ -2954,43 +3158,41 @@ impl Studio {
 
             if self.brush_flyout_open {
                 let mut open = self.brush_flyout_open;
+                let brush_position = crate::studio_layout::flyout_position(
+                    screen,
+                    palette_response.response.rect,
+                    egui::vec2(360.0, 560.0),
+                    egui::pos2(self.brush_flyout_position[0], self.brush_flyout_position[1]),
+                );
                 let panel = egui::Window::new("Brush library")
                     .open(&mut open)
-                    .resizable(false)
-                    .default_width(310.0)
-                    .default_pos(egui::pos2(
-                        self.brush_flyout_position[0],
-                        self.brush_flyout_position[1],
-                    ))
+                    .resizable(true)
+                    .default_size(egui::vec2(360.0, 560.0))
+                    .max_size(egui::vec2((screen.width() - 16.0).max(1.0), (screen.height() - 16.0).max(1.0)))
+                    .default_pos(brush_position)
                     .constrain_to(screen.shrink(8.0))
                     .show(ctx, |ui| {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .max_height((screen.height() - 96.0).max(80.0))
+                            .show(ui, |ui| {
                         let project = session.live_mut().project_mut();
-                        ui.label("Choose a working preset. Pressure remains a stroke input; this preview does not simulate dynamics.");
+                        ui.label("Brush library");
+                        ui.weak("Choose a preset. Pressure is preserved; this preview does not simulate brush dynamics.");
+                        ui.add_space(6.0);
                         for (group, kinds) in [
                             ("Ink", &[BrushKind::Ink, BrushKind::Pencil, BrushKind::Calligraphy][..]),
                             ("Paint", &[BrushKind::Round, BrushKind::Soft, BrushKind::Marker, BrushKind::Airbrush][..]),
                             ("Texture and utility", &[BrushKind::Textured, BrushKind::Wash, BrushKind::Eraser][..]),
                         ] {
-                            ui.strong(group);
+                            ui.horizontal(|ui| {
+                                ui.strong(group);
+                                ui.separator();
+                            });
                             ui.horizontal_wrapped(|ui| {
                                 for kind in kinds {
                                     let selected = project.brush.kind == *kind;
-                                    let response = ui.add_sized(
-                                        [136.0, 38.0],
-                                        egui::Button::selectable(selected, brush_display_name(*kind)),
-                                    );
-                                    let line = egui::Rect::from_min_size(
-                                        response.rect.left_top() + egui::vec2(8.0, response.rect.height() - 9.0),
-                                        egui::vec2(42.0, 2.0),
-                                    );
-                                    ui.painter().line_segment(
-                                        [line.left_center(), line.right_center()],
-                                        egui::Stroke::new(
-                                            if *kind == BrushKind::Calligraphy { 3.0 } else { 2.0 },
-                                            egui::Color32::from_rgb(project.brush.color[0], project.brush.color[1], project.brush.color[2]),
-                                        ),
-                                    );
-                                    if response.clicked() {
+                                    if brush_preset_card(ui, *kind, selected, project.brush.color) {
                                         let color = project.brush.color;
                                         project.brush = Brush::preset(*kind);
                                         project.brush.color = color;
@@ -2999,6 +3201,7 @@ impl Studio {
                             });
                         }
                         ui.separator();
+                        ui.strong("Current brush");
                         ui.add(egui::Slider::new(&mut project.brush.size, 1.0..=256.0).text("Size"));
                         ui.add(egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0).text("Opacity"));
                         ui.horizontal(|ui| {
@@ -3011,6 +3214,7 @@ impl Studio {
                             self.brush_flyout_open = false;
                             workspace_changed = true;
                         }
+                            });
                     });
                 if let Some(panel) = panel {
                     let position = [panel.response.rect.left(), panel.response.rect.top()];
@@ -3023,14 +3227,17 @@ impl Studio {
             }
             if self.color_flyout_open {
                 let mut open = self.color_flyout_open;
+                let color_position = crate::studio_layout::flyout_position(
+                    screen,
+                    palette_response.response.rect,
+                    egui::vec2(280.0, 340.0),
+                    egui::pos2(self.color_flyout_position[0], self.color_flyout_position[1]),
+                );
                 let panel = egui::Window::new("Color controls")
                     .open(&mut open)
                     .resizable(false)
                     .default_width(260.0)
-                    .default_pos(egui::pos2(
-                        self.color_flyout_position[0],
-                        self.color_flyout_position[1],
-                    ))
+                    .default_pos(color_position)
                     .constrain_to(screen.shrink(8.0))
                     .show(ctx, |ui| {
                         let project = session.live_mut().project_mut();
@@ -3134,7 +3341,17 @@ impl Studio {
                 }
                 let response = window.show(ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        if ui.small_button("−").on_hover_text("Zoom out").clicked() {
+                        let zoom_out = ui
+                            .add_sized([44.0, 40.0], egui::Button::new("−"))
+                            .on_hover_text("Zoom out reference image");
+                        zoom_out.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Button,
+                                ui.is_enabled(),
+                                "Zoom out reference image",
+                            )
+                        });
+                        if zoom_out.clicked() {
                             if let Some(viewport) = reference.viewport {
                                 reference_zoom_about(
                                     &mut reference.layout,
@@ -3148,7 +3365,17 @@ impl Studio {
                                     (reference.layout.view_zoom * 0.8).max(0.25);
                             }
                         }
-                        if ui.small_button("+").on_hover_text("Zoom in").clicked() {
+                        let zoom_in = ui
+                            .add_sized([44.0, 40.0], egui::Button::new("+"))
+                            .on_hover_text("Zoom in reference image");
+                        zoom_in.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Button,
+                                ui.is_enabled(),
+                                "Zoom in reference image",
+                            )
+                        });
+                        if zoom_in.clicked() {
                             if let Some(viewport) = reference.viewport {
                                 reference_zoom_about(
                                     &mut reference.layout,
@@ -3334,6 +3561,7 @@ impl Studio {
 
         if self.welcome {
             let screen = ctx.content_rect();
+            let side_pad = if screen.width() < 720.0 { 16.0 } else { 32.0 };
             let mut open_recent = None;
             let mut remove_draft = None;
             egui::Area::new(egui::Id::new("studio home screen"))
@@ -3349,27 +3577,35 @@ impl Studio {
                             ui.set_min_size(screen.size());
                             ui.set_max_size(screen.size());
                             egui::ScrollArea::vertical().show(ui, |ui| {
-                                ui.add_space(28.0);
+                                ui.add_space(if screen.height() < 620.0 { 14.0 } else { 28.0 });
                                 ui.horizontal(|ui| {
-                                    ui.add_space(32.0);
+                                    ui.add_space(side_pad);
                                     ui.vertical(|ui| {
-                                        ui.label(egui::RichText::new("RUST PAINT LAB").small().strong().color(ui.visuals().hyperlink_color));
-                                        ui.add_space(8.0);
-                                        ui.heading(egui::RichText::new("A quiet place to make something.").size(30.0).strong());
-                                        ui.label("Your studio, references, and artwork stay on this device.");
+                                        let accent = crate::appearance::readable_text_accent(
+                                            ui.visuals().hyperlink_color,
+                                            ui.visuals().panel_fill,
+                                        );
+                                        ui.label(egui::RichText::new("RUST PAINT LAB  ·  CREATIVE STUDIO")
+                                            .size(13.0).strong().color(accent));
+                                        ui.add_space(5.0);
+                                        ui.heading(egui::RichText::new("A quiet place to make something.")
+                                            .size((screen.width() * 0.038).clamp(25.0, 38.0)).strong());
+                                        ui.label(egui::RichText::new("Your studio, references, and artwork stay on this device.")
+                                            .size(15.0).color(ui.visuals().weak_text_color()));
                                     });
                                 });
-                                ui.add_space(22.0);
+                                ui.add_space(if screen.height() < 620.0 { 12.0 } else { 22.0 });
                                 ui.horizontal_wrapped(|ui| {
-                                    ui.add_space(32.0);
-                                    if ui.add_sized([190.0, 52.0], egui::Button::new(egui::RichText::new("＋  New document").strong())).clicked() {
+                                    ui.add_space(side_pad);
+                                    let action_width = (screen.width() * 0.45).clamp(150.0, 210.0);
+                                    if ui.add_sized([action_width, 52.0], egui::Button::new(egui::RichText::new("＋  New artwork").strong())).clicked() {
                                         self.picker_from_welcome = false;
                                         if !self.test_path_dialog { self.new_name = "Untitled".into(); }
                                         self.new_from_welcome = true;
                                         self.new_dialog = true;
                                         self.welcome = false;
                                     }
-                                    if ui.add_sized([180.0, 52.0], egui::Button::new("Open a project…")).clicked() {
+                                    if ui.add_sized([action_width, 52.0], egui::Button::new("Open a project…")).clicked() {
                                         self.picker_from_welcome = true;
                                         self.picker = Some(FileRequest::OpenProject);
                                         self.welcome = false;
@@ -3379,15 +3615,15 @@ impl Studio {
                                         if let Err(error) = self.persist_workspace() { self.status = format!("Could not save appearance preference: {error}"); }
                                     }
                                 });
-                                ui.add_space(28.0);
+                                ui.add_space(if screen.height() < 620.0 { 14.0 } else { 28.0 });
                                 ui.with_layout(
-                                    if screen.width() < 900.0 {
+                                    if screen.width() < 1050.0 {
                                         egui::Layout::top_down(egui::Align::Min)
                                     } else {
                                         egui::Layout::left_to_right(egui::Align::Min)
                                     },
                                     |ui| {
-                                    ui.add_space(32.0);
+                                    ui.add_space(side_pad);
                                     ui.vertical(|ui| {
                                         ui.heading("Recent artwork");
                                         ui.label("Projects are ordered by most recently opened.");
@@ -3420,26 +3656,46 @@ impl Studio {
                                                     let available = card.bytes.is_some();
                                                     let card = egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(10.0).inner_margin(14.0).show(ui, |ui| {
                                                         ui.set_min_width(card_width);
-                                                        ui.set_min_height(220.0);
+                                                        ui.set_min_height(290.0);
                                                         ui.vertical(|ui| {
                                                             if let Some(texture) = thumbnail {
                                                                 let source_size = texture.size();
-                                                                let scale = ((card_width - 30.0) / source_size[0] as f32).min(116.0 / source_size[1] as f32);
+                                                                let preview_height = (card_width * 0.62).clamp(140.0, 220.0);
+                                                                let scale = ((card_width - 30.0) / source_size[0] as f32).min(preview_height / source_size[1] as f32);
                                                                 let image_size = egui::vec2(source_size[0] as f32 * scale, source_size[1] as f32 * scale);
-                                                                ui.add(egui::Image::new((texture.id(), image_size)).fit_to_exact_size(image_size));
+                                                                egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(8.0).inner_margin(4.0).show(ui, |ui| {
+                                                                    ui.set_min_size(egui::vec2(card_width - 36.0, preview_height));
+                                                                    ui.centered_and_justified(|ui| {
+                                                                        ui.add(egui::Image::new((texture.id(), image_size)).fit_to_exact_size(image_size));
+                                                                    });
+                                                                });
                                                             } else {
                                                                 egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(6.0).show(ui, |ui| {
-                                                                    ui.set_min_size(egui::vec2(card_width - 30.0, 116.0));
-                                                                    ui.centered_and_justified(|ui| { ui.weak("Preview will appear after opening or saving"); });
+                                                                    ui.set_min_size(egui::vec2(card_width - 30.0, (card_width * 0.62).clamp(140.0, 220.0)));
+                                                                    ui.centered_and_justified(|ui| { ui.weak("Artwork preview"); });
                                                                 });
                                                             }
-                                                            ui.label(egui::RichText::new(name).strong().size(16.0));
-                                                            ui.label(egui::RichText::new(details).small());
+                                                            ui.add_space(4.0);
+                                                            ui.label(egui::RichText::new(name).strong().size(17.0));
+                                                            ui.label(egui::RichText::new(details).size(13.0).color(ui.visuals().weak_text_color()));
                                                             if !available { ui.colored_label(ui.visuals().error_fg_color, "Missing project"); }
                                                         });
                                                     });
-                                                    if available && ui.interact(card.response.rect, egui::Id::new(("recent project", index)), egui::Sense::click()).clicked() {
-                                                        open_recent = Some(path.clone());
+                                                    if available {
+                                                        let response = ui.interact(
+                                                            card.response.rect,
+                                                            egui::Id::new(("recent project", index)),
+                                                            egui::Sense::click(),
+                                                        );
+                                                        let project_label = format!("Open project {}", path.file_name().unwrap_or_default().to_string_lossy());
+                                                        response.widget_info(|| egui::WidgetInfo::labeled(
+                                                            egui::WidgetType::Button,
+                                                            ui.is_enabled(),
+                                                            project_label.clone(),
+                                                        ));
+                                                        if response.clicked() {
+                                                            open_recent = Some(path.clone());
+                                                        }
                                                     }
                                                     if (index + 1) % columns == 0 || index == self.recent_cards.len().min(8) - 1 { ui.end_row(); }
                                                 }
@@ -3490,8 +3746,8 @@ impl Studio {
                                     });
                                     },
                                 );
-                                ui.add_space(30.0);
-                                ui.horizontal(|ui| { ui.add_space(32.0); ui.small("Ctrl+N New document · Ctrl+O Open · your projects and references remain local"); });
+                                ui.add_space(24.0);
+                                ui.horizontal(|ui| { ui.add_space(side_pad); ui.small("Ctrl+N New artwork · Ctrl+O Open · Ctrl+Shift+N New layer"); });
                                 ui.add_space(22.0);
                             });
                         });
@@ -3609,24 +3865,36 @@ impl Studio {
             });
         } else if self.new_dialog {
             egui::Modal::new(egui::Id::new("new document")).show(ctx, |ui| {
-                ui.set_min_width(560.0);
+                let dialog_width = (ctx.content_rect().width() - 32.0).clamp(280.0, 760.0);
+                ui.set_min_width(dialog_width.min(440.0));
+                ui.set_max_width(dialog_width);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .max_height((ctx.content_rect().height() - 32.0).max(120.0))
+                    .show(ui, |ui| {
                 ui.heading("Create a new canvas");
-                ui.label("Choose a starting format, then adjust exact dimensions if needed.");
-                ui.horizontal(|ui| {
+                ui.label("Start with a paper shape, then fine-tune the document size.");
+                let card_width = ((ui.available_width() - 20.0) / 3.0).clamp(76.0, 168.0);
+                ui.horizontal_wrapped(|ui| {
                     for (label, width, height) in [
                         ("Portrait", 1800.0, 2400.0),
                         ("Landscape", 2400.0, 1800.0),
                         ("Square", 2048.0, 2048.0),
                     ] {
-                        let selected = (self.new_width - width).abs() < 0.5
-                            && (self.new_height - height).abs() < 0.5;
-                        if ui
-                            .add_sized(
-                                [132.0, 62.0],
-                                egui::Button::selectable(selected, label),
-                            )
-                            .clicked()
-                        {
+                        let selected = match label {
+                            "Portrait" => self.new_height > self.new_width,
+                            "Landscape" => self.new_width > self.new_height,
+                            "Square" => (self.new_width - self.new_height).abs() < 0.5,
+                            _ => false,
+                        };
+                        if document_format_card(
+                            ui,
+                            label,
+                            width as f32,
+                            height as f32,
+                            selected,
+                            card_width,
+                        ) {
                             self.new_unit = crate::document_setup::DocumentUnit::Pixels;
                             self.new_width = width;
                             self.new_height = height;
@@ -3636,7 +3904,7 @@ impl Studio {
                 let preview_width: f32 = 128.0;
                 let aspect = (self.new_height / self.new_width).clamp(0.25, 4.0) as f32;
                 let preview_size = [preview_width.min(128.0 / aspect), (preview_width * aspect).min(128.0)];
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let (preview, _) = ui.allocate_exact_size(
                         egui::vec2(preview_size[0], preview_size[1]),
                         egui::Sense::hover(),
@@ -3678,7 +3946,10 @@ impl Studio {
                         ui.label(format!("{} DPI", self.new_dpi));
                     });
                 });
-                ui.add_sized([320.0, 36.0], egui::TextEdit::singleline(&mut self.new_name).hint_text("Document name"));
+                ui.add_sized(
+                    [(dialog_width - 40.0).clamp(190.0, 380.0), 40.0],
+                    egui::TextEdit::singleline(&mut self.new_name).hint_text("Document name"),
+                );
                 egui::CollapsingHeader::new("Advanced dimensions, presets and resolution")
                     .default_open(true)
                     .show(ui, |ui| {
@@ -3718,7 +3989,7 @@ impl Studio {
                             });
                     });
                 }
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label("Units");
                     egui::ComboBox::from_id_salt("new-document-units")
                         .selected_text(self.new_unit.label())
@@ -3738,14 +4009,14 @@ impl Studio {
                             }
                         });
                 });
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label("Width");
                     ui.add(egui::DragValue::new(&mut self.new_width).range(1.0..=100000.0).speed(1.0));
                     ui.label("Height");
                     ui.add(egui::DragValue::new(&mut self.new_height).range(1.0..=100000.0).speed(1.0));
                     if ui.button("Swap").clicked() { std::mem::swap(&mut self.new_width, &mut self.new_height); }
                 });
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label("Resolution");
                     ui.add(egui::DragValue::new(&mut self.new_dpi).range(1..=9600).suffix(" DPI"));
                     ui.color_edit_button_srgb(&mut self.new_background);
@@ -3779,6 +4050,7 @@ impl Studio {
                     self.new_from_welcome = false;
                 }
                 });
+                    });
             });
         } else if self.manual_file_dialog {
             egui::Modal::new(egui::Id::new("test project file path")).show(ctx, |ui| {

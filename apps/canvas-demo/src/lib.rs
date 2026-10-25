@@ -17,5 +17,6 @@ pub mod scene;
 pub mod studio;
 pub mod studio_accessibility;
 pub mod studio_icons;
+pub mod studio_layout;
 pub mod ui_tokens;
 pub mod workspace;
