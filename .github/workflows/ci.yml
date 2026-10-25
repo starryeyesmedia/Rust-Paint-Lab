@@ -74,6 +74,7 @@ jobs:
         timeout-minutes: 3
         env:
           WGPU_BACKEND: vulkan
+          RPL_UI_SCREENSHOT_DIR: ${{ runner.temp }}/rpl-studio-ui
         run: |
           set +e
           xvfb-run -a python3 scripts/alpha-workflow-smoke.py > /tmp/alpha-workflow.log 2>&1
@@ -94,6 +95,14 @@ jobs:
         with:
           name: rust-paint-lab-studio-ui-smoke
           path: ${{ runner.temp }}/rpl-studio-ui/*.png
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload Linux alpha smoke diagnostics
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-paint-lab-linux-ui-diagnostics
+          path: /tmp/alpha-workflow.log
           if-no-files-found: warn
           retention-days: 7
       - name: Build portable Windows diagnostic
