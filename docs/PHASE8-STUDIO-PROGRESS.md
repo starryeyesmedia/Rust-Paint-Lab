@@ -463,3 +463,57 @@ validation has been performed in this phase.
 3. Implement panel move/resize/snap or docking behavior with interaction tests, then
    validate touch/trackpad behavior on the Galaxy Book before declaring gestures
    complete.
+
+## Phase 8.3 — Accessibility foundation (active)
+
+### Implemented locally
+
+- Added a shared UI token module for spacing, rounded controls, and a 44-point
+  baseline interaction target. Applied through the existing egui context; the
+  current tool buttons retain their own measured sizes.
+- Added persisted interface scaling (bounded 0.8–1.6) and an optional high-contrast
+  control palette. Both are in View/Accessibility controls and Reset Appearance is
+  separate from workspace layout reset. High contrast changes application chrome,
+  not artwork or canvas color. Version-1 preferences without these fields migrate
+  to scale 1.0 and high contrast off.
+- Added tests for scale migration/bounds, shared target sizing, and text/border
+  contrast in both dark and light high-contrast modes.
+- Added `docs/accessibility-assessment.md` and the active multi-track engineering
+  roadmap at `docs/ROADMAP.md`.
+
+### Accessibility capability finding
+
+The project pins egui/egui-winit 0.33.3. egui-winit exposes optional AccessKit
+support, including an adapter initializer, but the feature is disabled and the
+application currently uses `EventLoop<()>`. Enabling it requires a typed user event
+that carries AccessKit events while preserving the existing Windows capture wake
+event through the same event loop. The bridge is not yet enabled; Narrator/NVDA
+roles, names, values, focus announcements and UI Automation behavior have not been
+tested. The assessment records this integration as the immediate accessibility
+architecture step.
+
+### Validation for this slice
+
+- Canvas-demo library tests: **41 passed**.
+- Full workspace strict Clippy and tests passed; workspace build and Windows GNU
+  cross-check/Clippy passed. Full suite includes **186 tests**.
+- Offscreen GPU pixel smoke passed on Mesa llvmpipe/OpenGL.
+- This UI/accessibility slice is not yet pushed or covered by platform CI. No
+  Windows Narrator/NVDA, physical touch, or high-DPI hardware test was performed.
+- No screenshot was captured in this environment; the last confirmed rendered
+  application checks are the Linux Xvfb CI workflows on commit `1ad2b62`.
+
+### Exact continuation
+
+1. Run the updated branch through Windows/Linux/macOS CI and preserve both Windows
+   artifacts.
+2. Add AccessKit user-event routing and inspect the actual generated accessibility
+   tree before claiming assistive-technology support.
+3. Continue the Phase 8.3 functional workspace priorities: bounded artwork
+   thumbnails, explicit recovery manager, unified movable/dockable palette, and
+   image-first reference manager. Test actual windows and screen-reader behavior.
+
+The owner reports that basic S Pen drawing has been used in previous hands-on
+Windows sessions and provided recordings. Pressure curves, independent tilt axes,
+palm rejection, pen/touch concurrency, DPI behavior and latency are still not
+explicitly demonstrated or measured here.

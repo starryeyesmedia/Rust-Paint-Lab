@@ -184,6 +184,49 @@ pub fn visuals(
     visuals
 }
 
+/// Strengthen text, control boundaries, and selection contrast without changing
+/// document/canvas color. This is an optional application accessibility mode.
+pub fn high_contrast(mut visuals: egui::Visuals, dark: bool) -> egui::Visuals {
+    let background = if dark {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
+    };
+    let foreground = if dark {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::BLACK
+    };
+    let edge = if dark {
+        egui::Color32::from_rgb(255, 230, 96)
+    } else {
+        egui::Color32::from_rgb(24, 48, 132)
+    };
+    visuals.panel_fill = background;
+    visuals.window_fill = background;
+    visuals.faint_bg_color = background;
+    visuals.extreme_bg_color = background;
+    visuals.override_text_color = Some(foreground);
+    visuals.weak_text_color = Some(foreground);
+    visuals.window_stroke = egui::Stroke::new(2.0, edge);
+    visuals.selection.stroke = egui::Stroke::new(2.0, edge);
+    for widget in [
+        &mut visuals.widgets.noninteractive,
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+    ] {
+        widget.fg_stroke = egui::Stroke::new(2.0, foreground);
+        widget.bg_stroke = egui::Stroke::new(2.0, edge);
+        widget.weak_bg_fill = background;
+        if widget.bg_fill == egui::Color32::TRANSPARENT {
+            widget.bg_fill = background;
+        }
+    }
+    visuals
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +281,26 @@ mod tests {
             )
             .dark_mode
         );
+    }
+
+    #[test]
+    fn high_contrast_mode_keeps_text_legible_and_control_edges_distinct() {
+        for dark in [true, false] {
+            let base = visuals(
+                if dark {
+                    AppearanceMode::Dark
+                } else {
+                    AppearanceMode::Light
+                },
+                dark,
+                AccentScheme::Violet,
+                None,
+            );
+            let high = high_contrast(base, dark);
+            let text = high.override_text_color.unwrap();
+            assert!(contrast_ratio(text, high.panel_fill) >= 7.0);
+            assert!(contrast_ratio(high.widgets.inactive.bg_stroke.color, high.panel_fill) >= 3.0);
+            assert!(high.widgets.inactive.bg_stroke.width >= 2.0);
+        }
     }
 }

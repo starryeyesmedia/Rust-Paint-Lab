@@ -26,6 +26,10 @@ fn default_canvas_pan() -> [f64; 2] {
     [0.0, 0.0]
 }
 
+fn default_ui_scale() -> f32 {
+    1.0
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InspectorTab {
     #[default]
@@ -136,6 +140,10 @@ pub struct WorkspacePreferences {
     pub canvas_pan: [f64; 2],
     #[serde(default)]
     pub inspector_tab: InspectorTab,
+    #[serde(default)]
+    pub high_contrast: bool,
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -201,6 +209,8 @@ impl Default for WorkspacePreferences {
             canvas_zoom: 1.0,
             canvas_pan: [0.0, 0.0],
             inspector_tab: InspectorTab::Layers,
+            high_contrast: false,
+            ui_scale: 1.0,
         }
     }
 }
@@ -219,6 +229,7 @@ impl WorkspacePreferences {
         if self.version != 1
             || !self.brush_panel_width.is_finite()
             || !self.canvas_zoom.is_finite()
+            || !self.ui_scale.is_finite()
             || !self.canvas_pan.iter().all(|v| v.is_finite())
             || !self.new_document.validate()
         {
@@ -226,6 +237,7 @@ impl WorkspacePreferences {
         }
         self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
         self.canvas_zoom = self.canvas_zoom.clamp(0.25, 8.0);
+        self.ui_scale = self.ui_scale.clamp(0.8, 1.6);
         self.canvas_pan = self.canvas_pan.map(|v| v.clamp(-32768.0, 32768.0));
         if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
             self.accent_scheme = AccentScheme::Violet;
@@ -386,6 +398,8 @@ mod tests {
         assert_eq!(preferences.canvas_zoom, 1.0);
         assert_eq!(preferences.canvas_pan, [0.0, 0.0]);
         assert_eq!(preferences.inspector_tab, InspectorTab::Layers);
+        assert!(!preferences.high_contrast);
+        assert_eq!(preferences.ui_scale, 1.0);
         assert_eq!(preferences.accent_scheme, AccentScheme::Violet);
         assert_eq!(
             preferences.effective_appearance_mode(),
@@ -413,6 +427,26 @@ mod tests {
         assert_eq!(restored.canvas_zoom, 8.0);
         assert_eq!(restored.canvas_pan, [-32768.0, 32768.0]);
         restored.canvas_zoom = f64::NAN;
+        assert!(!restored.validate());
+    }
+
+    #[test]
+    fn accessibility_preferences_persist_and_clamp_interface_scale() {
+        let mut preferences = WorkspacePreferences {
+            high_contrast: true,
+            ui_scale: 1.35,
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(restored.validate());
+        assert!(restored.high_contrast);
+        assert_eq!(restored.ui_scale, 1.35);
+        restored.ui_scale = 9.0;
+        assert!(restored.validate());
+        assert_eq!(restored.ui_scale, 1.6);
+        restored.ui_scale = f32::NAN;
         assert!(!restored.validate());
     }
 

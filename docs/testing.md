@@ -295,3 +295,12 @@ and refuses to exceed the eight-draft bound. It ignores unrelated files. If the
 bound or a write error prevents automatic close-save, the application remains open
 and offers retry, Save As, or Cancel. Named-document external-change conflicts use
 the existing `Store` content-hash guard and also keep the window open.
+
+## Phase 8.3 accessibility foundation
+
+`canvas-demo` tests high-contrast text and control-edge contrast in light/dark
+palettes, persists bounded interface scale and high-contrast preferences, and
+checks the shared 44-point egui interaction baseline. These are style and
+preference tests, not a complete WCAG audit. The optional AccessKit bridge is not
+enabled yet; see `docs/accessibility-assessment.md` for event-loop integration
+requirements and untested Narrator/NVDA behavior.

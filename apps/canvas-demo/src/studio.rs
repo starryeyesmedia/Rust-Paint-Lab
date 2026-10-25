@@ -30,6 +30,15 @@ struct RecentProjectCard {
     opened_unix_seconds: u64,
 }
 
+type AppearanceKey = (
+    crate::workspace::AppearanceMode,
+    crate::workspace::AccentScheme,
+    Option<[u8; 3]>,
+    bool,
+    bool,
+    u32,
+);
+
 fn recent_project_cards(recent: &paint_document::recent::Recent) -> Vec<RecentProjectCard> {
     recent
         .paths
@@ -593,12 +602,9 @@ pub struct Studio {
     custom_accent_rgb: Option<[u8; 3]>,
     custom_accent_hex: String,
     system_dark: bool,
-    appearance_cache: Option<(
-        crate::workspace::AppearanceMode,
-        crate::workspace::AccentScheme,
-        Option<[u8; 3]>,
-        bool,
-    )>,
+    appearance_cache: Option<AppearanceKey>,
+    high_contrast: bool,
+    ui_scale: f32,
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
     touch_routes: crate::navigation::TouchTargetRouter,
@@ -629,10 +635,7 @@ pub struct Studio {
 impl Studio {
     pub fn new(g: &Renderer, window: &Window, format: wgpu::TextureFormat) -> Self {
         let context = egui::Context::default();
-        context.style_mut(|s| {
-            s.spacing.interact_size = egui::vec2(36.0, 36.0);
-            s.spacing.button_padding = egui::vec2(8.0, 6.0);
-        });
+        crate::ui_tokens::install(&context);
         let input = egui_winit::State::new(
             context.clone(),
             egui::ViewportId::ROOT,
@@ -740,6 +743,8 @@ impl Studio {
                 .map(|theme| theme == winit::window::Theme::Dark)
                 .unwrap_or(preferences.dark_theme),
             appearance_cache: None,
+            high_contrast: preferences.high_contrast,
+            ui_scale: preferences.ui_scale,
             navigation: crate::navigation::Navigation {
                 zoom: preferences.canvas_zoom,
                 pan: preferences.canvas_pan,
@@ -1526,6 +1531,8 @@ impl Studio {
             canvas_zoom: self.navigation.zoom,
             canvas_pan: self.navigation.pan,
             inspector_tab: self.inspector_tab,
+            high_contrast: self.high_contrast,
+            ui_scale: self.ui_scale,
             ..Default::default()
         };
         if !preferences.validate() {
@@ -1831,6 +1838,29 @@ impl Studio {
                                         }
                                     }
                                 });
+                            }
+                            ui.separator();
+                            workspace_changed |= ui
+                                .checkbox(&mut self.high_contrast, "High contrast controls")
+                                .changed();
+                            ui.horizontal(|ui| {
+                                ui.label("Interface size");
+                                workspace_changed |= ui
+                                    .add(
+                                        egui::Slider::new(&mut self.ui_scale, 0.8..=1.6)
+                                            .show_value(true),
+                                    )
+                                    .changed();
+                            });
+                            if ui.button("Reset appearance").clicked() {
+                                self.appearance_mode = crate::workspace::AppearanceMode::Dark;
+                                self.accent_scheme = crate::workspace::AccentScheme::Violet;
+                                self.custom_accent_rgb = None;
+                                self.custom_accent_hex = "#A78BFA".into();
+                                self.high_contrast = false;
+                                self.ui_scale = 1.0;
+                                workspace_changed = true;
+                                ui.close();
                             }
                             ui.separator();
                             ui.label("0  Fit canvas");
@@ -3104,14 +3134,24 @@ impl Studio {
             self.accent_scheme,
             self.custom_accent_rgb,
             self.system_dark,
+            self.high_contrast,
+            (self.ui_scale * 1000.0).round() as u32,
         );
         if self.appearance_cache != Some(appearance_key) {
-            self.context.set_visuals(crate::appearance::visuals(
+            let mut visuals = crate::appearance::visuals(
                 self.appearance_mode,
                 self.system_dark,
                 self.accent_scheme,
                 self.custom_accent_rgb,
-            ));
+            );
+            if self.high_contrast {
+                visuals = crate::appearance::high_contrast(
+                    visuals,
+                    self.appearance_mode.is_dark(self.system_dark),
+                );
+            }
+            self.context.set_visuals(visuals);
+            self.context.set_zoom_factor(self.ui_scale);
             self.appearance_cache = Some(appearance_key);
         }
         let raw = self.input.take_egui_input(window);
