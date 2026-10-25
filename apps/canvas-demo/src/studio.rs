@@ -950,7 +950,96 @@ impl Studio {
             self.mapping.is_some_and(|m| m.contains_client(p)) && !self.reference_under_client(p)
         }) && !self.blocks_canvas()
             && session.mode() == crate::interaction::Mode::Live;
+        let reference_under_pointer = self
+            .mouse_position
+            .and_then(|position| self.reference_index_under_client(position));
         match event {
+            E::MouseWheel { delta, .. } if reference_under_pointer.is_some() => {
+                let index = reference_under_pointer.unwrap();
+                let scale = f64::from(self.context.pixels_per_point());
+                let pointer_px = self.mouse_position.unwrap();
+                let pointer = egui::pos2(
+                    (pointer_px[0] / scale) as f32,
+                    (pointer_px[1] / scale) as f32,
+                );
+                let reference = &mut self.references[index];
+                let viewport = reference.viewport.unwrap();
+                let changed = match delta {
+                    winit::event::MouseScrollDelta::PixelDelta(delta) if !self.control_held => {
+                        reference_zoom_about(
+                            &mut reference.layout,
+                            viewport,
+                            pointer,
+                            egui::pos2(
+                                pointer.x + delta.x as f32 / scale as f32,
+                                pointer.y + delta.y as f32 / scale as f32,
+                            ),
+                            1.0,
+                        )
+                    }
+                    winit::event::MouseScrollDelta::PixelDelta(delta) => reference_zoom_about(
+                        &mut reference.layout,
+                        viewport,
+                        pointer,
+                        pointer,
+                        (delta.y / 120.0).clamp(-1.0, 1.0).exp() as f32,
+                    ),
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => reference_zoom_about(
+                        &mut reference.layout,
+                        viewport,
+                        pointer,
+                        pointer,
+                        (f64::from(*y).clamp(-8.0, 8.0) * 0.12).exp() as f32,
+                    ),
+                };
+                self.workspace_needs_save |= changed;
+                return (true, true);
+            }
+            E::PinchGesture { delta, .. }
+                if reference_under_pointer.is_some() && delta.is_finite() =>
+            {
+                let index = reference_under_pointer.unwrap();
+                let scale = f64::from(self.context.pixels_per_point());
+                let pointer_px = self.mouse_position.unwrap();
+                let pointer = egui::pos2(
+                    (pointer_px[0] / scale) as f32,
+                    (pointer_px[1] / scale) as f32,
+                );
+                let reference = &mut self.references[index];
+                if let Some(viewport) = reference.viewport {
+                    self.workspace_needs_save |= reference_zoom_about(
+                        &mut reference.layout,
+                        viewport,
+                        pointer,
+                        pointer,
+                        delta.clamp(-2.0, 2.0).exp() as f32,
+                    );
+                }
+                return (true, true);
+            }
+            E::PanGesture { delta, .. } if reference_under_pointer.is_some() => {
+                let index = reference_under_pointer.unwrap();
+                let scale = f64::from(self.context.pixels_per_point());
+                let pointer_px = self.mouse_position.unwrap();
+                let pointer = egui::pos2(
+                    (pointer_px[0] / scale) as f32,
+                    (pointer_px[1] / scale) as f32,
+                );
+                let reference = &mut self.references[index];
+                if let Some(viewport) = reference.viewport {
+                    self.workspace_needs_save |= reference_zoom_about(
+                        &mut reference.layout,
+                        viewport,
+                        pointer,
+                        egui::pos2(
+                            pointer.x + delta.x / scale as f32,
+                            pointer.y + delta.y / scale as f32,
+                        ),
+                        1.0,
+                    );
+                }
+                return (true, true);
+            }
             E::MouseWheel { delta, .. } if canvas => {
                 let p = self.mouse_position.unwrap();
                 let changed = match delta {

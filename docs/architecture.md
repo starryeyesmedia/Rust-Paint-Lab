@@ -275,9 +275,12 @@ have independent view reset/position reset controls, and route two-contact
 touchscreen navigation to the image under both contacts. Each contact remains
 captured to its starting surface until it ends; a split-surface gesture is
 suppressed rather than affecting either reference or the canvas. Canvas touch uses
-the same navigation processor, and stylus-active touch is ignored. Preferences are
-not artwork data and are safely bounded/migrated when loaded. Independent draggable
-panels, edge snapping/docking, and complete accessibility review remain pending.
+the same navigation processor, and stylus-active touch is ignored. Where a window
+backend emits winit pinch/pan events, these are routed to the reference under the
+cursor or to the canvas; pixel-delta scrolling pans references/canvas and Control
+plus scroll zooms the canvas. Preferences are not artwork data and are safely
+bounded/migrated when loaded. Independent draggable panels, edge snapping/docking,
+and complete accessibility review remain pending.
 
 ## Phase 8 startup and file selection slice
 
