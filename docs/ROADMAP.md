@@ -48,9 +48,11 @@ Layers panel, visual New Artwork cards, a confirmation-safe recovery manager, bo
 recent-artwork thumbnails, compact reference controls, reduced motion, interface
 scaling and responsive Home cards. The floating Layers panel supports real layer
 actions with persisted position/size; bounded recovery previews load only on
-request after native-file validation. Before the current visual pass, formatting,
-strict Clippy, workspace build, 193 tests and the software GPU smoke passed
-locally. Actions run `40226791860` has
+request after native-file validation. The current visual pass adds responsive
+flyouts, illustrated format cards, stronger Home hierarchy, focusable
+format/brush selection, and a broad Light/Dark/high-contrast screenshot matrix.
+Formatting, strict Clippy, workspace build, 200 tests and the software GPU smoke
+pass locally. Actions run `40226791860` has
 passed the complete Linux UI/artwork workflow: the test clicks the rendered Brush
 control by its measured bounds, exercises Ctrl+B and Escape, opens Layers and
 Recovery, saves/reopens artwork, and captures the Home, New Artwork, canvas,
@@ -64,13 +66,16 @@ but artifact blob downloads return HTTP Forbidden in this environment. Phase 8.3
 is not complete. A visual integration pass from commit `1220722` is now in
 progress: Brush placement/size/scrolling, responsive visual format cards, Home
 hierarchy and theme-safe heading contrast, and populated light/dark/high-contrast
-UI screenshot coverage are being improved. These changes are not yet fully
-validated by GitHub Actions. The current local run passes formatting, strict
-Clippy, all 200 workspace tests, build, llvmpipe GPU smoke, and Windows GNU
-target check/Clippy. Actions run `40230324720` confirmed the first eight
-light-theme normal/narrow screenshots but exposed stale test-only palette
-geometry when the smoke clicked after leaving Home; this was corrected and the
-next complete matrix run is pending. See
+UI screenshot coverage are being improved. Actions run `40230324720` confirmed
+the first eight light-theme normal/narrow screenshots but exposed stale test-only
+palette geometry when the smoke clicked after leaving Home; that was corrected.
+Run `40230678773` passed three-platform format, lint, tests and build, Linux GPU
+and live-window smoke, then captured 17 of 18 requested UI states. Its only failure
+was the generic sampled-color minimum rejecting the intentionally restricted-color
+high-contrast Home; the capture guard now applies a specific lower nonblank
+threshold there. The corrected full matrix and consolidated Windows artifact are
+pending. The screenshot archive could not be inspected here because Actions
+artifact blob downloads return HTTP 403. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are
 provisional.

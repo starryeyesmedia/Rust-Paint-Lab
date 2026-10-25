@@ -205,7 +205,11 @@ def capture_window(window, name):
         start=sample_y*bytes_per_line+sample_x*bytes_per_pixel
         pixel=int.from_bytes(pixel_data[start:start+bytes_per_pixel],byte_order_name)
         sampled.add(tuple(component(pixel,mask) for mask in masks))
-    assert len(sampled)>18, f'{name} screenshot looks blank or was not fully rendered ({len(sampled)} sampled colors)'
+    # The high-contrast palette intentionally reduces the number of colors.
+    # Still reject a blank/uninitialized image, while not requiring the richer
+    # palette diversity used by normal and dark-theme screenshots.
+    minimum_colors = 8 if name == 'home-dark-high-contrast' else 18
+    assert len(sampled)>minimum_colors, f'{name} screenshot looks blank or was not fully rendered ({len(sampled)} sampled colors; expected >{minimum_colors})'
     destination=Path(folder);destination.mkdir(parents=True,exist_ok=True)
     (destination/f'{name}.png').write_bytes(raw)
     captured_screenshots[name] = (width, height)

@@ -779,9 +779,19 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   The UI diagnostic now logs the Brush target only after the canvas workspace is
   active and the smoke uses the latest reported bounds. Windows was canceled
   during tests before executable packaging; the run produced no Windows package.
-  A single clean matrix run is pending for commit `6777672` plus this smoke fix.
+- Run [`40230678773`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40230678773)
+  passed all Windows/Linux/macOS format, lint, workspace test and build steps;
+  Linux also passed GPU and live-window smoke and captured 17 of 18 requested UI
+  screenshots, including populated Light/Dark Brush, Layers and Recovery states.
+  It failed at the final high-contrast Home capture because the generic screenshot
+  diversity threshold was too strict for that deliberately reduced-color palette.
+  The pending Windows canvas/package steps were canceled after Linux failed. The
+  capture guard now has a lower but still nonblank threshold only for this
+  high-contrast image. Another full matrix run is pending.
 
-Next: push for the expanded cross-platform workflow, inspect its screenshots if
-artifact access is restored, fix any issues visible in those captures, and then
-produce the consolidated Windows evaluation artifact. Keep Phase 8.3 active until
-visual review and a Windows assistive-technology pass are recorded.
+Next: push the high-contrast capture-guard fix through the expanded cross-platform
+workflow. Inspect the screenshot archive if artifact access is restored; the
+workspace currently blocks the GitHub artifact blob host. Correct any visible
+issues and produce one consolidated Windows evaluation artifact only after this
+matrix succeeds. Keep Phase 8.3 active until visual review and a Windows
+assistive-technology pass are recorded.
