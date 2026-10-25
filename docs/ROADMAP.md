@@ -4,13 +4,14 @@ This is a working engineering sequence, not a release promise. Phase 8.3 complet
 workspace and accessibility foundations before Phase 9 adds new drawing engines.
 Artwork preservation and cross-platform validation apply to every track.
 
-## Provisional product identity — next phase
+## Adopted product identity — BitchPixel
 
-- **Working candidate:** BitchPixel. Rust Paint Lab remains the development name for the repository, application identifiers, builds, and formats until the owner approves a final rename.
-- **Approved taglines:** “No limits. No bullshit.” (primary positioning) and “Create without permission.” (creative-freedom message). Keep both exact phrases available for the next phase.
-- **Interpretation:** Reject artificial commercial and ecosystem barriers: subscription tiers, paywalled features, forced accounts, ads/tracking, and unnecessary device exclusion. Do not suggest that any device can run every capability or that future creative engines are already implemented.
-- **Open decisions:** final name, trademark/domain availability, visual branding, accessible slogan treatment, metadata/About description, app identifiers and binary names, and distribution license. See [identity planning issue](https://github.com/starryeyesmedia/Rust-Paint-Lab/issues/1).
-- **Scope:** This decision must not interrupt Phase 8.3 accessibility, stability, or UI work. Final public branding is deferred.
+- **Product identity:** BitchPixel is the chosen name, not a provisional candidate. Rust Paint Lab continues as the engineering repository, internal package/executable names and format terminology until those identifiers are migrated deliberately, without breaking existing projects or CI.
+- **Approved brand lines:** “No limits. No bullshit.” (primary positioning) and “Create without permission.” (creative-freedom message). Keep both exact phrases available in product/design work.
+- **Brand meaning:** Reject paywalls, subscriptions, locked creative tools, forced accounts, advertising/tracking, and unnecessary ecosystem/device exclusion. Preserve realistic hardware constraints and do not advertise planned features as shipped.
+- **Visual direction:** Establish and review cohesive BitchPixel design mockups for Home, canvas, Brush Library, Layers, New Artwork and references before broad UI implementation. Current functional egui-based layouts do **not** meet the approved visual ambition; do not conflate passing CI or screenshot existence with design acceptance. Treat accessible dark/light/high-contrast typography, clear hierarchy, artist-centered artwork presentation and coherent floating tools as acceptance criteria.
+- **Open implementation tasks:** design system and accessible visual treatment; name/metadata/application-ID/binary migration plan; trademark/domain due diligence; distribution license. See [product identity issue](https://github.com/starryeyesmedia/Rust-Paint-Lab/issues/1).
+- **Scope:** Continue Phase 8.3 reliability and accessibility work; do not make unreviewed breaking package/format/identifier changes or merge the development branch solely for branding.
 
 ## Experience and accessibility
 
