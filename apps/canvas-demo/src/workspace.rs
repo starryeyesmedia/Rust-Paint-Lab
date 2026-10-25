@@ -30,12 +30,31 @@ fn default_ui_scale() -> f32 {
     1.0
 }
 
+fn default_palette_position() -> [f32; 2] {
+    [72.0, 54.0]
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InspectorTab {
     #[default]
     Layers,
     Brush,
     Edit,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaletteDock {
+    #[default]
+    Left,
+    Right,
+    Floating,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Handedness {
+    #[default]
+    Right,
+    Left,
 }
 
 pub fn remember_brush_color(colors: &mut Vec<[u8; 3]>, color: [u8; 3]) {
@@ -144,6 +163,14 @@ pub struct WorkspacePreferences {
     pub high_contrast: bool,
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
+    #[serde(default)]
+    pub palette_dock: PaletteDock,
+    #[serde(default)]
+    pub palette_collapsed: bool,
+    #[serde(default)]
+    pub handedness: Handedness,
+    #[serde(default = "default_palette_position")]
+    pub palette_position: [f32; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,6 +238,10 @@ impl Default for WorkspacePreferences {
             inspector_tab: InspectorTab::Layers,
             high_contrast: false,
             ui_scale: 1.0,
+            palette_dock: PaletteDock::Left,
+            palette_collapsed: false,
+            handedness: Handedness::Right,
+            palette_position: [72.0, 54.0],
         }
     }
 }
@@ -230,6 +261,7 @@ impl WorkspacePreferences {
             || !self.brush_panel_width.is_finite()
             || !self.canvas_zoom.is_finite()
             || !self.ui_scale.is_finite()
+            || !self.palette_position.iter().all(|v| v.is_finite())
             || !self.canvas_pan.iter().all(|v| v.is_finite())
             || !self.new_document.validate()
         {
@@ -238,6 +270,7 @@ impl WorkspacePreferences {
         self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
         self.canvas_zoom = self.canvas_zoom.clamp(0.25, 8.0);
         self.ui_scale = self.ui_scale.clamp(0.8, 1.6);
+        self.palette_position = self.palette_position.map(|v| v.clamp(0.0, 32768.0));
         self.canvas_pan = self.canvas_pan.map(|v| v.clamp(-32768.0, 32768.0));
         if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
             self.accent_scheme = AccentScheme::Violet;
@@ -297,6 +330,10 @@ mod tests {
     fn preferences_round_trip_and_bound_saved_layout() {
         let mut preferences = WorkspacePreferences {
             show_controls: false,
+            palette_dock: PaletteDock::Floating,
+            palette_collapsed: true,
+            handedness: Handedness::Left,
+            palette_position: [400.0, 250.0],
             ..Default::default()
         };
         preferences.references.push(ReferenceLayout {
@@ -327,6 +364,19 @@ mod tests {
         let mut restored: WorkspacePreferences = serde_json::from_slice(&json).unwrap();
         assert!(restored.validate());
         assert_eq!(restored, preferences);
+    }
+
+    #[test]
+    fn floating_palette_rejects_nonfinite_position_and_bounds_extreme_values() {
+        let mut preferences = WorkspacePreferences {
+            palette_dock: PaletteDock::Floating,
+            palette_position: [f32::INFINITY, 0.0],
+            ..Default::default()
+        };
+        assert!(!preferences.validate());
+        preferences.palette_position = [-100.0, 100_000.0];
+        assert!(preferences.validate());
+        assert_eq!(preferences.palette_position, [0.0, 32768.0]);
     }
 
     #[test]
@@ -400,6 +450,10 @@ mod tests {
         assert_eq!(preferences.inspector_tab, InspectorTab::Layers);
         assert!(!preferences.high_contrast);
         assert_eq!(preferences.ui_scale, 1.0);
+        assert_eq!(preferences.palette_dock, PaletteDock::Left);
+        assert!(!preferences.palette_collapsed);
+        assert_eq!(preferences.handedness, Handedness::Right);
+        assert_eq!(preferences.palette_position, [72.0, 54.0]);
         assert_eq!(preferences.accent_scheme, AccentScheme::Violet);
         assert_eq!(
             preferences.effective_appearance_mode(),

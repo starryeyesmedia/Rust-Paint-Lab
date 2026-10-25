@@ -36,6 +36,33 @@ for package in ["egui","emath","ecolor","epaint","epaint_default_fonts","egui-wg
 
 SUPPLEMENTAL.update({('objc-sys', '0.3.5'): ['objc-4fc083f1.txt'], ('objc2', '0.5.3'): ['objc-5237cbf0.txt'], ('objc2', '0.6.5'): ['objc-d7d2fa23.txt'], ('objc2-app-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-app-kit', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-cloud-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-contacts', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-data', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-foundation', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-core-graphics', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-core-image', '0.2.2'): ['objc-e282618b.txt'], ('objc2-core-location', '0.2.2'): ['objc-e282618b.txt'], ('objc2-encode', '4.1.0'): ['objc-8d214f54.txt'], ('objc2-foundation', '0.2.2'): ['objc-e282618b.txt'], ('objc2-foundation', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-io-surface', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-link-presentation', '0.2.2'): ['objc-e282618b.txt'], ('objc2-metal', '0.2.2'): ['objc-e282618b.txt'], ('objc2-metal', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-quartz-core', '0.2.2'): ['objc-e282618b.txt'], ('objc2-quartz-core', '0.3.2'): ['objc-7b1abfd7.txt'], ('objc2-symbols', '0.2.2'): ['objc-e282618b.txt'], ('objc2-ui-kit', '0.2.2'): ['objc-e282618b.txt'], ('objc2-uniform-type-identifiers', '0.2.2'): ['objc-e282618b.txt'], ('objc2-user-notifications', '0.2.2'): ['objc-e282618b.txt'], ('malloc_buf', '0.0.6'): ['malloc-MIT.txt']})
 
+# AccessKit and its AT-SPI bridge omit license texts from the published crate
+# archives. The upstream manifests declare these SPDX expressions; include the
+# exact standard texts with provenance recorded in canvas-supplemental/SOURCES.md.
+for name, version in [
+    ("accesskit", "0.21.1"),
+    ("accesskit_atspi_common", "0.14.2"),
+    ("accesskit_consumer", "0.31.0"),
+    ("accesskit_macos", "0.22.2"),
+    ("accesskit_unix", "0.17.2"),
+    ("accesskit_windows", "0.29.2"),
+    ("atspi", "0.25.0"),
+    ("atspi-common", "0.9.0"),
+    ("atspi-connection", "0.9.0"),
+    ("atspi-proxies", "0.9.0"),
+]:
+    SUPPLEMENTAL[(name, version)] = ["egui-APACHE.txt", "egui-MIT.txt"]
+SUPPLEMENTAL[("accesskit_winit", "0.29.2")] = ["egui-APACHE.txt"]
+for name, version in [
+    ("zbus", "5.19.0"),
+    ("zbus-lockstep", "0.5.2"),
+    ("zbus-lockstep-macros", "0.5.2"),
+    ("zbus_macros", "5.19.0"),
+    ("zbus_names", "4.3.5"),
+    ("zbus_xml", "5.2.1"),
+]:
+    SUPPLEMENTAL[(name, version)] = ["egui-MIT.txt"]
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--inventory", action="store_true")
 parser.add_argument("--target", default="x86_64-pc-windows-msvc")

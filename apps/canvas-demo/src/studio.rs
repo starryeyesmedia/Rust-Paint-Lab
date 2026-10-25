@@ -605,6 +605,10 @@ pub struct Studio {
     appearance_cache: Option<AppearanceKey>,
     high_contrast: bool,
     ui_scale: f32,
+    palette_dock: crate::workspace::PaletteDock,
+    palette_collapsed: bool,
+    handedness: crate::workspace::Handedness,
+    palette_position: [f32; 2],
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
     touch_routes: crate::navigation::TouchTargetRouter,
@@ -745,6 +749,10 @@ impl Studio {
             appearance_cache: None,
             high_contrast: preferences.high_contrast,
             ui_scale: preferences.ui_scale,
+            palette_dock: preferences.palette_dock,
+            palette_collapsed: preferences.palette_collapsed,
+            handedness: preferences.handedness,
+            palette_position: preferences.palette_position,
             navigation: crate::navigation::Navigation {
                 zoom: preferences.canvas_zoom,
                 pan: preferences.canvas_pan,
@@ -775,6 +783,21 @@ impl Studio {
             new_from_welcome: false,
             picker_from_welcome: false,
         }
+    }
+
+    pub fn init_accesskit(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        window: &Window,
+        proxy: winit::event_loop::EventLoopProxy<
+            impl From<egui_winit::accesskit_winit::Event> + Send + 'static,
+        >,
+    ) {
+        self.input.init_accesskit(event_loop, window, proxy);
+    }
+
+    pub fn accesskit_action_request(&mut self, request: egui::accesskit::ActionRequest) {
+        self.input.on_accesskit_action_request(request);
     }
     fn reference_under_client(&self, client_px: [f64; 2]) -> bool {
         self.reference_index_under_client(client_px).is_some()
@@ -1533,6 +1556,10 @@ impl Studio {
             inspector_tab: self.inspector_tab,
             high_contrast: self.high_contrast,
             ui_scale: self.ui_scale,
+            palette_dock: self.palette_dock,
+            palette_collapsed: self.palette_collapsed,
+            handedness: self.handedness,
+            palette_position: self.palette_position,
             ..Default::default()
         };
         if !preferences.validate() {
@@ -1874,6 +1901,16 @@ impl Studio {
                                 self.show_controls = true;
                                 self.brush_panel_width = 260.0;
                                 self.inspector_tab = crate::workspace::InspectorTab::Layers;
+                                self.palette_dock = match self.handedness {
+                                    crate::workspace::Handedness::Right => {
+                                        crate::workspace::PaletteDock::Left
+                                    }
+                                    crate::workspace::Handedness::Left => {
+                                        crate::workspace::PaletteDock::Right
+                                    }
+                                };
+                                self.palette_collapsed = false;
+                                self.palette_position = [72.0, 64.0];
                                 self.navigation = Default::default();
                                 for (index, reference) in self.references.iter_mut().enumerate() {
                                     reference.layout.position =
@@ -1885,6 +1922,41 @@ impl Studio {
                                 }
                                 workspace_changed = true;
                                 ui.close();
+                            }
+                            ui.separator();
+                            ui.label("Tool palette");
+                            for (dock, label) in [
+                                (crate::workspace::PaletteDock::Left, "Dock left"),
+                                (crate::workspace::PaletteDock::Right, "Dock right"),
+                                (crate::workspace::PaletteDock::Floating, "Float palette"),
+                            ] {
+                                if ui
+                                    .selectable_value(&mut self.palette_dock, dock, label)
+                                    .changed()
+                                {
+                                    workspace_changed = true;
+                                }
+                            }
+                            ui.label("Handedness");
+                            for (hand, label) in [
+                                (crate::workspace::Handedness::Right, "Right handed"),
+                                (crate::workspace::Handedness::Left, "Left handed"),
+                            ] {
+                                if ui
+                                    .selectable_value(&mut self.handedness, hand, label)
+                                    .changed()
+                                {
+                                    if self.palette_dock != crate::workspace::PaletteDock::Floating
+                                    {
+                                        self.palette_dock =
+                                            if hand == crate::workspace::Handedness::Right {
+                                                crate::workspace::PaletteDock::Left
+                                            } else {
+                                                crate::workspace::PaletteDock::Right
+                                            };
+                                    }
+                                    workspace_changed = true;
+                                }
                             }
                             ui.separator();
                             let can_add = self.references.len() < crate::workspace::MAX_REFERENCES;
@@ -1915,122 +1987,205 @@ impl Studio {
             });
 
             let old_tool = self.tool;
-            egui::SidePanel::left("tool palette")
-                .resizable(false)
-                .exact_width(64.0)
+            let screen = ctx.content_rect();
+            let palette_pos = match self.palette_dock {
+                crate::workspace::PaletteDock::Left => [screen.left() + 8.0, screen.top() + 64.0],
+                crate::workspace::PaletteDock::Right => {
+                    [screen.right() - 64.0, screen.top() + 64.0]
+                }
+                crate::workspace::PaletteDock::Floating => self.palette_position,
+            };
+            let palette_response = egui::Area::new(egui::Id::new("tool palette"))
+                .default_pos(egui::pos2(palette_pos[0], palette_pos[1]))
+                .movable(true)
+                .constrain_to(screen.shrink(4.0))
                 .show(ctx, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(8.0);
-                        for (tool, icon, name, shortcut) in [
-                            (
-                                EditTool::Brush,
-                                crate::studio_icons::Icon::Brush,
-                                "Brush",
-                                "B",
-                            ),
-                            (
-                                EditTool::Rectangle,
-                                crate::studio_icons::Icon::Rectangle,
-                                "Rectangle selection",
-                                "M",
-                            ),
-                            (
-                                EditTool::Ellipse,
-                                crate::studio_icons::Icon::Ellipse,
-                                "Ellipse selection",
-                                "E",
-                            ),
-                            (
-                                EditTool::Lasso,
-                                crate::studio_icons::Icon::Lasso,
-                                "Freehand lasso",
-                                "K",
-                            ),
-                            (
-                                EditTool::Eyedropper,
-                                crate::studio_icons::Icon::Eyedropper,
-                                "Eyedropper",
-                                "I",
-                            ),
-                        ] {
-                            let response = crate::studio_icons::button(
-                                ui,
-                                icon,
-                                name,
-                                Some(shortcut),
-                                self.tool == tool,
-                                [46.0, 46.0],
-                            );
-                            if response.clicked() {
-                                self.tool = tool;
-                                if tool == EditTool::Brush {
-                                    self.show_controls = true;
-                                    self.inspector_tab = crate::workspace::InspectorTab::Brush;
+                    egui::Frame::new()
+                        .fill(ui.visuals().window_fill)
+                        .stroke(ui.visuals().window_stroke)
+                        .corner_radius(12.0)
+                        .inner_margin(6.0)
+                        .show(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.add_space(8.0);
+                                if ui
+                                    .small_button(if self.palette_collapsed {
+                                        "Expand tools"
+                                    } else {
+                                        "Collapse tools"
+                                    })
+                                    .clicked()
+                                {
+                                    self.palette_collapsed = !self.palette_collapsed;
                                     workspace_changed = true;
                                 }
-                            }
-                        }
-                        ui.separator();
-                        let can_add_reference =
-                            self.references.len() < crate::workspace::MAX_REFERENCES;
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Reference,
-                            "Reference Images",
-                            None,
-                            false,
-                            [46.0, 46.0],
-                        )
-                        .clicked()
-                        {
-                            if can_add_reference {
-                                self.picker = Some(FileRequest::AddReferences);
-                            } else {
-                                self.status = format!(
-                                    "Reference board is full ({} images maximum)",
-                                    crate::workspace::MAX_REFERENCES
-                                );
-                            }
-                        }
-                        ui.separator();
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Deselect,
-                            "Deselect",
-                            Some("Ctrl+D"),
-                            false,
-                            [46.0, 42.0],
-                        )
-                        .clicked()
-                        {
-                            actions.push(Action::Deselect);
-                        }
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Fill,
-                            "Fill selection",
-                            Some("Ctrl+F"),
-                            false,
-                            [46.0, 42.0],
-                        )
-                        .clicked()
-                        {
-                            actions.push(Action::Fill(false));
-                        }
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Eraser,
-                            "Erase selection",
-                            Some("Ctrl+X"),
-                            false,
-                            [46.0, 42.0],
-                        )
-                        .clicked()
-                        {
-                            actions.push(Action::Fill(true));
-                        }
-                    });
+                                for (tool, icon, name, shortcut) in [
+                                    (
+                                        EditTool::Brush,
+                                        crate::studio_icons::Icon::Brush,
+                                        "Brush",
+                                        "B",
+                                    ),
+                                    (
+                                        EditTool::Rectangle,
+                                        crate::studio_icons::Icon::Rectangle,
+                                        "Rectangle selection",
+                                        "M",
+                                    ),
+                                    (
+                                        EditTool::Ellipse,
+                                        crate::studio_icons::Icon::Ellipse,
+                                        "Ellipse selection",
+                                        "E",
+                                    ),
+                                    (
+                                        EditTool::Lasso,
+                                        crate::studio_icons::Icon::Lasso,
+                                        "Freehand lasso",
+                                        "K",
+                                    ),
+                                    (
+                                        EditTool::Eyedropper,
+                                        crate::studio_icons::Icon::Eyedropper,
+                                        "Eyedropper",
+                                        "I",
+                                    ),
+                                ] {
+                                    let response = if self.palette_collapsed {
+                                        crate::studio_icons::button(
+                                            ui,
+                                            icon,
+                                            name,
+                                            Some(shortcut),
+                                            self.tool == tool,
+                                            [46.0, 46.0],
+                                        )
+                                    } else {
+                                        ui.horizontal(|ui| {
+                                            let response = crate::studio_icons::button(
+                                                ui,
+                                                icon,
+                                                name,
+                                                Some(shortcut),
+                                                self.tool == tool,
+                                                [46.0, 46.0],
+                                            );
+                                            ui.label(name);
+                                            response
+                                        })
+                                        .inner
+                                    };
+                                    if response.clicked() {
+                                        self.tool = tool;
+                                        if tool == EditTool::Brush {
+                                            self.show_controls = true;
+                                            self.inspector_tab =
+                                                crate::workspace::InspectorTab::Brush;
+                                            workspace_changed = true;
+                                        }
+                                    }
+                                }
+                                if !self.palette_collapsed {
+                                    let layers =
+                                        ui.button("Layers").on_hover_text("Open layer manager");
+                                    if layers.clicked() {
+                                        self.show_controls = true;
+                                        self.inspector_tab = crate::workspace::InspectorTab::Layers;
+                                        workspace_changed = true;
+                                    }
+                                } else if crate::studio_icons::button(
+                                    ui,
+                                    crate::studio_icons::Icon::Layers,
+                                    "Layers",
+                                    None,
+                                    false,
+                                    [46.0, 46.0],
+                                )
+                                .clicked()
+                                {
+                                    self.show_controls = true;
+                                    self.inspector_tab = crate::workspace::InspectorTab::Layers;
+                                    workspace_changed = true;
+                                }
+                                ui.separator();
+                                let can_add_reference =
+                                    self.references.len() < crate::workspace::MAX_REFERENCES;
+                                if crate::studio_icons::button(
+                                    ui,
+                                    crate::studio_icons::Icon::Reference,
+                                    "Reference Images",
+                                    None,
+                                    false,
+                                    [46.0, 46.0],
+                                )
+                                .clicked()
+                                {
+                                    if can_add_reference {
+                                        self.picker = Some(FileRequest::AddReferences);
+                                    } else {
+                                        self.status = format!(
+                                            "Reference board is full ({} images maximum)",
+                                            crate::workspace::MAX_REFERENCES
+                                        );
+                                    }
+                                }
+                                ui.separator();
+                                if crate::studio_icons::button(
+                                    ui,
+                                    crate::studio_icons::Icon::Deselect,
+                                    "Deselect",
+                                    Some("Ctrl+D"),
+                                    false,
+                                    [46.0, 42.0],
+                                )
+                                .clicked()
+                                {
+                                    actions.push(Action::Deselect);
+                                }
+                                if crate::studio_icons::button(
+                                    ui,
+                                    crate::studio_icons::Icon::Fill,
+                                    "Fill selection",
+                                    Some("Ctrl+F"),
+                                    false,
+                                    [46.0, 42.0],
+                                )
+                                .clicked()
+                                {
+                                    actions.push(Action::Fill(false));
+                                }
+                                if crate::studio_icons::button(
+                                    ui,
+                                    crate::studio_icons::Icon::Eraser,
+                                    "Erase selection",
+                                    Some("Ctrl+X"),
+                                    false,
+                                    [46.0, 42.0],
+                                )
+                                .clicked()
+                                {
+                                    actions.push(Action::Fill(true));
+                                }
+                            });
+                        });
                 });
+            let rect = palette_response.response.rect;
+            let clamped = clamp_reference_position(
+                [rect.min.x, rect.min.y],
+                [rect.width(), rect.height()],
+                screen,
+            );
+            self.palette_position = [clamped.x, clamped.y];
+            if palette_response.response.drag_stopped() {
+                if rect.left() <= screen.left() + 24.0 {
+                    self.palette_dock = crate::workspace::PaletteDock::Left;
+                } else if rect.right() >= screen.right() - 24.0 {
+                    self.palette_dock = crate::workspace::PaletteDock::Right;
+                } else {
+                    self.palette_dock = crate::workspace::PaletteDock::Floating;
+                }
+                workspace_changed = true;
+            }
             if old_tool != self.tool {
                 session.mouse(MouseEvent::Interrupted, 0);
                 self.edit_pointer = None;

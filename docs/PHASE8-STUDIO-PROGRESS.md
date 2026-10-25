@@ -466,7 +466,7 @@ validation has been performed in this phase.
 
 ## Phase 8.3 — Accessibility foundation (active)
 
-### Implemented locally
+### Accessibility foundation and palette slice (validated locally; awaiting CI)
 
 - Added a shared UI token module for spacing, rounded controls, and a 44-point
   baseline interaction target. Applied through the existing egui context; the
@@ -480,42 +480,59 @@ validation has been performed in this phase.
   contrast in both dark and light high-contrast modes.
 - Added `docs/accessibility-assessment.md` and the active multi-track engineering
   roadmap at `docs/ROADMAP.md`.
+- Enabled egui-winit's optional AccessKit feature and initialized its adapter from
+  the existing winit event loop. A typed app event carries AccessKit action
+  requests while preserving the Windows pointer-capture observer wake event.
+  Generated-tree coverage verifies labels for representative toolbar and document
+  controls. This validates tree generation and event routing only; Narrator/NVDA,
+  UI Automation, full focus traversal, and complete widget semantics remain
+  unverified.
+- Replaced the fixed left-side tool strip with a draggable palette that snaps to
+  left/right edges or remains floating. Collapse state, floating position, dock
+  side, and left/right handedness persist independently of artwork. The palette
+  exposes Brush, selection/edit tools, Layers and Reference Images; Brush opens
+  its contextual brush inspector tab. Existing light/dark/Follow System and
+  high-contrast appearance remains available. Tests cover migration defaults,
+  position bounds, and palette preference round trips.
+- Updated generated dependency inventory and canvas packaging license supplements
+  for AccessKit, AT-SPI, and zbus dependencies.
 
 ### Accessibility capability finding
 
-The project pins egui/egui-winit 0.33.3. egui-winit exposes optional AccessKit
-support, including an adapter initializer, but the feature is disabled and the
-application currently uses `EventLoop<()>`. Enabling it requires a typed user event
-that carries AccessKit events while preserving the existing Windows capture wake
-event through the same event loop. The bridge is not yet enabled; Narrator/NVDA
-roles, names, values, focus announcements and UI Automation behavior have not been
-tested. The assessment records this integration as the immediate accessibility
-architecture step.
+The project pins egui/egui-winit 0.33.3. Its optional AccessKit support is now
+enabled, and the typed app event carries both semantic requests and the existing
+capture wake. A tree-generation test passes. This is a partial accessibility
+foundation; manual screen-reader and full tree/focus review are outstanding.
 
 ### Validation for this slice
 
-- Canvas-demo library tests: **41 passed**.
-- Full workspace strict Clippy and tests passed; workspace build and Windows GNU
-  cross-check/Clippy passed. Full suite includes **186 tests**.
+- Canvas-demo library tests: **43 passed**.
+- Full workspace strict Clippy, build, and **187 tests** passed locally. The
+  offscreen GPU smoke passed on Mesa llvmpipe/OpenGL. Windows GNU workspace
+  cross-check and strict Clippy pass after fixing an event-proxy ownership issue
+  found by cross-compilation.
 - Offscreen GPU pixel smoke passed on Mesa llvmpipe/OpenGL.
-- GitHub Actions run [`40218184731`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40218184731)
-  for code commit `4dcfc88` passed Windows, Linux and macOS. Linux window,
-  live-mouse, and alpha artwork/recovery workflows passed. The run uploaded
-  separate `rust-paint-lab-canvas-demo` and `rust-paint-lab-windows-diagnostic`
-  artifacts, plus Linux X64 and macOS ARM64 alpha artifacts. No Windows
-  Narrator/NVDA, physical touch, or high-DPI hardware test was performed.
-- No screenshot was captured in this environment; the last confirmed rendered
-  application checks are the Linux Xvfb CI workflows on commit `1ad2b62`.
+- The latest completed CI before this work is run [`40218184731`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40218184731),
+  which passed on commit `4dcfc88` and uploaded separate canvas and stylus
+  diagnostic artifacts. This new code has not yet run in GitHub Actions.
+- Xvfb/XTest tools are not installed in this execution environment, so no current
+  application window was launched or screenshot inspected locally. The prior CI
+  window smoke predates AccessKit and palette changes. Do not treat the generated
+  AccessKit tree as a visual UI inspection or a screen-reader pass.
 
 ### Exact continuation
 
-1. Run the updated branch through Windows/Linux/macOS CI and preserve both Windows
-   artifacts.
-2. Add AccessKit user-event routing and inspect the actual generated accessibility
-   tree before claiming assistive-technology support.
-3. Continue the Phase 8.3 functional workspace priorities: bounded artwork
-   thumbnails, explicit recovery manager, unified movable/dockable palette, and
-   image-first reference manager. Test actual windows and screen-reader behavior.
+1. Push this validated slice and check Windows/Linux/macOS CI, including both
+   Windows artifacts and the Linux alpha window workflow; record the run here.
+2. Continue Phase 8.3 with bounded Home artwork thumbnails and a dedicated
+   recovery manager with previews/confirmed cleanup. The current Home still lists
+   metadata and offers inline recovery buttons.
+3. Turn the palette into contextual Brush/Color/Layer/Reference flyouts and
+   independently dockable/resizable panels; current handedness persists but only
+   changes docking defaults/reset behavior.
+4. Finish visual New Artwork cards/preview, image-first reference chrome, keyboard
+   focus traversal and responsive workspace persistence. Capture and inspect an
+   actual CI or local window screenshot before calling the UI review complete.
 
 The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,

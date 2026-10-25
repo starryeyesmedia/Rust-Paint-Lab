@@ -27,6 +27,26 @@ Overdrive additions, exact `.cargo_vcs_info.json` revisions:
 | clipboard-win 5.4.3 | DoumanAsh/clipboard-win `ed27008ae5d1f10cfbb266de039f0fb35fd05a56`, LICENSE |
 | hexf-parse 0.2.1 | Manifest declares CC0-1.0; full canonical text from spdx/license-list-data v3.26.0 text/CC0-1.0.txt |
 
+AccessKit and accessibility bridge license texts are supplied from the canonical
+SPDX license-list-data v3.26.0 texts because the exact locked crate archives do
+not carry root notice files. The locked Cargo manifests declare the matching SPDX
+expressions. The packaging script maps only these exact package versions and emits
+the selected MIT/Apache alternatives; `accesskit_winit` declares Apache-2.0 and
+the zbus family declares MIT. The source texts are the same canonical texts already
+used for egui, not a claim that the upstream crates supplied them.
+
+| Crate | Version | Manifest declaration | Supplemental notice |
+| --- | --- | --- | --- |
+| accesskit | 0.21.1 | MIT OR Apache-2.0 | SPDX MIT and Apache-2.0 |
+| accesskit_atspi_common | 0.14.2 | MIT OR Apache-2.0 | SPDX MIT and Apache-2.0 |
+| accesskit_consumer | 0.31.0 | MIT OR Apache-2.0 | SPDX MIT and Apache-2.0 |
+| accesskit_macos | 0.22.2 | MIT OR Apache-2.0 | SPDX MIT and Apache-2.0 |
+| accesskit_unix | 0.17.2 | MIT OR Apache-2.0 | SPDX MIT and Apache-2.0 |
+| accesskit_windows | 0.29.2 | MIT OR Apache-2.0 | SPDX MIT and Apache-2.0 |
+| accesskit_winit | 0.29.2 | Apache-2.0 | SPDX Apache-2.0 |
+| atspi, atspi-common, atspi-connection, atspi-proxies | locked versions | Apache-2.0 OR MIT | SPDX MIT and Apache-2.0 |
+| zbus, zbus-lockstep, zbus-lockstep-macros, zbus_macros, zbus_names, zbus_xml | locked versions | MIT | SPDX MIT |
+
 Bundled fonts are collected recursively from their shipped font license files.
 
 block 0.1.6 archive and upstream tag 0.1.6 (47178790cfc9d4a8b092051d8b413b78bd31254a,

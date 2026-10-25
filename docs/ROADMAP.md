@@ -40,8 +40,11 @@ Artwork preservation and cross-platform validation apply to every track.
 ## Current status
 
 Phase 8.2 is implemented through code commit `1ad2b62` with successful
-three-platform CI. Phase 8.3 is active on `feature/studio-overdrive-phase-8` from
-starting commit `6c8e6b5`. The local accessibility slice adds persisted interface
-scaling and high-contrast controls; it still needs platform CI. See
+three-platform CI. Phase 8.3 remains active on
+`feature/studio-overdrive-phase-8`, starting from `28e1921` for this continuation.
+The current local slice enables AccessKit event/tree integration and adds a
+persisted draggable/snap-docked palette with collapse and handedness preferences.
+It has not yet run through platform CI, and does not complete the Phase 8.3
+workspace overhaul. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for the exact tested
 checkpoint and continuation steps. Phase numbering and boundaries are provisional.

@@ -8,6 +8,13 @@ Declared SPDX expressions come from verified crate manifests. See dependencies.m
 | --- | --- | --- |
 | ab_glyph | 0.2.32 | Apache-2.0 |
 | ab_glyph_rasterizer | 0.1.10 | Apache-2.0 |
+| accesskit | 0.21.1 | MIT OR Apache-2.0 |
+| accesskit_atspi_common | 0.14.2 | MIT OR Apache-2.0 |
+| accesskit_consumer | 0.31.0 | MIT OR Apache-2.0 |
+| accesskit_macos | 0.22.2 | MIT OR Apache-2.0 |
+| accesskit_unix | 0.17.2 | MIT OR Apache-2.0 |
+| accesskit_windows | 0.29.2 | MIT OR Apache-2.0 |
+| accesskit_winit | 0.29.2 | Apache-2.0 |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 |
 | ahash | 0.8.12 | MIT OR Apache-2.0 |
 | android-activity | 0.6.1 | MIT OR Apache-2.0 |
@@ -32,6 +39,10 @@ Declared SPDX expressions come from verified crate manifests. See dependencies.m
 | async-task | 4.7.1 | Apache-2.0 OR MIT |
 | async-trait | 0.1.92 | MIT OR Apache-2.0 |
 | atomic-waker | 1.1.2 | Apache-2.0 OR MIT |
+| atspi | 0.25.0 | Apache-2.0 OR MIT |
+| atspi-common | 0.9.0 | Apache-2.0 OR MIT |
+| atspi-connection | 0.9.0 | Apache-2.0 OR MIT |
+| atspi-proxies | 0.9.0 | Apache-2.0 OR MIT |
 | autocfg | 1.5.1 | Apache-2.0 OR MIT |
 | bit-set | 0.8.0 | Apache-2.0 OR MIT |
 | bit-vec | 0.8.0 | Apache-2.0 OR MIT |
@@ -341,16 +352,27 @@ Declared SPDX expressions come from verified crate manifests. See dependencies.m
 | wgpu-types | 27.0.1 | MIT OR Apache-2.0 |
 | winapi-util | 0.1.11 | Unlicense OR MIT |
 | windows | 0.58.0 | MIT OR Apache-2.0 |
+| windows | 0.61.3 | MIT OR Apache-2.0 |
+| windows-collections | 0.2.0 | MIT OR Apache-2.0 |
 | windows-core | 0.58.0 | MIT OR Apache-2.0 |
+| windows-core | 0.61.2 | MIT OR Apache-2.0 |
+| windows-future | 0.2.1 | MIT OR Apache-2.0 |
 | windows-implement | 0.58.0 | MIT OR Apache-2.0 |
+| windows-implement | 0.60.2 | MIT OR Apache-2.0 |
 | windows-interface | 0.58.0 | MIT OR Apache-2.0 |
+| windows-interface | 0.59.3 | MIT OR Apache-2.0 |
+| windows-link | 0.1.3 | MIT OR Apache-2.0 |
 | windows-link | 0.2.1 | MIT OR Apache-2.0 |
+| windows-numerics | 0.2.0 | MIT OR Apache-2.0 |
 | windows-result | 0.2.0 | MIT OR Apache-2.0 |
+| windows-result | 0.3.4 | MIT OR Apache-2.0 |
 | windows-strings | 0.1.0 | MIT OR Apache-2.0 |
+| windows-strings | 0.4.2 | MIT OR Apache-2.0 |
 | windows-sys | 0.52.0 | MIT OR Apache-2.0 |
 | windows-sys | 0.59.0 | MIT OR Apache-2.0 |
 | windows-sys | 0.61.2 | MIT OR Apache-2.0 |
 | windows-targets | 0.52.6 | MIT OR Apache-2.0 |
+| windows-threading | 0.1.0 | MIT OR Apache-2.0 |
 | windows_aarch64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
 | windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 |
 | windows_i686_gnu | 0.52.6 | MIT OR Apache-2.0 |
@@ -373,8 +395,11 @@ Declared SPDX expressions come from verified crate manifests. See dependencies.m
 | yoke | 0.8.4 | Unicode-3.0 |
 | yoke-derive | 0.8.4 | Unicode-3.0 |
 | zbus | 5.19.0 | MIT |
+| zbus-lockstep | 0.5.2 | MIT |
+| zbus-lockstep-macros | 0.5.2 | MIT |
 | zbus_macros | 5.19.0 | MIT |
 | zbus_names | 4.3.5 | MIT |
+| zbus_xml | 5.2.1 | MIT |
 | zcheapstr | 1.1.0 | MIT |
 | zerocopy | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | zerocopy-derive | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |

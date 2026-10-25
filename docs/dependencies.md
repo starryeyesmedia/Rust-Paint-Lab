@@ -33,8 +33,12 @@ The reference board enables only PNG/JPEG codecs, limits files to 32 MiB, decode
 textures to 2048 × 2048 / 8 MiB each, and the board to six images. Those image
 textures remain UI-only and are not stored in the native artwork or exports. The
 image crate and enabled zune JPEG decoder are included in the canvas artifact's
-generated third-party notices. Egui provides keyboard navigation, visible focus and light/dark contrast. AccessKit
-semantic accessibility is not enabled yet; this is a documented gap. Egui clipboard
+generated third-party notices. Egui provides keyboard navigation, visible focus and
+light/dark contrast. Its optional AccessKit feature is enabled through egui-winit;
+AccessKit, AT-SPI, and platform bridge crates are included in the lockfile license
+inventory and target-specific package notices. An automated tree test checks
+labels for representative toolbar and document controls. Native screen-reader
+usability is not yet verified; see accessibility-assessment.md. Egui clipboard
 integration brings image packages transitively, but those codecs are not advertised
 as implemented application import/export features. Font notices include bundled
 Ubuntu/Noto/Hack attributions. No cloud services, telemetry or account dependency.

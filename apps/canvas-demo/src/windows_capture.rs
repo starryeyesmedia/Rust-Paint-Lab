@@ -1,6 +1,7 @@
 //! Windows-only capture-loss observer. Winit continues to own capture and dispatch.
 //! Native pen history and capture notifications share the same event loop. State is looked up by HWND;
 //! no Rust allocation address or borrowed reference is stored in native userdata.
+use crate::AppEvent;
 use paint_input::{
     Buttons, Phase, PointerSample, Tool, lifecycle::MillisecondClock32, normalize_pressure,
     normalize_tilt,
@@ -38,7 +39,7 @@ struct State {
     releasing: Cell<bool>,
     pending: Cell<bool>,
     installed: Cell<bool>,
-    proxy: EventLoopProxy<()>,
+    proxy: EventLoopProxy<AppEvent>,
     pens: RefCell<VecDeque<PenEvent>>,
     clock: RefCell<MillisecondClock32>,
     base_tick: u64,
@@ -56,7 +57,7 @@ pub struct Observer {
 impl Observer {
     pub fn install(
         window: Arc<Window>,
-        proxy: EventLoopProxy<()>,
+        proxy: EventLoopProxy<AppEvent>,
         epoch: Instant,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
@@ -171,7 +172,7 @@ unsafe extern "system" fn callback(
                             state.pending.set(true);
                         }
                     }
-                    let _ = state.proxy.send_event(());
+                    let _ = state.proxy.send_event(AppEvent::Wake);
                     return 0;
                 }
             }
@@ -198,7 +199,7 @@ unsafe extern "system" fn callback(
                         },
                     });
                 }
-                let _ = state.proxy.send_event(());
+                let _ = state.proxy.send_event(AppEvent::Wake);
             }
             if message == WM_LBUTTONUP {
                 // Winit releases implicit capture synchronously while processing
@@ -212,7 +213,7 @@ unsafe extern "system" fn callback(
                 || (message == WM_CAPTURECHANGED && l as HWND != hwnd && !state.releasing.get())
             {
                 state.pending.set(true);
-                let _ = state.proxy.send_event(()); // Wake even when live mode is idle.
+                let _ = state.proxy.send_event(AppEvent::Wake); // Wake even when live mode is idle.
             }
             if message == WM_NCDESTROY {
                 state.installed.set(false);

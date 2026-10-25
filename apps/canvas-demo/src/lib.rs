@@ -13,6 +13,7 @@ pub mod playback;
 pub mod raster_gpu;
 pub mod scene;
 pub mod studio;
+pub mod studio_accessibility;
 pub mod studio_icons;
 pub mod ui_tokens;
 pub mod workspace;

@@ -21,6 +21,18 @@ use winit::{
     window::{Window, WindowId},
 };
 
+enum AppEvent {
+    #[cfg(windows)]
+    Wake,
+    AccessKit(egui_winit::accesskit_winit::Event),
+}
+
+impl From<egui_winit::accesskit_winit::Event> for AppEvent {
+    fn from(event: egui_winit::accesskit_winit::Event) -> Self {
+        Self::AccessKit(event)
+    }
+}
+
 struct Graphics {
     #[cfg(windows)]
     capture: windows_capture::Observer,
@@ -38,7 +50,7 @@ struct Graphics {
 impl Graphics {
     async fn new(
         event_loop: &ActiveEventLoop,
-        _proxy: winit::event_loop::EventLoopProxy<()>,
+        _proxy: winit::event_loop::EventLoopProxy<AppEvent>,
         _epoch: Instant,
         alpha: bool,
     ) -> Result<Self, Failure> {
@@ -51,7 +63,7 @@ impl Graphics {
             )?,
         );
         #[cfg(windows)]
-        let capture = windows_capture::Observer::install(window.clone(), _proxy, _epoch)?;
+        let capture = windows_capture::Observer::install(window.clone(), _proxy.clone(), _epoch)?;
         let mut descriptor = wgpu::InstanceDescriptor::from_env_or_default();
         // Basic SM5 shader only: use the Windows-supplied compiler, no DXC DLL bundle.
         descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
@@ -76,8 +88,11 @@ impl Graphics {
         let renderer = Renderer::new(&adapter, config.format).await?;
         let max = renderer.device.limits().max_texture_dimension_2d.min(4096);
         window.set_max_inner_size(Some(winit::dpi::PhysicalSize::new(max, max)));
-        let studio =
+        let mut studio =
             alpha.then(|| canvas_demo::studio::Studio::new(&renderer, &window, config.format));
+        if let Some(studio) = &mut studio {
+            studio.init_accesskit(event_loop, &window, _proxy.clone());
+        }
         let mut this = Self {
             #[cfg(windows)]
             capture,
@@ -188,7 +203,7 @@ impl Graphics {
 struct App {
     graphics: Option<Graphics>,
     session: CanvasSession,
-    proxy: winit::event_loop::EventLoopProxy<()>,
+    proxy: winit::event_loop::EventLoopProxy<AppEvent>,
     clock: Instant,
     tick: Instant,
     elapsed: u64,
@@ -289,7 +304,7 @@ impl App {
         false
     }
 }
-impl ApplicationHandler for App {
+impl ApplicationHandler<AppEvent> for App {
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
         if matches!(cause, StartCause::ResumeTimeReached { .. })
             && let Some(g) = &self.graphics
@@ -297,8 +312,24 @@ impl ApplicationHandler for App {
             g.window.request_redraw();
         }
     }
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, (): ()) {
-        self.check_capture();
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
+        match event {
+            #[cfg(windows)]
+            AppEvent::Wake => self.check_capture(),
+            AppEvent::AccessKit(event) => {
+                if let Some(graphics) = &mut self.graphics
+                    && graphics.window.id() == event.window_id
+                {
+                    if let egui_winit::accesskit_winit::WindowEvent::ActionRequested(request) =
+                        event.window_event
+                        && let Some(studio) = &mut graphics.studio
+                    {
+                        studio.accesskit_action_request(request);
+                    }
+                    graphics.window.request_redraw();
+                }
+            }
+        }
     }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.graphics.is_none() {
@@ -677,7 +708,7 @@ fn main() -> Result<(), Failure> {
     {
         return Err("usage: canvas-demo [--exit-after-demo]".into());
     }
-    let event_loop = EventLoop::<()>::with_user_event().build()?;
+    let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     let mut session = CanvasSession::new([1000, 700]);
     let alpha = !args
         .iter()
