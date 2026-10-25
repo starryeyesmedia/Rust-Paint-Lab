@@ -297,6 +297,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             time.sleep(0.5)
             resize_window(window,1280,800)
             capture_window(window,'home-light-normal')
+            resize_window(window,1920,1080)
+            capture_window(window,'home-light-wide')
             resize_window(window,640,480)
             capture_window(window,'home-light-narrow')
             resize_window(window,1280,800)
@@ -477,7 +479,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             key('Escape');assert process.wait(timeout=20)==0
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','recovery-manager-populated-light','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','brush-library-dark','color-controls-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','recovery-manager-populated-light','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','brush-library-dark','color-controls-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -485,6 +487,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                         assert width<=700 and height<=520,f'{name} was not captured at a narrow size: {width}x{height}'
                     if name.endswith('normal'):
                         assert width>=900 and height>=650,f'{name} was not captured at a normal size: {width}x{height}'
+                    if name.endswith('wide'):
+                        assert width>=1800 and height>=1000,f'{name} was not captured at a wide size: {width}x{height}'
             print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)

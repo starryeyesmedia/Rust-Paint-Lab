@@ -334,7 +334,8 @@ The Linux alpha-window workflow drives Home, New Artwork, workspace, reference
 board, Brush library, Color controls, Layers panel and Recovery manager, then
 restarts the app to capture recent artwork and dark/high-contrast appearances.
 It exercises the top-docked horizontal palette as well as the default left dock,
-and resizes the live window for narrow and normal captures. It verifies that real layers and a valid
+and resizes the live window for narrow, normal and 1920 × 1080 wide captures.
+The wide Home capture exercises the four-column gallery layout. It verifies that real layers and a valid
 recovery checkpoint are present, and rejects blank/undersampled images. The
 rendered windows are uploaded as `rust-paint-lab-studio-ui-smoke`. These screenshots
 validate the virtual Linux window, not Windows DPI, Narrator/NVDA or physical

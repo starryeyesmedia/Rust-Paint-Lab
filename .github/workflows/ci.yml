@@ -77,7 +77,7 @@ jobs:
           RPL_UI_SCREENSHOT_DIR: ${{ runner.temp }}/rpl-studio-ui
         run: |
           set +e
-          xvfb-run -a python3 scripts/alpha-workflow-smoke.py > /tmp/alpha-workflow.log 2>&1
+          xvfb-run -a -s "-screen 0 2200x1400x24" python3 scripts/alpha-workflow-smoke.py > /tmp/alpha-workflow.log 2>&1
           outcome=$?
           set -e
           cat /tmp/alpha-workflow.log

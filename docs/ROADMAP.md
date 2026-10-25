@@ -121,7 +121,9 @@ persisted left/right/top/bottom/floating tool palette, and an HSV Color workflow
 with semantic/keyboard controls. The Home continuation adds a named,
 keyboard-accessible filter for recent local artwork and a responsive
 one-to-four-column artwork gallery. Formatting, strict Clippy, all 203 workspace
-tests, GPU smoke and workspace build pass locally. Actions run
+tests, GPU smoke and workspace build pass locally. The Linux UI workflow now
+adds a 1920 × 1080 Home capture for the four-column layout; its capture assertion
+and resulting 22-screen archive await CI. Actions run
 [`40239511344`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40239511344)
 is validating the concept commit across Windows, Linux and macOS; Linux is also
 running its artwork/screenshot workflow. Screenshot pixels still cannot be

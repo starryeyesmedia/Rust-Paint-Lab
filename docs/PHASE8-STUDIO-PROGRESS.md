@@ -933,6 +933,10 @@ Windows assistive-technology validation remain outstanding.
 - The gallery now chooses one to four columns from the available content width
   and sizes cards from that width, keeping image previews prominent without
   horizontal overflow at tested phone, laptop and desktop widths.
+- Linux screenshot automation now includes Home at 1920 × 1080 to exercise and
+  capture the four-column state. The screenshot job starts a 2200 × 1400 Xvfb
+  display for that capture; normal/narrow states and other smoke workflows keep
+  their existing dimensions and behavior.
 - The search field has an explicit AccessKit text-input name and explanatory
   hover text. Unit coverage verifies matching semantics; an AccessKit tree test
   verifies the semantic text input is exposed. Sizing tests assert card bounds
@@ -945,8 +949,8 @@ Windows assistive-technology validation remain outstanding.
 - The filename search commit `b81e099` is pushed. Actions runs
   `40239511344` (concept/dock/color) and `40239908743` (search/accessibility)
   were in progress at the last status check. Neither is a validation result for
-  the newer responsive-gallery edit yet; push that edit and wait for its own
-  run before considering this continuation verified cross-platform.
+  the newer responsive-gallery and 22-screen screenshot edit yet; wait for its
+  own run before considering this continuation verified cross-platform.
 - This is a small continuation slice, not Phase 8.3 completion. Next, continue
   integrating the approved Home/New Artwork visual direction with the working
   brush, color, layer, reference and recovery workflows; inspect the CI
