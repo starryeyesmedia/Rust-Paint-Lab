@@ -588,8 +588,10 @@ right inspector. The flyout selects the actual ten existing brush presets, keeps
 the current color when changing preset, exposes working size/opacity/color controls,
 and has a direct Advanced settings action that opens the existing inspector. Each
 preset card has a small color-stroke preview; advanced dynamics and preset
-save/load remain in the existing controls. Favorites, search, and persisted
-flyout placement are not implemented yet. The flyout is movable/closable and
+save/load remain in the existing controls. Color controls now open a separate
+floating panel from the palette, with the actual brush color editor and readable
+HEX-labeled recent-color swatches. Favorites, search, and persisted flyout
+placement are not implemented yet. The flyouts are movable/closable and
 reopened from the palette. The Accessibility menu now also persists a Reduce
 interface motion preference and sets egui's transition time to zero; legacy
 preferences default it off. Formatting, strict Clippy, all 190 tests, workspace

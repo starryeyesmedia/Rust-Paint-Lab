@@ -636,6 +636,7 @@ pub struct Studio {
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
     brush_flyout_open: bool,
+    color_flyout_open: bool,
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
     touch_routes: crate::navigation::TouchTargetRouter,
@@ -789,6 +790,7 @@ impl Studio {
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
             brush_flyout_open: false,
+            color_flyout_open: false,
             navigation: crate::navigation::Navigation {
                 zoom: preferences.canvas_zoom,
                 pan: preferences.canvas_pan,
@@ -2142,10 +2144,24 @@ impl Studio {
                                         self.tool = tool;
                                         if tool == EditTool::Brush {
                                             self.show_controls = false;
+                                            self.color_flyout_open = false;
                                             self.brush_flyout_open = true;
                                             workspace_changed = true;
                                         }
                                     }
+                                }
+                                if crate::studio_icons::button(
+                                    ui,
+                                    crate::studio_icons::Icon::Color,
+                                    "Color controls",
+                                    None,
+                                    self.color_flyout_open,
+                                    [46.0, 46.0],
+                                )
+                                .clicked()
+                                {
+                                    self.brush_flyout_open = false;
+                                    self.color_flyout_open = !self.color_flyout_open;
                                 }
                                 if !self.palette_collapsed {
                                     let layers =
@@ -2814,6 +2830,49 @@ impl Studio {
                         }
                     });
                 self.brush_flyout_open = open;
+            }
+            if self.color_flyout_open {
+                let mut open = self.color_flyout_open;
+                egui::Window::new("Color controls")
+                    .open(&mut open)
+                    .resizable(false)
+                    .default_width(260.0)
+                    .default_pos(egui::pos2(screen.left() + 88.0, screen.top() + 116.0))
+                    .show(ctx, |ui| {
+                        let project = session.live_mut().project_mut();
+                        ui.label("Current brush color · sRGB");
+                        ui.color_edit_button_srgb(&mut project.brush.color);
+                        ui.separator();
+                        ui.label("Recent colors");
+                        ui.horizontal_wrapped(|ui| {
+                            for color in self.recent_brush_colors.clone() {
+                                let hex = crate::color_controls::format_hex_rgb(color);
+                                let luminance = 0.2126 * f32::from(color[0])
+                                    + 0.7152 * f32::from(color[1])
+                                    + 0.0722 * f32::from(color[2]);
+                                let text_color = if luminance > 140.0 {
+                                    egui::Color32::BLACK
+                                } else {
+                                    egui::Color32::WHITE
+                                };
+                                let response = ui
+                                    .add_sized(
+                                        [88.0, 36.0],
+                                        egui::Button::new(
+                                            egui::RichText::new(hex.clone()).color(text_color),
+                                        )
+                                        .fill(
+                                            egui::Color32::from_rgb(color[0], color[1], color[2]),
+                                        ),
+                                    )
+                                    .on_hover_text(format!("Use color {hex}"));
+                                if response.clicked() {
+                                    project.brush.color = color;
+                                }
+                            }
+                        });
+                    });
+                self.color_flyout_open = open;
             }
 
             egui::CentralPanel::default()
