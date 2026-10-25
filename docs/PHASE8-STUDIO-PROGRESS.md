@@ -596,6 +596,12 @@ preferences default it off. Formatting, strict Clippy, all 190 tests, workspace
 build, llvmpipe GPU smoke, and Windows GNU cross-check/Clippy pass locally. The
 latest platform CI remains pending.
 
+Home's main recent-work/recovery sections now stack below 900 points wide, and
+recent artwork cards switch to a single column below 760 points. The two-column
+layout remains on laptop-sized windows. This is a deterministic width breakpoint;
+small-window visual inspection is still needed when Xvfb screenshot support is
+available.
+
 The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,
 palm rejection, pen/touch concurrency, DPI behavior and latency are still not

@@ -3120,7 +3120,13 @@ impl Studio {
                                     }
                                 });
                                 ui.add_space(28.0);
-                                ui.horizontal(|ui| {
+                                ui.with_layout(
+                                    if screen.width() < 900.0 {
+                                        egui::Layout::top_down(egui::Align::Min)
+                                    } else {
+                                        egui::Layout::left_to_right(egui::Align::Min)
+                                    },
+                                    |ui| {
                                     ui.add_space(32.0);
                                     ui.vertical(|ui| {
                                         ui.heading("Recent artwork");
@@ -3133,11 +3139,16 @@ impl Studio {
                                                 ui.label("Create a document or open an existing .rpl project to see it in this space.");
                                             });
                                         } else {
-                                            egui::Grid::new("home recent projects").num_columns(2).spacing([14.0, 14.0]).show(ui, |ui| {
+                                            let columns = if screen.width() < 760.0 { 1 } else { 2 };
+                                            egui::Grid::new("home recent projects").num_columns(columns).spacing([14.0, 14.0]).show(ui, |ui| {
                                                 for (index, card) in self.recent_cards.iter().take(8).enumerate() {
                                                     let path = &card.path;
                                                     let thumbnail = card.thumbnail.clone();
-                                                    let card_width = (screen.width() * 0.34).clamp(220.0, 420.0);
+                                                    let card_width = if screen.width() < 760.0 {
+                                                        (screen.width() - 90.0).clamp(220.0, 420.0)
+                                                    } else {
+                                                        (screen.width() * 0.34).clamp(220.0, 420.0)
+                                                    };
                                                     let name = path.file_stem().unwrap_or_default().to_string_lossy();
                                                     let details = if let Some(bytes) = card.bytes {
                                                         let size_mb = bytes as f64 / (1024.0 * 1024.0);
@@ -3170,7 +3181,7 @@ impl Studio {
                                                     if available && ui.interact(card.response.rect, egui::Id::new(("recent project", index)), egui::Sense::click()).clicked() {
                                                         open_recent = Some(path.clone());
                                                     }
-                                                    if index % 2 == 1 { ui.end_row(); }
+                                                    if (index + 1) % columns == 0 || index == self.recent_cards.len().min(8) - 1 { ui.end_row(); }
                                                 }
                                             });
                                         }
@@ -3215,7 +3226,8 @@ impl Studio {
                                             });
                                         }
                                     });
-                                });
+                                    },
+                                );
                                 ui.add_space(30.0);
                                 ui.horizontal(|ui| { ui.add_space(32.0); ui.small("Ctrl+N New document · Ctrl+O Open · your projects and references remain local"); });
                                 ui.add_space(22.0);
