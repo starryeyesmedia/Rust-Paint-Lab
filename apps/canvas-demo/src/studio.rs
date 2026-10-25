@@ -1612,16 +1612,22 @@ impl Studio {
 
     /// Dismiss the top contextual panel before Escape can close the application.
     pub fn dismiss_flyout(&mut self) -> bool {
-        if self.brush_flyout_open {
+        let dismissed = if self.brush_flyout_open {
             self.brush_flyout_open = false;
+            "brush"
         } else if self.color_flyout_open {
             self.color_flyout_open = false;
+            "color"
         } else if self.layers_flyout_open {
             self.layers_flyout_open = false;
+            "layers"
         } else {
-            return false;
+            "none"
+        };
+        if self.test_path_dialog {
+            eprintln!("UI_TEST_ESCAPE_DISMISSED: {dismissed}");
         }
-        true
+        dismissed != "none"
     }
     pub fn preserve(&self, session: &CanvasSession) -> Result<(), Failure> {
         if session.live().project().dirty() {

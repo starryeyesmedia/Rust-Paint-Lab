@@ -633,8 +633,9 @@ explicitly demonstrated or measured here.
   file limits, structure and checksum. Sampling is capped at 180 × 120, only one
   selected texture is retained, malformed checkpoints show “Preview unavailable,”
   and a round-trip/corruption test covers the path.
-- The Linux Xvfb workflow now captures the actual Home, New Artwork, canvas,
-  reference-board, Brush-library, Layers-panel and Recovery-manager windows.
+- The Linux Xvfb workflow now captures first-run and recent-project Home states,
+  New Artwork, canvas, reference-board, Brush-library, Layers-panel and
+  Recovery-manager windows.
   Capture uses the `xwd` utility and a
   bounded XWD-to-PNG decoder; the previous ctypes `XGetImage` path caused a
   runner-only segmentation fault. The workflow also traces input actions and
@@ -642,14 +643,18 @@ explicitly demonstrated or measured here.
   the GitHub API even if artifact-host downloads are unavailable.
 - The first screenshot-enabled Linux run confirmed four rendered windows and
   exposed that Escape closed the entire application while the Brush library was
-  open. The app now dismisses contextual panels first. The updated Escape path,
-  Layers panel and screenshots are not yet validated by a completed Actions run.
+  open. Commit `09847df` moved Escape dismissal ahead of egui's text-input
+  shortcut guard, but the follow-up still exited after the Escape/`Ctrl+L`
+  sequence. The latest smoke now checks application liveness immediately after
+  Escape, and a test-only trace reports which flyout was dismissed. This will
+  distinguish a missed palette click from a regression in the event path.
 - Follow-up run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
   captured the same four screens but reported `BadWindow` while capturing Layers
-  after the Escape/`Ctrl+L` sequence. The Escape dismissal check now runs before
-  egui's text-input shortcut guard, and the smoke verifies the app window remains
-  present after each key transition. The fully persisted flyout positions, recovery
-  previews and revised keyboard ordering still need a new CI run.
+  after the Escape/`Ctrl+L` sequence. Commit `09847df` moves Escape dismissal
+  before egui's text-input shortcut guard, and run [`40225239895`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40225239895)
+  confirms that Escape kept the app discoverable momentarily, but the app exited
+  before Layers could be captured. The new liveness assertion and diagnostic
+  trace are pending the next run.
 - Current local validation after the Layers panel, recovery preview and Escape
   handling: pinned Rust 1.90 formatting, strict workspace Clippy, workspace build,
   **193 workspace tests**, and the required llvmpipe GPU smoke passed. The new
@@ -666,7 +671,8 @@ explicitly demonstrated or measured here.
   diagnostic and canvas builds. Linux passed formatting, Clippy, all tests,
   build, virtual-window startup, live-mouse drawing, and captured four windows;
   the end-to-end artwork smoke then failed because Escape closed the window. The
-  code fix is being pushed and revalidated. Windows and Linux portable artifact
+  Windows and macOS passed; Linux's follow-up escaped-panel sequence still needs
+  correction. Windows and Linux portable artifact
   bytes could not be downloaded in this environment because GitHub's Actions
   artifact blob hosts are blocked; API metadata remains accessible.
 - Narrator/NVDA and Windows UI Automation have not been exercised. AccessKit tree
@@ -677,9 +683,10 @@ explicitly demonstrated or measured here.
 
 ### Exact continuation from this checkpoint
 
-1. Finish the Escape/Layers/recovery-preview Linux window-smoke run and inspect
-   uploaded screenshots for Home, New Artwork, canvas, reference board, Brush
-   library, Layers and the Recovery manager.
+1. Use the new Escape liveness assertion and diagnostic trace to fix and finish
+   the Escape/Layers/recovery-preview Linux window-smoke run, then inspect
+   uploaded screenshots for first-run/recent-artwork Home, New Artwork, canvas,
+   reference board, Brush library, Layers and the Recovery manager.
 2. Download and verify the current Windows canvas and stylus artifacts, then
    publish one consolidated Phase 8.3 Windows evaluation ZIP with a short guide;
    do this only after the main workflow passes.

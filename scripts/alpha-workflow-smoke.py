@@ -256,6 +256,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             move(40,130);click_button(1,True);click_button(1,False);time.sleep(0.25)
             capture_window(window,'brush-library')
             key('Escape')
+            time.sleep(0.3)
+            assert process.poll() is None, 'Escape closed the application instead of dismissing Brush library'
             window=wait(find_window,'window after Escape dismisses Brush library')
             ctrl('l');time.sleep(0.3)
             window=wait(find_window,'window after Ctrl+L opens Layers')
@@ -348,7 +350,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert saved_preferences['dark_theme'] is False
             assert saved_preferences['references'][0]['path']==str(reference)
             assert 180.0<=saved_preferences['brush_panel_width']<=640.0
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, persistent theme/reference board, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
+            # Reopen on Home to verify the real recent-project card uses its
+            # bounded preview cache after an application restart.
+            thumb_directory=directory/'state/rust-paint-lab/home-thumbnails'
+            assert any(thumb_directory.glob('rpl-*.png')),'saved artwork generated a Home thumbnail cache entry'
+            process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
+            window=wait(find_window,'Home after reopening saved artwork');focus(display,window,2,0);send();time.sleep(0.5)
+            capture_window(window,'home-recent-artwork')
+            key('Escape');assert process.wait(timeout=20)==0
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)
             close_display(display)

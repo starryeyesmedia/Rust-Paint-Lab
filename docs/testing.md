@@ -330,11 +330,13 @@ Layers-panel contents and assert its layer actions and state labels. Its
 position/size, Brush flyout position and Color flyout position preferences cover
 migration defaults, finite checks, persistence and bounds.
 
-The Linux alpha-window workflow drives the running Home, New Artwork, workspace,
-reference board, Brush library, Layers panel and Recovery manager, then captures
-the actual windows into the `rust-paint-lab-studio-ui-smoke` Actions artifact.
-Inspect these Xvfb
-screenshots when the workflow succeeds; they are visual review evidence for the
+The Linux alpha-window workflow drives Home, New Artwork, workspace, reference
+board, Brush library, Layers panel and Recovery manager, then restarts the app and
+captures Home again with a cached recent-artwork preview. It stores the rendered
+windows in the `rust-paint-lab-studio-ui-smoke` Actions artifact. Inspect the Xvfb
+screenshots when the workflow succeeds; they are visual evidence for the
 virtual Linux window, not Windows DPI, Narrator/NVDA or physical hardware
-validation. The companion `rust-paint-lab-linux-ui-diagnostics` artifact retains
-the input/action log on failures.
+validation. It explicitly checks that Escape dismisses the Brush flyout without
+closing the app before continuing to Layers. The test environment logs which
+flyout Escape dismissed. The companion `rust-paint-lab-linux-ui-diagnostics`
+artifact retains the input/action log on failures.
