@@ -527,10 +527,10 @@ foundation; manual screen-reader and full tree/focus review are outstanding.
 2. Add image previews to the recovery manager after verifying bounded decoding and
    fallback safety. Add an Xvfb workflow for opening the manager, recovering, and
    confirming discard.
-3. Turn the palette into contextual Brush/Color/Layer/Reference flyouts and
-   independently dockable/resizable panels; current handedness persists but only
-   influences dock/reset defaults. Complete visual brush selection and make Layers
-   an optional detached panel.
+3. Add favorites/search and saved-preset workflow to the contextual Brush library;
+   add Color, Layer and Reference flyouts and independently dockable/resizable
+   panels. Current handedness persists but only influences dock/reset defaults.
+   Make Layers an optional detached panel.
 4. Finish Home slogan styling, New Artwork card/layout interaction tests,
    image-first reference chrome, focus traversal and responsive workspace
    persistence. Capture and inspect actual windows in CI or another available
@@ -582,6 +582,17 @@ percentage, and a named Reference controls menu. Fit/reset, center, window-posit
 reset, lock, opacity, and remove are keyboard-operable menu items, leaving more of
 the window for its image. The image remains the main window content. Local compile
 and Clippy pass; full regression and rendered-window validation are pending.
+
+Brush in the primary palette now opens a floating Brush library and closes the
+right inspector. The flyout selects the actual ten existing brush presets, keeps
+the current color when changing preset, exposes working size/opacity/color controls,
+and has a direct Advanced settings action that opens the existing inspector. Each
+preset card has a small color-stroke preview; advanced dynamics and preset
+save/load remain in the existing controls. Favorites, search, and persisted
+flyout placement are not implemented yet. The flyout is movable/closable and
+reopened from the palette. Formatting, strict Clippy, all 189 tests, workspace
+build, llvmpipe GPU smoke, and Windows GNU cross-check/Clippy pass locally. The
+latest platform CI remains pending.
 
 The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,

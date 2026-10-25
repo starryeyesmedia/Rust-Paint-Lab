@@ -633,6 +633,7 @@ pub struct Studio {
     palette_collapsed: bool,
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
+    brush_flyout_open: bool,
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
     touch_routes: crate::navigation::TouchTargetRouter,
@@ -784,6 +785,7 @@ impl Studio {
             palette_collapsed: preferences.palette_collapsed,
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
+            brush_flyout_open: false,
             navigation: crate::navigation::Navigation {
                 zoom: preferences.canvas_zoom,
                 pan: preferences.canvas_pan,
@@ -2131,9 +2133,8 @@ impl Studio {
                                     if response.clicked() {
                                         self.tool = tool;
                                         if tool == EditTool::Brush {
-                                            self.show_controls = true;
-                                            self.inspector_tab =
-                                                crate::workspace::InspectorTab::Brush;
+                                            self.show_controls = false;
+                                            self.brush_flyout_open = true;
                                             workspace_changed = true;
                                         }
                                     }
@@ -2746,6 +2747,65 @@ impl Studio {
                     self.brush_panel_width = panel_width.clamp(180.0, 640.0);
                     workspace_changed = true;
                 }
+            }
+
+            if self.brush_flyout_open {
+                let mut open = self.brush_flyout_open;
+                egui::Window::new("Brush library")
+                    .open(&mut open)
+                    .resizable(false)
+                    .default_width(310.0)
+                    .default_pos(egui::pos2(screen.left() + 88.0, screen.top() + 72.0))
+                    .show(ctx, |ui| {
+                        let project = session.live_mut().project_mut();
+                        ui.label("Choose a working preset. Pressure remains a stroke input; this preview does not simulate dynamics.");
+                        for (group, kinds) in [
+                            ("Ink", &[BrushKind::Ink, BrushKind::Pencil, BrushKind::Calligraphy][..]),
+                            ("Paint", &[BrushKind::Round, BrushKind::Soft, BrushKind::Marker, BrushKind::Airbrush][..]),
+                            ("Texture and utility", &[BrushKind::Textured, BrushKind::Wash, BrushKind::Eraser][..]),
+                        ] {
+                            ui.strong(group);
+                            ui.horizontal_wrapped(|ui| {
+                                for kind in kinds {
+                                    let selected = project.brush.kind == *kind;
+                                    let response = ui.add_sized(
+                                        [136.0, 38.0],
+                                        egui::Button::selectable(selected, brush_display_name(*kind)),
+                                    );
+                                    let line = egui::Rect::from_min_size(
+                                        response.rect.left_top() + egui::vec2(8.0, response.rect.height() - 9.0),
+                                        egui::vec2(42.0, 2.0),
+                                    );
+                                    ui.painter().line_segment(
+                                        [line.left_center(), line.right_center()],
+                                        egui::Stroke::new(
+                                            if *kind == BrushKind::Calligraphy { 3.0 } else { 2.0 },
+                                            egui::Color32::from_rgb(project.brush.color[0], project.brush.color[1], project.brush.color[2]),
+                                        ),
+                                    );
+                                    if response.clicked() {
+                                        let color = project.brush.color;
+                                        project.brush = Brush::preset(*kind);
+                                        project.brush.color = color;
+                                    }
+                                }
+                            });
+                        }
+                        ui.separator();
+                        ui.add(egui::Slider::new(&mut project.brush.size, 1.0..=256.0).text("Size"));
+                        ui.add(egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0).text("Opacity"));
+                        ui.horizontal(|ui| {
+                            ui.label("Color");
+                            ui.color_edit_button_srgb(&mut project.brush.color);
+                        });
+                        if ui.button("Advanced brush settings…").clicked() {
+                            self.inspector_tab = crate::workspace::InspectorTab::Brush;
+                            self.show_controls = true;
+                            self.brush_flyout_open = false;
+                            workspace_changed = true;
+                        }
+                    });
+                self.brush_flyout_open = open;
             }
 
             egui::CentralPanel::default()
