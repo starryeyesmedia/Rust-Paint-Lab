@@ -1,12 +1,13 @@
-# Rust Paint Lab
+# BitchPixel
 
-> **Working name under consideration: BitchPixel.** The application and repository continue to use the Rust Paint Lab development name until a final naming decision is made.
->
-> **Approved next-phase messages:** **“No limits. No bullshit.”** and **“Create without permission.”** “No limits” means rejecting artificial barriers such as subscriptions, paywalls, locked features, and forced accounts—not promising unlimited device support or capabilities. Both messages are provisional brand direction, not claims that planned features already exist.
->
-> See [next-phase identity notes](https://github.com/starryeyesmedia/Rust-Paint-Lab/issues/1) and the [engineering roadmap](docs/ROADMAP.md).
+**No limits. No bullshit.**  
+*Create without permission.*
 
-Rust Paint Lab is an original cross-platform digital painting application in active alpha development. The current desktop alpha has pressure-responsive raster brushes, editable raster layers, bounded undo/redo, selections and basic transforms, local project saving/recovery, PNG and restricted OpenRaster interchange, and a wgpu canvas. Native Windows WM_POINTER input is wired to the same shared input and stroke pipeline as mouse input.
+BitchPixel is the adopted product identity for this free, accessibility-first creative application. **Rust Paint Lab** remains the engineering repository, executable and file-format naming during development; changing technical identifiers requires a planned, compatibility-safe migration.
+
+“No limits” means no artificial paywalls, subscriptions, locked features or forced accounts—not unlimited hardware compatibility or features that do not yet exist. See the [product identity decision](https://github.com/starryeyesmedia/Rust-Paint-Lab/issues/1) and [engineering roadmap](docs/ROADMAP.md).
+
+BitchPixel is an original cross-platform digital painting application in active alpha development. The current desktop alpha has pressure-responsive raster brushes, editable raster layers, bounded undo/redo, selections and basic transforms, local project saving/recovery, PNG and restricted OpenRaster interchange, and a wgpu canvas. Native Windows WM_POINTER input is wired to the same shared input and stroke pipeline as mouse input.
 
 This is not yet a production replacement for established painting software. Native pen delivery, capture behavior, storage durability, and performance still require testing on the target Windows hardware. Keep independent copies of important artwork. The application is unsigned development software; the project has no selected distribution license.
 
