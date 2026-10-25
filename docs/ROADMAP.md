@@ -45,7 +45,8 @@ three-platform CI. Phase 8.3 remains active on
 The current local slice enables AccessKit event/tree integration and adds a
 persisted draggable/snap-docked palette with collapse and handedness preferences.
 The next local slice adds visual document-format cards and a live paper/background
-preview; full regression and platform CI are pending for it. These checkpoints do
-not complete the Phase 8.3 workspace overhaul. See
+preview plus a dedicated, confirmation-safe recovery manager. The recovery manager
+shows validated document metadata but does not yet render previews. Full platform
+CI is pending. These checkpoints do not complete the Phase 8.3 workspace overhaul. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for the exact tested
 checkpoint and continuation steps. Phase numbering and boundaries are provisional.

@@ -588,6 +588,8 @@ pub struct Studio {
     pub close_ready: bool,
     recovery: Option<Recovery>,
     recovery_files: Vec<PathBuf>,
+    recovery_manager: bool,
+    recovery_manager_from_home: bool,
     drafts: Vec<PathBuf>,
     recent: paint_document::recent::Recent,
     recent_cards: Vec<RecentProjectCard>,
@@ -729,6 +731,8 @@ impl Studio {
             close_ready: false,
             recovery,
             recovery_files: files,
+            recovery_manager: false,
+            recovery_manager_from_home: false,
             drafts: crate::drafts::list(),
             recent,
             recent_cards,
@@ -1394,6 +1398,7 @@ impl Studio {
             || self.manual_file_dialog
             || self.confirm.is_some()
             || self.close_requested
+            || self.recovery_manager
             || self.cleanup.is_some()
     }
     pub fn shortcut(&mut self, key: char, session: &mut CanvasSession) {
@@ -1692,6 +1697,16 @@ impl Studio {
                                         }
                                     }
                                 });
+                            }
+                            if ui.button("Recovery manager…").clicked() {
+                                self.recovery_files = paint_document::recovery::directory()
+                                    .map(|directory| {
+                                        paint_document::recovery::available(&directory)
+                                    })
+                                    .unwrap_or_default();
+                                self.recovery_manager = true;
+                                self.recovery_manager_from_home = false;
+                                ui.close();
                             }
                         });
                         ui.menu_button("Edit", |ui| {
@@ -3048,11 +3063,24 @@ impl Studio {
                                             ui.add_space(8.0);
                                             egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(10.0).inner_margin(12.0).show(ui, |ui| {
                                                 ui.label(egui::RichText::new("Recoverable work").strong());
+                                                if ui.button(format!("Manage {} recovery checkpoints…", self.recovery_files.len())).clicked() {
+                                                    self.recovery_files = paint_document::recovery::directory()
+                                                        .map(|directory| paint_document::recovery::available(&directory))
+                                                        .unwrap_or_default();
+                                                    self.recovery_manager = true;
+                                                    self.recovery_manager_from_home = true;
+                                                }
                                                 for path in self.recovery_files.iter().take(4) {
                                                     let label = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unsaved document").replace(['_', '-'], " ");
                                                     if ui.button(format!("Recover · {label}")).clicked() { actions.push(Action::Recover(path.clone())); self.welcome = false; }
                                                 }
                                             });
+                                        } else if ui.button("Recovery manager…").clicked() {
+                                            self.recovery_files = paint_document::recovery::directory()
+                                                .map(|directory| paint_document::recovery::available(&directory))
+                                                .unwrap_or_default();
+                                            self.recovery_manager = true;
+                                            self.recovery_manager_from_home = true;
                                         }
                                         if !self.drafts.is_empty() {
                                             ui.add_space(10.0);
@@ -3082,6 +3110,59 @@ impl Studio {
             if let Some(path) = remove_draft {
                 self.draft_cleanup = Some(path);
             }
+        } else if self.recovery_manager && self.cleanup.is_none() {
+            egui::Modal::new(egui::Id::new("recovery manager")).show(ctx, |ui| {
+                ui.set_min_width(520.0);
+                ui.heading("Artwork recovery manager");
+                ui.label("These local checkpoints are separate from saved projects. Recover opens a copy as a new unsaved document.");
+                if self.recovery_files.is_empty() {
+                    ui.label("No inactive recovery checkpoints are available.");
+                } else {
+                    egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                        for path in self.recovery_files.clone() {
+                            let name = path.file_stem().and_then(|name| name.to_str())
+                                .unwrap_or("Unsaved artwork")
+                                .strip_prefix("recovery-")
+                                .unwrap_or_else(|| path.file_stem().and_then(|name| name.to_str()).unwrap_or("Unsaved artwork"))
+                                .replace(['_', '-'], " ");
+                            let bytes = std::fs::metadata(&path).ok().map(|metadata| metadata.len());
+                            let dimensions = storage::peek_dimensions(&path)
+                                .map(|(width, height, dpi)| format!("{width} × {height} px · {dpi} DPI"))
+                                .unwrap_or_else(|| "Project dimensions unavailable".into());
+                            egui::Frame::new().fill(ui.visuals().faint_bg_color)
+                                .corner_radius(8.0).inner_margin(10.0).show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.vertical(|ui| {
+                                            ui.strong(name);
+                                            ui.label(dimensions);
+                                            ui.label(bytes.map(|size| format!("{} KiB", size.div_ceil(1024)))
+                                                .unwrap_or_else(|| "Checkpoint file unavailable".into()));
+                                        });
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            if ui.button("Remove…").clicked() {
+                                                self.cleanup = Some(path.clone());
+                                            }
+                                            if ui.button("Recover").clicked() {
+                                                actions.push(Action::Recover(path.clone()));
+                                                self.recovery_manager = false;
+                                                self.welcome = false;
+                                            }
+                                        });
+                                    });
+                                });
+                            ui.add_space(6.0);
+                        }
+                    });
+                }
+                ui.separator();
+                if ui.button("Done").clicked() {
+                    self.recovery_manager = false;
+                    if self.recovery_manager_from_home {
+                        self.welcome = true;
+                    }
+                    self.recovery_manager_from_home = false;
+                }
+            });
         } else if let Some(path) = self.cleanup.clone() {
             egui::Modal::new(egui::Id::new("delete recovery checkpoint")).show(ctx, |ui| {
                 ui.heading("Delete recovery checkpoint?");

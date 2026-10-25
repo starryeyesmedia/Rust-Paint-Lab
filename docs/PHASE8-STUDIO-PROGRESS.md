@@ -541,9 +541,20 @@ format cards, followed by a live aspect-ratio preview that shows either the chos
 solid color or a transparency checkerboard. Name remains prominent; exact units,
 dimensions, DPI, background, saved presets and recent dimensions remain available
 under Advanced. The existing pixel-limit validation and sparse document creation
-path are unchanged. Local compilation passed; full regression and the Linux/Xvfb
-interaction workflow are still pending for this edit. This does not yet provide
+path are unchanged. Formatting, strict Clippy, all 187 workspace tests, the
+workspace build, GPU pixel smoke, and Windows GNU cross-check/Clippy pass locally.
+The Linux/Xvfb interaction workflow is still pending for this edit. This does not yet provide
 the planned Home thumbnail cache or dedicated recovery manager.
+
+The recovery manager now has an explicit entry point on Home and under File. It
+refreshes the safe inactive checkpoint list and shows a readable generated name,
+project dimensions/DPI where the bounded metadata header is valid, and file size.
+Recover continues through the existing unsaved-artwork preservation gate and
+opens recovery into a new unsaved project. Remove opens the existing confirmation
+dialog and continues to use the recovery module's directory/ownership checks. A
+visual image preview is not available yet; no unvalidated snapshot is decoded just
+for display. The code passes local build/test/GPU and Windows GNU compile/lint, but
+these latest controls have not yet been exercised by the Xvfb window workflow.
 
 The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,
