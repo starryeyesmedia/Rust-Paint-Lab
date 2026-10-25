@@ -71,10 +71,10 @@ the consolidated `rust-paint-lab-canvas-demo` package and retained the separate
 `rust-paint-lab-windows-diagnostic` artifact. Native Narrator/NVDA behavior and
 visual review of screenshots remain outstanding; Actions metadata is available,
 but artifact blob downloads return HTTP Forbidden in this environment. Phase 8.3
-is not complete. A visual integration pass from commit `1220722` is now in
-progress: Brush placement/size/scrolling, responsive visual format cards, Home
+is not complete. The visual integration pass from commit `1220722` now includes
+Brush placement/size/scrolling refinements, responsive visual format cards, Home
 hierarchy and theme-safe heading contrast, and populated light/dark/high-contrast
-UI screenshot coverage are being improved. Actions run `40230324720` confirmed
+UI screenshot coverage. Actions run `40230324720` confirmed
 the first eight light-theme normal/narrow screenshots but exposed stale test-only
 palette geometry when the smoke clicked after leaving Home; that was corrected.
 Run `40230678773` passed three-platform format, lint, tests and build, Linux GPU
@@ -85,9 +85,13 @@ message showed that the dark New Artwork capture left a fresh unsaved document;
 Escape correctly opened the save-on-close path, causing the harness's 20-second
 wait to expire. The screenshot color-count hypothesis was incorrect. The smoke
 now terminates that screenshot-only process after capture; normal clean-close is
-still covered earlier in the same app workflow. The corrected full matrix and
-consolidated Windows artifact are pending. The screenshot archive could not be
-inspected here because Actions artifact blob downloads return HTTP 403. See
+still covered earlier in the same app workflow. Run `40232806078` passed all
+Windows, Linux, and macOS checks and packaging. Linux passed the complete
+18-screen Light/Dark/high-contrast matrix with real layer and recovery entries.
+The consolidated `rust-paint-lab-canvas-demo` and separate
+`rust-paint-lab-windows-diagnostic` artifacts are available from that run. The
+screenshot archive could not be visually reviewed here because Actions artifact
+blob downloads return HTTP 403. Narrator/NVDA testing remains outstanding. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are
 provisional.

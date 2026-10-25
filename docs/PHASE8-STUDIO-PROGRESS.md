@@ -805,10 +805,19 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   annotations cap text at 4 KiB, so the smoke also keeps concise diagnostics.
   Windows and macOS standard checks passed; Windows was canceled during canvas
   build, before package upload.
+- Run [`40232806078`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40232806078)
+  passed formatting, strict Clippy, workspace tests/build, Linux GPU and live
+  mouse smoke, the full 18-state Light/Dark/high-contrast screenshot matrix,
+  and the Linux app/artwork/recovery workflow. Windows and macOS jobs also passed.
+  The workflow uploaded `rust-paint-lab-canvas-demo`, the preserved
+  `rust-paint-lab-windows-diagnostic`, Linux/macOS app packages, the screenshot
+  archive and diagnostics. Artifact metadata is accessible, but downloading the
+  screenshot archive from this environment still returns HTTP 403, so its pixels
+  could not be visually reviewed here. CI confirms capture dimensions, nonblank
+  color diversity, state coverage, and populated layer/recovery fixture
+  assertions; it does not substitute for visual inspection.
 
-Next: run the corrected final-state lifecycle through the expanded
-cross-platform workflow. Inspect the screenshot archive if artifact access is restored; the
-workspace currently blocks the GitHub artifact blob host. Correct any visible
-issues and produce one consolidated Windows evaluation artifact only after this
-matrix succeeds. Keep Phase 8.3 active until visual review and a Windows
-assistive-technology pass are recorded.
+Next: this matrix is green, but manually inspect the screenshot archive if
+artifact access is restored and correct any visible issues. The consolidated
+Windows evaluation artifact is available from the run above. Keep Phase 8.3
+active until visual review and a Windows assistive-technology pass are recorded.
