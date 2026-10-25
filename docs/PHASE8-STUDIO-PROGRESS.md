@@ -788,9 +788,18 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   The pending Windows canvas/package steps were canceled after Linux failed. The
   capture guard now has a lower but still nonblank threshold only for this
   high-contrast image. Another full matrix run is pending.
+- Run [`40231310053`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40231310053)
+  repeated the same Linux result: all three platforms passed formatting, strict
+  Clippy, tests and workspace build, Linux passed GPU/live-window smoke, and the
+  screenshot suite captured the same 17 states before failing during the final
+  high-contrast capture. The step output was truncated before the Python exception,
+  so the exact cause is not confirmed. The Linux artifact upload succeeded, but
+  the other jobs were canceled before the Windows canvas package. Smoke output now
+  marks capture start and sampled-color count and limits repeated application
+  logs so the next failure includes its actual assertion.
 
-Next: push the high-contrast capture-guard fix through the expanded cross-platform
-workflow. Inspect the screenshot archive if artifact access is restored; the
+Next: push the high-contrast capture diagnostics through the expanded
+cross-platform workflow. Inspect the screenshot archive if artifact access is restored; the
 workspace currently blocks the GitHub artifact blob host. Correct any visible
 issues and produce one consolidated Windows evaluation artifact only after this
 matrix succeeds. Keep Phase 8.3 active until visual review and a Windows

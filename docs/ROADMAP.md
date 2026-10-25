@@ -71,11 +71,13 @@ the first eight light-theme normal/narrow screenshots but exposed stale test-onl
 palette geometry when the smoke clicked after leaving Home; that was corrected.
 Run `40230678773` passed three-platform format, lint, tests and build, Linux GPU
 and live-window smoke, then captured 17 of 18 requested UI states. Its only failure
-was the generic sampled-color minimum rejecting the intentionally restricted-color
-high-contrast Home; the capture guard now applies a specific lower nonblank
-threshold there. The corrected full matrix and consolidated Windows artifact are
-pending. The screenshot archive could not be inspected here because Actions
-artifact blob downloads return HTTP 403. See
+was during the final high-contrast screenshot check. The generic sampled-color
+threshold was lowered for that state, but run `40231310053` repeated the failure.
+The Actions annotation truncates the Python exception, so the exact cause is still
+unconfirmed. The smoke now reports capture stage and color count and keeps the
+output short enough to retain the failure detail. The corrected full matrix and
+consolidated Windows artifact are pending. The screenshot archive could not be
+inspected here because Actions artifact blob downloads return HTTP 403. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are
 provisional.
