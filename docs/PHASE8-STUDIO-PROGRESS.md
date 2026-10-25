@@ -963,3 +963,85 @@ Windows assistive-technology validation remain outstanding.
   screenshot pixels once artifact downloads work; then address the remaining
   keyboard/focus and native Windows assistive-technology gaps. Do not claim
   Narrator/NVDA compatibility without testing those screen readers.
+
+### Major visual/workflow continuation — local reviewed checkpoint (2026-10-25)
+
+This continuation responds to the owner's explicit assessment that `0c1c145`
+still looked sparse and developer-oriented. It is implemented in code commit
+`fcbd6c6`, based on `0c1c145`. The screenshot assertions and synchronized
+documentation are committed alongside it; a new cross-platform Actions run is
+pending.
+Phase 8.3 remains active.
+
+- Home now uses a temporary text-only BitchPixel wordmark, the exact approved
+  lines “No limits. No bullshit.” and “Create without permission.”, a prominent
+  New Artwork/Open action pair, illustrated quick-start canvas cards and a
+  responsive recent gallery. It shows cached thumbnails from actual saved
+  projects only; no demo art is presented as user work. On wide displays the
+  format cards and recent-artwork previews grow to use the available width. An
+  intentional first-run empty state remains when no projects exist.
+- New Artwork now presents six named preset formats plus Custom as proportionally
+  illustrated, keyboard-selectable cards with a visible selected state, live
+  aspect/background preview, clear pixel/DPI labels and a primary Create canvas
+  action. The grid reflows across four, three, two or one columns as the modal
+  narrows; advanced units, dimensions, recent sizes, resolution and background
+  settings remain in its scrollable content.
+- Brush/Color/Layers contextual surfaces use shared purple-first frames and
+  typography. The Brush flyout now accounts for the full window chrome when
+  sizing its scroll region, avoids the docked palette, fits small windows with a
+  compact single-column card layout and hides canvas zoom controls while a panel
+  is open. The main tool palette remains left by default and its existing dock,
+  float, snap and handedness preferences remain persistent.
+- Home headline contrast is measured in the screenshot harness as 15.53:1 in
+  Light, 16.61:1 in Dark and 21:1 in High Contrast for the selected surface and
+  text. The test protects that headline specifically; it is not a full WCAG audit.
+- The Xvfb workflow now captures 22 states. Its recent-artwork screen is resized
+  to 1920 × 1080 and must contain at least 30 pixels matching the smoke fixture's
+  blue committed stroke; the latest capture contained 3,213. Light and Dark
+  Reference captures must contain the imported fixture's distinctive region; the
+  latest counts were 419 and 575 pixels. Populated editable Layers and valid
+  Recovery entries are included. The workflow also verifies the reference stays
+  out of exported artwork and that the real app can paint, save, reopen, undo,
+  redo, export and recover after process termination.
+- Screenshots were inspected locally instead of relying only on CI's color-count
+  check. This revealed that the recent-artwork capture had been taken below the
+  viewport; capture size and a content-pixel assertion now require the actual
+  thumbnail to be on screen. It also exposed the old wide quick-start cards and
+  the stale dialog card-count assumption; both were corrected and recaptured.
+
+### Local validation and remaining acceptance work
+
+- `cargo fmt --all -- --check` passed.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` passed.
+- `cargo test --workspace --locked -- --quiet` passed **223 tests**. The offscreen
+  GPU test was required and passed on Mesa llvmpipe/Vulkan; it is software-GPU
+  coverage and does not validate Iris Xe or RTX hardware.
+- `cargo build --workspace --locked` passed. The app-window workflow completed
+  its painting/document/recovery assertions and all 22 screenshots under Xvfb.
+  Python syntax validation and `git diff --check` passed after the harness update.
+- Screenshot pixels were visually reviewed from the local Xvfb output directory.
+  Actions artifact metadata and cross-platform runs for this pending checkpoint
+  have not yet been verified. No new Windows evaluation artifact is being offered
+  until the expanded implementation and CI pass.
+- Narrator/NVDA and Windows UI Automation remain untested. Basic S Pen drawing
+  has been observed on the owner's device in earlier builds; pressure/tilt
+  ingestion in this workspace, palm handling, capture-loss behavior, touch/DPI
+  scaling and Windows hardware performance were not retested in this continuation.
+- Remaining: continue consolidating tool and floating-panel visual language,
+  implement/verify panel docking behavior where it does not weaken move/resize,
+  audit keyboard traversal and actual AccessKit actions, review Windows DPI and
+  small-window behavior, and verify this branch in Windows/Linux/macOS Actions.
+  The Phase 8.3 overhaul is **not complete**.
+
+### Exact continuation from the local visual checkpoint
+
+1. Commit and push the reviewed implementation on
+   `feature/studio-overdrive-phase-8`; do not merge or release.
+2. Wait for and record the new Windows, Linux and macOS Actions result. Inspect
+   the Actions screenshot archive if it is downloadable, without treating
+   capture-count assertions as visual approval.
+3. Continue the workspace polish and keyboard/focus/contrast pass; keep the
+   palette default-left and the reference board outside document/export state.
+4. Only after the broader checkpoint and cross-platform CI succeed, create one
+   consolidated Windows evaluation artifact. Record physical-device and
+   Narrator/NVDA checks as outstanding until performed.

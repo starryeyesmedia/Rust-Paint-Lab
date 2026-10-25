@@ -264,11 +264,13 @@ cargo test --locked -p canvas-demo --test navigation
 
 The tests exercise navigation math and surface ownership, not Windows Precision
 Touchpad delivery, touchscreen gesture latency, palm rejection, DPI transitions,
-or live egui hit testing on the Galaxy Book. Linux Xvfb window workflow is still
-required to verify that Home fully covers the canvas, cards transition into the
-existing open flow, and persistent controls work in a native window. No test
-currently checks thumbnail generation because the Home screen does not yet create
-or cache artwork thumbnails.
+or live egui hit testing on the Galaxy Book. Home now uses a bounded thumbnail
+cache for real saved projects. The Linux Xvfb workflow checks that reopening a
+saved project renders its cached thumbnail, captures that recent-artwork state at
+1920 × 1080, and verifies visible blue stroke pixels from the smoke artwork in the
+captured thumbnail. It also retains an intentional first-run empty state. These
+checks exercise the virtual Linux display and fixture artwork, not a user library
+or Windows DPI behavior.
 
 ## Phase 8 startup, document setup, and native file selection
 
@@ -335,11 +337,17 @@ board, Brush library, Color controls, Layers panel and Recovery manager, then
 restarts the app to capture recent artwork and dark/high-contrast appearances.
 It exercises the top-docked horizontal palette as well as the default left dock,
 and resizes the live window for narrow, normal and 1920 × 1080 wide captures.
-The wide Home capture exercises the four-column gallery layout. It verifies that real layers and a valid
-recovery checkpoint are present, and rejects blank/undersampled images. The
-rendered windows are uploaded as `rust-paint-lab-studio-ui-smoke`. These screenshots
-validate the virtual Linux window, not Windows DPI, Narrator/NVDA or physical
-hardware. It explicitly checks that Escape dismisses the Brush flyout without
+The wide Home capture exercises the four-column gallery layout. It verifies that
+real layers and a valid recovery checkpoint are present, and rejects
+blank/undersampled images. The current matrix captures 22 named states, including
+normal/narrow/wide Home, populated recent artwork, normal/narrow New Artwork,
+populated light/dark Layers and Recovery, and light/dark Reference, Brush and
+Color panels. The recent-artwork capture requires visible blue pixels from the
+real painted smoke-project thumbnail. Reference captures require pixels from a
+uniquely colored region of the imported reference image. The rendered windows are
+uploaded as `rust-paint-lab-studio-ui-smoke`. These screenshots validate the
+virtual Linux window, not Windows DPI, Narrator/NVDA or physical hardware. It
+explicitly checks that Escape dismisses the Brush flyout without
 closing the app before continuing to Layers. The test environment logs which
 flyout Escape dismissed, derives the palette click target from the rendered
 button bounds, and exercises Ctrl+B as a keyboard alternative. The companion

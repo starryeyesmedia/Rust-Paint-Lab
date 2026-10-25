@@ -188,6 +188,8 @@ def capture_window(window, name):
         maximum=mask >> shift
         return (((pixel & mask) >> shift)*255 + maximum//2)//maximum
     rows=bytearray()
+    reference_marker_pixels=0
+    recent_artwork_pixels=0
     bytes_per_pixel=(bits_per_pixel+7)//8
     byte_order_name='little' if byte_order==0 else 'big'
     for y in range(height):
@@ -196,8 +198,22 @@ def capture_window(window, name):
         for x_pixel in range(width):
             start=x_pixel*bytes_per_pixel
             pixel=int.from_bytes(row[start:start+bytes_per_pixel],byte_order_name)
-            rows.extend((component(pixel,masks[0]),component(pixel,masks[1]),component(pixel,masks[2]),255))
+            red=component(pixel,masks[0]);green=component(pixel,masks[1]);blue=component(pixel,masks[2])
+            if name.startswith('reference-board-') and (
+                (red<80 and green>150 and blue<80)
+                or (green>210 and green-red>50 and green-blue>50)
+            ):
+                reference_marker_pixels+=1
+            if name == 'home-recent-artwork-light' and blue > 100 and blue-red > 45 and blue-green > 20:
+                recent_artwork_pixels+=1
+            rows.extend((red,green,blue,255))
     raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
+    destination=Path(folder) if folder else None
+    if destination:
+        destination.mkdir(parents=True,exist_ok=True)
+        # Retain a failed capture too, so blank/obscured-window assertions are
+        # diagnosable from the same run rather than disappearing on exception.
+        (destination/f'{name}.png').write_bytes(raw)
     # Guard against capturing a blank, obscured, or uninitialized window while
     # still allowing per-driver antialiasing and font differences.
     sampled=set()
@@ -213,8 +229,12 @@ def capture_window(window, name):
     minimum_colors = 2 if name == 'home-dark-high-contrast' else 18
     print(f'UI_SCREENSHOT_COLOR_COUNT: {name} {len(sampled)}', flush=True)
     assert len(sampled)>minimum_colors, f'{name} screenshot looks blank or was not fully rendered ({len(sampled)} sampled colors; expected >{minimum_colors})'
-    destination=Path(folder);destination.mkdir(parents=True,exist_ok=True)
-    (destination/f'{name}.png').write_bytes(raw)
+    if name.startswith('reference-board-'):
+        assert reference_marker_pixels>=40, f'{name} did not visibly render the unique reference-image marker ({reference_marker_pixels} matching pixels)'
+        print(f'UI_SCREENSHOT_REFERENCE_PIXELS: {name} {reference_marker_pixels}', flush=True)
+    if name == 'home-recent-artwork-light':
+        assert recent_artwork_pixels>=30, f'{name} does not visibly contain the painted blue stroke from the real recent-project thumbnail ({recent_artwork_pixels} matching pixels)'
+        print(f'UI_SCREENSHOT_RECENT_ART_PIXELS: {name} {recent_artwork_pixels}', flush=True)
     captured_screenshots[name] = (width, height)
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 
@@ -272,6 +292,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
         for x_pixel in range(reference_width):
             if x_pixel == 0 and y == 0:
                 color=(255,0,255,255)
+            elif x_pixel < 32 and y < 32:
+                # A large, unique green corner makes screenshots prove that the
+                # imported reference itself is visible, not merely the canvas.
+                color=(0,255,0,255)
             elif (x_pixel-360)**2+(y-70)**2 < 38**2:
                 color=(255,205,112,255)
             elif y > 230 or y > 180 and x_pixel < 130 + (y-180)*1.25:
@@ -296,6 +320,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # Let font/layout requests settle before testing drawing ownership.
             time.sleep(0.5)
             resize_window(window,1280,800)
+            wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: light' in (directory / 'application.log').read_text(),
+                 'light Home headline is rendered at accessible contrast')
             capture_window(window,'home-light-normal')
             resize_window(window,1920,1080)
             capture_window(window,'home-light-wide')
@@ -303,12 +329,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-light-narrow')
             resize_window(window,1280,800)
             ctrl('n');new_document_prompt();time.sleep(0.25)
+            wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 1,
+                 'light New Artwork interface has rendered before capture')
             capture_window(window,'new-artwork-light-normal')
             resize_window(window,640,480)
             capture_window(window,'new-artwork-light-narrow')
             resize_window(window,1280,800)
             key('Return');time.sleep(0.5)
             capture_window(window,'canvas-workspace-light')
+            wait(lambda: 'UI_TEST_REFERENCE_IMAGE_VISIBLE:' in (directory / 'application.log').read_text(),
+                 'reference screenshot uses a rendered image texture')
+            time.sleep(0.35)  # the marker is emitted before egui submits this frame
             capture_window(window,'reference-board-light')
             left, top, width, height, scale = wait(brush_rect, 'Brush control geometry')
             move(round((left + width / 2) * scale), round((top + height / 2) * scale))
@@ -367,6 +398,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             png_width,png_height,pixels=decode_rgba_png(data)
             assert (png_width,png_height)==(1600,1000)
             assert not any(pixels[i:i+4]==b'\xff\x00\xff\xff' for i in range(0,len(pixels),4)), 'workspace reference pixels leaked into the exported artwork'
+            assert not any(pixels[i] < 80 and pixels[i+1] > 120 and pixels[i+2] < 100 for i in range(0,len(pixels),4)), 'workspace reference marker pixels leaked into the exported artwork'
             assert json.loads(prefs.read_text())['references'][0]['path']==str(reference)
             key('Escape');assert process.wait(timeout=20)==0
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
@@ -441,26 +473,44 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert any(thumb_directory.glob('rpl-*.png')),'saved artwork generated a Home thumbnail cache entry'
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'Home after reopening saved artwork');focus(display,window,2,0);send();time.sleep(0.5)
+            wait(lambda: 'UI_TEST_HOME_RECENT_PREVIEW_VISIBLE' in (directory / 'application.log').read_text(),
+                 'recent Home screenshot renders a real cached project thumbnail')
+            resize_window(window,1920,1080)
+            time.sleep(0.35)
             capture_window(window,'home-recent-artwork-light')
             key('Escape');assert process.wait(timeout=20)==0
+            home_preferences=json.loads(prefs.read_text())
+            assert any(item['path']==str(reference) for item in home_preferences.get('references',[])), 'reference board path survives an app restart through Home'
             # Exercise the same application windows under dark mode and high
             # contrast. The dark workspace uses the persisted top dock to cover
             # the horizontal toolbar layout. Seed Recovery with a valid .rpl.
             preferences=json.loads(prefs.read_text())
-            preferences['appearance_mode']='Dark';preferences['dark_theme']=True;preferences['high_contrast']=False
-            preferences['palette_dock']='top'
+            preferences['appearance_mode']='dark';preferences['dark_theme']=True;preferences['high_contrast']=False
+            preferences['palette_dock']='Top'
+            for reference_layout in preferences.get('references',[]):
+                reference_layout['position']=[40.0,190.0]
+                reference_layout['size']=[360.0,300.0]
             prefs.write_text(json.dumps(preferences))
             recovery_dir.mkdir(parents=True,exist_ok=True)
             visual_checkpoint=recovery_dir/'recovery-visual-checkpoint.rpl'
             visual_checkpoint.write_bytes(recovered.read_bytes())
             assert valid_project(visual_checkpoint),'dark-theme recovery fixture is a valid native project'
+            reference_markers_before_dark= (directory / 'application.log').read_text().count('UI_TEST_REFERENCE_IMAGE_VISIBLE:')
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'dark Home after saved artwork restart');focus(display,window,2,0);send();time.sleep(0.5)
+            wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: dark' in (directory / 'application.log').read_text(),
+                 'dark Home headline is rendered at accessible contrast')
             resize_window(window,1280,800);capture_window(window,'home-dark-normal')
             resize_window(window,640,480);capture_window(window,'home-dark-narrow')
             resize_window(window,1280,800)
-            ctrl('n');new_document_prompt();capture_window(window,'new-artwork-dark-normal');key('Return');time.sleep(0.4)
+            ctrl('n');new_document_prompt()
+            wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 2,
+                 'dark New Artwork interface has rendered before capture')
+            time.sleep(0.25);capture_window(window,'new-artwork-dark-normal');key('Return');time.sleep(0.4)
             capture_window(window,'canvas-workspace-dark-toolbar-top')
+            wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_REFERENCE_IMAGE_VISIBLE:') > reference_markers_before_dark,
+                 'dark reference screenshot renders its imported image')
+            time.sleep(0.35)  # wait until the marked reference frame is presented
             capture_window(window,'reference-board-dark')
             ctrl('b');time.sleep(0.35);capture_window(window,'brush-library-dark')
             key('Escape');key('c');time.sleep(0.35);capture_window(window,'color-controls-dark')
@@ -489,6 +539,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                         assert width>=900 and height>=650,f'{name} was not captured at a normal size: {width}x{height}'
                     if name.endswith('wide'):
                         assert width>=1800 and height>=1000,f'{name} was not captured at a wide size: {width}x{height}'
+                    if name == 'home-recent-artwork-light':
+                        assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
             print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
