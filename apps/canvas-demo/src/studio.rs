@@ -92,6 +92,18 @@ fn recent_project_matches(path: &std::path::Path, query: &str) -> bool {
             .contains(&query.to_lowercase())
 }
 
+fn recent_gallery_layout(available_width: f32) -> (usize, f32) {
+    let columns = match available_width {
+        width if width >= 1500.0 => 4,
+        width if width >= 1000.0 => 3,
+        width if width >= 600.0 => 2,
+        _ => 1,
+    };
+    let gaps = 14.0 * (columns - 1) as f32;
+    let card_width = ((available_width - gaps) / columns as f32).clamp(180.0, 420.0);
+    (columns, card_width)
+}
+
 pub(crate) fn recent_search_field(ui: &mut egui::Ui, query: &mut String) {
     let response = ui.add(
         egui::TextEdit::singleline(query)
@@ -4335,16 +4347,12 @@ impl Studio {
                                                 ui.add_space(8.0);
                                                 ui.label(egui::RichText::new("No recent artwork matches that filename.").color(ui.visuals().weak_text_color()));
                                             } else {
-                                            let columns = if screen.width() < 760.0 { 1 } else { 2 };
+                                            let (columns, card_width) =
+                                                recent_gallery_layout(ui.available_width());
                                             egui::Grid::new("home recent projects").num_columns(columns).spacing([14.0, 14.0]).show(ui, |ui| {
                                                 for (index, card) in visible_recent.iter().take(8).enumerate() {
                                                     let path = &card.path;
                                                     let thumbnail = card.thumbnail.clone();
-                                                    let card_width = if screen.width() < 760.0 {
-                                                        (screen.width() - 90.0).clamp(220.0, 420.0)
-                                                    } else {
-                                                        (screen.width() * 0.34).clamp(220.0, 420.0)
-                                                    };
                                                     let name = path.file_stem().unwrap_or_default().to_string_lossy();
                                                     let details = if let Some(bytes) = card.bytes {
                                                         let size_mb = bytes as f64 / (1024.0 * 1024.0);
@@ -5407,7 +5415,7 @@ impl Studio {
 mod tests {
     use super::{
         LassoAppend, append_lasso_point, layer_thumbnail_samples, native_project_path,
-        recent_project_matches,
+        recent_gallery_layout, recent_project_matches,
     };
     use std::path::{Path, PathBuf};
 
@@ -5462,6 +5470,17 @@ mod tests {
         assert!(recent_project_matches(path, " neon "));
         assert!(recent_project_matches(path, "RPL"));
         assert!(!recent_project_matches(path, "portrait"));
+    }
+
+    #[test]
+    fn recent_artwork_gallery_scales_from_single_column_to_four_columns() {
+        for (available, expected_columns) in [(420.0, 1), (800.0, 2), (1280.0, 3), (1920.0, 4)] {
+            let (columns, card_width) = recent_gallery_layout(available);
+            assert_eq!(columns, expected_columns, "viewport width {available}");
+            assert!((180.0..=420.0).contains(&card_width));
+            let total = columns as f32 * card_width + 14.0 * (columns - 1) as f32;
+            assert!(total <= available + 0.1, "cards overflow {available}px");
+        }
     }
 
     #[test]

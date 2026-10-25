@@ -930,14 +930,23 @@ Windows assistive-technology validation remain outstanding.
   searches only this device's recent project list, ignoring query case and
   surrounding whitespace. A no-match message replaces the cards without
   implying that the app searches arbitrary folders or online content.
+- The gallery now chooses one to four columns from the available content width
+  and sizes cards from that width, keeping image previews prominent without
+  horizontal overflow at tested phone, laptop and desktop widths.
 - The search field has an explicit AccessKit text-input name and explanatory
   hover text. Unit coverage verifies matching semantics; an AccessKit tree test
-  verifies the semantic text input is exposed.
+  verifies the semantic text input is exposed. Sizing tests assert card bounds
+  and fit for 420, 800, 1280 and 1920 point content widths.
 - Local formatting, strict Clippy, the full workspace tests (including the
   llvmpipe GPU smoke), and workspace build passed after this change. The
-  workspace contains 202 tests; no desktop window screenshot is available from
-  this local environment, so this change is functionally tested rather than
-  visually approved.
+  workspace contains 203 tests; no desktop window screenshot is available from
+  this local environment, so the responsive gallery is functionally covered
+  but not visually inspected here.
+- The filename search commit `b81e099` is pushed. Actions runs
+  `40239511344` (concept/dock/color) and `40239908743` (search/accessibility)
+  were in progress at the last status check. Neither is a validation result for
+  the newer responsive-gallery edit yet; push that edit and wait for its own
+  run before considering this continuation verified cross-platform.
 - This is a small continuation slice, not Phase 8.3 completion. Next, continue
   integrating the approved Home/New Artwork visual direction with the working
   brush, color, layer, reference and recovery workflows; inspect the CI

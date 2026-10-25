@@ -118,9 +118,10 @@ inspection remains outstanding; this is not phase completion.
 The approved concept implementation is in code commit `59cace0`: locally bundled
 OFL Manrope/Syne typography, a purple-charcoal Midnight Violet palette, a
 persisted left/right/top/bottom/floating tool palette, and an HSV Color workflow
-with semantic/keyboard controls. The Home continuation adds a named, keyboard
-accessible filter for recent local artwork. Formatting, strict Clippy, all 202
-workspace tests, GPU smoke and workspace build pass locally. Actions run
+with semantic/keyboard controls. The Home continuation adds a named,
+keyboard-accessible filter for recent local artwork and a responsive
+one-to-four-column artwork gallery. Formatting, strict Clippy, all 203 workspace
+tests, GPU smoke and workspace build pass locally. Actions run
 [`40239511344`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40239511344)
 is validating the concept commit across Windows, Linux and macOS; Linux is also
 running its artwork/screenshot workflow. Screenshot pixels still cannot be
