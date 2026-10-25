@@ -331,9 +331,10 @@ position/size, Brush flyout position and Color flyout position preferences cover
 migration defaults, finite checks, persistence and bounds.
 
 The Linux alpha-window workflow drives Home, New Artwork, workspace, reference
-board, Brush library, Layers panel and Recovery manager, then restarts the app to
-capture recent artwork and dark/high-contrast appearances. It resizes the live
-window for narrow and normal captures, verifies that real layers and a valid
+board, Brush library, Color controls, Layers panel and Recovery manager, then
+restarts the app to capture recent artwork and dark/high-contrast appearances.
+It exercises the top-docked horizontal palette as well as the default left dock,
+and resizes the live window for narrow and normal captures. It verifies that real layers and a valid
 recovery checkpoint are present, and rejects blank/undersampled images. The
 rendered windows are uploaded as `rust-paint-lab-studio-ui-smoke`. These screenshots
 validate the virtual Linux window, not Windows DPI, Narrator/NVDA or physical

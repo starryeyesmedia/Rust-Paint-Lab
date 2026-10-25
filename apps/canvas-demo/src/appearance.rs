@@ -9,14 +9,14 @@ fn rgb(color: [u8; 3]) -> egui::Color32 {
 
 fn color(scheme: AccentScheme, custom: Option<[u8; 3]>, dark: bool) -> egui::Color32 {
     let value = match scheme {
-        AccentScheme::Violet => [0xA7, 0x8B, 0xFA],
+        AccentScheme::Violet => [0xC5, 0x5C, 0xFF],
         AccentScheme::Blue => [0x60, 0xA5, 0xFA],
         AccentScheme::Teal => [0x2D, 0xD4, 0xBF],
         AccentScheme::Coral => [0xFB, 0x71, 0x85],
         AccentScheme::Green => [0x4A, 0xDE, 0x80],
         AccentScheme::Neutral if dark => [0xC7, 0xC9, 0xD3],
         AccentScheme::Neutral => [0x59, 0x5B, 0x68],
-        AccentScheme::Custom => custom.unwrap_or([0xA7, 0x8B, 0xFA]),
+        AccentScheme::Custom => custom.unwrap_or([0xC5, 0x5C, 0xFF]),
     };
     rgb(value)
 }
@@ -100,21 +100,21 @@ pub fn visuals(
     let dark = mode.is_dark(system_dark);
     let (background, surface, elevated, border, text, weak_text) = if dark {
         (
-            rgb([0x24, 0x26, 0x32]), // Midnight Violet canvas surround
-            rgb([0x30, 0x33, 0x41]),
-            rgb([0x3E, 0x40, 0x52]),
-            rgb([0x41, 0x42, 0x54]),
-            rgb([0xF7, 0xF4, 0xFA]),
-            rgb([0xB8, 0xB7, 0xC8]),
+            rgb([0x12, 0x10, 0x19]), // Deep violet charcoal around artwork
+            rgb([0x1B, 0x18, 0x24]),
+            rgb([0x27, 0x22, 0x31]),
+            rgb([0x43, 0x37, 0x52]),
+            rgb([0xFB, 0xF8, 0xFF]),
+            rgb([0xD1, 0xC8, 0xDC]),
         )
     } else {
         (
-            rgb([0xF7, 0xF6, 0xFA]),
+            rgb([0xF8, 0xF5, 0xFB]),
             egui::Color32::WHITE,
-            rgb([0xEF, 0xEC, 0xF4]),
-            rgb([0xD7, 0xD4, 0xDF]),
-            rgb([0x2C, 0x2A, 0x36]),
-            rgb([0x64, 0x62, 0x70]),
+            rgb([0xF0, 0xEA, 0xF5]),
+            rgb([0xD9, 0xCF, 0xE3]),
+            rgb([0x28, 0x21, 0x31]),
+            rgb([0x5B, 0x4F, 0x65]),
         )
     };
     let accent = ensure_control_contrast(color(scheme, custom_accent, dark), background);
@@ -276,6 +276,16 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn approved_midnight_violet_theme_uses_charcoal_surfaces_and_a_purple_primary() {
+        let palette = visuals(AppearanceMode::Dark, true, AccentScheme::Violet, None);
+        let purple = palette.hyperlink_color;
+        assert!(purple.r() > purple.g() && purple.b() > purple.g());
+        assert!(palette.panel_fill.r() < 32 && palette.panel_fill.g() < 32);
+        assert!(palette.window_fill.r() < 40 && palette.window_fill.b() < 50);
+        assert!(contrast_ratio(purple, palette.panel_fill) >= 3.0);
     }
 
     #[test]

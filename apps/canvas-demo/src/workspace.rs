@@ -65,6 +65,8 @@ pub enum PaletteDock {
     #[default]
     Left,
     Right,
+    Top,
+    Bottom,
     Floating,
 }
 
@@ -434,6 +436,26 @@ mod tests {
         preferences.palette_position = [-100.0, 100_000.0];
         assert!(preferences.validate());
         assert_eq!(preferences.palette_position, [0.0, 32768.0]);
+    }
+
+    #[test]
+    fn all_four_palette_docks_roundtrip_as_workspace_preferences() {
+        for dock in [
+            PaletteDock::Left,
+            PaletteDock::Right,
+            PaletteDock::Top,
+            PaletteDock::Bottom,
+            PaletteDock::Floating,
+        ] {
+            let preferences = WorkspacePreferences {
+                palette_dock: dock,
+                ..WorkspacePreferences::default()
+            };
+            let encoded = serde_json::to_vec(&preferences).unwrap();
+            let mut decoded: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+            assert!(decoded.validate());
+            assert_eq!(decoded.palette_dock, dock);
+        }
     }
 
     #[test]

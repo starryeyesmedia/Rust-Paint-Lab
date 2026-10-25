@@ -323,6 +323,61 @@ fn color_swatch(ui: &mut egui::Ui, color: [u8; 3], label: &str, selected: bool, 
     response.on_hover_text(label).clicked()
 }
 
+pub(crate) fn saturation_value_field(
+    ui: &mut egui::Ui,
+    hue: f32,
+    saturation: f32,
+    value: f32,
+) -> Option<[f32; 2]> {
+    const COLUMNS: usize = 24;
+    const ROWS: usize = 14;
+    let width = ui.available_width().clamp(1.0, 224.0);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(width, 132.0), egui::Sense::click_and_drag());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            "Saturation and brightness color field",
+        )
+    });
+    let painter = ui.painter_at(rect);
+    for row in 0..ROWS {
+        for column in 0..COLUMNS {
+            let left = rect.left() + rect.width() * column as f32 / COLUMNS as f32;
+            let right = rect.left() + rect.width() * (column + 1) as f32 / COLUMNS as f32;
+            let top = rect.top() + rect.height() * row as f32 / ROWS as f32;
+            let bottom = rect.top() + rect.height() * (row + 1) as f32 / ROWS as f32;
+            let s = (column as f32 + 0.5) / COLUMNS as f32;
+            let v = 1.0 - (row as f32 + 0.5) / ROWS as f32;
+            let color = crate::color_controls::hsv_to_rgb([hue, s, v]);
+            painter.rect_filled(
+                egui::Rect::from_min_max(egui::pos2(left, top), egui::pos2(right, bottom)),
+                0.0,
+                egui::Color32::from_rgb(color[0], color[1], color[2]),
+            );
+        }
+    }
+    painter.rect_stroke(
+        rect,
+        6.0,
+        ui.visuals().window_stroke,
+        egui::StrokeKind::Inside,
+    );
+    let marker = egui::pos2(
+        rect.left() + rect.width() * saturation.clamp(0.0, 1.0),
+        rect.bottom() - rect.height() * value.clamp(0.0, 1.0),
+    );
+    painter.circle_stroke(marker, 5.0, egui::Stroke::new(2.5, egui::Color32::BLACK));
+    painter.circle_stroke(marker, 3.5, egui::Stroke::new(1.5, egui::Color32::WHITE));
+    if (response.clicked() || response.dragged())
+        && let Some(position) = response.interact_pointer_pos()
+    {
+        return crate::color_controls::saturation_value_at(rect, position);
+    }
+    None
+}
+
 const MAX_REFERENCE_FILE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_REFERENCE_SOURCE_EDGE: u32 = 16_384;
 const MAX_REFERENCE_DECODE_BYTES: u64 = 64 * 1024 * 1024;
@@ -1074,6 +1129,7 @@ pub struct Studio {
     observed_brush_color: Option<[u8; 3]>,
     hex_color: String,
     hex_color_for: Option<[u8; 3]>,
+    color_hue: f32,
     new_dialog: bool,
     picker: Option<FileRequest>,
     manual_file_dialog: bool,
@@ -1109,6 +1165,7 @@ pub struct Studio {
     reduced_motion: bool,
     ui_scale: f32,
     palette_dock: crate::workspace::PaletteDock,
+    palette_dragging: bool,
     palette_collapsed: bool,
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
@@ -1207,7 +1264,7 @@ impl Studio {
         let custom_accent_rgb = preferences.custom_accent_rgb;
         let custom_accent_hex = custom_accent_rgb
             .map(crate::color_controls::format_hex_rgb)
-            .unwrap_or_else(|| "#A78BFA".into());
+            .unwrap_or_else(|| "#C55CFF".into());
         let status = if recovery.is_some() {
             "Ready — local recovery enabled".into()
         } else {
@@ -1236,6 +1293,7 @@ impl Studio {
             observed_brush_color: None,
             hex_color: String::new(),
             hex_color_for: None,
+            color_hue: 0.0,
             new_dialog: false,
             picker: None,
             manual_file_dialog: false,
@@ -1274,6 +1332,7 @@ impl Studio {
             reduced_motion: preferences.reduced_motion,
             ui_scale: preferences.ui_scale,
             palette_dock: preferences.palette_dock,
+            palette_dragging: false,
             palette_collapsed: preferences.palette_collapsed,
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
@@ -2492,7 +2551,7 @@ impl Studio {
                                             self.status = "Studio accent updated".into();
                                         } else {
                                             self.status =
-                                                "Enter a six-digit accent such as #A78BFA".into();
+                                                "Enter a six-digit accent such as #C55CFF".into();
                                         }
                                     }
                                 });
@@ -2517,7 +2576,7 @@ impl Studio {
                                 self.appearance_mode = crate::workspace::AppearanceMode::Dark;
                                 self.accent_scheme = crate::workspace::AccentScheme::Violet;
                                 self.custom_accent_rgb = None;
-                                self.custom_accent_hex = "#A78BFA".into();
+                                self.custom_accent_hex = "#C55CFF".into();
                                 self.high_contrast = false;
                                 self.reduced_motion = false;
                                 self.ui_scale = 1.0;
@@ -2564,6 +2623,8 @@ impl Studio {
                             for (dock, label) in [
                                 (crate::workspace::PaletteDock::Left, "Dock left"),
                                 (crate::workspace::PaletteDock::Right, "Dock right"),
+                                (crate::workspace::PaletteDock::Top, "Dock top"),
+                                (crate::workspace::PaletteDock::Bottom, "Dock bottom"),
                                 (crate::workspace::PaletteDock::Floating, "Float palette"),
                             ] {
                                 if ui
@@ -2582,8 +2643,11 @@ impl Studio {
                                     .selectable_value(&mut self.handedness, hand, label)
                                     .changed()
                                 {
-                                    if self.palette_dock != crate::workspace::PaletteDock::Floating
-                                    {
+                                    if matches!(
+                                        self.palette_dock,
+                                        crate::workspace::PaletteDock::Left
+                                            | crate::workspace::PaletteDock::Right
+                                    ) {
                                         self.palette_dock =
                                             if hand == crate::workspace::Handedness::Right {
                                                 crate::workspace::PaletteDock::Left
@@ -2724,218 +2788,241 @@ impl Studio {
 
             let old_tool = self.tool;
             let screen = ctx.content_rect();
-            let palette_pos = match self.palette_dock {
-                crate::workspace::PaletteDock::Left => [screen.left() + 8.0, screen.top() + 64.0],
-                crate::workspace::PaletteDock::Right => {
-                    [screen.right() - 64.0, screen.top() + 64.0]
-                }
-                crate::workspace::PaletteDock::Floating => self.palette_position,
-            };
-            let palette_response = egui::Area::new(egui::Id::new("tool palette"))
-                .default_pos(egui::pos2(palette_pos[0], palette_pos[1]))
+            let floating_position = egui::pos2(self.palette_position[0], self.palette_position[1]);
+            let dock_position =
+                crate::studio_layout::palette_anchor(screen, self.palette_dock, floating_position);
+            let horizontal_palette = matches!(
+                self.palette_dock,
+                crate::workspace::PaletteDock::Top | crate::workspace::PaletteDock::Bottom
+            );
+            let area = egui::Area::new(egui::Id::new("tool palette"))
                 .movable(true)
                 .constrain_to(screen.shrink(4.0))
-                .show(ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(ui.visuals().window_fill)
-                        .stroke(ui.visuals().window_stroke)
-                        .corner_radius(12.0)
-                        .inner_margin(6.0)
-                        .show(ui, |ui| {
-                            ui.vertical_centered(|ui| {
+                .order(egui::Order::Foreground);
+            let area = if self.palette_dock != crate::workspace::PaletteDock::Floating
+                && !self.palette_dragging
+            {
+                area.current_pos(dock_position)
+            } else {
+                area.default_pos(dock_position)
+            };
+            let palette_response = area.show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(ui.visuals().window_fill)
+                    .stroke(ui.visuals().window_stroke)
+                    .corner_radius(12.0)
+                    .inner_margin(6.0)
+                    .show(ui, |ui| {
+                        if horizontal_palette {
+                            ui.set_min_width((screen.width() - 16.0).clamp(1.0, 640.0));
+                        }
+                        let mut draw_tools = |ui: &mut egui::Ui| {
+                            if !horizontal_palette {
                                 ui.add_space(8.0);
-                                if ui
+                            }
+                            ui.label(egui::RichText::new("⠿").size(18.0).strong())
+                                .on_hover_text(
+                                    "Drag this palette to move it; release near an edge to dock",
+                                )
+                                .on_disabled_hover_text("Tool palette");
+                            if !horizontal_palette
+                                && ui
                                     .small_button(if self.palette_collapsed {
                                         "Expand tools"
                                     } else {
                                         "Collapse tools"
                                     })
                                     .clicked()
-                                {
-                                    self.palette_collapsed = !self.palette_collapsed;
-                                    workspace_changed = true;
-                                }
-                                for (tool, icon, name, shortcut) in [
-                                    (
-                                        EditTool::Brush,
-                                        crate::studio_icons::Icon::Brush,
-                                        "Brush",
-                                        "B",
-                                    ),
-                                    (
-                                        EditTool::Rectangle,
-                                        crate::studio_icons::Icon::Rectangle,
-                                        "Rectangle selection",
-                                        "M",
-                                    ),
-                                    (
-                                        EditTool::Ellipse,
-                                        crate::studio_icons::Icon::Ellipse,
-                                        "Ellipse selection",
-                                        "E",
-                                    ),
-                                    (
-                                        EditTool::Lasso,
-                                        crate::studio_icons::Icon::Lasso,
-                                        "Freehand lasso",
-                                        "K",
-                                    ),
-                                    (
-                                        EditTool::Eyedropper,
-                                        crate::studio_icons::Icon::Eyedropper,
-                                        "Eyedropper",
-                                        "I",
-                                    ),
-                                ] {
-                                    let response = if self.palette_collapsed {
-                                        crate::studio_icons::button(
+                            {
+                                self.palette_collapsed = !self.palette_collapsed;
+                                workspace_changed = true;
+                            }
+                            for (tool, icon, name, shortcut) in [
+                                (
+                                    EditTool::Brush,
+                                    crate::studio_icons::Icon::Brush,
+                                    "Brush",
+                                    "B",
+                                ),
+                                (
+                                    EditTool::Rectangle,
+                                    crate::studio_icons::Icon::Rectangle,
+                                    "Rectangle selection",
+                                    "M",
+                                ),
+                                (
+                                    EditTool::Ellipse,
+                                    crate::studio_icons::Icon::Ellipse,
+                                    "Ellipse selection",
+                                    "E",
+                                ),
+                                (
+                                    EditTool::Lasso,
+                                    crate::studio_icons::Icon::Lasso,
+                                    "Freehand lasso",
+                                    "K",
+                                ),
+                                (
+                                    EditTool::Eyedropper,
+                                    crate::studio_icons::Icon::Eyedropper,
+                                    "Eyedropper",
+                                    "I",
+                                ),
+                            ] {
+                                let response = if self.palette_collapsed || horizontal_palette {
+                                    crate::studio_icons::button(
+                                        ui,
+                                        icon,
+                                        name,
+                                        Some(shortcut),
+                                        self.tool == tool,
+                                        [46.0, 46.0],
+                                    )
+                                } else {
+                                    ui.horizontal(|ui| {
+                                        let response = crate::studio_icons::button(
                                             ui,
                                             icon,
                                             name,
                                             Some(shortcut),
                                             self.tool == tool,
                                             [46.0, 46.0],
-                                        )
-                                    } else {
-                                        ui.horizontal(|ui| {
-                                            let response = crate::studio_icons::button(
-                                                ui,
-                                                icon,
-                                                name,
-                                                Some(shortcut),
-                                                self.tool == tool,
-                                                [46.0, 46.0],
-                                            );
-                                            ui.label(name);
-                                            response
-                                        })
-                                        .inner
-                                    };
-                                    if tool == EditTool::Brush
-                                        && self.test_path_dialog
-                                        && !self.welcome
-                                        && !self.new_dialog
-                                        && !self.manual_file_dialog
-                                        && !self.test_brush_rect_logged
-                                    {
-                                        self.test_brush_rect_logged = true;
-                                        let rect = response.rect;
-                                        eprintln!(
-                                            "UI_TEST_BRUSH_RECT: {:.2} {:.2} {:.2} {:.2} {:.2}",
-                                            rect.left(),
-                                            rect.top(),
-                                            rect.width(),
-                                            rect.height(),
-                                            self.context.pixels_per_point()
                                         );
-                                    }
-                                    if response.clicked() {
-                                        self.tool = tool;
-                                        if tool == EditTool::Brush {
-                                            self.show_controls = false;
-                                            self.color_flyout_open = false;
-                                            self.brush_flyout_open = true;
-                                            if self.test_path_dialog {
-                                                eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: palette");
-                                            }
-                                            workspace_changed = true;
+                                        ui.label(name);
+                                        response
+                                    })
+                                    .inner
+                                };
+                                if tool == EditTool::Brush
+                                    && self.test_path_dialog
+                                    && !self.welcome
+                                    && !self.new_dialog
+                                    && !self.manual_file_dialog
+                                    && !self.test_brush_rect_logged
+                                {
+                                    self.test_brush_rect_logged = true;
+                                    let rect = response.rect;
+                                    eprintln!(
+                                        "UI_TEST_BRUSH_RECT: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                        rect.left(),
+                                        rect.top(),
+                                        rect.width(),
+                                        rect.height(),
+                                        self.context.pixels_per_point()
+                                    );
+                                }
+                                if response.clicked() {
+                                    self.tool = tool;
+                                    if tool == EditTool::Brush {
+                                        self.show_controls = false;
+                                        self.color_flyout_open = false;
+                                        self.brush_flyout_open = true;
+                                        if self.test_path_dialog {
+                                            eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: palette");
                                         }
+                                        workspace_changed = true;
                                     }
                                 }
-                                if crate::studio_icons::button(
-                                    ui,
-                                    crate::studio_icons::Icon::Color,
-                                    "Color controls",
-                                    Some("C"),
-                                    self.color_flyout_open,
-                                    [46.0, 46.0],
-                                )
-                                .clicked()
-                                {
-                                    self.brush_flyout_open = false;
-                                    self.color_flyout_open = !self.color_flyout_open;
-                                }
-                                if !self.palette_collapsed {
-                                    let layers = ui
-                                        .button("Layers")
-                                        .on_hover_text("Open floating layer panel");
-                                    if layers.clicked() {
-                                        self.layers_flyout_open = !self.layers_flyout_open;
-                                    }
-                                } else if crate::studio_icons::button(
-                                    ui,
-                                    crate::studio_icons::Icon::Layers,
-                                    "Layers",
-                                    None,
-                                    false,
-                                    [46.0, 46.0],
-                                )
-                                .clicked()
-                                {
+                            }
+                            if crate::studio_icons::button(
+                                ui,
+                                crate::studio_icons::Icon::Color,
+                                "Color controls",
+                                Some("C"),
+                                self.color_flyout_open,
+                                [46.0, 46.0],
+                            )
+                            .clicked()
+                            {
+                                self.brush_flyout_open = false;
+                                self.color_flyout_open = !self.color_flyout_open;
+                            }
+                            if !self.palette_collapsed && !horizontal_palette {
+                                let layers = ui
+                                    .button("Layers")
+                                    .on_hover_text("Open floating layer panel");
+                                if layers.clicked() {
                                     self.layers_flyout_open = !self.layers_flyout_open;
                                 }
-                                ui.separator();
-                                let can_add_reference =
-                                    self.references.len() < crate::workspace::MAX_REFERENCES;
-                                if crate::studio_icons::button(
-                                    ui,
-                                    crate::studio_icons::Icon::Reference,
-                                    "Reference Images",
-                                    None,
-                                    false,
-                                    [46.0, 46.0],
-                                )
-                                .clicked()
-                                {
-                                    if can_add_reference {
-                                        self.picker = Some(FileRequest::AddReferences);
-                                    } else {
-                                        self.status = format!(
-                                            "Reference board is full ({} images maximum)",
-                                            crate::workspace::MAX_REFERENCES
-                                        );
-                                    }
+                            } else if crate::studio_icons::button(
+                                ui,
+                                crate::studio_icons::Icon::Layers,
+                                "Layers",
+                                None,
+                                false,
+                                [46.0, 46.0],
+                            )
+                            .clicked()
+                            {
+                                self.layers_flyout_open = !self.layers_flyout_open;
+                            }
+                            ui.separator();
+                            let can_add_reference =
+                                self.references.len() < crate::workspace::MAX_REFERENCES;
+                            if crate::studio_icons::button(
+                                ui,
+                                crate::studio_icons::Icon::Reference,
+                                "Reference Images",
+                                None,
+                                false,
+                                [46.0, 46.0],
+                            )
+                            .clicked()
+                            {
+                                if can_add_reference {
+                                    self.picker = Some(FileRequest::AddReferences);
+                                } else {
+                                    self.status = format!(
+                                        "Reference board is full ({} images maximum)",
+                                        crate::workspace::MAX_REFERENCES
+                                    );
                                 }
-                                ui.separator();
-                                if crate::studio_icons::button(
-                                    ui,
-                                    crate::studio_icons::Icon::Deselect,
-                                    "Deselect",
-                                    Some("Ctrl+D"),
-                                    false,
-                                    [46.0, 42.0],
-                                )
-                                .clicked()
-                                {
-                                    actions.push(Action::Deselect);
-                                }
-                                if crate::studio_icons::button(
-                                    ui,
-                                    crate::studio_icons::Icon::Fill,
-                                    "Fill selection",
-                                    Some("Ctrl+F"),
-                                    false,
-                                    [46.0, 42.0],
-                                )
-                                .clicked()
-                                {
-                                    actions.push(Action::Fill(false));
-                                }
-                                if crate::studio_icons::button(
-                                    ui,
-                                    crate::studio_icons::Icon::Eraser,
-                                    "Erase selection",
-                                    Some("Ctrl+X"),
-                                    false,
-                                    [46.0, 42.0],
-                                )
-                                .clicked()
-                                {
-                                    actions.push(Action::Fill(true));
-                                }
-                            });
-                        });
-                });
+                            }
+                            ui.separator();
+                            if crate::studio_icons::button(
+                                ui,
+                                crate::studio_icons::Icon::Deselect,
+                                "Deselect",
+                                Some("Ctrl+D"),
+                                false,
+                                [46.0, 42.0],
+                            )
+                            .clicked()
+                            {
+                                actions.push(Action::Deselect);
+                            }
+                            if crate::studio_icons::button(
+                                ui,
+                                crate::studio_icons::Icon::Fill,
+                                "Fill selection",
+                                Some("Ctrl+F"),
+                                false,
+                                [46.0, 42.0],
+                            )
+                            .clicked()
+                            {
+                                actions.push(Action::Fill(false));
+                            }
+                            if crate::studio_icons::button(
+                                ui,
+                                crate::studio_icons::Icon::Eraser,
+                                "Erase selection",
+                                Some("Ctrl+X"),
+                                false,
+                                [46.0, 42.0],
+                            )
+                            .clicked()
+                            {
+                                actions.push(Action::Fill(true));
+                            }
+                        };
+                        if horizontal_palette {
+                            ui.horizontal_wrapped(&mut draw_tools);
+                        } else {
+                            ui.vertical_centered(&mut draw_tools);
+                        }
+                    });
+            });
             let rect = palette_response.response.rect;
             let clamped = clamp_reference_position(
                 [rect.min.x, rect.min.y],
@@ -2943,14 +3030,12 @@ impl Studio {
                 screen,
             );
             self.palette_position = [clamped.x, clamped.y];
+            if palette_response.response.drag_started() {
+                self.palette_dragging = true;
+            }
             if palette_response.response.drag_stopped() {
-                if rect.left() <= screen.left() + 24.0 {
-                    self.palette_dock = crate::workspace::PaletteDock::Left;
-                } else if rect.right() >= screen.right() - 24.0 {
-                    self.palette_dock = crate::workspace::PaletteDock::Right;
-                } else {
-                    self.palette_dock = crate::workspace::PaletteDock::Floating;
-                }
+                self.palette_dock = crate::studio_layout::snap_palette(screen, rect);
+                self.palette_dragging = false;
                 workspace_changed = true;
             }
             if old_tool != self.tool {
@@ -3688,6 +3773,39 @@ impl Studio {
                             }
                         });
                         ui.color_edit_button_srgb(&mut project.brush.color);
+                        let mut hsv = crate::color_controls::rgb_to_hsv(project.brush.color);
+                        if hsv[1] > 0.01 && hsv[2] > 0.01 {
+                            self.color_hue = hsv[0];
+                        }
+                        let mut hue_degrees = self.color_hue * 360.0;
+                        ui.label("Pick a shade");
+                        let hue_changed = ui
+                            .add(
+                                egui::Slider::new(&mut hue_degrees, 0.0..=360.0)
+                                    .suffix("°")
+                                    .text("Hue"),
+                            )
+                            .changed();
+                        let hue = (hue_degrees / 360.0).rem_euclid(1.0);
+                        if let Some([saturation, value]) =
+                            saturation_value_field(ui, hue, hsv[1], hsv[2])
+                        {
+                            hsv[1] = saturation;
+                            hsv[2] = value;
+                            self.color_hue = hue;
+                            project.brush.color = crate::color_controls::hsv_to_rgb(hsv);
+                        }
+                        let saturation_changed = ui
+                            .add(egui::Slider::new(&mut hsv[1], 0.0..=1.0).text("Saturation"))
+                            .changed();
+                        let value_changed = ui
+                            .add(egui::Slider::new(&mut hsv[2], 0.0..=1.0).text("Brightness"))
+                            .changed();
+                        if hue_changed || saturation_changed || value_changed {
+                            self.color_hue = hue;
+                            project.brush.color =
+                                crate::color_controls::hsv_to_rgb([hue, hsv[1], hsv[2]]);
+                        }
                         let current_hex =
                             crate::color_controls::format_hex_rgb(project.brush.color);
                         if self.hex_color_for != Some(project.brush.color) {
@@ -3713,7 +3831,7 @@ impl Studio {
                                     self.hex_color_for = Some(color);
                                     self.status = "Brush color updated".into();
                                 } else {
-                                    self.status = "Enter a six-digit color such as #A78BFA".into();
+                                    self.status = "Enter a six-digit color such as #C55CFF".into();
                                 }
                             }
                         });

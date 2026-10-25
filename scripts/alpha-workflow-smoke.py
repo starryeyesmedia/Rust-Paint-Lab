@@ -442,9 +442,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-recent-artwork-light')
             key('Escape');assert process.wait(timeout=20)==0
             # Exercise the same application windows under dark mode and high
-            # contrast. Seed Recovery with an independently validated .rpl file.
+            # contrast. The dark workspace uses the persisted top dock to cover
+            # the horizontal toolbar layout. Seed Recovery with a valid .rpl.
             preferences=json.loads(prefs.read_text())
             preferences['appearance_mode']='Dark';preferences['dark_theme']=True;preferences['high_contrast']=False
+            preferences['palette_dock']='top'
             prefs.write_text(json.dumps(preferences))
             recovery_dir.mkdir(parents=True,exist_ok=True)
             visual_checkpoint=recovery_dir/'recovery-visual-checkpoint.rpl'
@@ -456,6 +458,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,640,480);capture_window(window,'home-dark-narrow')
             resize_window(window,1280,800)
             ctrl('n');new_document_prompt();capture_window(window,'new-artwork-dark-normal');key('Return');time.sleep(0.4)
+            capture_window(window,'canvas-workspace-dark-toolbar-top')
             capture_window(window,'reference-board-dark')
             ctrl('b');time.sleep(0.35);capture_window(window,'brush-library-dark')
             key('Escape');key('c');time.sleep(0.35);capture_window(window,'color-controls-dark')
@@ -474,7 +477,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             key('Escape');assert process.wait(timeout=20)==0
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','recovery-manager-populated-light','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','reference-board-dark','brush-library-dark','color-controls-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','recovery-manager-populated-light','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','brush-library-dark','color-controls-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

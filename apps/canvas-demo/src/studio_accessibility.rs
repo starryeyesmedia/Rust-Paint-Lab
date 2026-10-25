@@ -81,6 +81,41 @@ mod tests {
     }
 
     #[test]
+    fn color_field_has_a_semantic_name_and_keyboard_adjustable_components() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::saturation_value_field(ui, 0.78, 0.5, 0.75);
+                let mut hue = 0.78;
+                let mut saturation = 0.5;
+                let mut brightness = 0.75;
+                ui.add(egui::Slider::new(&mut hue, 0.0..=1.0).text("Hue"));
+                ui.add(egui::Slider::new(&mut saturation, 0.0..=1.0).text("Saturation"));
+                ui.add(egui::Slider::new(&mut brightness, 0.0..=1.0).text("Brightness"));
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("color controls emit AccessKit semantic nodes");
+        let labels = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for name in [
+            "Saturation and brightness color field",
+            "Hue",
+            "Saturation",
+            "Brightness",
+        ] {
+            assert!(labels.contains(name), "{name} missing from tree: {labels}");
+        }
+    }
+
+    #[test]
     fn new_artwork_format_cards_have_semantic_names_in_the_accessibility_tree() {
         let context = egui::Context::default();
         context.enable_accesskit();

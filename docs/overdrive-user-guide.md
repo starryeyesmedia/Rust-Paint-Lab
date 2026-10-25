@@ -34,8 +34,10 @@ experimental. The flyout provides working size, opacity and color controls. Choo
 Advanced brush settings to reach the detailed inspector, where size and opacity
 accept direct numeric entry and flow, hardness, spacing, tilt, angle, smoothing,
 and pressure responses are grouped under Advanced dynamics. Color controls open
-their own floating panel with the validated six-digit HEX color and recent-color
-swatches. Recent colors are newest first and can be selected by mouse or touch.
+their own floating panel with an interactive hue slider and saturation/brightness
+field, keyboard-adjustable saturation/brightness sliders, validated six-digit HEX
+and exact RGB entry, eyedropper, current/previous color, and recent-color swatches.
+Recent colors are newest first and can be selected by mouse or touch.
 The list is capped at twelve unique local workspace colors and is independent of
 the interface accent. Opacity caps the whole stroke while flow accumulates individual dabs. Wash
 is a deterministic visual experiment, not a physical watercolor simulation. Airbrush
@@ -62,8 +64,11 @@ need advanced brush dynamics or the full layer editor. Use the compact File menu
 recent projects and the artwork recovery manager. Edit contains Undo/Redo and
 selection fill/erase; Image contains Crop; Layer contains the existing layer
 operations; View switches appearance and accessibility preferences; Window offers
-workspace visibility, floating Layers, palette docking and handedness. The five primary tools are
-in the rounded vertical palette left of the canvas. Each icon has a name and shortcut
+workspace visibility, floating Layers, palette docking and handedness. The five
+primary tools are in the rounded palette, left by default. Drag an empty area
+of it to move; it snaps to the nearest window edge on release and uses a
+horizontal wrapped layout on top/bottom docks. Palette positions and dock choice
+are remembered. Each icon has a name and shortcut
 tooltip, and selection/utility actions sit below them. File actions open the
 operating-system file browser.
 The default shell appearance is Midnight Violet. View → Appearance selects Dark,

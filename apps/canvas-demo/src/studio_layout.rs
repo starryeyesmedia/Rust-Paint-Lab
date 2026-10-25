@@ -1,5 +1,44 @@
 //! Small, deterministic helpers for placing floating studio panels.
 
+use crate::workspace::PaletteDock;
+
+/// Position a docked tool palette with comfortable clearance from the app menu
+/// and status bars. Top and bottom docks are centered and use a horizontal row.
+pub fn palette_anchor(viewport: egui::Rect, dock: PaletteDock, floating: egui::Pos2) -> egui::Pos2 {
+    let margin = 8.0;
+    let right_anchor = (viewport.right() - 72.0).max(viewport.left() + margin);
+    let horizontal_anchor = (viewport.center().x - 320.0).clamp(
+        viewport.left() + margin,
+        (viewport.right() - 656.0).max(viewport.left() + margin),
+    );
+    match dock {
+        PaletteDock::Left => egui::pos2(viewport.left() + margin, viewport.top() + 64.0),
+        PaletteDock::Right => egui::pos2(right_anchor, viewport.top() + 64.0),
+        PaletteDock::Top => egui::pos2(horizontal_anchor, viewport.top() + 64.0),
+        PaletteDock::Bottom => egui::pos2(horizontal_anchor, viewport.bottom() - 72.0),
+        PaletteDock::Floating => floating,
+    }
+}
+
+/// Snap a dragged palette to its nearest edge when released within the hit
+/// margin. Positions outside that margin remain floating and viewport-clamped.
+pub fn snap_palette(viewport: egui::Rect, rect: egui::Rect) -> PaletteDock {
+    let edges = [
+        (PaletteDock::Left, (rect.left() - viewport.left()).abs()),
+        (PaletteDock::Right, (viewport.right() - rect.right()).abs()),
+        (PaletteDock::Top, (rect.top() - viewport.top() - 56.0).abs()),
+        (
+            PaletteDock::Bottom,
+            (viewport.bottom() - rect.bottom()).abs(),
+        ),
+    ];
+    edges
+        .into_iter()
+        .min_by(|left, right| left.1.total_cmp(&right.1))
+        .filter(|(_, distance)| *distance <= 24.0)
+        .map_or(PaletteDock::Floating, |(dock, _)| dock)
+}
+
 /// Select a panel position that fits the viewport and avoids the tool palette
 /// when there is room. Candidate order follows the palette edge, then falls
 /// back to the location with the least overlap after clamping.
@@ -105,5 +144,49 @@ mod tests {
             egui::pos2(700.0, 160.0),
         );
         assert_eq!(pos, egui::pos2(700.0, 160.0));
+    }
+
+    #[test]
+    fn palette_docks_to_all_four_edges_and_floats_between_them() {
+        let viewport = rect(0.0, 0.0, 1280.0, 800.0);
+        for (bounds, expected) in [
+            (rect(4.0, 120.0, 72.0, 400.0), PaletteDock::Left),
+            (rect(1204.0, 120.0, 72.0, 400.0), PaletteDock::Right),
+            (rect(400.0, 60.0, 480.0, 72.0), PaletteDock::Top),
+            (rect(400.0, 720.0, 480.0, 72.0), PaletteDock::Bottom),
+            (rect(400.0, 300.0, 480.0, 72.0), PaletteDock::Floating),
+        ] {
+            assert_eq!(snap_palette(viewport, bounds), expected);
+        }
+    }
+
+    #[test]
+    fn edge_anchors_center_horizontal_palettes_and_honor_handed_sides() {
+        let viewport = rect(0.0, 0.0, 1280.0, 800.0);
+        assert_eq!(
+            palette_anchor(viewport, PaletteDock::Top, egui::Pos2::ZERO),
+            egui::pos2(320.0, 64.0)
+        );
+        assert_eq!(
+            palette_anchor(viewport, PaletteDock::Bottom, egui::Pos2::ZERO),
+            egui::pos2(320.0, 728.0)
+        );
+        assert_eq!(
+            palette_anchor(viewport, PaletteDock::Left, egui::Pos2::ZERO),
+            egui::pos2(8.0, 64.0)
+        );
+        assert_eq!(
+            palette_anchor(viewport, PaletteDock::Right, egui::Pos2::ZERO),
+            egui::pos2(1208.0, 64.0)
+        );
+        let narrow = rect(0.0, 0.0, 320.0, 240.0);
+        assert_eq!(
+            palette_anchor(narrow, PaletteDock::Top, egui::Pos2::ZERO),
+            egui::pos2(8.0, 64.0)
+        );
+        assert_eq!(
+            palette_anchor(narrow, PaletteDock::Bottom, egui::Pos2::ZERO),
+            egui::pos2(8.0, 168.0)
+        );
     }
 }
