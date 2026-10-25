@@ -324,3 +324,9 @@ File, shows bounded header metadata and size, and routes Recover through the
 existing replacement/preservation gate. Removal remains confirmed and uses the
 recovery module's ownership/path guards. This is not yet an automated Xvfb
 manager-interaction test, and the manager does not yet show decoded image previews.
+
+The Linux alpha-window workflow captures the running Home, New Artwork, workspace,
+and Brush library windows into the `rust-paint-lab-studio-ui-smoke` Actions artifact.
+Inspect these actual Xvfb-rendered screenshots when the workflow succeeds; they
+are visual review evidence for the virtual Linux window, not Windows DPI or
+physical hardware validation.

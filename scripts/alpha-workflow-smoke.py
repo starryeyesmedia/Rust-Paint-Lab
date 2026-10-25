@@ -133,6 +133,40 @@ def native_state(path):
 def png_chunk(kind, data):
     body=kind+data
     return struct.pack('>I',len(data))+body+struct.pack('>I',binascii.crc32(body)&0xffffffff)
+
+class Visual(c.Structure):
+    _fields_=[('ext_data',c.c_void_p),('visualid',W),('class_',I),('red_mask',W),('green_mask',W),('blue_mask',W),('bits_per_rgb',I),('map_entries',I)]
+
+get_geometry=api(x,'XGetGeometry',I,D,W,c.POINTER(W),c.POINTER(I),c.POINTER(I),c.POINTER(U),c.POINTER(U),c.POINTER(U),c.POINTER(U))
+get_image=api(x,'XGetImage',c.c_void_p,D,W,I,I,U,U,W,I)
+get_pixel=api(x,'XGetPixel',W,c.c_void_p,I,I)
+destroy_image=api(x,'XDestroyImage',I,c.c_void_p)
+default_screen=api(x,'XDefaultScreen',I,D)
+default_visual=api(x,'XDefaultVisual',c.POINTER(Visual),D,I)
+
+def capture_window(window, name):
+    folder=os.environ.get('RPL_UI_SCREENSHOT_DIR')
+    if not folder: return
+    root, x_pos, y_pos, width, height, border, depth=W(), I(), I(), U(), U(), U(), U()
+    assert get_geometry(display, window, c.byref(root), c.byref(x_pos), c.byref(y_pos), c.byref(width), c.byref(height), c.byref(border), c.byref(depth))
+    image=get_image(display, window, 0, 0, width.value, height.value, W(-1).value, 2)
+    assert image, 'XGetImage failed for running Rust Paint Lab window'
+    visual=default_visual(display, default_screen(display)).contents
+    def component(pixel, mask):
+        if not mask: return 0
+        shift=(mask & -mask).bit_length()-1
+        maximum=mask >> shift
+        return (((pixel & mask) >> shift)*255 + maximum//2)//maximum
+    rows=bytearray()
+    for y in range(height.value):
+        rows.append(0)
+        for x_pos_pixel in range(width.value):
+            pixel=get_pixel(display, image, x_pos_pixel, y)
+            rows.extend((component(pixel,visual.red_mask),component(pixel,visual.green_mask),component(pixel,visual.blue_mask),255))
+    destroy_image(image)
+    raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width.value,height.value,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
+    destination=Path(folder);destination.mkdir(parents=True,exist_ok=True)
+    (destination/f'{name}.png').write_bytes(raw)
 def decode_rgba_png(data):
     assert data[:8]==b'\x89PNG\r\n\x1a\n'
     offset=8;width=height=bit_depth=color_type=None;compressed=bytearray()
@@ -187,7 +221,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             focus(display,window,2,0);send()
             # Let font/layout requests settle before testing drawing ownership.
             time.sleep(0.5)
-            ctrl('n');new_document_prompt();key('Return');time.sleep(0.5)
+            capture_window(window,'home')
+            ctrl('n');new_document_prompt();time.sleep(0.25)
+            capture_window(window,'new-document')
+            key('Return');time.sleep(0.5)
+            capture_window(window,'canvas-workspace')
+            move(40,130);click_button(1,True);click_button(1,False);time.sleep(0.25)
+            capture_window(window,'brush-library')
+            key('Escape')
             move(180,250);click_button(1,True);move(400,400);click_button(1,False)
             status('*')
             ctrl('s');project=directory/'artwork.rpl'

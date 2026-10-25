@@ -604,6 +604,14 @@ layout remains on laptop-sized windows. This is a deterministic width breakpoint
 small-window visual inspection is still needed when Xvfb screenshot support is
 available.
 
+The Linux/Xvfb alpha workflow now captures the actual Home, New Artwork, canvas
+workspace, and Brush library windows from the running application and uploads them
+as a short-retention CI artifact for visual inspection. The capture code uses the
+X11 window image and visual masks, not generated mockups. This capture change has
+only been syntax-checked locally because Xvfb is unavailable here; the newest CI
+run must pass and its screenshots must be inspected before visual review is
+considered complete.
+
 The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,
 palm rejection, pen/touch concurrency, DPI behavior and latency are still not
