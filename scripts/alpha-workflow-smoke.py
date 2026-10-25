@@ -80,10 +80,9 @@ def wait(predicate, description):
     raise AssertionError(f'Timeout: {description}')
 
 def brush_rect():
-    for line in (directory/'application.log').read_text().splitlines():
-        if line.startswith('UI_TEST_BRUSH_RECT: '):
-            return tuple(map(float,line.partition(': ')[2].split()))
-    return None
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_BRUSH_RECT: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def send():
     flush(display)

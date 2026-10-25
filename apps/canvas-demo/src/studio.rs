@@ -2474,6 +2474,9 @@ impl Studio {
                                     };
                                     if tool == EditTool::Brush
                                         && self.test_path_dialog
+                                        && !self.welcome
+                                        && !self.new_dialog
+                                        && !self.manual_file_dialog
                                         && !self.test_brush_rect_logged
                                     {
                                         self.test_brush_rect_logged = true;

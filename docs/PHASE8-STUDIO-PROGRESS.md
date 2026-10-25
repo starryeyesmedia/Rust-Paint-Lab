@@ -771,6 +771,16 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   change preserves the native WM_POINTER observer and does not change the drawing
   pipeline; it makes no new hardware-input verification claim.
 
+- Actions run [`40230324720`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40230324720)
+  passed Linux formatting, strict Clippy, all Rust tests, build, virtual-window
+  smoke and live mouse smoke. The expanded screenshot run captured Home (light,
+  normal/narrow) and New Artwork (light, normal/narrow), then failed because its
+  palette click used bounds logged while Home was still covering the workspace.
+  The UI diagnostic now logs the Brush target only after the canvas workspace is
+  active and the smoke uses the latest reported bounds. Windows was canceled
+  during tests before executable packaging; the run produced no Windows package.
+  A single clean matrix run is pending for commit `6777672` plus this smoke fix.
+
 Next: push for the expanded cross-platform workflow, inspect its screenshots if
 artifact access is restored, fix any issues visible in those captures, and then
 produce the consolidated Windows evaluation artifact. Keep Phase 8.3 active until

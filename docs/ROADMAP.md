@@ -67,7 +67,10 @@ hierarchy and theme-safe heading contrast, and populated light/dark/high-contras
 UI screenshot coverage are being improved. These changes are not yet fully
 validated by GitHub Actions. The current local run passes formatting, strict
 Clippy, all 200 workspace tests, build, llvmpipe GPU smoke, and Windows GNU
-target check/Clippy; Xvfb screenshot execution remains CI-only. See
+target check/Clippy. Actions run `40230324720` confirmed the first eight
+light-theme normal/narrow screenshots but exposed stale test-only palette
+geometry when the smoke clicked after leaving Home; this was corrected and the
+next complete matrix run is pending. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are
 provisional.
