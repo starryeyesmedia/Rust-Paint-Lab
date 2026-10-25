@@ -513,7 +513,7 @@ fn brush_display_name(kind: BrushKind) -> &'static str {
 }
 
 #[derive(Clone)]
-enum Action {
+pub(crate) enum Action {
     Fill(bool),
     Deselect,
     Transform([f64; 6]),
@@ -571,6 +571,69 @@ impl FileRequest {
         })
     }
 }
+
+pub(crate) fn layer_flyout_contents(
+    ui: &mut egui::Ui,
+    project: &mut Engine,
+    actions: &mut Vec<Action>,
+) {
+    let selected = project.state().selected;
+    let layers: Vec<_> = project
+        .state()
+        .layers
+        .iter()
+        .rev()
+        .map(|layer| (layer.id, layer.name.clone(), layer.visible, layer.locked))
+        .collect();
+    ui.horizontal(|ui| {
+        if ui.button("New").clicked() {
+            actions.push(Action::Add);
+        }
+        if ui.button("Duplicate").clicked() {
+            actions.push(Action::Duplicate);
+        }
+        if ui
+            .add_enabled(layers.len() > 1, egui::Button::new("Delete"))
+            .clicked()
+        {
+            actions.push(Action::Delete);
+        }
+    });
+    ui.separator();
+    ui.small("Frontmost layer appears first.");
+    for (id, name, mut visible, mut locked) in layers {
+        ui.horizontal(|ui| {
+            if ui.selectable_label(id == selected, &name).clicked() {
+                actions.push(Action::Select(id));
+            }
+            if ui.checkbox(&mut visible, "Visible").changed()
+                && let Some(layer) = project.state().layers.iter().find(|layer| layer.id == id)
+            {
+                actions.push(Action::Layer(
+                    id,
+                    layer.name.clone(),
+                    visible,
+                    layer.locked,
+                    layer.opacity,
+                    layer.blend,
+                ));
+            }
+            if ui.checkbox(&mut locked, "Locked").changed()
+                && let Some(layer) = project.state().layers.iter().find(|layer| layer.id == id)
+            {
+                actions.push(Action::Layer(
+                    id,
+                    layer.name.clone(),
+                    layer.visible,
+                    locked,
+                    layer.opacity,
+                    layer.blend,
+                ));
+            }
+        });
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum EditTool {
     Brush,
@@ -610,6 +673,7 @@ pub struct Studio {
     pub close_ready: bool,
     recovery: Option<Recovery>,
     recovery_files: Vec<PathBuf>,
+    recovery_preview: Option<(PathBuf, Option<egui::TextureHandle>)>,
     recovery_manager: bool,
     recovery_manager_from_home: bool,
     drafts: Vec<PathBuf>,
@@ -635,7 +699,10 @@ pub struct Studio {
     palette_collapsed: bool,
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
+    layers_flyout_position: [f32; 2],
+    layers_flyout_size: [f32; 2],
     brush_flyout_open: bool,
+    layers_flyout_open: bool,
     color_flyout_open: bool,
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
@@ -761,6 +828,7 @@ impl Studio {
             close_ready: false,
             recovery,
             recovery_files: files,
+            recovery_preview: None,
             recovery_manager: false,
             recovery_manager_from_home: false,
             drafts: crate::drafts::list(),
@@ -789,7 +857,10 @@ impl Studio {
             palette_collapsed: preferences.palette_collapsed,
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
+            layers_flyout_position: preferences.layers_flyout_position,
+            layers_flyout_size: preferences.layers_flyout_size,
             brush_flyout_open: false,
+            layers_flyout_open: false,
             color_flyout_open: false,
             navigation: crate::navigation::Navigation {
                 zoom: preferences.canvas_zoom,
@@ -1448,6 +1519,27 @@ impl Studio {
     }
     pub fn shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
+        if key == 'l' {
+            self.layers_flyout_open = !self.layers_flyout_open;
+            return;
+        }
+        if key == 'g' {
+            if self.recovery_manager {
+                self.recovery_manager = false;
+                if self.recovery_manager_from_home {
+                    self.welcome = true;
+                }
+                self.recovery_manager_from_home = false;
+            } else {
+                self.recovery_files = paint_document::recovery::directory()
+                    .map(|directory| paint_document::recovery::available(&directory))
+                    .unwrap_or_default();
+                self.recovery_preview = None;
+                self.recovery_manager = true;
+                self.recovery_manager_from_home = false;
+            }
+            return;
+        }
         if key == 't' || key == 'u' {
             self.path = PathBuf::from(&self.path)
                 .with_extension("rplbrush")
@@ -1512,6 +1604,20 @@ impl Studio {
         if let Err(e) = self.execute(action, session) {
             self.status = e.to_string();
         }
+    }
+
+    /// Dismiss the top contextual panel before Escape can close the application.
+    pub fn dismiss_flyout(&mut self) -> bool {
+        if self.brush_flyout_open {
+            self.brush_flyout_open = false;
+        } else if self.color_flyout_open {
+            self.color_flyout_open = false;
+        } else if self.layers_flyout_open {
+            self.layers_flyout_open = false;
+        } else {
+            return false;
+        }
+        true
     }
     pub fn preserve(&self, session: &CanvasSession) -> Result<(), Failure> {
         if session.live().project().dirty() {
@@ -1611,6 +1717,8 @@ impl Studio {
             palette_collapsed: self.palette_collapsed,
             handedness: self.handedness,
             palette_position: self.palette_position,
+            layers_flyout_position: self.layers_flyout_position,
+            layers_flyout_size: self.layers_flyout_size,
             ..Default::default()
         };
         if !preferences.validate() {
@@ -1750,6 +1858,7 @@ impl Studio {
                                         paint_document::recovery::available(&directory)
                                     })
                                     .unwrap_or_default();
+                                self.recovery_preview = None;
                                 self.recovery_manager = true;
                                 self.recovery_manager_from_home = false;
                                 ui.close();
@@ -1962,6 +2071,7 @@ impl Studio {
                             workspace_changed |= ui
                                 .checkbox(&mut self.show_controls, "Show workspace panel")
                                 .changed();
+                            ui.checkbox(&mut self.layers_flyout_open, "Show floating Layers panel");
                             if ui.button("Reset workspace layout").clicked() {
                                 self.show_controls = true;
                                 self.brush_panel_width = 260.0;
@@ -2045,6 +2155,8 @@ impl Studio {
                             ui.label("B Brush · M Rectangle · E Ellipse");
                             ui.label("K Lasso · I Eyedropper");
                             ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
+                            ui.label("Ctrl+L Floating Layers panel");
+                            ui.label("Ctrl+Shift+M Artwork recovery manager");
                             ui.label("Ctrl+Z / Ctrl+Y Undo / Redo · Esc Close");
                         });
                     });
@@ -2164,12 +2276,11 @@ impl Studio {
                                     self.color_flyout_open = !self.color_flyout_open;
                                 }
                                 if !self.palette_collapsed {
-                                    let layers =
-                                        ui.button("Layers").on_hover_text("Open layer manager");
+                                    let layers = ui
+                                        .button("Layers")
+                                        .on_hover_text("Open floating layer panel");
                                     if layers.clicked() {
-                                        self.show_controls = true;
-                                        self.inspector_tab = crate::workspace::InspectorTab::Layers;
-                                        workspace_changed = true;
+                                        self.layers_flyout_open = !self.layers_flyout_open;
                                     }
                                 } else if crate::studio_icons::button(
                                     ui,
@@ -2181,9 +2292,7 @@ impl Studio {
                                 )
                                 .clicked()
                                 {
-                                    self.show_controls = true;
-                                    self.inspector_tab = crate::workspace::InspectorTab::Layers;
-                                    workspace_changed = true;
+                                    self.layers_flyout_open = !self.layers_flyout_open;
                                 }
                                 ui.separator();
                                 let can_add_reference =
@@ -2773,6 +2882,36 @@ impl Studio {
                 }
             }
 
+            if self.layers_flyout_open {
+                let mut open = self.layers_flyout_open;
+                let panel = egui::Window::new("Layers")
+                    .open(&mut open)
+                    .resizable(true)
+                    .default_size(egui::vec2(
+                        self.layers_flyout_size[0],
+                        self.layers_flyout_size[1],
+                    ))
+                    .default_pos(egui::pos2(
+                        self.layers_flyout_position[0],
+                        self.layers_flyout_position[1],
+                    ))
+                    .constrain_to(screen.shrink(8.0))
+                    .show(ctx, |ui| {
+                        layer_flyout_contents(ui, session.live_mut().project_mut(), actions);
+                    });
+                if let Some(panel) = panel {
+                    let rect = panel.response.rect;
+                    let position = [rect.left(), rect.top()];
+                    let size = [rect.width(), rect.height()];
+                    if position != self.layers_flyout_position || size != self.layers_flyout_size {
+                        self.layers_flyout_position = position;
+                        self.layers_flyout_size = size;
+                        workspace_changed = true;
+                    }
+                }
+                self.layers_flyout_open = open;
+            }
+
             if self.brush_flyout_open {
                 let mut open = self.brush_flyout_open;
                 egui::Window::new("Brush library")
@@ -3257,6 +3396,7 @@ impl Studio {
                                                     self.recovery_files = paint_document::recovery::directory()
                                                         .map(|directory| paint_document::recovery::available(&directory))
                                                         .unwrap_or_default();
+                                                    self.recovery_preview = None;
                                                     self.recovery_manager = true;
                                                     self.recovery_manager_from_home = true;
                                                 }
@@ -3269,6 +3409,7 @@ impl Studio {
                                             self.recovery_files = paint_document::recovery::directory()
                                                 .map(|directory| paint_document::recovery::available(&directory))
                                                 .unwrap_or_default();
+                                            self.recovery_preview = None;
                                             self.recovery_manager = true;
                                             self.recovery_manager_from_home = true;
                                         }
@@ -3326,9 +3467,26 @@ impl Studio {
                             let dimensions = storage::peek_dimensions(&path)
                                 .map(|(width, height, dpi)| format!("{width} × {height} px · {dpi} DPI"))
                                 .unwrap_or_else(|| "Project dimensions unavailable".into());
+                            let preview = self.recovery_preview.as_ref()
+                                .filter(|(preview_path, _)| preview_path == &path)
+                                .and_then(|(_, texture)| texture.clone());
+                            let preview_attempted = self.recovery_preview.as_ref()
+                                .is_some_and(|(preview_path, _)| preview_path == &path);
                             egui::Frame::new().fill(ui.visuals().faint_bg_color)
                                 .corner_radius(8.0).inner_margin(10.0).show(ui, |ui| {
                                     ui.horizontal(|ui| {
+                                        if let Some(texture) = preview {
+                                            ui.add(
+                                                egui::Image::new(&texture)
+                                                    .max_size(egui::vec2(120.0, 80.0))
+                                                    .alt_text("Artwork recovery preview"),
+                                            );
+                                        } else if preview_attempted {
+                                            ui.label("Preview unavailable");
+                                        } else if ui.button("Preview").clicked() {
+                                            let texture = crate::recovery_previews::load(&path, ctx);
+                                            self.recovery_preview = Some((path.clone(), texture));
+                                        }
                                         ui.vertical(|ui| {
                                             ui.strong(name);
                                             ui.label(dimensions);

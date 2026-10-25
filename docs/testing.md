@@ -322,11 +322,17 @@ cargo test --locked -p canvas-demo --lib home_thumbnails
 The artwork recovery manager exposes validated inactive snapshots from Home and
 File, shows bounded header metadata and size, and routes Recover through the
 existing replacement/preservation gate. Removal remains confirmed and uses the
-recovery module's ownership/path guards. This is not yet an automated Xvfb
-manager-interaction test, and the manager does not yet show decoded image previews.
+recovery module's ownership/path guards. A selected checkpoint can be previewed
+on demand after the normal native loader validates it; pixel sampling is capped at
+180 × 120 and the one retained texture is workspace-only. A unit test covers
+valid and corrupted files. AccessKit tree tests also render the actual floating
+Layers-panel contents and assert its layer actions and state labels. Its
+position/size preference test covers migration defaults, finite checks and bounds.
 
-The Linux alpha-window workflow captures the running Home, New Artwork, workspace,
-and Brush library windows into the `rust-paint-lab-studio-ui-smoke` Actions artifact.
-Inspect these actual Xvfb-rendered screenshots when the workflow succeeds; they
-are visual review evidence for the virtual Linux window, not Windows DPI or
-physical hardware validation.
+The Linux alpha-window workflow drives the running Home, New Artwork, workspace,
+Brush library, Layers panel and Recovery manager, then captures the actual windows
+into the `rust-paint-lab-studio-ui-smoke` Actions artifact. Inspect these Xvfb
+screenshots when the workflow succeeds; they are visual review evidence for the
+virtual Linux window, not Windows DPI, Narrator/NVDA or physical hardware
+validation. The companion `rust-paint-lab-linux-ui-diagnostics` artifact retains
+the input/action log on failures.

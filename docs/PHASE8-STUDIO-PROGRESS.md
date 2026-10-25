@@ -616,3 +616,64 @@ The owner reports that basic S Pen drawing has been used in previous hands-on
 Windows sessions and provided recordings. Pressure curves, independent tilt axes,
 palm rejection, pen/touch concurrency, DPI behavior and latency are still not
 explicitly demonstrated or measured here.
+
+### Continued Phase 8.3 workspace implementation
+
+- The floating Layers panel now opens from the primary tool palette or with
+  `Ctrl+L`; it is movable/resizable, can be hidden from the Window menu or closed
+  directly, and exposes real layer selection, visibility, lock, create, duplicate
+  and delete actions. Its position and size are sanitized and persisted as
+  workspace preferences. Escape dismisses the active Brush, Color or Layers panel
+  before reaching the application's close workflow. A separate AccessKit-tree
+  test now renders the same Layers-panel contents used by the application and
+  asserts the semantic labels for those controls.
+- `Ctrl+Shift+M` opens/closes the artwork recovery manager. Entries offer an
+  on-demand image preview built only after the native storage loader validates
+  file limits, structure and checksum. Sampling is capped at 180 × 120, only one
+  selected texture is retained, malformed checkpoints show “Preview unavailable,”
+  and a round-trip/corruption test covers the path.
+- The Linux Xvfb workflow now captures the actual Home, New Artwork, canvas,
+  Brush-library, Layers-panel and Recovery-manager windows. Capture uses the `xwd` utility and a
+  bounded XWD-to-PNG decoder; the previous ctypes `XGetImage` path caused a
+  runner-only segmentation fault. The workflow also traces input actions and
+  uploads the failure log, so subsequent window failures can be diagnosed from
+  the GitHub API even if artifact-host downloads are unavailable.
+- The first screenshot-enabled Linux run confirmed four rendered windows and
+  exposed that Escape closed the entire application while the Brush library was
+  open. The app now dismisses contextual panels first. The updated Escape path,
+  Layers panel and screenshots are not yet validated by a completed Actions run.
+- Current local validation after the Layers panel, recovery preview and Escape
+  handling: pinned Rust 1.90 formatting, strict workspace Clippy, workspace build,
+  **193 workspace tests**, and the required llvmpipe GPU smoke passed. The new AccessKit test
+  verifies labels from the real panel widget function, rather than a parallel
+  mock tree. The Xvfb screen sequence still requires CI because this environment
+  has no Xvfb/display server.
+- Actions run [`40223326274`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40223326274)
+  passed Windows and macOS lint/build/package paths, including separate Windows
+  diagnostic and canvas builds. Linux passed formatting, Clippy, all tests,
+  build, virtual-window startup, live-mouse drawing, and captured four windows;
+  the end-to-end artwork smoke then failed because Escape closed the window. The
+  code fix is being pushed and revalidated. Windows and Linux portable artifact
+  bytes could not be downloaded in this environment because GitHub's Actions
+  artifact blob hosts are blocked; API metadata remains accessible.
+- Narrator/NVDA and Windows UI Automation have not been exercised. AccessKit tree
+  generation and semantic labels are tested, but full keyboard focus traversal,
+  modal semantics and native screen-reader announcements remain open. Basic S Pen
+  drawing has been observed on the Galaxy Book in earlier testing; this workspace
+  work does not claim that advanced pressure/tilt/palm/DPI behavior was retested.
+
+### Exact continuation from this checkpoint
+
+1. Finish the Escape/Layers/recovery-preview Linux window-smoke run and inspect
+   uploaded screenshots for Home, New Artwork, canvas, Brush library, Layers and
+   the Recovery manager.
+2. Download and verify the current Windows canvas and stylus artifacts, then
+   publish one consolidated Phase 8.3 Windows evaluation ZIP with a short guide;
+   do this only after the main workflow passes.
+3. Complete a keyboard/focus pass across Home, New Artwork, recovery, Brush/Color/
+   Layers flyouts, reference controls and appearance preferences. Report native
+   Narrator/NVDA limitations until a Windows assistive-technology run is possible.
+4. Continue the visual refinement of Home and reference boards, persist panel
+   placement where the interaction model is stable, and continue the focus/screen
+   reader review. Keep artwork and export state isolated from workspace-only images
+   and controls.

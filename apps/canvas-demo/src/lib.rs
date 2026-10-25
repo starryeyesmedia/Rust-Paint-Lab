@@ -12,6 +12,7 @@ pub mod native_history;
 pub mod navigation;
 pub mod playback;
 pub mod raster_gpu;
+pub mod recovery_previews;
 pub mod scene;
 pub mod studio;
 pub mod studio_accessibility;

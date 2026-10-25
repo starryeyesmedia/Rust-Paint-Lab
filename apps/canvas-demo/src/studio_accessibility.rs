@@ -33,4 +33,33 @@ mod tests {
             "document action missing from tree: {labels}"
         );
     }
+
+    #[test]
+    fn accesskit_tree_exposes_actions_in_the_real_floating_layers_panel() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let mut project = paint_document::Engine::new(32, 32, 300).unwrap();
+        let mut actions = Vec::new();
+        let output = context.run(Default::default(), |ctx| {
+            egui::Window::new("Layers").show(ctx, |ui| {
+                crate::studio::layer_flyout_contents(ui, &mut project, &mut actions);
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("layer flyout emits its semantic nodes");
+        let labels = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in ["Layers", "New", "Duplicate", "Delete", "Visible", "Locked"] {
+            assert!(
+                labels.contains(label),
+                "{label} missing from tree: {labels}"
+            );
+        }
+    }
 }

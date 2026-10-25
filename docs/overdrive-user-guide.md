@@ -90,7 +90,9 @@ selection and canvas navigation do not start under their visible bounds.
 
 Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+N New Document; Ctrl+O open project
 picker; Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
-F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
+Ctrl+L opens or closes the floating Layers panel; Ctrl+Shift+M opens or closes the
+artwork recovery manager; Escape closes an active Brush/Color/Layers panel before
+the application close workflow. F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
 replays; Tab switches modes; R restarts; Space pauses. Replay never replaces live
 artwork. Normal close saves named projects to their existing path, or writes an
 unnamed document as a bounded local editable draft. If saving fails, the app stays

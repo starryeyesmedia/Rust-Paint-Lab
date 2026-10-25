@@ -34,6 +34,14 @@ fn default_palette_position() -> [f32; 2] {
     [72.0, 54.0]
 }
 
+fn default_layers_flyout_position() -> [f32; 2] {
+    [760.0, 96.0]
+}
+
+fn default_layers_flyout_size() -> [f32; 2] {
+    [300.0, 260.0]
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InspectorTab {
     #[default]
@@ -173,6 +181,10 @@ pub struct WorkspacePreferences {
     pub handedness: Handedness,
     #[serde(default = "default_palette_position")]
     pub palette_position: [f32; 2],
+    #[serde(default = "default_layers_flyout_position")]
+    pub layers_flyout_position: [f32; 2],
+    #[serde(default = "default_layers_flyout_size")]
+    pub layers_flyout_size: [f32; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +257,8 @@ impl Default for WorkspacePreferences {
             palette_collapsed: false,
             handedness: Handedness::Right,
             palette_position: [72.0, 54.0],
+            layers_flyout_position: default_layers_flyout_position(),
+            layers_flyout_size: default_layers_flyout_size(),
         }
     }
 }
@@ -265,6 +279,8 @@ impl WorkspacePreferences {
             || !self.canvas_zoom.is_finite()
             || !self.ui_scale.is_finite()
             || !self.palette_position.iter().all(|v| v.is_finite())
+            || !self.layers_flyout_position.iter().all(|v| v.is_finite())
+            || !self.layers_flyout_size.iter().all(|v| v.is_finite())
             || !self.canvas_pan.iter().all(|v| v.is_finite())
             || !self.new_document.validate()
         {
@@ -274,6 +290,11 @@ impl WorkspacePreferences {
         self.canvas_zoom = self.canvas_zoom.clamp(0.25, 8.0);
         self.ui_scale = self.ui_scale.clamp(0.8, 1.6);
         self.palette_position = self.palette_position.map(|v| v.clamp(0.0, 32768.0));
+        self.layers_flyout_position = self.layers_flyout_position.map(|v| v.clamp(0.0, 32768.0));
+        self.layers_flyout_size = [
+            self.layers_flyout_size[0].clamp(220.0, 800.0),
+            self.layers_flyout_size[1].clamp(160.0, 1200.0),
+        ];
         self.canvas_pan = self.canvas_pan.map(|v| v.clamp(-32768.0, 32768.0));
         if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
             self.accent_scheme = AccentScheme::Violet;
@@ -383,6 +404,27 @@ mod tests {
     }
 
     #[test]
+    fn floating_layer_panel_geometry_is_persisted_and_bounded() {
+        let mut preferences = WorkspacePreferences {
+            layers_flyout_position: [120.0, -40.0],
+            layers_flyout_size: [900.0, 90.0],
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        assert_eq!(preferences.layers_flyout_position, [120.0, 0.0]);
+        assert_eq!(preferences.layers_flyout_size, [800.0, 160.0]);
+
+        let json = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&json).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.layers_flyout_position, [120.0, 0.0]);
+        assert_eq!(restored.layers_flyout_size, [800.0, 160.0]);
+
+        restored.layers_flyout_position[0] = f32::INFINITY;
+        assert!(!restored.validate());
+    }
+
+    #[test]
     fn legacy_reference_layout_defaults_navigation_and_validation_bounds_it() {
         let mut preferences: WorkspacePreferences = serde_json::from_str(
             r#"{"version":1,"dark_theme":true,"brush_panel_width":260,"show_controls":true,"references":[{"path":"reference.png","position":[10,20],"size":[360,300],"opacity":0.7}]}"#,
@@ -445,6 +487,8 @@ mod tests {
         assert!(preferences.validate());
         assert_eq!(preferences.new_document.width, 1600.0);
         assert_eq!(preferences.new_document.height, 1000.0);
+        assert_eq!(preferences.layers_flyout_position, [760.0, 96.0]);
+        assert_eq!(preferences.layers_flyout_size, [300.0, 260.0]);
         assert!(!preferences.new_document.transparent);
         assert!(preferences.show_controls);
         assert_eq!(preferences.appearance_mode, None);

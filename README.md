@@ -31,7 +31,7 @@ From GitHub Actions, download `rust-paint-lab-canvas-demo` for the canvas app or
 The app opens in live drawing mode. Drag the left mouse button or supported Windows pen on the paper; right-click and hover do not paint. Pressure and independent tilt are kept when the adapter supplies them. Touch is reserved for navigation and does not paint. Completed work remains in the current editable document; cancellation removes the provisional stroke.
 
 - `B`, `M`, `E`, `K`, `I`: brush, rectangle, ellipse, lasso, eyedropper.
-- `Ctrl+N`: new document; `Ctrl+Z` / `Ctrl+Y`: undo / redo; `Ctrl+S`: save; `Ctrl+O`: open project; `Ctrl+E`: PNG export.
+- `Ctrl+N`: new document; `Ctrl+Z` / `Ctrl+Y`: undo / redo; `Ctrl+S`: save; `Ctrl+O`: open project; `Ctrl+E`: PNG export; `Ctrl+L`: floating Layers panel; `Ctrl+Shift+M`: artwork recovery manager. Escape dismisses an open contextual panel before closing the application.
 - `Ctrl+F`: fill; `Ctrl+X`: delete selected pixels; `Ctrl+D`: deselect.
 - **Save brush… / Load brush…** stores and restores the current settings as a bounded `.rplbrush` preset.
 - `Ctrl+Shift+B` / `Ctrl+Alt+B`: save / load a brush preset by path.

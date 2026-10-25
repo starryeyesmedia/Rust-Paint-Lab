@@ -443,6 +443,9 @@ impl ApplicationHandler<AppEvent> for App {
                         if self.modifiers.control_key() {
                             let key = match event.physical_key {
                                 PhysicalKey::Code(KeyCode::KeyN) => Some('n'),
+                                PhysicalKey::Code(KeyCode::KeyM) if self.modifiers.shift_key() => {
+                                    Some('g')
+                                }
                                 PhysicalKey::Code(KeyCode::KeyB) if self.modifiers.shift_key() => {
                                     Some('t')
                                 }
@@ -464,6 +467,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 PhysicalKey::Code(KeyCode::KeyF) => Some('f'),
                                 PhysicalKey::Code(KeyCode::KeyD) => Some('d'),
                                 PhysicalKey::Code(KeyCode::KeyX) => Some('x'),
+                                PhysicalKey::Code(KeyCode::KeyL) => Some('l'),
                                 _ => None,
                             };
                             if let Some(key) = key {
@@ -516,6 +520,13 @@ impl ApplicationHandler<AppEvent> for App {
                             self.tick = Instant::now();
                         }
                         PhysicalKey::Code(KeyCode::Escape) => {
+                            if let Some(g) = &mut self.graphics
+                                && let Some(studio) = &mut g.studio
+                                && studio.dismiss_flyout()
+                            {
+                                g.window.request_redraw();
+                                return Ok(());
+                            }
                             if !self.request_close() {
                                 event_loop.exit();
                             }

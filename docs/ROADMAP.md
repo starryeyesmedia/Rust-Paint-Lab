@@ -42,11 +42,18 @@ Artwork preservation and cross-platform validation apply to every track.
 Phase 8.2 is implemented through code commit `1ad2b62` with successful
 three-platform CI. Phase 8.3 remains active on
 `feature/studio-overdrive-phase-8`, starting from `28e1921` for this continuation.
-The current local slice enables AccessKit event/tree integration and adds a
-persisted draggable/snap-docked palette with collapse and handedness preferences.
-The next local slice adds visual document-format cards and a live paper/background
-preview plus a dedicated, confirmation-safe recovery manager. The recovery manager
-shows validated document metadata but does not yet render previews. Full platform
-CI is pending. These checkpoints do not complete the Phase 8.3 workspace overhaul. See
-[`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for the exact tested
-checkpoint and continuation steps. Phase numbering and boundaries are provisional.
+The current implementation includes AccessKit event integration and generated-tree
+tests, a movable/dockable palette, brush and color flyouts, an optional floating
+Layers panel, visual New Artwork cards, a confirmation-safe recovery manager, bounded
+recent-artwork thumbnails, compact reference controls, reduced motion, interface
+scaling and responsive Home cards. The floating Layers panel supports real layer
+actions with persisted position/size; bounded recovery previews load only on
+request after native-file validation. Formatting, strict Clippy, workspace build,
+193 tests and the software GPU smoke pass locally. The latest Linux Xvfb capture
+run exposed and prompted a fix for Escape closing the application instead of its
+active flyout; that fix and the Layers/Recovery-manager captures are awaiting a
+new full CI run and rendered-image inspection. Native Narrator/NVDA behavior
+remains unverified. Phase
+8.3 is not complete. See [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md)
+for current CI evidence, limitations and exact continuation steps. Phase numbering
+and boundaries are provisional.

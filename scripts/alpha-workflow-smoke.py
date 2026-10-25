@@ -255,6 +255,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             move(40,130);click_button(1,True);click_button(1,False);time.sleep(0.25)
             capture_window(window,'brush-library')
             key('Escape')
+            ctrl('l');time.sleep(0.3)
+            capture_window(window,'layers-panel')
+            ctrl('l')
             move(180,250);click_button(1,True);move(400,400);click_button(1,False)
             status('*')
             ctrl('s');project=directory/'artwork.rpl'
@@ -313,6 +316,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             snapshot=wait(lambda: next((p for p in sorted(recovery_dir.glob('recovery-*.rpl'),reverse=True) if valid_project(p)),None),'initial recovery checkpoint')
             # Recovery snapshots are submitted only while the current document is
             # dirty. Wait for this checkpoint before an explicit save makes it clean.
+            ctrl_shift('m');time.sleep(0.4);capture_window(window,'recovery-manager');ctrl_shift('m')
             ctrl('s')
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
             journal_path=Path(str(snapshot)+'.journal')
