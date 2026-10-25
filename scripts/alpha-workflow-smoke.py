@@ -34,10 +34,19 @@ motion = api(t, 'XTestFakeMotionEvent', I, D, I, I, I, W)
 button = api(t, 'XTestFakeButtonEvent', I, D, U, I, W)
 key_event = api(t, 'XTestFakeKeyEvent', I, D, U, I, W)
 close_display = api(x, 'XCloseDisplay', I, D)
+sync = api(x, 'XSync', I, D, I)
+set_error_handler = api(x, 'XSetErrorHandler', c.c_void_p, c.c_void_p)
 display = open_display(None)
 if not display:
     raise SystemExit('Xvfb/X11 display is required')
 root = root_window(display)
+x_error_count = 0
+def handle_x_error(_display, _event):
+    global x_error_count
+    x_error_count += 1
+    return 0
+x_error_callback = c.CFUNCTYPE(I, D, c.c_void_p)(handle_x_error)
+set_error_handler(c.cast(x_error_callback, c.c_void_p))
 
 def title(window):
     pointer = c.c_void_p()
@@ -73,17 +82,28 @@ def send():
     flush(display)
     time.sleep(0.06)
 
+def trace(action, *details):
+    print('UI_TRACE:', action, *details, flush=True)
+
 def move(px, py):
+    trace('move',px,py)
     dx, dy, child = I(), I(), W()
-    assert translate(display, window, root, 0, 0, c.byref(dx), c.byref(dy), c.byref(child))
+    errors_before=x_error_count
+    translated=translate(display, window, root, 0, 0, c.byref(dx), c.byref(dy), c.byref(child))
+    sync(display,0)
+    if x_error_count != errors_before:
+        raise AssertionError(f'X11 window {int(window):#x} was destroyed before pointer move ({px},{py})')
+    assert translated, f'XTranslateCoordinates rejected pointer move ({px},{py})'
     assert motion(display, -1, dx.value + px, dy.value + py, 0)
     send()
 
 def click_button(number, pressed):
+    trace('button',number,'down' if pressed else 'up')
     assert button(display, number, int(pressed), 0)
     send()
 
 def key(name):
+    trace('key',name)
     code = keycode(display, keysym(name.encode()))
     assert code and key_event(display, code, 1, 0) and key_event(display, code, 0, 0)
     send()
@@ -134,39 +154,45 @@ def png_chunk(kind, data):
     body=kind+data
     return struct.pack('>I',len(data))+body+struct.pack('>I',binascii.crc32(body)&0xffffffff)
 
-class Visual(c.Structure):
-    _fields_=[('ext_data',c.c_void_p),('visualid',W),('class_',I),('red_mask',W),('green_mask',W),('blue_mask',W),('bits_per_rgb',I),('map_entries',I)]
-
-get_geometry=api(x,'XGetGeometry',I,D,W,c.POINTER(W),c.POINTER(I),c.POINTER(I),c.POINTER(U),c.POINTER(U),c.POINTER(U),c.POINTER(U))
-get_image=api(x,'XGetImage',c.c_void_p,D,W,I,I,U,U,W,I)
-get_pixel=api(x,'XGetPixel',W,c.c_void_p,I,I)
-destroy_image=api(x,'XDestroyImage',I,c.c_void_p)
-default_screen=api(x,'XDefaultScreen',I,D)
-default_visual=api(x,'XDefaultVisual',c.POINTER(Visual),D,I)
-
 def capture_window(window, name):
     folder=os.environ.get('RPL_UI_SCREENSHOT_DIR')
     if not folder: return
-    root, x_pos, y_pos, width, height, border, depth=W(), I(), I(), U(), U(), U(), U()
-    assert get_geometry(display, window, c.byref(root), c.byref(x_pos), c.byref(y_pos), c.byref(width), c.byref(height), c.byref(border), c.byref(depth))
-    image=get_image(display, window, 0, 0, width.value, height.value, W(-1).value, 2)
-    assert image, 'XGetImage failed for running Rust Paint Lab window'
-    visual=default_visual(display, default_screen(display)).contents
+    # Use the X11 utility for the image readback. Calling XGetImage through
+    # ctypes against wgpu-owned Vulkan windows caused runner-only segmentation
+    # faults on some X servers. xwd performs that native operation safely and
+    # writes a small, well-defined header that this script converts to PNG.
+    dump=subprocess.check_output(['xwd','-silent','-id',hex(int(window))])
+    assert len(dump)>=100, 'xwd returned a truncated window image'
+    header_be=struct.unpack('>25I',dump[:100])
+    header_le=struct.unpack('<25I',dump[:100])
+    header=header_be if 100<=header_be[0]<=4196 and header_be[1]==7 else header_le
+    header_size,version,pixmap_format,depth,width,height,xoffset,byte_order,bitmap_unit,bitmap_bit_order,bitmap_pad,bits_per_pixel,bytes_per_line,visual_class,red_mask,green_mask,blue_mask,bits_per_rgb,colormap_entries,ncolors,window_width,window_height,window_x,window_y,window_border=header
+    assert version==7 and header_size>=100 and width>0 and height>0, 'xwd returned invalid image metadata'
+    assert pixmap_format==2 and bits_per_pixel in (16,24,32) and bytes_per_line>=width*((bits_per_pixel+7)//8), 'unsupported X11 screenshot pixel layout'
+    assert width<=4096 and height<=4096 and bytes_per_line*height<=128*1024*1024, 'X11 screenshot exceeds the capture bounds'
+    pixel_offset=header_size+ncolors*12
+    pixel_data=dump[pixel_offset:pixel_offset+bytes_per_line*height]
+    assert len(pixel_data)==bytes_per_line*height, 'xwd pixel buffer is truncated'
+    masks=(red_mask,green_mask,blue_mask)
     def component(pixel, mask):
         if not mask: return 0
         shift=(mask & -mask).bit_length()-1
         maximum=mask >> shift
         return (((pixel & mask) >> shift)*255 + maximum//2)//maximum
     rows=bytearray()
-    for y in range(height.value):
+    bytes_per_pixel=(bits_per_pixel+7)//8
+    byte_order_name='little' if byte_order==0 else 'big'
+    for y in range(height):
         rows.append(0)
-        for x_pos_pixel in range(width.value):
-            pixel=get_pixel(display, image, x_pos_pixel, y)
-            rows.extend((component(pixel,visual.red_mask),component(pixel,visual.green_mask),component(pixel,visual.blue_mask),255))
-    destroy_image(image)
-    raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width.value,height.value,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
+        row=pixel_data[y*bytes_per_line:(y+1)*bytes_per_line]
+        for x_pixel in range(width):
+            start=x_pixel*bytes_per_pixel
+            pixel=int.from_bytes(row[start:start+bytes_per_pixel],byte_order_name)
+            rows.extend((component(pixel,masks[0]),component(pixel,masks[1]),component(pixel,masks[2]),255))
+    raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
     destination=Path(folder);destination.mkdir(parents=True,exist_ok=True)
     (destination/f'{name}.png').write_bytes(raw)
+    print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 def decode_rgba_png(data):
     assert data[:8]==b'\x89PNG\r\n\x1a\n'
     offset=8;width=height=bit_depth=color_type=None;compressed=bytearray()
