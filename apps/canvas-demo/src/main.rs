@@ -57,7 +57,7 @@ impl Graphics {
         let window = Arc::new(
             event_loop.create_window(
                 Window::default_attributes()
-                    .with_title("Rust Paint Lab — starting GPU canvas")
+                    .with_title("BitchPixel — Creative Studio")
                     .with_inner_size(winit::dpi::LogicalSize::new(1000, 700))
                     .with_max_inner_size(winit::dpi::PhysicalSize::new(4096, 4096)),
             )?,
@@ -438,6 +438,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 }
                                 PhysicalKey::Code(KeyCode::KeyK) => Some('k'),
                                 PhysicalKey::Code(KeyCode::KeyI) => Some('i'),
+                                PhysicalKey::Code(KeyCode::KeyC) => Some('c'),
                                 _ => None,
                             };
                             if let Some(key) = key {
@@ -563,7 +564,7 @@ impl ApplicationHandler<AppEvent> for App {
                     if let Some(g) = &mut self.graphics {
                         let title = if g.studio.is_some() && self.session.mode() == Mode::Live {
                             format!(
-                                "Rust Paint Lab Alpha — {} — {}×{}{}",
+                                "BitchPixel — {} — {}×{}{}",
                                 g.studio.as_ref().unwrap().project_label(),
                                 self.session.live().project().state().width,
                                 self.session.live().project().state().height,
@@ -580,7 +581,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 "Left draw | C clear | P replay | Esc close"
                             };
                             format!(
-                                "Rust Paint Lab | LIVE mouse | {} completed | {} | orange preview / blue committed | {state}",
+                                "BitchPixel | LIVE mouse | {} completed | {} | orange preview / blue committed | {state}",
                                 self.session.scene().committed().len(),
                                 if self.session.live().active() {
                                     "DRAWING"
@@ -597,7 +598,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 "PLAYING"
                             };
                             format!(
-                                "Rust Paint Lab | REPLAY {} | {status} | 1/2/3 select, R replay, Space pause, L live",
+                                "BitchPixel | REPLAY {} | {status} | 1/2/3 select, R replay, Space pause, L live",
                                 self.session.scenario().name()
                             )
                         };

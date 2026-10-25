@@ -1,8 +1,11 @@
-# Rust Paint Lab: contributor and agent guidance
+# BitchPixel: contributor and agent guidance
 
 ## Product and scope
-Build an original, cross-platform painting and illustration application inspired
-by Fresco, Krita, and Procreate. Initial hands-on target: Galaxy Book2 Pro 360
+Build BitchPixel, an original, cross-platform painting and illustration
+application inspired by Fresco, Krita, and Procreate. Rust Paint Lab remains the
+engineering repository and existing internal package/format name until a safe
+migration is planned. Approved product lines are “No limits. No bullshit.” and
+“Create without permission.” Initial hands-on target: Galaxy Book2 Pro 360
 (Windows 10, Intel Iris Xe, 16 GB). Future targets: Windows/Linux/macOS, Android
 with S Pen, and eventually iPadOS. Favor low latency, accessibility, reliable local
 autosave/recovery, open formats, and modest resource use. No telemetry, accounts,

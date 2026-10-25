@@ -1,4 +1,5 @@
 //! Persisted, artwork-independent workspace preferences.
+use paint_document::brush::BrushKind;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
 
@@ -7,6 +8,7 @@ pub const MAX_REFERENCE_PATH: usize = 4096;
 pub const MAX_PREFERENCES_BYTES: usize = 64 * 1024;
 pub const MAX_RECENT_DOCUMENT_SIZES: usize = 8;
 pub const MAX_RECENT_BRUSH_COLORS: usize = 12;
+pub const MAX_FAVORITE_BRUSHES: usize = 10;
 pub const MIN_REFERENCE_ZOOM: f32 = 0.25;
 pub const MAX_REFERENCE_ZOOM: f32 = 8.0;
 
@@ -169,6 +171,8 @@ pub struct WorkspacePreferences {
     pub recent_document_sizes: Vec<RecentDocumentSize>,
     #[serde(default)]
     pub recent_brush_colors: Vec<[u8; 3]>,
+    #[serde(default)]
+    pub favorite_brushes: Vec<BrushKind>,
     #[serde(default = "default_canvas_zoom")]
     pub canvas_zoom: f64,
     #[serde(default = "default_canvas_pan")]
@@ -259,6 +263,7 @@ impl Default for WorkspacePreferences {
             new_document: NewDocumentPreferences::default(),
             recent_document_sizes: Vec::new(),
             recent_brush_colors: Vec::new(),
+            favorite_brushes: Vec::new(),
             canvas_zoom: 1.0,
             canvas_pan: [0.0, 0.0],
             inspector_tab: InspectorTab::Layers,
@@ -338,6 +343,16 @@ impl WorkspacePreferences {
             }
         });
         self.recent_brush_colors.truncate(MAX_RECENT_BRUSH_COLORS);
+        let mut seen_brushes = Vec::new();
+        self.favorite_brushes.retain(|brush| {
+            if seen_brushes.contains(brush) {
+                false
+            } else {
+                seen_brushes.push(*brush);
+                true
+            }
+        });
+        self.favorite_brushes.truncate(MAX_FAVORITE_BRUSHES);
         self.references.truncate(MAX_REFERENCES);
         self.references.retain_mut(|reference| {
             let path_len = reference.path.as_os_str().len();
@@ -621,6 +636,40 @@ mod tests {
         restored.recent_brush_colors = vec![[1, 2, 3], [1, 2, 3]];
         assert!(restored.validate());
         assert_eq!(restored.recent_brush_colors, vec![[1, 2, 3]]);
+    }
+
+    #[test]
+    fn favorite_brushes_roundtrip_deduplicate_and_remain_bounded() {
+        let mut preferences = WorkspacePreferences {
+            favorite_brushes: vec![
+                BrushKind::Ink,
+                BrushKind::Round,
+                BrushKind::Ink,
+                BrushKind::Pencil,
+                BrushKind::Soft,
+                BrushKind::Marker,
+                BrushKind::Calligraphy,
+                BrushKind::Airbrush,
+                BrushKind::Eraser,
+                BrushKind::Wash,
+                BrushKind::Textured,
+                BrushKind::Round,
+            ],
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        assert_eq!(preferences.favorite_brushes.len(), MAX_FAVORITE_BRUSHES);
+        assert_eq!(preferences.favorite_brushes[0], BrushKind::Ink);
+        assert_eq!(preferences.favorite_brushes[1], BrushKind::Round);
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut loaded = serde_json::from_slice::<WorkspacePreferences>(&bytes).unwrap();
+        assert!(loaded.validate());
+        assert_eq!(loaded.favorite_brushes, preferences.favorite_brushes);
+
+        let legacy = br#"{"version":1,"dark_theme":true,"brush_panel_width":260.0,"show_controls":false,"references":[]}"#;
+        let mut legacy = serde_json::from_slice::<WorkspacePreferences>(legacy).unwrap();
+        assert!(legacy.validate());
+        assert!(legacy.favorite_brushes.is_empty());
     }
 
     #[test]

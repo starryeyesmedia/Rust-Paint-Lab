@@ -9,7 +9,7 @@ Artwork preservation and cross-platform validation apply to every track.
 - **Product identity:** BitchPixel is the chosen name, not a provisional candidate. Rust Paint Lab continues as the engineering repository, internal package/executable names and format terminology until those identifiers are migrated deliberately, without breaking existing projects or CI.
 - **Approved brand lines:** “No limits. No bullshit.” (primary positioning) and “Create without permission.” (creative-freedom message). Keep both exact phrases available in product/design work.
 - **Brand meaning:** Reject paywalls, subscriptions, locked creative tools, forced accounts, advertising/tracking, and unnecessary ecosystem/device exclusion. Preserve realistic hardware constraints and do not advertise planned features as shipped.
-- **Visual direction:** Establish and review cohesive BitchPixel design mockups for Home, canvas, Brush Library, Layers, New Artwork and references before broad UI implementation. Current functional egui-based layouts do **not** meet the approved visual ambition; do not conflate passing CI or screenshot existence with design acceptance. Treat accessible dark/light/high-contrast typography, clear hierarchy, artist-centered artwork presentation and coherent floating tools as acceptance criteria.
+- **Visual direction:** Design and implementation proceed together in the running application; screenshots inform iterative corrections. Current functional egui-based layouts do **not** meet the approved visual ambition; do not conflate passing CI or screenshot existence with design acceptance. Treat accessible dark/light/high-contrast typography, clear hierarchy, artist-centered artwork presentation and coherent floating tools as acceptance criteria.
 - **Open implementation tasks:** design system and accessible visual treatment; name/metadata/application-ID/binary migration plan; trademark/domain due diligence; distribution license. See [product identity issue](https://github.com/starryeyesmedia/Rust-Paint-Lab/issues/1).
 - **Scope:** Continue Phase 8.3 reliability and accessibility work; do not make unreviewed breaking package/format/identifier changes or merge the development branch solely for branding.
 
@@ -50,7 +50,8 @@ Artwork preservation and cross-platform validation apply to every track.
 
 Phase 8.2 is implemented through code commit `1ad2b62` with successful
 three-platform CI. Phase 8.3 remains active on
-`feature/studio-overdrive-phase-8`, starting from `28e1921` for this continuation.
+`feature/studio-overdrive-phase-8`; the current continuation rebased onto the
+latest owner-authored identity decisions at `13f4115`.
 The current implementation includes AccessKit event integration and generated-tree
 tests, a movable/dockable palette, brush and color flyouts, an optional floating
 Layers panel, visual New Artwork cards, a confirmation-safe recovery manager, bounded
@@ -60,6 +61,10 @@ actions with persisted position/size; bounded recovery previews load only on
 request after native-file validation. The current visual pass adds responsive
 flyouts, illustrated format cards, stronger Home hierarchy, focusable
 format/brush selection, and a broad Light/Dark/high-contrast screenshot matrix.
+The active visual/functional continuation also adds BitchPixel Home and window
+identity, searchable/favorite brushes, a contextual brush strip, richer floating
+Color controls, and bounded per-layer previews plus direct reorder and property
+controls in the Layers flyout.
 Formatting, strict Clippy, workspace build, 200 tests and the software GPU smoke
 pass locally. Actions run `40226791860` has
 passed the complete Linux UI/artwork workflow: the test clicks the rendered Brush

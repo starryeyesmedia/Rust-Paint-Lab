@@ -758,6 +758,49 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   a valid native recovery checkpoint and creates three editable layers, and
   rejects blank captures by sampled color diversity. CI execution is pending.
 
+### BitchPixel visual and workflow integration — active
+
+- The running application title, Home hero, primary action copy, and package user
+  guides now use the adopted BitchPixel identity and the exact approved messages.
+  The Home hero has a reusable pixel-grid brand mark, responsive artwork-oriented
+  composition, direct New Artwork/Open actions, and a concise offline/privacy
+  statement. Rust package names, file formats, and diagnostic identifiers remain
+  unchanged for compatibility.
+- The canvas workspace now has a contextual brush strip with direct size and
+  opacity controls, current-color access and a Brush Library entry point. Color
+  is available from the primary palette with shortcut C. The Brush Library adds
+  search, category filtering, bounded persistent favorites, richer active-state
+  cards, and grouped dynamics controls. Favorite ordering is stored in workspace
+  preferences with deduplication and a hard limit.
+- Brush cards have larger sample previews with variable line profiles and an
+  active marker. The floating Color panel keeps current/previous colors, HEX/RGB
+  precision, an eyedropper path, and recent swatches together. The floating
+  Layers panel now renders bounded 10 × 7 previews sampled directly from each
+  layer's existing sparse tiles, and exposes rename, opacity, blend mode, lock,
+  visibility, add, duplicate, delete, raise, and lower controls in the panel.
+  Raise/Lower remain keyboard/touch-accessible buttons, so ordering does not rely
+  on drag and drop. The preview never mutates document state or enters exports.
+- Test-only UI automation now captures Color in light and dark themes alongside
+  the existing state matrix. AccessKit tree coverage verifies the Layers panel's
+  ordering actions; bounded thumbnail tests confirm sparse layer pixels appear
+  and a large empty layer remains transparent without allocating a full-size
+  preview.
+- Local validation after this integration: `cargo test --locked -p canvas-demo`
+  passed 58 unit tests, all integration suites, and the llvmpipe GPU smoke;
+  strict workspace Clippy and the floating-Layers AccessKit test passed. The
+  screenshot workflow and cross-platform Actions for these uncommitted changes
+  are still pending. No screenshot archive has been accessible for direct visual
+  inspection in this environment (Actions artifact blobs return HTTP 403), so
+  capture success will not be reported as visual approval.
+
+Next: run the expanded Xvfb matrix and inspect its images if the artifact host is
+available; fix capture or visible defects; run full workspace formatting, tests,
+Clippy/build plus Windows and macOS CI; then publish one consolidated Windows
+evaluation package only after those checks pass. Narrator/NVDA and Windows UI
+Automation remain unverified here; the owner has already physically confirmed
+basic S Pen drawing on prior builds, while advanced input behavior remains a
+separate hardware check.
+
 ### Validation and next steps
 
 - Pinned formatting and strict workspace Clippy passed; all **200 workspace

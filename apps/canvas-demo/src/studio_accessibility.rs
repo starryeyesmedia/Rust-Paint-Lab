@@ -57,7 +57,16 @@ mod tests {
             .map(|(_, node)| format!("{node:?}"))
             .collect::<Vec<_>>()
             .join("\n");
-        for label in ["Layers", "New", "Duplicate", "Delete", "Visible", "Locked"] {
+        for label in [
+            "Layers",
+            "New",
+            "Duplicate",
+            "Delete",
+            "Raise",
+            "Lower",
+            "Visible",
+            "Locked",
+        ] {
             assert!(
                 labels.contains(label),
                 "{label} missing from tree: {labels}"

@@ -1,4 +1,6 @@
-Rust Paint Lab - unsigned desktop painting alpha
+BitchPixel - unsigned desktop creative studio
+
+Rust Paint Lab remains the repository and internal engineering name.
 
 Extract painting-alpha.tar.gz, then run ./canvas-demo in a terminal.
 See README.md for supported features, controls, saving and recovery limitations.

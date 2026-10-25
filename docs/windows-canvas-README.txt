@@ -1,4 +1,7 @@
-Rust Paint Lab — portable Windows painting alpha
+BitchPixel — portable Windows creative studio
+
+Rust Paint Lab remains the repository and internal engineering name. This is an
+unsigned evaluation build; it is not an official release.
 
 Run canvas-demo.exe on Windows 10 x64. This unsigned development build needs no
 Rust or Visual Studio installation, installer, or administrator privileges. Use a
@@ -37,7 +40,7 @@ verified .bak fallback and appends bounded checksummed complete-state journal
 records. This is not an operation history; a crash can lose edits since the latest
 completed checkpoint. No raw input is automatically recorded.
 
-Shortcuts: Ctrl+N new document, Ctrl+B Brush library, Ctrl+S save, Ctrl+O open, Ctrl+E PNG export, Ctrl+Z/Y undo/redo,
+Shortcuts: Ctrl+N new document, B Brush library, C Color controls, Ctrl+S save, Ctrl+O open, Ctrl+E PNG export, Ctrl+Z/Y undo/redo,
 Ctrl+L floating Layers panel, Ctrl+Shift+M artwork recovery manager, Ctrl+Shift+R quick recover,
 Ctrl+Shift+O open OpenRaster, Ctrl+Shift+E export OpenRaster, F11 fullscreen. Escape
 closes a contextual Brush/Color/Layers panel before closing the application. See

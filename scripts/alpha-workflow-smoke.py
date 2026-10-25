@@ -63,7 +63,7 @@ def find_window():
     if not query(display, root, c.byref(ancestor), c.byref(parent), c.byref(children), c.byref(count)):
         return 0
     try:
-        return next((children[i] for i in range(count.value) if 'Rust Paint Lab Alpha' in title(children[i])), 0)
+        return next((children[i] for i in range(count.value) if 'BitchPixel' in title(children[i])), 0)
     finally:
         if children:
             free(children)
@@ -332,6 +332,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert process.poll() is None, 'Escape closed the application instead of dismissing keyboard-opened Brush library'
             wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_ESCAPE_DISMISSED: brush') >= 2,
                  'Escape dismisses the keyboard-opened Brush flyout')
+            key('c')
+            wait(lambda: 'UI_TEST_COLOR_FLYOUT_OPENED: shortcut' in (directory/'application.log').read_text(),
+                 'C opens Color controls for keyboard users')
+            time.sleep(0.25)
+            capture_window(window,'color-controls-light')
+            key('Escape')
+            wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: color' in (directory/'application.log').read_text(),
+                 'Escape dismisses Color controls')
             ctrl('l');time.sleep(0.3)
             window=wait(find_window,'window after Ctrl+L opens Layers')
             ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
@@ -450,6 +458,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('n');new_document_prompt();capture_window(window,'new-artwork-dark-normal');key('Return');time.sleep(0.4)
             capture_window(window,'reference-board-dark')
             ctrl('b');time.sleep(0.35);capture_window(window,'brush-library-dark')
+            key('Escape');key('c');time.sleep(0.35);capture_window(window,'color-controls-dark')
             key('Escape');ctrl('l');time.sleep(0.35);capture_window(window,'layers-panel-populated-dark')
             ctrl_shift('m');time.sleep(0.35)
             assert any(p.name.startswith('recovery-') and p.suffix=='.rpl' and valid_project(p) for p in recovery_dir.iterdir()), 'dark recovery manager has a valid checkpoint entry'
@@ -465,7 +474,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             key('Escape');assert process.wait(timeout=20)==0
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','layers-panel-populated-light','recovery-manager-populated-light','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','reference-board-dark','brush-library-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','recovery-manager-populated-light','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','reference-board-dark','brush-library-dark','color-controls-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
