@@ -2270,6 +2270,9 @@ impl Studio {
                                             self.show_controls = false;
                                             self.color_flyout_open = false;
                                             self.brush_flyout_open = true;
+                                            if self.test_path_dialog {
+                                                eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED");
+                                            }
                                             workspace_changed = true;
                                         }
                                     }

@@ -645,27 +645,34 @@ explicitly demonstrated or measured here.
   exposed that Escape closed the entire application while the Brush library was
   open. Commit `09847df` moved Escape dismissal ahead of egui's text-input
   shortcut guard, but the follow-up still exited after the Escape/`Ctrl+L`
-  sequence. The latest smoke now checks application liveness immediately after
-  Escape, and a test-only trace reports which flyout was dismissed. This will
-  distinguish a missed palette click from a regression in the event path.
+  sequence. Run [`40225820070`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40225820070)
+  exposed that the Xvfb click did not activate Brush; the screenshot labeled
+  `brush-library` was still the canvas. Escape then correctly followed the close
+  path (`UI_TEST_ESCAPE_DISMISSED: none`). The smoke now clicks lower in the
+  primary palette, waits for an explicit test-only “Brush flyout opened” signal,
+  and requires Escape to log that it dismissed Brush before moving to Layers.
 - Follow-up run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
   captured the same four screens but reported `BadWindow` while capturing Layers
   after the Escape/`Ctrl+L` sequence. Commit `09847df` moves Escape dismissal
   before egui's text-input shortcut guard, and run [`40225239895`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40225239895)
   confirms that Escape kept the app discoverable momentarily, but the app exited
-  before Layers could be captured. The new liveness assertion and diagnostic
-  trace are pending the next run.
+  before Layers could be captured. Run `40225820070` reproduced that failure and
+  its failure diagnostics identified the missed click. Its Linux job failed;
+  Windows and macOS have not yet completed.
 - Current local validation after the Layers panel, recovery preview and Escape
   handling: pinned Rust 1.90 formatting, strict workspace Clippy, workspace build,
   **193 workspace tests**, and the required llvmpipe GPU smoke passed. The new
   AccessKit test
   verifies labels from the real panel widget function, rather than a parallel
-  mock tree. The Xvfb screen sequence still requires CI because this environment
-  has no Xvfb/display server.
+  mock tree. Linux CI captured Home, New Artwork, canvas and reference board, but
+  the Brush/Layers/Recovery portion did not pass. Screenshots cannot currently be
+  downloaded here for visual inspection, and this environment has no Xvfb/display
+  server.
 - Actions run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
   passed Windows and macOS checks and produced the Windows packages. Linux passed
-  formatting, Clippy, tests, build, virtual-window startup and live mouse before
-  the Layers screenshot failed with the stale-window error described above. An
+  formatting, Clippy, tests, build, virtual-window startup, live mouse and the
+  Home/New Artwork/canvas/reference screenshots before the missed Brush click.
+  An
   earlier run [`40223326274`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40223326274)
   passed Windows and macOS lint/build/package paths, including separate Windows
   diagnostic and canvas builds. Linux passed formatting, Clippy, all tests,
@@ -683,10 +690,9 @@ explicitly demonstrated or measured here.
 
 ### Exact continuation from this checkpoint
 
-1. Use the new Escape liveness assertion and diagnostic trace to fix and finish
-   the Escape/Layers/recovery-preview Linux window-smoke run, then inspect
-   uploaded screenshots for first-run/recent-artwork Home, New Artwork, canvas,
-   reference board, Brush library, Layers and the Recovery manager.
+1. Validate the corrected palette click and explicit Brush-open/Escape-dismiss
+   checks, then finish the Layers/Recovery/recent-Home screenshot flow. Inspect
+   those captured images after resolving Actions artifact-host access.
 2. Download and verify the current Windows canvas and stylus artifacts, then
    publish one consolidated Phase 8.3 Windows evaluation ZIP with a short guide;
    do this only after the main workflow passes.

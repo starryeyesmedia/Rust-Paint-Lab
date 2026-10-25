@@ -49,12 +49,15 @@ recent-artwork thumbnails, compact reference controls, reduced motion, interface
 scaling and responsive Home cards. The floating Layers panel supports real layer
 actions with persisted position/size; bounded recovery previews load only on
 request after native-file validation. Formatting, strict Clippy, workspace build,
-193 tests and the software GPU smoke pass locally. Actions run `40224735679`
-passed Windows and macOS but Linux failed with `BadWindow` while capturing Layers
-after the Escape/`Ctrl+L` sequence. Escape now precedes the egui text-input guard,
-and the smoke checks window liveness between keys. That fix, the persistent
-flyout placement and Recovery-manager captures await the next full run and
-rendered-image inspection. Native Narrator/NVDA behavior remains unverified. Phase
-8.3 is not complete. See [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md)
-for current CI evidence, limitations and exact continuation steps. Phase numbering
-and boundaries are provisional.
+193 tests and the software GPU smoke pass locally. Actions run `40225820070`
+failed its Linux UI workflow: the scripted click missed the Brush palette control,
+and the test-only log confirmed no flyout was open when Escape was pressed. Home,
+New Artwork, canvas and reference screenshots were captured; Layers, Recovery and
+recent Home did not run. The smoke is being tightened to wait for an explicit
+Brush-open signal and confirm Escape dismisses it. Windows and macOS checks from
+that run are still pending. Native Narrator/NVDA behavior and visual review of
+screenshots remain outstanding; the Actions blob host is blocked in this
+environment. Phase 8.3 is not complete. See
+[`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
+limitations and exact continuation steps. Phase numbering and boundaries are
+provisional.
