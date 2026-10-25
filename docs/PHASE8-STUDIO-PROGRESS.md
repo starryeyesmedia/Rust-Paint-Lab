@@ -651,7 +651,9 @@ explicitly demonstrated or measured here.
   path (`UI_TEST_ESCAPE_DISMISSED: none`). The smoke now reads the real Brush
   button rectangle and egui scale from a test-only trace, clicks its center, waits
   for a “Brush flyout opened” signal, and requires Escape to log that it dismissed
-  Brush before moving to Layers.
+  Brush before moving to Layers. `Ctrl+B` now also opens the flyout for keyboard
+  access; the workflow tests both activation paths and preserves `Ctrl+Shift+B`
+  and `Ctrl+Alt+B` for brush-preset save/load.
 - Follow-up run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
   captured the same four screens but reported `BadWindow` while capturing Layers
   after the Escape/`Ctrl+L` sequence. Commit `09847df` moves Escape dismissal

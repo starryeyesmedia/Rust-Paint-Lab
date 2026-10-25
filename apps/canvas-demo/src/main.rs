@@ -452,12 +452,13 @@ impl ApplicationHandler<AppEvent> for App {
                                 PhysicalKey::Code(KeyCode::KeyM) if self.modifiers.shift_key() => {
                                     Some('g')
                                 }
-                                PhysicalKey::Code(KeyCode::KeyB) if self.modifiers.shift_key() => {
-                                    Some('t')
-                                }
                                 PhysicalKey::Code(KeyCode::KeyB) if self.modifiers.alt_key() => {
                                     Some('u')
                                 }
+                                PhysicalKey::Code(KeyCode::KeyB) if self.modifiers.shift_key() => {
+                                    Some('t')
+                                }
+                                PhysicalKey::Code(KeyCode::KeyB) => Some('b'),
                                 PhysicalKey::Code(KeyCode::KeyZ) => Some('z'),
                                 PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
                                 PhysicalKey::Code(KeyCode::KeyS) => Some('s'),

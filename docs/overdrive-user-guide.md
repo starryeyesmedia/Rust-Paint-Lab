@@ -53,7 +53,9 @@ session-only and bounded (up to 32 snapshots, 128 MiB unique tile payload per hi
 large documents with many changed tiles can retain fewer steps. Limits produce an error, never silently
 discard older committed artwork.
 
-Use the compact File menu for New/Open/Save, image import/export, brush presets,
+Use **Ctrl+B** or the Brush control in the primary palette to open the Brush
+library; Escape dismisses it. Use **Ctrl+L** or the Layers palette control for
+the floating layer panel. Use the compact File menu for New/Open/Save, image import/export, brush presets,
 recent projects and the artwork recovery manager. Edit contains Undo/Redo and
 selection fill/erase; Image contains Crop; Layer contains the existing layer
 operations; View switches appearance and accessibility preferences; Window offers

@@ -273,6 +273,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: brush' in (directory / 'application.log').read_text(),
                  'Escape dismissed the Brush flyout')
             window=wait(find_window,'window after Escape dismisses Brush library')
+            ctrl('b')
+            wait(lambda: 'UI_TEST_BRUSH_FLYOUT_OPENED: shortcut' in (directory / 'application.log').read_text(),
+                 'Ctrl+B opens Brush library for keyboard users')
+            key('Escape')
+            assert process.poll() is None, 'Escape closed the application instead of dismissing keyboard-opened Brush library'
+            wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_ESCAPE_DISMISSED: brush') >= 2,
+                 'Escape dismisses the keyboard-opened Brush flyout')
             ctrl('l');time.sleep(0.3)
             window=wait(find_window,'window after Ctrl+L opens Layers')
             capture_window(window,'layers-panel')

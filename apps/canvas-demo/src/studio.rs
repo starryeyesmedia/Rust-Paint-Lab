@@ -1525,6 +1525,14 @@ impl Studio {
     }
     pub fn shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
+        if key == 'b' {
+            self.brush_flyout_open = !self.brush_flyout_open;
+            self.color_flyout_open = false;
+            if self.test_path_dialog && self.brush_flyout_open {
+                eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: shortcut");
+            }
+            return;
+        }
         if key == 'l' {
             self.layers_flyout_open = !self.layers_flyout_open;
             return;
@@ -2288,7 +2296,7 @@ impl Studio {
                                             self.color_flyout_open = false;
                                             self.brush_flyout_open = true;
                                             if self.test_path_dialog {
-                                                eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED");
+                                                eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: palette");
                                             }
                                             workspace_changed = true;
                                         }
