@@ -81,6 +81,34 @@ fn recent_opened_label(timestamp: u64) -> String {
     }
 }
 
+fn recent_project_matches(path: &std::path::Path, query: &str) -> bool {
+    let query = query.trim();
+    query.is_empty()
+        || path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains(&query.to_lowercase())
+}
+
+pub(crate) fn recent_search_field(ui: &mut egui::Ui, query: &mut String) {
+    let response = ui.add(
+        egui::TextEdit::singleline(query)
+            .desired_width(ui.available_width().min(420.0))
+            .hint_text("Find recent artwork by filename…")
+            .interactive(true),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::TextEdit,
+            true,
+            "Find recent artwork by filename",
+        )
+    });
+    response.on_hover_text("Searches projects in this device's recent-artwork list.");
+}
+
 fn recovery_updated_label(timestamp: u64) -> String {
     if timestamp == 0 {
         return "Checkpoint time unavailable".into();
@@ -1148,6 +1176,7 @@ pub struct Studio {
     drafts: Vec<PathBuf>,
     recent: paint_document::recent::Recent,
     recent_cards: Vec<RecentProjectCard>,
+    recent_search: String,
     thumbnail_directory: Option<PathBuf>,
     recent_path: Option<PathBuf>,
     cleanup: Option<PathBuf>,
@@ -1312,6 +1341,7 @@ impl Studio {
             drafts: crate::drafts::list(),
             recent,
             recent_cards,
+            recent_search: String::new(),
             thumbnail_directory,
             recent_path,
             cleanup: None,
@@ -4296,9 +4326,18 @@ impl Studio {
                                                 ui.label("Create a document or open an existing .rpl project to see it in this space.");
                                             });
                                         } else {
+                                            recent_search_field(ui, &mut self.recent_search);
+                                            let visible_recent = self.recent_cards.iter()
+                                                .filter(|card| recent_project_matches(&card.path, &self.recent_search))
+                                                .cloned()
+                                                .collect::<Vec<_>>();
+                                            if visible_recent.is_empty() {
+                                                ui.add_space(8.0);
+                                                ui.label(egui::RichText::new("No recent artwork matches that filename.").color(ui.visuals().weak_text_color()));
+                                            } else {
                                             let columns = if screen.width() < 760.0 { 1 } else { 2 };
                                             egui::Grid::new("home recent projects").num_columns(columns).spacing([14.0, 14.0]).show(ui, |ui| {
-                                                for (index, card) in self.recent_cards.iter().take(8).enumerate() {
+                                                for (index, card) in visible_recent.iter().take(8).enumerate() {
                                                     let path = &card.path;
                                                     let thumbnail = card.thumbnail.clone();
                                                     let card_width = if screen.width() < 760.0 {
@@ -4358,9 +4397,10 @@ impl Studio {
                                                             open_recent = Some(path.clone());
                                                         }
                                                     }
-                                                    if (index + 1) % columns == 0 || index == self.recent_cards.len().min(8) - 1 { ui.end_row(); }
+                                                    if (index + 1) % columns == 0 || index == visible_recent.len().min(8) - 1 { ui.end_row(); }
                                                 }
                                             });
+                                            }
                                         }
                                     });
                                     ui.add_space(24.0);
@@ -5365,7 +5405,10 @@ impl Studio {
 
 #[cfg(test)]
 mod tests {
-    use super::{LassoAppend, append_lasso_point, layer_thumbnail_samples, native_project_path};
+    use super::{
+        LassoAppend, append_lasso_point, layer_thumbnail_samples, native_project_path,
+        recent_project_matches,
+    };
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -5410,6 +5453,15 @@ mod tests {
             native_project_path(Path::new("artwork")),
             PathBuf::from("artwork.rpl")
         );
+    }
+
+    #[test]
+    fn recent_artwork_search_matches_filenames_case_insensitively_and_trims_query() {
+        let path = Path::new("/work/Neon Alley.rpl");
+        assert!(recent_project_matches(path, ""));
+        assert!(recent_project_matches(path, " neon "));
+        assert!(recent_project_matches(path, "RPL"));
+        assert!(!recent_project_matches(path, "portrait"));
     }
 
     #[test]

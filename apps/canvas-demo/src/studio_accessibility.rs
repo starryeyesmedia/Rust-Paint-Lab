@@ -165,6 +165,33 @@ mod tests {
     }
 
     #[test]
+    fn recent_artwork_search_has_a_named_keyboard_editable_control() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let mut query = String::new();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::recent_search_field(ui, &mut query);
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("recent search emits an AccessKit semantic node");
+        let labels = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            labels.contains("Find recent artwork by filename"),
+            "search field label missing from accessibility tree: {labels}"
+        );
+        assert!(labels.contains("role: TextInput"));
+    }
+
+    #[test]
     fn brush_preset_cards_keep_artist_facing_names_in_the_accessibility_tree() {
         let context = egui::Context::default();
         context.enable_accesskit();

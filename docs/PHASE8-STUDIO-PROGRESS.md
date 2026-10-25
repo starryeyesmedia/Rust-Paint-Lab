@@ -923,3 +923,24 @@ Artwork and other creative workflows. Do not issue another owner-facing
 evaluation build until the broader redesign and functional workflow improvements
 have accumulated and passed cross-platform checks. Narrator/NVDA and native
 Windows assistive-technology validation remain outstanding.
+
+### Home workflow continuation — local checkpoint
+
+- Home's recent-artwork section now has a keyboard-editable filename filter. It
+  searches only this device's recent project list, ignoring query case and
+  surrounding whitespace. A no-match message replaces the cards without
+  implying that the app searches arbitrary folders or online content.
+- The search field has an explicit AccessKit text-input name and explanatory
+  hover text. Unit coverage verifies matching semantics; an AccessKit tree test
+  verifies the semantic text input is exposed.
+- Local formatting, strict Clippy, the full workspace tests (including the
+  llvmpipe GPU smoke), and workspace build passed after this change. The
+  workspace contains 202 tests; no desktop window screenshot is available from
+  this local environment, so this change is functionally tested rather than
+  visually approved.
+- This is a small continuation slice, not Phase 8.3 completion. Next, continue
+  integrating the approved Home/New Artwork visual direction with the working
+  brush, color, layer, reference and recovery workflows; inspect the CI
+  screenshot pixels once artifact downloads work; then address the remaining
+  keyboard/focus and native Windows assistive-technology gaps. Do not claim
+  Narrator/NVDA compatibility without testing those screen readers.

@@ -115,11 +115,15 @@ Linux screenshot-state assertions passed for 20 screens. The signed artifact
 blob host denied screenshot and log downloads with HTTP 403, so direct visual
 inspection remains outstanding; this is not phase completion.
 
-The approved concept implementation is now in code commit `59cace0` (pending
-cross-platform CI). It adds locally bundled OFL Manrope/Syne typography, a deeper
-purple-charcoal Midnight Violet palette, a persisted left/right/top/bottom/floating
-tool palette with horizontal top/bottom layouts and edge snapping, and an HSV
-Color workflow with semantic/keyboard controls. The Linux smoke now captures the
-top-docked toolbar and Color states. It preserves the native file/project names,
-canvas/input architecture, and separate Windows diagnostic. See the latest
-section of `PHASE8-STUDIO-PROGRESS.md` for full local validation and pending CI.
+The approved concept implementation is in code commit `59cace0`: locally bundled
+OFL Manrope/Syne typography, a purple-charcoal Midnight Violet palette, a
+persisted left/right/top/bottom/floating tool palette, and an HSV Color workflow
+with semantic/keyboard controls. The Home continuation adds a named, keyboard
+accessible filter for recent local artwork. Formatting, strict Clippy, all 202
+workspace tests, GPU smoke and workspace build pass locally. Actions run
+[`40239511344`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40239511344)
+is validating the concept commit across Windows, Linux and macOS; Linux is also
+running its artwork/screenshot workflow. Screenshot pixels still cannot be
+downloaded from this environment, so screenshot presence is not visual approval.
+Phase 8.3 remains active. See `PHASE8-STUDIO-PROGRESS.md` for exact status and
+continuation steps.
