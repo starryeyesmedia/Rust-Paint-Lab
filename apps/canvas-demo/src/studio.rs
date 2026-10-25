@@ -701,6 +701,8 @@ pub struct Studio {
     palette_position: [f32; 2],
     layers_flyout_position: [f32; 2],
     layers_flyout_size: [f32; 2],
+    brush_flyout_position: [f32; 2],
+    color_flyout_position: [f32; 2],
     brush_flyout_open: bool,
     layers_flyout_open: bool,
     color_flyout_open: bool,
@@ -859,6 +861,8 @@ impl Studio {
             palette_position: preferences.palette_position,
             layers_flyout_position: preferences.layers_flyout_position,
             layers_flyout_size: preferences.layers_flyout_size,
+            brush_flyout_position: preferences.brush_flyout_position,
+            color_flyout_position: preferences.color_flyout_position,
             brush_flyout_open: false,
             layers_flyout_open: false,
             color_flyout_open: false,
@@ -1719,6 +1723,8 @@ impl Studio {
             palette_position: self.palette_position,
             layers_flyout_position: self.layers_flyout_position,
             layers_flyout_size: self.layers_flyout_size,
+            brush_flyout_position: self.brush_flyout_position,
+            color_flyout_position: self.color_flyout_position,
             ..Default::default()
         };
         if !preferences.validate() {
@@ -2914,11 +2920,15 @@ impl Studio {
 
             if self.brush_flyout_open {
                 let mut open = self.brush_flyout_open;
-                egui::Window::new("Brush library")
+                let panel = egui::Window::new("Brush library")
                     .open(&mut open)
                     .resizable(false)
                     .default_width(310.0)
-                    .default_pos(egui::pos2(screen.left() + 88.0, screen.top() + 72.0))
+                    .default_pos(egui::pos2(
+                        self.brush_flyout_position[0],
+                        self.brush_flyout_position[1],
+                    ))
+                    .constrain_to(screen.shrink(8.0))
                     .show(ctx, |ui| {
                         let project = session.live_mut().project_mut();
                         ui.label("Choose a working preset. Pressure remains a stroke input; this preview does not simulate dynamics.");
@@ -2968,15 +2978,26 @@ impl Studio {
                             workspace_changed = true;
                         }
                     });
+                if let Some(panel) = panel {
+                    let position = [panel.response.rect.left(), panel.response.rect.top()];
+                    if position != self.brush_flyout_position {
+                        self.brush_flyout_position = position;
+                        workspace_changed = true;
+                    }
+                }
                 self.brush_flyout_open = open;
             }
             if self.color_flyout_open {
                 let mut open = self.color_flyout_open;
-                egui::Window::new("Color controls")
+                let panel = egui::Window::new("Color controls")
                     .open(&mut open)
                     .resizable(false)
                     .default_width(260.0)
-                    .default_pos(egui::pos2(screen.left() + 88.0, screen.top() + 116.0))
+                    .default_pos(egui::pos2(
+                        self.color_flyout_position[0],
+                        self.color_flyout_position[1],
+                    ))
+                    .constrain_to(screen.shrink(8.0))
                     .show(ctx, |ui| {
                         let project = session.live_mut().project_mut();
                         ui.label("Current brush color · sRGB");
@@ -3011,6 +3032,13 @@ impl Studio {
                             }
                         });
                     });
+                if let Some(panel) = panel {
+                    let position = [panel.response.rect.left(), panel.response.rect.top()];
+                    if position != self.color_flyout_position {
+                        self.color_flyout_position = position;
+                        workspace_changed = true;
+                    }
+                }
                 self.color_flyout_open = open;
             }
 

@@ -622,9 +622,10 @@ explicitly demonstrated or measured here.
 - The floating Layers panel now opens from the primary tool palette or with
   `Ctrl+L`; it is movable/resizable, can be hidden from the Window menu or closed
   directly, and exposes real layer selection, visibility, lock, create, duplicate
-  and delete actions. Its position and size are sanitized and persisted as
-  workspace preferences. Escape dismisses the active Brush, Color or Layers panel
-  before reaching the application's close workflow. A separate AccessKit-tree
+  and delete actions. Its position and size, plus Brush and Color flyout placement,
+  are sanitized and persisted as workspace preferences. Escape dismisses the active
+  Brush, Color or Layers panel before reaching the application's close workflow.
+  A separate AccessKit-tree
   test now renders the same Layers-panel contents used by the application and
   asserts the semantic labels for those controls.
 - `Ctrl+Shift+M` opens/closes the artwork recovery manager. Entries offer an
@@ -633,7 +634,8 @@ explicitly demonstrated or measured here.
   selected texture is retained, malformed checkpoints show “Preview unavailable,”
   and a round-trip/corruption test covers the path.
 - The Linux Xvfb workflow now captures the actual Home, New Artwork, canvas,
-  Brush-library, Layers-panel and Recovery-manager windows. Capture uses the `xwd` utility and a
+  reference-board, Brush-library, Layers-panel and Recovery-manager windows.
+  Capture uses the `xwd` utility and a
   bounded XWD-to-PNG decoder; the previous ctypes `XGetImage` path caused a
   runner-only segmentation fault. The workflow also traces input actions and
   uploads the failure log, so subsequent window failures can be diagnosed from
@@ -642,13 +644,24 @@ explicitly demonstrated or measured here.
   exposed that Escape closed the entire application while the Brush library was
   open. The app now dismisses contextual panels first. The updated Escape path,
   Layers panel and screenshots are not yet validated by a completed Actions run.
+- Follow-up run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
+  captured the same four screens but reported `BadWindow` while capturing Layers
+  after the Escape/`Ctrl+L` sequence. The Escape dismissal check now runs before
+  egui's text-input shortcut guard, and the smoke verifies the app window remains
+  present after each key transition. The fully persisted flyout positions, recovery
+  previews and revised keyboard ordering still need a new CI run.
 - Current local validation after the Layers panel, recovery preview and Escape
   handling: pinned Rust 1.90 formatting, strict workspace Clippy, workspace build,
-  **193 workspace tests**, and the required llvmpipe GPU smoke passed. The new AccessKit test
+  **193 workspace tests**, and the required llvmpipe GPU smoke passed. The new
+  AccessKit test
   verifies labels from the real panel widget function, rather than a parallel
   mock tree. The Xvfb screen sequence still requires CI because this environment
   has no Xvfb/display server.
-- Actions run [`40223326274`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40223326274)
+- Actions run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
+  passed Windows and macOS checks and produced the Windows packages. Linux passed
+  formatting, Clippy, tests, build, virtual-window startup and live mouse before
+  the Layers screenshot failed with the stale-window error described above. An
+  earlier run [`40223326274`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40223326274)
   passed Windows and macOS lint/build/package paths, including separate Windows
   diagnostic and canvas builds. Linux passed formatting, Clippy, all tests,
   build, virtual-window startup, live-mouse drawing, and captured four windows;
@@ -665,8 +678,8 @@ explicitly demonstrated or measured here.
 ### Exact continuation from this checkpoint
 
 1. Finish the Escape/Layers/recovery-preview Linux window-smoke run and inspect
-   uploaded screenshots for Home, New Artwork, canvas, Brush library, Layers and
-   the Recovery manager.
+   uploaded screenshots for Home, New Artwork, canvas, reference board, Brush
+   library, Layers and the Recovery manager.
 2. Download and verify the current Windows canvas and stylus artifacts, then
    publish one consolidated Phase 8.3 Windows evaluation ZIP with a short guide;
    do this only after the main workflow passes.

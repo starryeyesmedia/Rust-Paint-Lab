@@ -49,11 +49,12 @@ recent-artwork thumbnails, compact reference controls, reduced motion, interface
 scaling and responsive Home cards. The floating Layers panel supports real layer
 actions with persisted position/size; bounded recovery previews load only on
 request after native-file validation. Formatting, strict Clippy, workspace build,
-193 tests and the software GPU smoke pass locally. The latest Linux Xvfb capture
-run exposed and prompted a fix for Escape closing the application instead of its
-active flyout; that fix and the Layers/Recovery-manager captures are awaiting a
-new full CI run and rendered-image inspection. Native Narrator/NVDA behavior
-remains unverified. Phase
+193 tests and the software GPU smoke pass locally. Actions run `40224735679`
+passed Windows and macOS but Linux failed with `BadWindow` while capturing Layers
+after the Escape/`Ctrl+L` sequence. Escape now precedes the egui text-input guard,
+and the smoke checks window liveness between keys. That fix, the persistent
+flyout placement and Recovery-manager captures await the next full run and
+rendered-image inspection. Native Narrator/NVDA behavior remains unverified. Phase
 8.3 is not complete. See [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md)
 for current CI evidence, limitations and exact continuation steps. Phase numbering
 and boundaries are provisional.

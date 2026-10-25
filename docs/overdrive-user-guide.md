@@ -27,13 +27,15 @@ outside paper does not paint. Focus/capture loss, leaving the application window
 resize, and mode changes cancel the provisional stroke. Completed strokes remain
 in the editable document.
 
-The right panel keeps ten brush presets, color, eraser mode, and size/opacity
-controls visible. Presets use names such as Hard round, Ink pen and Soft brush;
-Wash is marked experimental. Size and opacity accept direct numeric entry; flow, hardness,
-spacing, tilt, angle, smoothing, and pressure responses are grouped under Advanced
-dynamics. Expand Color values for validated six-digit HEX and direct encoded-sRGB RGB
-entry; the color swatch still opens the color picker. Recent brush colors appear
-under Recent brush colors, newest first, and can be selected by mouse or touch.
+Brush opens a floating Brush library from the primary tool palette, so preset
+selection does not require a permanent right sidebar. It offers ten working
+presets named Hard round, Ink pen, Soft brush and so on; Wash is marked
+experimental. The flyout provides working size, opacity and color controls. Choose
+Advanced brush settings to reach the detailed inspector, where size and opacity
+accept direct numeric entry and flow, hardness, spacing, tilt, angle, smoothing,
+and pressure responses are grouped under Advanced dynamics. Color controls open
+their own floating panel with the validated six-digit HEX color and recent-color
+swatches. Recent colors are newest first and can be selected by mouse or touch.
 The list is capped at twelve unique local workspace colors and is independent of
 the interface accent. Opacity caps the whole stroke while flow accumulates individual dabs. Wash
 is a deterministic visual experiment, not a physical watercolor simulation. Airbrush
@@ -52,9 +54,10 @@ large documents with many changed tiles can retain fewer steps. Limits produce a
 discard older committed artwork.
 
 Use the compact File menu for New/Open/Save, image import/export, brush presets,
-and recent projects. Edit contains Undo/Redo and selection fill/erase; Image contains
-Crop; Layer contains the existing layer operations; View switches appearance; Window
-offers reference images and a Show Brush and Layers toggle; Help lists the main shortcuts. The five primary tools are
+recent projects and the artwork recovery manager. Edit contains Undo/Redo and
+selection fill/erase; Image contains Crop; Layer contains the existing layer
+operations; View switches appearance and accessibility preferences; Window offers
+workspace visibility, floating Layers, palette docking and handedness. The five primary tools are
 in the rounded vertical palette left of the canvas. Each icon has a name and shortcut
 tooltip, and selection/utility actions sit below them. File actions open the
 operating-system file browser.
@@ -62,9 +65,11 @@ The default shell appearance is Midnight Violet. View → Appearance selects Dar
 Light, or Follow System and one of the built-in Violet, Blue, Teal, Coral, Green,
 Neutral, or Custom accents. Custom accepts a validated `#RRGGBB` value and updates
 without restarting; appearance settings are stored in workspace preferences and do
-not change document or brush colors. Older preference files inherit their previous
-dark/light setting. The welcome screen's small preferences shortcut still toggles
-dark/light directly.
+not change document or brush colors. View → Accessibility offers high-contrast
+controls, reduced motion and interface scaling (0.8×–1.6×). These are saved with
+the appearance preferences and do not affect artwork. Older preference files
+inherit their previous dark/light setting. The welcome screen's small preferences
+shortcut still toggles dark/light directly.
 Brush presets are versioned `.rplbrush` JSON files; load/save validates settings and
 saving refuses to replace an existing preset. New/Open safeguard dirty artwork with
 recovery confirmation. Save As and
@@ -77,8 +82,10 @@ untitled document after a PNG export chooses the matching `.rpl` project path.
 
 Use **Browse / Add images…** to select one or more PNG/JPEG references (up to six).
 Each floating reference window can be moved, resized, assigned an overlay opacity,
-or removed. Theme, right-panel width, and reference arrangement are
-stored in a separate local `workspace.json`; reference images stay linked to their
+zoomed, panned, locked, or removed. Palette docking/position, handedness, tool-panel
+placement, theme, accessibility settings, right-panel width, canvas view, new
+document setup and reference arrangement are stored in a separate local
+`workspace.json`; reference images stay linked to their
 files and never become document layers or appear in PNG/OpenRaster exports. Files
 are limited to 32 MiB, source dimensions to 16,384 pixels per edge and decoded source
 memory to 64 MiB; larger images are reduced to a 1,448-pixel edge / 8 MiB texture

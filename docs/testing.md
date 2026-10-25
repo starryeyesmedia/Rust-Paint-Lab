@@ -327,11 +327,13 @@ on demand after the normal native loader validates it; pixel sampling is capped 
 180 × 120 and the one retained texture is workspace-only. A unit test covers
 valid and corrupted files. AccessKit tree tests also render the actual floating
 Layers-panel contents and assert its layer actions and state labels. Its
-position/size preference test covers migration defaults, finite checks and bounds.
+position/size, Brush flyout position and Color flyout position preferences cover
+migration defaults, finite checks, persistence and bounds.
 
 The Linux alpha-window workflow drives the running Home, New Artwork, workspace,
-Brush library, Layers panel and Recovery manager, then captures the actual windows
-into the `rust-paint-lab-studio-ui-smoke` Actions artifact. Inspect these Xvfb
+reference board, Brush library, Layers panel and Recovery manager, then captures
+the actual windows into the `rust-paint-lab-studio-ui-smoke` Actions artifact.
+Inspect these Xvfb
 screenshots when the workflow succeeds; they are visual review evidence for the
 virtual Linux window, not Windows DPI, Narrator/NVDA or physical hardware
 validation. The companion `rust-paint-lab-linux-ui-diagnostics` artifact retains

@@ -12,9 +12,11 @@ native file picker; canceling leaves the current artwork unchanged.
 
 Draw with the left mouse button or Windows pen inside the paper. Mouse input has
 no pressure or tilt. Native Windows pen pressure and tilt are used when available;
-real-device behavior still needs hardware testing. Touch does not paint. A failed
-or interrupted stroke preview is canceled; completed strokes remain editable in
-the current document session.
+basic S Pen drawing has been observed on the Galaxy Book2 Pro 360 in earlier
+builds. Advanced pressure response, independent tilt axes, palm rejection,
+pen/touch concurrency and high-DPI behavior have not been individually rechecked
+on this build. Touch does not paint. A failed or interrupted stroke preview is
+canceled; completed strokes remain editable in the current document session.
 
 Use Browse / Add images to select one or more PNG/JPEG reference files (six maximum).
 Reference windows can be moved, resized, assigned overlay
@@ -23,16 +25,23 @@ preferences. References are never document layers and do not appear in artwork
 exports. Image files are limited to 32 MiB and decoded textures to 2048 × 2048 /
 8 MiB each.
 
-Theme and brush-panel width are also saved as workspace preferences. Project files
-remain version-1 .rpl documents; PNG and OpenRaster are supported with documented
-format limits. Local recovery keeps the legacy snapshot and verified .bak fallback
-and appends bounded checksummed complete-state journal records. This is not an
-operation history; a crash can lose edits since the latest completed checkpoint.
-No raw input is automatically recorded.
+The movable tool palette, handedness, theme/accessibility choices, panel placement
+and sizing, reference-board layout, canvas view, recent colors, and document setup
+are saved as local workspace preferences, independently from artwork. The Brush
+library opens from the primary palette; Color opens its own flyout; Layers opens a
+movable panel with common layer actions and remains available in the detailed right
+inspector. Escape closes a contextual panel before beginning the app-close flow.
+Project files remain version-1 .rpl documents; PNG and OpenRaster are supported
+with documented format limits. Local recovery keeps the legacy snapshot and
+verified .bak fallback and appends bounded checksummed complete-state journal
+records. This is not an operation history; a crash can lose edits since the latest
+completed checkpoint. No raw input is automatically recorded.
 
 Shortcuts: Ctrl+N new document, Ctrl+S save, Ctrl+O open, Ctrl+E PNG export, Ctrl+Z/Y undo/redo,
-Ctrl+Shift+R recover, Ctrl+Shift+O open OpenRaster, Ctrl+Shift+E export OpenRaster,
-F11 fullscreen. See USER-GUIDE.md for complete controls and limitations.
+Ctrl+L floating Layers panel, Ctrl+Shift+M artwork recovery manager, Ctrl+Shift+R quick recover,
+Ctrl+Shift+O open OpenRaster, Ctrl+Shift+E export OpenRaster, F11 fullscreen. Escape
+closes a contextual Brush/Color/Layers panel before closing the application. See
+USER-GUIDE.md for complete controls and limitations.
 
 If startup or rendering fails, run .\canvas-demo.exe from PowerShell and retain
 BUILD.txt. Include Windows version, GPU/driver, display scaling, and the error text

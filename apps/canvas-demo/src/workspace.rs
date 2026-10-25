@@ -42,6 +42,14 @@ fn default_layers_flyout_size() -> [f32; 2] {
     [300.0, 260.0]
 }
 
+fn default_brush_flyout_position() -> [f32; 2] {
+    [104.0, 72.0]
+}
+
+fn default_color_flyout_position() -> [f32; 2] {
+    [104.0, 300.0]
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InspectorTab {
     #[default]
@@ -185,6 +193,10 @@ pub struct WorkspacePreferences {
     pub layers_flyout_position: [f32; 2],
     #[serde(default = "default_layers_flyout_size")]
     pub layers_flyout_size: [f32; 2],
+    #[serde(default = "default_brush_flyout_position")]
+    pub brush_flyout_position: [f32; 2],
+    #[serde(default = "default_color_flyout_position")]
+    pub color_flyout_position: [f32; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,6 +271,8 @@ impl Default for WorkspacePreferences {
             palette_position: [72.0, 54.0],
             layers_flyout_position: default_layers_flyout_position(),
             layers_flyout_size: default_layers_flyout_size(),
+            brush_flyout_position: default_brush_flyout_position(),
+            color_flyout_position: default_color_flyout_position(),
         }
     }
 }
@@ -281,6 +295,8 @@ impl WorkspacePreferences {
             || !self.palette_position.iter().all(|v| v.is_finite())
             || !self.layers_flyout_position.iter().all(|v| v.is_finite())
             || !self.layers_flyout_size.iter().all(|v| v.is_finite())
+            || !self.brush_flyout_position.iter().all(|v| v.is_finite())
+            || !self.color_flyout_position.iter().all(|v| v.is_finite())
             || !self.canvas_pan.iter().all(|v| v.is_finite())
             || !self.new_document.validate()
         {
@@ -295,6 +311,8 @@ impl WorkspacePreferences {
             self.layers_flyout_size[0].clamp(220.0, 800.0),
             self.layers_flyout_size[1].clamp(160.0, 1200.0),
         ];
+        self.brush_flyout_position = self.brush_flyout_position.map(|v| v.clamp(0.0, 32768.0));
+        self.color_flyout_position = self.color_flyout_position.map(|v| v.clamp(0.0, 32768.0));
         self.canvas_pan = self.canvas_pan.map(|v| v.clamp(-32768.0, 32768.0));
         if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
             self.accent_scheme = AccentScheme::Violet;
@@ -408,17 +426,23 @@ mod tests {
         let mut preferences = WorkspacePreferences {
             layers_flyout_position: [120.0, -40.0],
             layers_flyout_size: [900.0, 90.0],
+            brush_flyout_position: [-200.0, 40_000.0],
+            color_flyout_position: [300.0, 400.0],
             ..Default::default()
         };
         assert!(preferences.validate());
         assert_eq!(preferences.layers_flyout_position, [120.0, 0.0]);
         assert_eq!(preferences.layers_flyout_size, [800.0, 160.0]);
+        assert_eq!(preferences.brush_flyout_position, [0.0, 32768.0]);
+        assert_eq!(preferences.color_flyout_position, [300.0, 400.0]);
 
         let json = serde_json::to_vec(&preferences).unwrap();
         let mut restored: WorkspacePreferences = serde_json::from_slice(&json).unwrap();
         assert!(restored.validate());
         assert_eq!(restored.layers_flyout_position, [120.0, 0.0]);
         assert_eq!(restored.layers_flyout_size, [800.0, 160.0]);
+        assert_eq!(restored.brush_flyout_position, [0.0, 32768.0]);
+        assert_eq!(restored.color_flyout_position, [300.0, 400.0]);
 
         restored.layers_flyout_position[0] = f32::INFINITY;
         assert!(!restored.validate());
@@ -489,6 +513,8 @@ mod tests {
         assert_eq!(preferences.new_document.height, 1000.0);
         assert_eq!(preferences.layers_flyout_position, [760.0, 96.0]);
         assert_eq!(preferences.layers_flyout_size, [300.0, 260.0]);
+        assert_eq!(preferences.brush_flyout_position, [104.0, 72.0]);
+        assert_eq!(preferences.color_flyout_position, [104.0, 300.0]);
         assert!(!preferences.new_document.transparent);
         assert!(preferences.show_controls);
         assert_eq!(preferences.appearance_mode, None);

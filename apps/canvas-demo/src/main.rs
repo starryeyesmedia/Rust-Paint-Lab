@@ -419,6 +419,12 @@ impl ApplicationHandler<AppEvent> for App {
                     if let Some(g) = &mut self.graphics
                         && let Some(studio) = &mut g.studio
                     {
+                        if event.physical_key == PhysicalKey::Code(KeyCode::Escape)
+                            && studio.dismiss_flyout()
+                        {
+                            g.window.request_redraw();
+                            return Ok(());
+                        }
                         if studio.context.wants_keyboard_input() {
                             return Ok(());
                         }
@@ -520,13 +526,6 @@ impl ApplicationHandler<AppEvent> for App {
                             self.tick = Instant::now();
                         }
                         PhysicalKey::Code(KeyCode::Escape) => {
-                            if let Some(g) = &mut self.graphics
-                                && let Some(studio) = &mut g.studio
-                                && studio.dismiss_flyout()
-                            {
-                                g.window.request_redraw();
-                                return Ok(());
-                            }
                             if !self.request_close() {
                                 event_loop.exit();
                             }
