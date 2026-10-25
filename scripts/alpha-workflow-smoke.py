@@ -89,7 +89,8 @@ def send():
     time.sleep(0.06)
 
 def trace(action, *details):
-    print('UI_TRACE:', action, *details, flush=True)
+    if os.environ.get('RPL_VERBOSE_UI_TRACE'):
+        print('UI_TRACE:', action, *details, flush=True)
 
 def move(px, py):
     trace('move',px,py)
@@ -470,6 +471,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name.endswith('normal'):
                         assert width>=900 and height>=650,f'{name} was not captured at a normal size: {width}x{height}'
             print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
+        except Exception as error:
+            print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
+            raise
         finally:
             if process.poll() is None: process.terminate();process.wait(timeout=10)
             close_display(display)

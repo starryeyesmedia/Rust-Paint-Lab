@@ -796,9 +796,17 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   so the exact cause is not confirmed. The Linux artifact upload succeeded, but
   the other jobs were canceled before the Windows canvas package. Smoke output now
   marks capture start and sampled-color count and limits repeated application
-  logs so the next failure includes its actual assertion.
+  logs. The check annotation still truncated before the final capture marker.
+- Run [`40231796822`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40231796822)
+  repeated the same 17-screen capture/final-state failure. CI annotations truncate
+  the workflow output at 4 KiB and hid the end of the Python traceback. The smoke
+  now suppresses verbose pointer/key traces by default and prints a concise
+  exception before application diagnostics, so the next run should expose the
+  precise failing assertion. Windows and macOS standard checks passed; macOS
+  packaged its alpha app; Windows standard checks passed and was building the
+  canvas when canceled before package upload.
 
-Next: push the high-contrast capture diagnostics through the expanded
+Next: push the bounded smoke diagnostics through the expanded
 cross-platform workflow. Inspect the screenshot archive if artifact access is restored; the
 workspace currently blocks the GitHub artifact blob host. Correct any visible
 issues and produce one consolidated Windows evaluation artifact only after this

@@ -74,9 +74,10 @@ and live-window smoke, then captured 17 of 18 requested UI states. Its only fail
 was during the final high-contrast screenshot check. The generic sampled-color
 threshold was lowered for that state, but run `40231310053` repeated the failure.
 The Actions annotation truncates the Python exception, so the exact cause is still
-unconfirmed. The smoke now reports capture stage and color count and keeps the
-output short enough to retain the failure detail. The corrected full matrix and
-consolidated Windows artifact are pending. The screenshot archive could not be
+unconfirmed. Run `40231796822` repeated the failure; its check annotation is capped
+at 4 KiB, still hiding the final capture output. The smoke now suppresses verbose
+input traces and prints a concise exception before app diagnostics. The corrected
+full matrix and consolidated Windows artifact are pending. The screenshot archive could not be
 inspected here because Actions artifact blob downloads return HTTP 403. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are
