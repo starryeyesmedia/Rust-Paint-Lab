@@ -42,66 +42,19 @@ pub fn install_fonts(context: &egui::Context) {
     context.set_fonts(font_definitions());
 }
 
-pub fn brand_mark(ui: &mut egui::Ui, size: f32) {
-    let (bounds, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
-    paint_brand_mark(ui.painter(), bounds, ui.visuals().window_fill);
-}
-
-fn paint_brand_mark(painter: &egui::Painter, bounds: egui::Rect, surface: egui::Color32) {
-    let dark = surface.r() < 128;
-    let well = if dark {
-        egui::Color32::from_rgb(44, 30, 58)
-    } else {
-        egui::Color32::from_rgb(240, 228, 250)
-    };
-    painter.rect_filled(bounds, bounds.width() * 0.27, well);
-    let cell = bounds.width() * 0.115;
-    let gap = cell * 0.29;
-    let grid = [
-        [false, true, true, false],
-        [true, false, false, true],
-        [true, true, true, false],
-        [true, false, false, true],
-        [false, true, true, false],
-    ];
-    let width = cell * 4.0 + gap * 3.0;
-    let height = cell * 5.0 + gap * 4.0;
-    let origin = bounds.center() - egui::vec2(width, height) * 0.5;
-    for (row, cells) in grid.iter().enumerate() {
-        for (column, active) in cells.iter().enumerate() {
-            if !active {
-                continue;
-            }
-            let color = match (row + column) % 3 {
-                0 => egui::Color32::from_rgb(197, 92, 255),
-                1 => egui::Color32::from_rgb(245, 142, 255),
-                _ => egui::Color32::from_rgb(226, 190, 255),
-            };
-            let minimum =
-                origin + egui::vec2(column as f32 * (cell + gap), row as f32 * (cell + gap));
-            painter.rect_filled(
-                egui::Rect::from_min_size(minimum, egui::vec2(cell, cell)),
-                cell * 0.22,
-                color,
-            );
-        }
-    }
-}
-
 pub fn brand_wordmark(ui: &mut egui::Ui, size: f32) {
-    let accent = crate::appearance::readable_text_accent(
-        egui::Color32::from_rgb(197, 92, 255),
-        ui.visuals().window_fill,
-    );
+    let surface = ui.visuals().window_fill;
+    let foreground = crate::appearance::readable_text_color(ui.visuals().text_color(), surface);
+    let accent =
+        crate::appearance::readable_text_accent(egui::Color32::from_rgb(197, 92, 255), surface);
     let display = egui::FontFamily::Name(DISPLAY_FONT.into());
     ui.horizontal(|ui| {
-        brand_mark(ui, size * 1.18);
-        ui.add_space(2.0);
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.label(
             egui::RichText::new("Bitch")
                 .font(egui::FontId::new(size, display.clone()))
-                .strong(),
+                .strong()
+                .color(foreground),
         );
         ui.label(
             egui::RichText::new("Pixel")
@@ -110,6 +63,33 @@ pub fn brand_wordmark(ui: &mut egui::Ui, size: f32) {
                 .color(accent),
         );
     });
+}
+
+/// Consistent raised surface for floating creative panels.
+pub fn floating_panel_frame(visuals: &egui::Visuals) -> egui::Frame {
+    egui::Frame::new()
+        .fill(visuals.window_fill)
+        .stroke(visuals.window_stroke)
+        .corner_radius(PANEL_RADIUS)
+        .inner_margin(egui::Margin::same(14))
+}
+
+/// Card surface shared by Home, New Artwork and contextual tool panels.
+pub fn card_frame(visuals: &egui::Visuals, selected: bool) -> egui::Frame {
+    let stroke = if selected {
+        visuals.selection.stroke
+    } else {
+        visuals.window_stroke
+    };
+    egui::Frame::new()
+        .fill(if selected {
+            visuals.selection.bg_fill
+        } else {
+            visuals.faint_bg_color
+        })
+        .stroke(stroke)
+        .corner_radius(BUTTON_RADIUS)
+        .inner_margin(egui::Margin::same(12))
 }
 
 pub fn install_motion_preference(context: &egui::Context, reduced_motion: bool) {
@@ -126,11 +106,11 @@ pub fn install(context: &egui::Context) {
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(26.0, egui::FontFamily::Name(DISPLAY_FONT.into())),
+            egui::FontId::new(28.0, egui::FontFamily::Name(DISPLAY_FONT.into())),
         );
         style.text_styles.insert(
             egui::TextStyle::Body,
-            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+            egui::FontId::new(15.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Button,
@@ -189,12 +169,18 @@ mod tests {
     }
 
     #[test]
-    fn brand_mark_paints_a_distinctive_accessible_geometry() {
+    fn temporary_identity_is_text_only_and_uses_display_typography() {
         let context = egui::Context::default();
         install(&context);
         let output = context.run(egui::RawInput::default(), |context| {
             egui::CentralPanel::default().show(context, |ui| brand_wordmark(ui, 22.0));
         });
-        assert!(output.shapes.len() >= 12);
+        assert!(!output.shapes.is_empty());
+        assert!(output.shapes.len() < 12);
+        assert!(
+            font_definitions()
+                .families
+                .contains_key(&egui::FontFamily::Name(DISPLAY_FONT.into()))
+        );
     }
 }

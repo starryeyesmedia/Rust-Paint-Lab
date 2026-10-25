@@ -131,6 +131,7 @@ mod tests {
                         name,
                         width,
                         height,
+                        300,
                         name == "Square",
                         120.0,
                     );
@@ -162,6 +163,45 @@ mod tests {
             labels.contains("toggled: False"),
             "unselected formats are exposed to assistive technology: {labels}"
         );
+    }
+
+    #[test]
+    fn home_quick_start_cards_are_named_buttons_with_exact_formats() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                for (name, dimensions) in [
+                    ("Portrait", [1800, 2400]),
+                    ("Square", [2048, 2048]),
+                    ("Landscape", [2400, 1800]),
+                    ("A4 Print", [2480, 3508]),
+                ] {
+                    crate::studio::home_document_card(ui, name, dimensions, 180.0);
+                }
+                crate::studio::home_custom_document_card(ui, 180.0);
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("Home quick-start choices emit AccessKit nodes");
+        let nodes = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in [
+            "New Portrait artwork, 1800 by 2400 pixels",
+            "New Square artwork, 2048 by 2048 pixels",
+            "New Landscape artwork, 2400 by 1800 pixels",
+            "New A4 Print artwork, 2480 by 3508 pixels",
+            "Create artwork with a custom canvas size",
+        ] {
+            assert!(nodes.contains(label), "{label} missing from tree: {nodes}");
+        }
+        assert!(nodes.matches("role: Button").count() >= 5);
     }
 
     #[test]
@@ -202,12 +242,14 @@ mod tests {
                     paint_document::brush::BrushKind::Round,
                     true,
                     [100, 40, 190],
+                    148.0,
                 );
                 crate::studio::brush_preset_card(
                     ui,
                     paint_document::brush::BrushKind::Ink,
                     false,
                     [100, 40, 190],
+                    148.0,
                 );
             });
         });

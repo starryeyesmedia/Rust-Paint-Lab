@@ -100,12 +100,263 @@ fn recent_gallery_layout(available_width: f32) -> (usize, f32) {
         _ => 1,
     };
     let gaps = 14.0 * (columns - 1) as f32;
-    let card_width = ((available_width - gaps) / columns as f32).clamp(180.0, 420.0);
+    let card_width = ((available_width - gaps) / columns as f32).clamp(180.0, 500.0);
     (columns, card_width)
+}
+
+fn document_format_grid(available_width: f32) -> (usize, f32) {
+    let columns = match available_width {
+        width if width >= 780.0 => 4,
+        width if width >= 560.0 => 3,
+        width if width >= 350.0 => 2,
+        _ => 1,
+    };
+    let gaps = 12.0 * (columns - 1) as f32;
+    let card_width = ((available_width - gaps) / columns as f32).clamp(108.0, 190.0);
+    (columns, card_width)
+}
+
+pub(crate) fn quick_document_card_layout(available_width: f32) -> (usize, f32) {
+    let columns = if available_width >= 1150.0 {
+        5
+    } else if available_width >= 760.0 {
+        3
+    } else if available_width >= 420.0 {
+        2
+    } else {
+        1
+    };
+    let card_width =
+        ((available_width - 12.0 * (columns - 1) as f32) / columns as f32).clamp(172.0, 410.0);
+    (columns, card_width)
+}
+
+pub(crate) fn home_document_card(
+    ui: &mut egui::Ui,
+    name: &str,
+    dimensions: [u32; 2],
+    card_width: f32,
+) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(card_width, 124.0), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!(
+                "New {name} artwork, {} by {} pixels",
+                dimensions[0], dimensions[1]
+            ),
+        )
+    });
+    let visuals = ui.visuals();
+    let fill = if response.hovered() {
+        visuals.widgets.hovered.bg_fill
+    } else {
+        visuals.faint_bg_color
+    };
+    ui.painter().rect_filled(rect, 12.0, fill);
+    ui.painter().rect_stroke(
+        rect,
+        12.0,
+        if response.has_focus() || response.hovered() {
+            visuals.selection.stroke
+        } else {
+            visuals.window_stroke
+        },
+        egui::StrokeKind::Inside,
+    );
+
+    let max_paper = egui::vec2(
+        (card_width * 0.22).clamp(54.0, 82.0),
+        (card_width * 0.18).clamp(44.0, 66.0),
+    );
+    let aspect = dimensions[0] as f32 / dimensions[1] as f32;
+    let paper_size = if aspect >= 1.0 {
+        egui::vec2(max_paper.x, max_paper.x / aspect)
+    } else {
+        egui::vec2(max_paper.y * aspect, max_paper.y)
+    };
+    let paper =
+        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 37.0), paper_size);
+    ui.painter()
+        .rect_filled(paper, 3.0, visuals.extreme_bg_color);
+    ui.painter().rect_stroke(
+        paper,
+        3.0,
+        egui::Stroke::new(1.5, visuals.text_color()),
+        egui::StrokeKind::Inside,
+    );
+    for row in 0..3 {
+        let y = paper.top() + 9.0 + row as f32 * 7.0;
+        if y < paper.bottom() - 4.0 {
+            ui.painter().line_segment(
+                [
+                    egui::pos2(paper.left() + 5.0, y),
+                    egui::pos2(paper.right() - 5.0, y),
+                ],
+                egui::Stroke::new(1.0, visuals.window_stroke.color),
+            );
+        }
+    }
+    let fg = crate::appearance::readable_text_color(visuals.text_color(), fill);
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 26.0),
+        egui::Align2::CENTER_CENTER,
+        name,
+        egui::FontId::proportional(15.0),
+        fg,
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 10.0),
+        egui::Align2::CENTER_CENTER,
+        format!("{} × {} px", dimensions[0], dimensions[1]),
+        egui::FontId::proportional(11.0),
+        crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
+    );
+    response.clicked()
+        || (response.has_focus()
+            && ui.input(|input| {
+                input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
+            }))
+}
+
+pub(crate) fn home_custom_document_card(ui: &mut egui::Ui, card_width: f32) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(card_width, 124.0), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            "Create artwork with a custom canvas size",
+        )
+    });
+    let visuals = ui.visuals();
+    let fill = if response.hovered() {
+        visuals.widgets.hovered.bg_fill
+    } else {
+        visuals.faint_bg_color
+    };
+    ui.painter().rect_filled(rect, 12.0, fill);
+    ui.painter().rect_stroke(
+        rect,
+        12.0,
+        if response.has_focus() || response.hovered() {
+            visuals.selection.stroke
+        } else {
+            visuals.window_stroke
+        },
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.top() + 37.0),
+        egui::Align2::CENTER_CENTER,
+        "+",
+        egui::FontId::proportional(38.0),
+        visuals.hyperlink_color,
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 23.0),
+        egui::Align2::CENTER_CENTER,
+        "Custom size",
+        egui::FontId::proportional(15.0),
+        visuals.text_color(),
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 8.0),
+        egui::Align2::CENTER_CENTER,
+        "Set exact dimensions",
+        egui::FontId::proportional(11.0),
+        crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
+    );
+    response.clicked()
+        || (response.has_focus()
+            && ui.input(|input| {
+                input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
+            }))
+}
+
+fn home_featured_artwork(
+    ui: &mut egui::Ui,
+    featured: Option<&RecentProjectCard>,
+    open_recent: &mut Option<PathBuf>,
+    screen_height: f32,
+) -> bool {
+    let Some(card) = featured.filter(|card| card.thumbnail.is_some()) else {
+        return false;
+    };
+    let Some(texture) = card.thumbnail.as_ref() else {
+        return false;
+    };
+    let width = ui.available_width().clamp(240.0, 640.0);
+    let height = (width * 0.46)
+        .clamp(150.0, 260.0)
+        .min((screen_height * 0.36).clamp(120.0, 240.0));
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+    let visuals = ui.visuals();
+    let size = texture.size_vec2();
+    let available = rect.shrink(8.0);
+    let scale = (available.width() / size.x).min(available.height() / size.y);
+    let image_size = size * scale;
+    let image = egui::Rect::from_center_size(rect.center(), image_size);
+    ui.painter()
+        .rect_filled(rect, 16.0, visuals.extreme_bg_color);
+    ui.painter().image(
+        texture.id(),
+        image,
+        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+        egui::Color32::WHITE,
+    );
+    let caption = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 58.0), rect.max);
+    ui.painter()
+        .rect_filled(caption, 0.0, egui::Color32::from_black_alpha(210));
+    let title = card.path.file_stem().unwrap_or_default().to_string_lossy();
+    ui.painter().text(
+        egui::pos2(caption.left() + 16.0, caption.top() + 18.0),
+        egui::Align2::LEFT_CENTER,
+        title.as_ref(),
+        egui::FontId::proportional(17.0),
+        egui::Color32::WHITE,
+    );
+    ui.painter().text(
+        egui::pos2(caption.left() + 16.0, caption.top() + 40.0),
+        egui::Align2::LEFT_CENTER,
+        "Continue creating",
+        egui::FontId::proportional(12.0),
+        egui::Color32::from_rgb(230, 218, 240),
+    );
+    if response.clicked() {
+        *open_recent = Some(card.path.clone());
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("Continue artwork {}", card.path.display()),
+        )
+    });
+    let border = if response.hovered() || response.has_focus() {
+        visuals.selection.stroke
+    } else {
+        visuals.window_stroke
+    };
+    ui.painter()
+        .rect_stroke(rect, 16.0, border, egui::StrokeKind::Inside);
+    true
 }
 
 fn home_sections_stacked(screen_width: f32) -> bool {
     !(1050.0..1700.0).contains(&screen_width)
+}
+
+fn home_hero_height(screen_width: f32, has_featured_artwork: bool) -> f32 {
+    if screen_width < 760.0 {
+        280.0
+    } else if has_featured_artwork {
+        370.0
+    } else {
+        340.0
+    }
 }
 
 pub(crate) fn recent_search_field(ui: &mut egui::Ui, query: &mut String) {
@@ -152,17 +403,19 @@ pub(crate) fn document_format_card(
     label: &str,
     width: f32,
     height: f32,
+    dpi: u32,
     selected: bool,
     card_width: f32,
 ) -> bool {
     let size = egui::vec2(card_width, 116.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let accessible_name = format!("{label}, {width:.0} by {height:.0} pixels at {dpi} DPI");
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::RadioButton,
             ui.is_enabled(),
             selected,
-            label,
+            accessible_name.clone(),
         )
     });
     let visuals = ui.visuals();
@@ -181,18 +434,38 @@ pub(crate) fn document_format_card(
     let painter = ui.painter();
     painter.rect_filled(rect, 10.0, fill);
     painter.rect_stroke(rect, 10.0, outline, egui::StrokeKind::Inside);
+    if selected {
+        let center = egui::pos2(rect.right() - 15.0, rect.top() + 15.0);
+        let badge = visuals.selection.stroke.color;
+        let check = crate::appearance::readable_text_color(egui::Color32::WHITE, badge);
+        painter.circle_filled(center, 9.0, badge);
+        painter.line_segment(
+            [
+                center + egui::vec2(-4.0, 0.0),
+                center + egui::vec2(-1.0, 3.0),
+            ],
+            egui::Stroke::new(2.0, check),
+        );
+        painter.line_segment(
+            [
+                center + egui::vec2(-1.0, 3.0),
+                center + egui::vec2(4.0, -4.0),
+            ],
+            egui::Stroke::new(2.0, check),
+        );
+    }
 
     // A paper silhouette makes format choice legible at a glance even when
     // the label is translated or the dialog is narrow.
     let ratio = width / height;
-    let paper_max = egui::vec2((card_width - 24.0).min(60.0), 62.0);
+    let paper_max = egui::vec2((card_width - 24.0).min(64.0), 58.0);
     let paper_size = if ratio >= 1.0 {
         egui::vec2(paper_max.x, paper_max.x / ratio)
     } else {
         egui::vec2(paper_max.y * ratio, paper_max.y)
     };
     let paper =
-        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 43.0), paper_size);
+        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 34.0), paper_size);
     painter.rect_filled(paper, 3.0, visuals.extreme_bg_color);
     painter.rect_stroke(
         paper,
@@ -201,11 +474,25 @@ pub(crate) fn document_format_card(
         egui::StrokeKind::Inside,
     );
     painter.text(
-        egui::pos2(rect.center().x, rect.bottom() - 20.0),
+        egui::pos2(rect.center().x, rect.bottom() - 35.0),
         egui::Align2::CENTER_CENTER,
         label,
         egui::FontId::proportional(14.0),
-        visuals.text_color(),
+        crate::appearance::readable_text_color(visuals.text_color(), fill),
+    );
+    painter.text(
+        egui::pos2(rect.center().x, rect.bottom() - 20.0),
+        egui::Align2::CENTER_CENTER,
+        format!("{}×{} px", width as u32, height as u32),
+        egui::FontId::proportional(10.0),
+        crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
+    );
+    painter.text(
+        egui::pos2(rect.center().x, rect.bottom() - 7.0),
+        egui::Align2::CENTER_CENTER,
+        format!("{dpi} DPI"),
+        egui::FontId::proportional(10.0),
+        crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
     activate_focusable_card(ui, &response)
 }
@@ -215,9 +502,13 @@ pub(crate) fn brush_preset_card(
     kind: BrushKind,
     selected: bool,
     color: [u8; 3],
+    card_width: f32,
 ) -> bool {
     let name = brush_display_name(kind);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(148.0, 82.0), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(card_width.max(120.0), 82.0),
+        egui::Sense::click(),
+    );
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::RadioButton,
@@ -1165,6 +1456,7 @@ pub struct Studio {
     new_unit: crate::document_setup::DocumentUnit,
     new_background: [u8; 3],
     new_transparent: bool,
+    new_custom_size_selected: bool,
     recent_document_sizes: Vec<crate::workspace::RecentDocumentSize>,
     recent_brush_colors: Vec<[u8; 3]>,
     favorite_brushes: Vec<BrushKind>,
@@ -1181,6 +1473,12 @@ pub struct Studio {
     manual_file_submit: bool,
     test_path_dialog: bool,
     test_brush_rect_logged: bool,
+    test_brush_layout_logged: bool,
+    test_home_preview_logged: bool,
+    test_reference_preview_logged: bool,
+    test_new_artwork_logged: bool,
+    test_home_dark_contrast_logged: bool,
+    test_home_light_contrast_logged: bool,
     confirm: Option<Action>,
     pub close_requested: bool,
     pub close_ready: bool,
@@ -1299,12 +1597,15 @@ impl Studio {
         let recent_document_sizes = preferences.recent_document_sizes.clone();
         let recent_brush_colors = preferences.recent_brush_colors.clone();
         let favorite_brushes = preferences.favorite_brushes.clone();
-        let references = preferences
+        let references: Vec<ReferenceImage> = preferences
             .references
             .iter()
             .cloned()
             .filter_map(|layout| load_reference_texture(&context, layout).ok())
             .collect();
+        if test_path_dialog {
+            eprintln!("UI_TEST_REFERENCE_COUNT: {}", references.len());
+        }
         let appearance_mode = preferences.effective_appearance_mode();
         let custom_accent_rgb = preferences.custom_accent_rgb;
         let custom_accent_hex = custom_accent_rgb
@@ -1330,6 +1631,7 @@ impl Studio {
             new_unit: document_setup.unit,
             new_background: document_setup.background,
             new_transparent: document_setup.transparent,
+            new_custom_size_selected: false,
             recent_document_sizes,
             recent_brush_colors,
             favorite_brushes,
@@ -1346,6 +1648,12 @@ impl Studio {
             manual_file_submit: false,
             test_path_dialog,
             test_brush_rect_logged: false,
+            test_brush_layout_logged: false,
+            test_home_preview_logged: false,
+            test_reference_preview_logged: false,
+            test_new_artwork_logged: false,
+            test_home_dark_contrast_logged: false,
+            test_home_light_contrast_logged: false,
             confirm: None,
             close_requested: false,
             close_ready: false,
@@ -2286,6 +2594,12 @@ impl Studio {
             color_flyout_position: self.color_flyout_position,
             ..Default::default()
         };
+        if self.test_path_dialog {
+            eprintln!(
+                "UI_TEST_WORKSPACE_SAVE: references={}",
+                preferences.references.len()
+            );
+        }
         if !preferences.validate() {
             return Err("Workspace preferences failed validation".into());
         }
@@ -2841,6 +3155,8 @@ impl Studio {
                 self.palette_dock,
                 crate::workspace::PaletteDock::Top | crate::workspace::PaletteDock::Bottom
             );
+            let compact_palette =
+                self.palette_collapsed || horizontal_palette || screen.width() < 760.0;
             let area = egui::Area::new(egui::Id::new("tool palette"))
                 .movable(true)
                 .constrain_to(screen.shrink(4.0))
@@ -2859,6 +3175,9 @@ impl Studio {
                     .corner_radius(12.0)
                     .inner_margin(6.0)
                     .show(ui, |ui| {
+                        if compact_palette && !horizontal_palette {
+                            ui.set_width(58.0);
+                        }
                         if horizontal_palette {
                             ui.set_min_width((screen.width() - 16.0).clamp(1.0, 640.0));
                         }
@@ -2871,7 +3190,7 @@ impl Studio {
                                     "Drag this palette to move it; release near an edge to dock",
                                 )
                                 .on_disabled_hover_text("Tool palette");
-                            if !horizontal_palette
+                            if !compact_palette
                                 && ui
                                     .small_button(if self.palette_collapsed {
                                         "Expand tools"
@@ -2915,7 +3234,7 @@ impl Studio {
                                     "I",
                                 ),
                             ] {
-                                let response = if self.palette_collapsed || horizontal_palette {
+                                let response = if compact_palette {
                                     crate::studio_icons::button(
                                         ui,
                                         icon,
@@ -2983,7 +3302,7 @@ impl Studio {
                                 self.brush_flyout_open = false;
                                 self.color_flyout_open = !self.color_flyout_open;
                             }
-                            if !self.palette_collapsed && !horizontal_palette {
+                            if !compact_palette {
                                 let layers = ui
                                     .button("Layers")
                                     .on_hover_text("Open floating layer panel");
@@ -3064,6 +3383,10 @@ impl Studio {
                         };
                         if horizontal_palette {
                             ui.horizontal_wrapped(&mut draw_tools);
+                        } else if screen.height() < 620.0 {
+                            egui::ScrollArea::vertical()
+                                .max_height((screen.height() - 160.0).max(120.0))
+                                .show(ui, |ui| ui.vertical_centered(&mut draw_tools));
                         } else {
                             ui.vertical_centered(&mut draw_tools);
                         }
@@ -3605,6 +3928,7 @@ impl Studio {
                     ),
                 );
                 let panel = egui::Window::new("Layers")
+                    .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
                     .resizable(true)
                     .default_size(egui::vec2(
@@ -3635,23 +3959,50 @@ impl Studio {
 
             if self.brush_flyout_open {
                 let mut open = self.brush_flyout_open;
+                let brush_size = crate::studio_layout::flyout_size(
+                    screen,
+                    palette_response.response.rect,
+                    egui::vec2(620.0, 560.0),
+                );
                 let brush_position = crate::studio_layout::flyout_position(
                     screen,
                     palette_response.response.rect,
-                    egui::vec2(360.0, 560.0),
+                    brush_size,
                     egui::pos2(self.brush_flyout_position[0], self.brush_flyout_position[1]),
                 );
+                let brush_area = egui::AreaState::load(ctx, egui::Id::new("Brush library"));
+                let brush_previous_rect = brush_area.map(|state| state.rect());
+                let brush_needs_reanchor = brush_area.is_some_and(|state| {
+                    let current_rect = state.rect();
+                    !screen.contains_rect(current_rect)
+                        || current_rect.intersects(palette_response.response.rect)
+                });
                 let panel = egui::Window::new("Brush library")
+                    .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
-                    .resizable(true)
-                    .default_size(egui::vec2(360.0, 560.0))
-                    .max_size(egui::vec2((screen.width() - 16.0).max(1.0), (screen.height() - 16.0).max(1.0)))
-                    .default_pos(brush_position)
+                    .resizable(screen.width() >= 760.0)
+                    .default_size(brush_size)
+                    .max_size(brush_size)
+                    .default_pos(brush_position);
+                let panel = if screen.width() < 760.0 {
+                    panel.fixed_size(brush_size)
+                } else {
+                    panel
+                };
+                let panel = if brush_needs_reanchor {
+                    panel.current_pos(brush_position)
+                } else {
+                    panel
+                }
                     .constrain_to(screen.shrink(8.0))
                     .show(ctx, |ui| {
+                        ui.set_width((brush_size.x - 24.0).max(160.0));
                         egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .max_height((screen.height() - 96.0).max(80.0))
+                            .auto_shrink([true, false])
+                            // Account for the floating window title and frame;
+                            // an unconstrained content viewport can make egui
+                            // exceed max_size and slide the panel over the tools.
+                            .max_height((brush_size.y - 112.0).max(80.0))
                             .show(ui, |ui| {
                         let project = session.live_mut().project_mut();
                         ui.horizontal(|ui| {
@@ -3689,23 +4040,33 @@ impl Studio {
                             if filtered.is_empty() { continue; }
                             visible_count += filtered.len();
                             ui.horizontal(|ui| {
-                                ui.strong(group);
+                                let color = crate::appearance::readable_text_color(
+                                    ui.visuals().text_color(),
+                                    ui.visuals().window_fill(),
+                                );
+                                ui.colored_label(color, egui::RichText::new(group).strong());
                                 ui.separator();
                             });
-                            ui.horizontal_wrapped(|ui| {
+                            if screen.width() < 760.0 {
                                 for kind in filtered {
-                                    ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
                                         let selected = project.brush.kind == kind;
-                                        if brush_preset_card(ui, kind, selected, project.brush.color) {
+                                        let card_width = (ui.available_width() - 44.0).clamp(120.0, 440.0);
+                                        if brush_preset_card(
+                                            ui,
+                                            kind,
+                                            selected,
+                                            project.brush.color,
+                                            card_width,
+                                        ) {
                                             let color = project.brush.color;
                                             project.brush = Brush::preset(kind);
                                             project.brush.color = color;
                                         }
                                         let favorite = self.favorite_brushes.contains(&kind);
-                                        let label = if favorite { "★" } else { "☆" };
                                         let response = ui.add_sized(
-                                            [148.0, 32.0],
-                                            egui::Button::new(label),
+                                            [36.0, 44.0],
+                                            egui::Button::new(if favorite { "★" } else { "☆" }),
                                         );
                                         response.widget_info(|| egui::WidgetInfo::labeled(
                                             egui::WidgetType::Button,
@@ -3724,7 +4085,38 @@ impl Studio {
                                         }
                                     });
                                 }
-                            });
+                            } else {
+                                ui.horizontal_wrapped(|ui| {
+                                    for kind in filtered {
+                                        ui.vertical(|ui| {
+                                            let selected = project.brush.kind == kind;
+                                            if brush_preset_card(ui, kind, selected, project.brush.color, 148.0) {
+                                                let color = project.brush.color;
+                                                project.brush = Brush::preset(kind);
+                                                project.brush.color = color;
+                                            }
+                                            let favorite = self.favorite_brushes.contains(&kind);
+                                            let label = if favorite { "★" } else { "☆" };
+                                            let response = ui.add_sized([148.0, 32.0], egui::Button::new(label));
+                                            response.widget_info(|| egui::WidgetInfo::labeled(
+                                                egui::WidgetType::Button,
+                                                ui.is_enabled(),
+                                                if favorite { "Remove from favorite brushes" } else { "Add to favorite brushes" },
+                                            ));
+                                            if response.on_hover_text(if favorite { "Remove from favorites" } else { "Add to favorites" }).clicked() {
+                                                if let Some(index) = self.favorite_brushes.iter().position(|value| *value == kind) {
+                                                    self.favorite_brushes.remove(index);
+                                                } else if self.favorite_brushes.len() < crate::workspace::MAX_FAVORITE_BRUSHES {
+                                                    self.favorite_brushes.push(kind);
+                                                } else {
+                                                    self.status = format!("Favorites are limited to {} brushes", crate::workspace::MAX_FAVORITE_BRUSHES);
+                                                }
+                                                workspace_changed = true;
+                                            }
+                                        });
+                                    }
+                                });
+                            }
                         }
                         if visible_count == 0 {
                             ui.add_space(8.0);
@@ -3772,6 +4164,23 @@ impl Studio {
                             });
                     });
                 if let Some(panel) = panel {
+                    if self.test_path_dialog
+                        && screen.width() < 700.0
+                        && !self.test_brush_layout_logged
+                    {
+                        self.test_brush_layout_logged = true;
+                        eprintln!(
+                            "UI_TEST_BRUSH_PANEL: screen={:.0}x{:.0} palette={:?} previous={:?} size={:?} desired={:?} actual={:?} reanchor={}",
+                            screen.width(),
+                            screen.height(),
+                            palette_response.response.rect,
+                            brush_previous_rect,
+                            brush_size,
+                            brush_position,
+                            panel.response.rect,
+                            brush_needs_reanchor
+                        );
+                    }
                     let position = [panel.response.rect.left(), panel.response.rect.top()];
                     if position != self.brush_flyout_position {
                         self.brush_flyout_position = position;
@@ -3789,6 +4198,7 @@ impl Studio {
                     egui::pos2(self.color_flyout_position[0], self.color_flyout_position[1]),
                 );
                 let panel = egui::Window::new("Color controls")
+                    .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
                     .resizable(true)
                     .default_size(egui::vec2(320.0, 390.0))
@@ -4075,6 +4485,18 @@ impl Studio {
                         reference.source_size[0], reference.source_size[1]
                     ));
                     reference.viewport = Some(viewport);
+                    let reference_visible_workspace =
+                        !self.welcome && !self.new_dialog && !self.recovery_manager;
+                    if self.test_path_dialog
+                        && reference_visible_workspace
+                        && !self.test_reference_preview_logged
+                    {
+                        eprintln!(
+                            "UI_TEST_REFERENCE_IMAGE_VIEWPORT: {:.1},{:.1} {:.1}x{:.1} screen {:.1}x{:.1}",
+                            viewport.left(), viewport.top(), viewport.width(), viewport.height(),
+                            screen_viewport.width(), screen_viewport.height()
+                        );
+                    }
                     if image_response.hovered() {
                         let scroll_y = ui.input(|input| input.smooth_scroll_delta.y);
                         if scroll_y != 0.0
@@ -4110,6 +4532,16 @@ impl Studio {
                                 (reference.layout.opacity * 255.0).round() as u8,
                             ),
                         );
+                        if self.test_path_dialog
+                            && reference_visible_workspace
+                            && !self.test_reference_preview_logged
+                        {
+                            self.test_reference_preview_logged = true;
+                            eprintln!(
+                                "UI_TEST_REFERENCE_IMAGE_VISIBLE: {}x{}",
+                                reference.source_size[0], reference.source_size[1]
+                            );
+                        }
                     }
                     if image_response.dragged() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -4164,7 +4596,13 @@ impl Studio {
             }
         }
 
-        if !self.welcome && !self.new_dialog && !self.manual_file_dialog {
+        if !self.welcome
+            && !self.new_dialog
+            && !self.manual_file_dialog
+            && !self.brush_flyout_open
+            && !self.layers_flyout_open
+            && !self.color_flyout_open
+        {
             let screen = ctx.content_rect();
             egui::Area::new(egui::Id::new("canvas zoom controls"))
                 .order(egui::Order::Foreground)
@@ -4207,6 +4645,16 @@ impl Studio {
             let side_pad = if screen.width() < 720.0 { 16.0 } else { 32.0 };
             let mut open_recent = None;
             let mut remove_draft = None;
+            let mut start_preset = None;
+            let mut custom_size_requested = false;
+            let featured_recent = self
+                .recent_cards
+                .iter()
+                .find(|card| card.bytes.is_some() && card.thumbnail.is_some())
+                .cloned();
+            let has_featured_artwork = featured_recent
+                .as_ref()
+                .is_some_and(|card| card.thumbnail.is_some());
             egui::Area::new(egui::Id::new("studio home screen"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(screen.min)
@@ -4217,49 +4665,74 @@ impl Studio {
                     egui::Frame::new()
                         .fill(ctx.style().visuals.panel_fill)
                         .show(ui, |ui| {
-                            ui.set_min_size(screen.size());
-                            ui.set_max_size(screen.size());
                             egui::ScrollArea::vertical().show(ui, |ui| {
-                                ui.add_space(if screen.height() < 620.0 { 12.0 } else { 26.0 });
-                                let hero_margin = if screen.width() < 720.0 { 16 } else { 26 };
+                                ui.add_space(if screen.height() < 620.0 { 10.0 } else { 18.0 });
+                                let hero_margin = if screen.width() < 720.0 { 14 } else { 30 };
                                 egui::Frame::new()
                                     .fill(ui.visuals().window_fill)
                                     .stroke(ui.visuals().window_stroke)
                                     .corner_radius(22.0)
                                     .inner_margin(egui::Margin::same(hero_margin))
                                     .show(ui, |ui| {
+                                        ui.set_max_height(home_hero_height(
+                                            screen.width(),
+                                            has_featured_artwork,
+                                        ));
                                         ui.set_min_width((screen.width() - side_pad * 2.0).max(240.0));
                                         ui.horizontal(|ui| {
-                                            crate::ui_tokens::brand_wordmark(ui, 24.0);
+                                            crate::ui_tokens::brand_wordmark(ui, 31.0);
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                ui.small("THE CREATIVE STUDIO");
+                                                ui.weak("PAINT  ·  DRAW  ·  MAKE IT YOURS");
                                             });
                                         });
-                                        ui.add_space(20.0);
+                                        ui.add_space(if screen.width() < 760.0 { 8.0 } else { 18.0 });
                                         let compact = screen.width() < 760.0;
                                         ui.with_layout(
                                             if compact { egui::Layout::top_down(egui::Align::Min) } else { egui::Layout::left_to_right(egui::Align::Center) },
                                             |ui| {
                                                 ui.vertical(|ui| {
-                                                    let accent = crate::appearance::readable_text_accent(
-                                                        ui.visuals().hyperlink_color,
-                                                        ui.visuals().window_fill,
+                                                    let surface = ui.visuals().window_fill;
+                                                    let foreground = crate::appearance::readable_text_color(
+                                                        ui.visuals().text_color(), surface,
                                                     );
+                                                    let muted = crate::appearance::readable_text_color(
+                                                        ui.visuals().weak_text_color(), surface,
+                                                    );
+                                                    let dark_mode = ui.visuals().dark_mode;
+                                                    let contrast = crate::appearance::contrast_ratio(foreground, surface);
+                                                    if self.test_path_dialog && contrast >= 4.5 {
+                                                        let logged = if dark_mode {
+                                                            &mut self.test_home_dark_contrast_logged
+                                                        } else {
+                                                            &mut self.test_home_light_contrast_logged
+                                                        };
+                                                        if !*logged {
+                                                            *logged = true;
+                                                            eprintln!("UI_TEST_HOME_HEADLINE_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, contrast);
+                                                        }
+                                                    }
+                                                    let accent = crate::appearance::readable_text_accent(ui.visuals().hyperlink_color, surface);
                                                     ui.label(egui::RichText::new("No limits. No bullshit.")
-                                                        .size(15.0).strong().color(accent));
+                                                        .size(16.0).strong().color(accent));
+                                                    ui.add_space(4.0);
+                                                    ui.label(egui::RichText::new("Create without permission.")
+                                                        .size((screen.width() * 0.042).clamp(32.0, 64.0))
+                                                        .strong().color(foreground));
                                                     ui.add_space(5.0);
-                                                    ui.label(egui::RichText::new("Create without\npermission.")
-                                                        .size((screen.width() * 0.042).clamp(30.0, 46.0)).strong());
-                                                    ui.add_space(6.0);
-                                                    ui.label(egui::RichText::new("A focused painting studio for ideas that do not fit inside the lines.")
-                                                        .size(15.0).color(ui.visuals().weak_text_color()));
-                                                    ui.add_space(16.0);
+                                                    ui.label(egui::RichText::new("A painting studio for ideas that do not fit inside the lines.")
+                                                        .size(16.0).color(muted));
+                                                    ui.add_space(if compact { 8.0 } else { 12.0 });
                                                     ui.horizontal_wrapped(|ui| {
-                                                        let action_width = (screen.width() * 0.42).clamp(154.0, 218.0);
+                                                        let action_width = (screen.width() * 0.42).clamp(168.0, 232.0);
+                                                        let action_height = if compact { 48.0 } else { 54.0 };
                                                         let accent_fill = ui.visuals().selection.bg_fill;
-                                                        let primary = egui::Button::new(egui::RichText::new("＋  New artwork").strong())
+                                                        let action_text = crate::appearance::readable_text_color(
+                                                            ui.visuals().text_color(),
+                                                            accent_fill,
+                                                        );
+                                                        let primary = egui::Button::new(egui::RichText::new("New artwork").size(16.0).strong().color(action_text))
                                                             .fill(accent_fill)
-                                                            .min_size(egui::vec2(action_width, 52.0));
+                                                            .min_size(egui::vec2(action_width, action_height));
                                                         if ui.add(primary).clicked() {
                                                             self.picker_from_welcome = false;
                                                             if !self.test_path_dialog { self.new_name = "Untitled".into(); }
@@ -4267,62 +4740,71 @@ impl Studio {
                                                             self.new_dialog = true;
                                                             self.welcome = false;
                                                         }
-                                                        if ui.add_sized([action_width, 52.0], egui::Button::new("Open a project…")).clicked() {
+                                                        if ui.add_sized([action_width, action_height], egui::Button::new("Open a project…")).clicked() {
                                                             self.picker_from_welcome = true;
                                                             self.picker = Some(FileRequest::OpenProject);
                                                             self.welcome = false;
                                                         }
-                                                        if ui.button("Appearance").clicked() {
-                                                            self.appearance_mode = if self.appearance_mode.is_dark(self.system_dark) { crate::workspace::AppearanceMode::Light } else { crate::workspace::AppearanceMode::Dark };
-                                                            if let Err(error) = self.persist_workspace() { self.status = format!("Could not save appearance preference: {error}"); }
-                                                        }
                                                     });
-                                                    ui.add_space(8.0);
-                                                    ui.small("Create locally · open formats · no account required");
+                                                    if !compact {
+                                                        ui.add_space(5.0);
+                                                        ui.label(egui::RichText::new("Your work stays on this device.")
+                                                            .size(13.0).color(muted));
+                                                    }
                                                 });
-                                                if !compact {
-                                                    ui.add_space(22.0);
-                                                    let (art, _) = ui.allocate_exact_size(egui::vec2(256.0, 186.0), egui::Sense::hover());
-                                                    let painter = ui.painter();
-                                                    let surface = if ui.visuals().dark_mode {
-                                                        egui::Color32::from_rgb(45, 40, 61)
-                                                    } else {
-                                                        egui::Color32::from_rgb(241, 235, 250)
-                                                    };
-                                                    painter.rect_filled(art, 18.0, surface);
-                                                    let paper = egui::Rect::from_min_max(
-                                                        art.min + egui::vec2(35.0, 18.0),
-                                                        art.max - egui::vec2(35.0, 18.0),
+                                                if has_featured_artwork {
+                                                    ui.add_space(18.0);
+                                                    let preview_drawn = home_featured_artwork(
+                                                        ui,
+                                                        featured_recent.as_ref(),
+                                                        &mut open_recent,
+                                                        screen.height(),
                                                     );
-                                                    painter.rect_filled(paper, 8.0, egui::Color32::from_rgb(250, 248, 246));
-                                                    painter.circle_filled(egui::pos2(paper.right() - 44.0, paper.top() + 36.0), 17.0, egui::Color32::from_rgb(255, 187, 139));
-                                                    painter.add(egui::Shape::convex_polygon(
-                                                        vec![
-                                                            egui::pos2(paper.left() + 8.0, paper.bottom() - 8.0),
-                                                            egui::pos2(paper.left() + 69.0, paper.top() + 52.0),
-                                                            egui::pos2(paper.center().x, paper.bottom() - 8.0),
-                                                        ],
-                                                        egui::Color32::from_rgb(126, 105, 184),
-                                                        egui::Stroke::NONE,
-                                                    ));
-                                                    painter.add(egui::Shape::convex_polygon(
-                                                        vec![
-                                                            egui::pos2(paper.center().x - 10.0, paper.bottom() - 8.0),
-                                                            egui::pos2(paper.right() - 9.0, paper.top() + 66.0),
-                                                            egui::pos2(paper.right() - 8.0, paper.bottom() - 8.0),
-                                                        ],
-                                                        egui::Color32::from_rgb(110, 177, 169),
-                                                        egui::Stroke::NONE,
-                                                    ));
-                                                    painter.line_segment(
-                                                        [egui::pos2(paper.left() + 20.0, paper.top() + 57.0), egui::pos2(paper.right() - 18.0, paper.top() + 94.0)],
-                                                        egui::Stroke::new(7.0, egui::Color32::from_rgb(231, 114, 157)),
-                                                    );
+                                                    if self.test_path_dialog
+                                                        && preview_drawn
+                                                        && !self.test_home_preview_logged
+                                                    {
+                                                        self.test_home_preview_logged = true;
+                                                        eprintln!("UI_TEST_HOME_RECENT_PREVIEW_VISIBLE");
+                                                    }
                                                 }
                                             },
                                         );
                                     });
-                                ui.add_space(if screen.height() < 620.0 { 16.0 } else { 28.0 });
+                                ui.add_space(12.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space(side_pad);
+                                    ui.heading("Start with a canvas");
+                                    ui.add_space(8.0);
+                                    ui.weak("Choose a format, then fine-tune it.");
+                                });
+                                ui.add_space(8.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.add_space(side_pad);
+                                    let (_, card_width) =
+                                        quick_document_card_layout(
+                                            (ui.available_width() - side_pad - 8.0).max(240.0),
+                                        );
+                                    for (name, width, height) in [
+                                        ("Portrait", 1800, 2400),
+                                        ("Square", 2048, 2048),
+                                        ("Landscape", 2400, 1800),
+                                        ("A4 Print", 2480, 3508),
+                                    ] {
+                                        if home_document_card(
+                                            ui,
+                                            name,
+                                            [width, height],
+                                            card_width,
+                                        ) {
+                                            start_preset = Some((width, height));
+                                        }
+                                    }
+                                    if home_custom_document_card(ui, card_width) {
+                                        custom_size_requested = true;
+                                    }
+                                });
+                                ui.add_space(if screen.height() < 620.0 { 16.0 } else { 24.0 });
                                 ui.with_layout(
                                     if home_sections_stacked(screen.width()) {
                                         egui::Layout::top_down(egui::Align::Min)
@@ -4336,10 +4818,10 @@ impl Studio {
                                         ui.label("Projects are ordered by most recently opened.");
                                         ui.add_space(8.0);
                                         if self.recent.paths.is_empty() {
-                                            egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(12.0).inner_margin(24.0).show(ui, |ui| {
+                                            crate::ui_tokens::card_frame(ui.visuals(), false).inner_margin(egui::Margin::same(22)).show(ui, |ui| {
                                                 ui.set_min_width((screen.width() - 100.0).max(300.0));
-                                                ui.label(egui::RichText::new("Your next canvas starts here").size(20.0).strong());
-                                                ui.label("Create a document or open an existing .rpl project to see it in this space.");
+                                                ui.label(egui::RichText::new("Nothing recent yet").size(19.0).strong());
+                                                ui.label("Your projects will appear here after you save or open one.");
                                             });
                                         } else {
                                             recent_search_field(ui, &mut self.recent_search);
@@ -4366,7 +4848,7 @@ impl Studio {
                                                         "File moved or unavailable\nUse Open to locate the project again".into()
                                                     };
                                                     let available = card.bytes.is_some();
-                                                    let card = egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(10.0).inner_margin(14.0).show(ui, |ui| {
+                                                    let card = crate::ui_tokens::card_frame(ui.visuals(), false).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
                                                         ui.set_min_width(card_width);
                                                         ui.set_min_height(290.0);
                                                         ui.vertical(|ui| {
@@ -4465,6 +4947,26 @@ impl Studio {
                             });
                         });
                 });
+            if let Some((width, height)) = start_preset {
+                self.new_unit = crate::document_setup::DocumentUnit::Pixels;
+                self.new_width = f64::from(width);
+                self.new_height = f64::from(height);
+                self.new_dpi = 300;
+                self.new_custom_size_selected = false;
+                self.picker_from_welcome = false;
+                if !self.test_path_dialog {
+                    self.new_name = "Untitled".into();
+                }
+                self.new_from_welcome = true;
+                self.new_dialog = true;
+                self.welcome = false;
+            }
+            if custom_size_requested {
+                self.picker_from_welcome = false;
+                self.new_from_welcome = true;
+                self.new_dialog = true;
+                self.welcome = false;
+            }
             if let Some(path) = open_recent {
                 self.picker_from_welcome = true;
                 actions.push(Action::Recent(path));
@@ -4577,41 +5079,98 @@ impl Studio {
                 }
             });
         } else if self.new_dialog {
+            if self.test_path_dialog && !self.test_new_artwork_logged {
+                self.test_new_artwork_logged = true;
+                eprintln!("UI_TEST_NEW_ARTWORK_VISIBLE");
+            }
             egui::Modal::new(egui::Id::new("new document")).show(ctx, |ui| {
-                let dialog_width = (ctx.content_rect().width() - 32.0).clamp(280.0, 760.0);
+                let dialog_width = (ctx.content_rect().width() - 32.0).clamp(280.0, 880.0);
                 ui.set_min_width(dialog_width.min(440.0));
                 ui.set_max_width(dialog_width);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
+                    .min_scrolled_height((ctx.content_rect().height() - 64.0).clamp(180.0, 560.0))
                     .max_height((ctx.content_rect().height() - 32.0).max(120.0))
                     .show(ui, |ui| {
-                ui.heading("Create a new canvas");
-                ui.label("Start with a paper shape, then fine-tune the document size.");
-                let card_width = ((ui.available_width() - 20.0) / 3.0).clamp(76.0, 168.0);
                 ui.horizontal_wrapped(|ui| {
-                    for (label, width, height) in [
-                        ("Portrait", 1800.0, 2400.0),
-                        ("Landscape", 2400.0, 1800.0),
-                        ("Square", 2048.0, 2048.0),
-                    ] {
-                        let selected = match label {
-                            "Portrait" => self.new_height > self.new_width,
-                            "Landscape" => self.new_width > self.new_height,
-                            "Square" => (self.new_width - self.new_height).abs() < 0.5,
-                            _ => false,
-                        };
+                    ui.heading("Create a new canvas");
+                    let can_create = self
+                        .new_unit
+                        .to_pixels(self.new_width, self.new_dpi)
+                        .is_some()
+                        && self
+                            .new_unit
+                            .to_pixels(self.new_height, self.new_dpi)
+                            .is_some();
+                    let button_text = crate::appearance::readable_text_color(
+                        ui.visuals().text_color(),
+                        ui.visuals().selection.bg_fill,
+                    );
+                    let button = egui::Button::new(
+                        egui::RichText::new("Create canvas")
+                            .strong()
+                            .color(button_text),
+                    )
+                        .fill(ui.visuals().selection.bg_fill)
+                        .min_size(egui::vec2(156.0, 44.0));
+                    if ui.add_enabled(can_create, button).clicked() {
+                        actions.push(Action::New);
+                        self.new_dialog = false;
+                        self.welcome = false;
+                    }
+                });
+                ui.label("Start with a paper shape, then fine-tune the document size.");
+                ui.add_space(8.0);
+                let (_, card_width) = document_format_grid(ui.available_width());
+                let formats = [
+                    ("Portrait", 1800, 2400, 300),
+                    ("Landscape", 2400, 1800, 300),
+                    ("Square", 2048, 2048, 300),
+                    ("A4 Print", 2480, 3508, 300),
+                    ("Comic Page", 2550, 3300, 300),
+                    ("Full HD", 1920, 1080, 96),
+                ];
+                let current_width_px = self.new_unit.to_pixels(self.new_width, self.new_dpi);
+                let current_height_px = self.new_unit.to_pixels(self.new_height, self.new_dpi);
+                let current_matches_preset = formats.iter().any(|(_, width, height, dpi)| {
+                    current_width_px == Some(*width)
+                        && current_height_px == Some(*height)
+                        && self.new_dpi == *dpi
+                });
+                ui.horizontal_wrapped(|ui| {
+                    for (label, width, height, dpi) in formats {
+                        let selected = current_width_px == Some(width)
+                            && current_height_px == Some(height)
+                            && self.new_dpi == dpi
+                            && !self.new_custom_size_selected;
                         if document_format_card(
                             ui,
                             label,
                             width as f32,
                             height as f32,
+                            dpi,
                             selected,
                             card_width,
                         ) {
                             self.new_unit = crate::document_setup::DocumentUnit::Pixels;
-                            self.new_width = width;
-                            self.new_height = height;
+                            self.new_width = f64::from(width);
+                            self.new_height = f64::from(height);
+                            self.new_dpi = dpi;
+                            self.new_custom_size_selected = false;
                         }
+                    }
+                    let custom_width = current_width_px.unwrap_or(1080);
+                    let custom_height = current_height_px.unwrap_or(1080);
+                    if document_format_card(
+                        ui,
+                        "Custom",
+                        custom_width as f32,
+                        custom_height as f32,
+                        self.new_dpi,
+                        self.new_custom_size_selected || !current_matches_preset,
+                        card_width,
+                    ) {
+                        self.new_custom_size_selected = true;
                     }
                 });
                 let preview_width: f32 = 128.0;
@@ -4648,7 +5207,11 @@ impl Studio {
                     }
                     painter.rect_stroke(preview, 4.0, ui.visuals().window_stroke, egui::StrokeKind::Inside);
                     ui.vertical(|ui| {
-                        ui.strong("Canvas preview");
+                        let preview_heading = crate::appearance::readable_text_color(
+                            ui.visuals().text_color(),
+                            ui.visuals().window_fill,
+                        );
+                        ui.label(egui::RichText::new("Canvas preview").strong().color(preview_heading));
                         if let (Some(width), Some(height)) = (
                             self.new_unit.to_pixels(self.new_width, self.new_dpi),
                             self.new_unit.to_pixels(self.new_height, self.new_dpi),
@@ -4664,7 +5227,7 @@ impl Studio {
                     egui::TextEdit::singleline(&mut self.new_name).hint_text("Document name"),
                 );
                 egui::CollapsingHeader::new("Advanced dimensions, presets and resolution")
-                    .default_open(true)
+                    .default_open(false)
                     .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Preset");
@@ -4677,6 +5240,7 @@ impl Studio {
                                     self.new_width = f64::from(preset.width);
                                     self.new_height = f64::from(preset.height);
                                     self.new_dpi = preset.dpi;
+                                    self.new_custom_size_selected = false;
                                 }
                             }
                         });
@@ -4697,6 +5261,7 @@ impl Studio {
                                         self.new_width = f64::from(size.width_px);
                                         self.new_height = f64::from(size.height_px);
                                         self.new_dpi = size.dpi;
+                                        self.new_custom_size_selected = false;
                                     }
                                 }
                             });
@@ -4724,14 +5289,17 @@ impl Studio {
                 });
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Width");
-                    ui.add(egui::DragValue::new(&mut self.new_width).range(1.0..=100000.0).speed(1.0));
+                    let width_changed = ui.add(egui::DragValue::new(&mut self.new_width).range(1.0..=100000.0).speed(1.0)).changed();
                     ui.label("Height");
-                    ui.add(egui::DragValue::new(&mut self.new_height).range(1.0..=100000.0).speed(1.0));
-                    if ui.button("Swap").clicked() { std::mem::swap(&mut self.new_width, &mut self.new_height); }
+                    let height_changed = ui.add(egui::DragValue::new(&mut self.new_height).range(1.0..=100000.0).speed(1.0)).changed();
+                    let swapped = ui.button("Swap").clicked();
+                    if swapped { std::mem::swap(&mut self.new_width, &mut self.new_height); }
+                    self.new_custom_size_selected |= width_changed || height_changed || swapped;
                 });
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Resolution");
-                    ui.add(egui::DragValue::new(&mut self.new_dpi).range(1..=9600).suffix(" DPI"));
+                    let dpi_changed = ui.add(egui::DragValue::new(&mut self.new_dpi).range(1..=9600).suffix(" DPI")).changed();
+                    self.new_custom_size_selected |= dpi_changed;
                     ui.color_edit_button_srgb(&mut self.new_background);
                     ui.checkbox(&mut self.new_transparent, "Transparent");
                 });
@@ -4748,7 +5316,18 @@ impl Studio {
                 ui.small("DPI affects print-size conversion; changing it does not add pixel detail. Raster color is sRGB RGBA8.");
                 ui.horizontal(|ui| {
                 let can_create = dimensions.0.is_some() && dimensions.1.is_some();
-                if ui.add_enabled(can_create, egui::Button::new("Create document")).clicked()
+                let create_fill = ui.visuals().selection.bg_fill;
+                let create_text = crate::appearance::readable_text_color(
+                    ui.visuals().text_color(),
+                    create_fill,
+                );
+                let create_button = egui::Button::new(
+                    egui::RichText::new("Create document")
+                        .strong()
+                        .color(create_text),
+                )
+                .fill(create_fill);
+                if ui.add_enabled(can_create, create_button).clicked()
                     || (can_create && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                 {
                     actions.push(Action::New);
@@ -5418,8 +5997,9 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        LassoAppend, append_lasso_point, home_sections_stacked, layer_thumbnail_samples,
-        native_project_path, recent_gallery_layout, recent_project_matches,
+        LassoAppend, append_lasso_point, document_format_grid, home_hero_height,
+        home_sections_stacked, layer_thumbnail_samples, native_project_path,
+        quick_document_card_layout, recent_gallery_layout, recent_project_matches,
     };
     use std::path::{Path, PathBuf};
 
@@ -5481,8 +6061,19 @@ mod tests {
         for (available, expected_columns) in [(420.0, 1), (800.0, 2), (1280.0, 3), (1920.0, 4)] {
             let (columns, card_width) = recent_gallery_layout(available);
             assert_eq!(columns, expected_columns, "viewport width {available}");
-            assert!((180.0..=420.0).contains(&card_width));
+            assert!((180.0..=500.0).contains(&card_width));
             let total = columns as f32 * card_width + 14.0 * (columns - 1) as f32;
+            assert!(total <= available + 0.1, "cards overflow {available}px");
+        }
+    }
+
+    #[test]
+    fn document_format_grid_reflows_without_overflow_from_compact_to_wide_dialogs() {
+        for (available, expected_columns) in [(260.0, 1), (480.0, 2), (680.0, 3), (848.0, 4)] {
+            let (columns, card_width) = document_format_grid(available);
+            assert_eq!(columns, expected_columns, "dialog width {available}");
+            assert!((108.0..=190.0).contains(&card_width));
+            let total = columns as f32 * card_width + 12.0 * (columns - 1) as f32;
             assert!(total <= available + 0.1, "cards overflow {available}px");
         }
     }
@@ -5492,6 +6083,29 @@ mod tests {
         assert!(home_sections_stacked(640.0));
         assert!(!home_sections_stacked(1280.0));
         assert!(home_sections_stacked(1920.0));
+    }
+
+    #[test]
+    fn home_hero_reserves_more_space_for_real_art_and_adapts_to_narrow_windows() {
+        assert_eq!(home_hero_height(640.0, false), 280.0);
+        assert_eq!(home_hero_height(1280.0, false), 340.0);
+        assert_eq!(home_hero_height(1280.0, true), 370.0);
+    }
+
+    #[test]
+    fn quick_document_cards_fit_narrow_normal_and_wide_home_layouts() {
+        for (width, expected) in [
+            (360.0, 1),
+            (640.0, 2),
+            (1024.0, 3),
+            (1280.0, 5),
+            (1840.0, 5),
+        ] {
+            let (columns, card_width) = quick_document_card_layout(width);
+            assert_eq!(columns, expected);
+            assert!((172.0..=410.0).contains(&card_width));
+            assert!(columns as f32 * card_width + 12.0 * (columns - 1) as f32 <= width + 0.1);
+        }
     }
 
     #[test]

@@ -79,6 +79,34 @@ pub fn flyout_position(
     )
 }
 
+/// Limit a floating panel to the free space beside a vertical palette. On a
+/// narrow window the toolbar is made compact by the workspace, leaving a
+/// usable strip for the panel instead of letting it open behind the tools.
+pub fn flyout_size(viewport: egui::Rect, palette: egui::Rect, preferred: egui::Vec2) -> egui::Vec2 {
+    let margin = 8.0;
+    let max_width = (viewport.width() - margin * 2.0).max(1.0);
+    // Keep room for the app's bottom canvas controls and status line.
+    let max_height = (viewport.height() - margin * 2.0 - 64.0).max(120.0);
+    let horizontal_palette = palette.width() > viewport.width() * 0.45;
+    // `egui::Window` adds a title/frame around its content size; leave a small
+    // allowance so the rendered outer edge also stays clear of the palette.
+    let free_width = if horizontal_palette {
+        (max_width - 32.0).max(1.0)
+    } else {
+        let right = viewport.right() - palette.right() - margin * 2.0;
+        let left = palette.left() - viewport.left() - margin * 2.0;
+        (right.max(left) - 32.0).clamp(1.0, max_width)
+    };
+    let free_height = if horizontal_palette {
+        let below = viewport.bottom() - palette.bottom() - margin * 2.0;
+        let above = palette.top() - viewport.top() - margin * 2.0;
+        below.max(above).clamp(120.0, max_height)
+    } else {
+        max_height
+    };
+    egui::vec2(preferred.x.min(free_width), preferred.y.min(free_height))
+}
+
 fn clamp_position(
     viewport: egui::Rect,
     size: egui::Vec2,
@@ -131,6 +159,37 @@ mod tests {
             let height = 500.0_f32.min(viewport.height() - 16.0);
             assert!(viewport.contains_rect(rect(position.x, position.y, width, height)));
         }
+    }
+
+    #[test]
+    fn compact_viewport_gives_brush_flyout_its_own_reachable_column() {
+        let viewport = rect(0.0, 0.0, 640.0, 480.0);
+        let palette = rect(8.0, 64.0, 58.0, 620.0);
+        let size = flyout_size(viewport, palette, egui::vec2(620.0, 560.0));
+        let position = flyout_position(
+            viewport,
+            palette,
+            size,
+            egui::pos2(palette.right() + 8.0, palette.top()),
+        );
+        let panel = rect(position.x, position.y, size.x, size.y);
+        assert!(viewport.contains_rect(panel));
+        assert!(!panel.intersects(palette));
+        assert!(size.x >= 500.0);
+        assert!(size.y <= 400.0);
+    }
+
+    #[test]
+    fn horizontal_palette_reserves_the_open_canvas_area_for_flyouts() {
+        let viewport = rect(0.0, 0.0, 1280.0, 800.0);
+        let palette = rect(320.0, 64.0, 654.0, 114.0);
+        let size = flyout_size(viewport, palette, egui::vec2(620.0, 560.0));
+        let position = flyout_position(viewport, palette, size, egui::pos2(222.0, 64.0));
+        let panel = rect(position.x, position.y, size.x, size.y);
+        assert!(viewport.contains_rect(panel));
+        assert!(!panel.intersects(palette));
+        assert!(position.y >= palette.bottom());
+        assert!(size.x >= 580.0);
     }
 
     #[test]

@@ -78,17 +78,24 @@ fn readable_foreground(background: egui::Color32) -> egui::Color32 {
     }
 }
 
+/// Ensure a rendered text color has at least 4.5:1 contrast against its actual
+/// surface. This is used at prominent text call sites as well as in palette
+/// tests, so custom egui visuals cannot silently reintroduce low-contrast copy.
+pub fn readable_text_color(foreground: egui::Color32, background: egui::Color32) -> egui::Color32 {
+    if contrast_ratio(foreground, background) >= 4.5 {
+        return foreground;
+    }
+    let target = readable_foreground(background);
+    (1..=100)
+        .map(|step| mix(foreground, target, step as f32 / 100.0))
+        .find(|candidate| contrast_ratio(*candidate, background) >= 4.5)
+        .unwrap_or(target)
+}
+
 /// Returns an accent suitable for heading-sized text (at least 4.5:1 against
 /// the chosen surface), while retaining the original hue as far as possible.
 pub fn readable_text_accent(accent: egui::Color32, surface: egui::Color32) -> egui::Color32 {
-    if contrast_ratio(accent, surface) >= 4.5 {
-        return accent;
-    }
-    let target = readable_foreground(surface);
-    (1..=100)
-        .map(|step| mix(accent, target, step as f32 / 100.0))
-        .find(|candidate| contrast_ratio(*candidate, surface) >= 4.5)
-        .unwrap_or(target)
+    readable_text_color(accent, surface)
 }
 
 pub fn visuals(
@@ -307,6 +314,24 @@ mod tests {
                 }
                 let accent = readable_text_accent(palette.hyperlink_color, palette.panel_fill);
                 assert!(contrast_ratio(accent, palette.panel_fill) >= 4.5);
+            }
+        }
+    }
+
+    #[test]
+    fn visible_body_text_and_prominent_text_are_contrast_safe_on_home_surface() {
+        for mode in [AppearanceMode::Dark, AppearanceMode::Light] {
+            let palette = visuals(mode, mode.is_dark(false), AccentScheme::Violet, None);
+            let rendered_body_color = palette.text_color();
+            let safe_heading = readable_text_color(rendered_body_color, palette.window_fill);
+            let safe_weak_copy =
+                readable_text_color(palette.weak_text_color(), palette.window_fill);
+            assert!(contrast_ratio(safe_heading, palette.window_fill) >= 4.5);
+            assert!(contrast_ratio(safe_weak_copy, palette.window_fill) >= 4.5);
+            for dark in [false, true] {
+                let high = high_contrast(palette.clone(), dark);
+                let safe = readable_text_color(high.text_color(), high.window_fill);
+                assert!(contrast_ratio(safe, high.window_fill) >= 4.5);
             }
         }
     }
