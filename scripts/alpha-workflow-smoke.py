@@ -455,7 +455,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert any(p.name.startswith('recovery-') and p.suffix=='.rpl' and valid_project(p) for p in recovery_dir.iterdir()), 'dark recovery manager has a valid checkpoint entry'
             capture_window(window,'recovery-manager-populated-dark')
             ctrl_shift('m')
-            key('Escape');assert process.wait(timeout=20)==0
+            # The preceding New Artwork capture creates a fresh unsaved
+            # document. Escape correctly enters the close-save path, so end
+            # this screenshot-only process explicitly before reopening Home.
+            process.terminate();assert process.wait(timeout=10) is not None
             preferences=json.loads(prefs.read_text());preferences['high_contrast']=True;prefs.write_text(json.dumps(preferences))
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'high-contrast Home');focus(display,window,2,0);send();time.sleep(0.5)

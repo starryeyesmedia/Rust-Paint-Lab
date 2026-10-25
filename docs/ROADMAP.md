@@ -71,13 +71,14 @@ the first eight light-theme normal/narrow screenshots but exposed stale test-onl
 palette geometry when the smoke clicked after leaving Home; that was corrected.
 Run `40230678773` passed three-platform format, lint, tests and build, Linux GPU
 and live-window smoke, then captured 17 of 18 requested UI states. Its only failure
-was during the final high-contrast screenshot check. The generic sampled-color
-threshold was lowered for that state, but run `40231310053` repeated the failure.
-The Actions annotation truncates the Python exception, so the exact cause is still
-unconfirmed. Run `40231796822` repeated the failure; its check annotation is capped
-at 4 KiB, still hiding the final capture output. The smoke now suppresses verbose
-input traces and prints a concise exception before app diagnostics. The corrected
-full matrix and consolidated Windows artifact are pending. The screenshot archive could not be
+was after the dark Recovery capture, before the final high-contrast screenshot.
+Runs `40231310053` and `40231796822` repeated it. The latter's concise failure
+message showed that the dark New Artwork capture left a fresh unsaved document;
+Escape correctly opened the save-on-close path, causing the harness's 20-second
+wait to expire. The screenshot color-count hypothesis was incorrect. The smoke
+now terminates that screenshot-only process after capture; normal clean-close is
+still covered earlier in the same app workflow. The corrected full matrix and
+consolidated Windows artifact are pending. The screenshot archive could not be
 inspected here because Actions artifact blob downloads return HTTP 403. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are

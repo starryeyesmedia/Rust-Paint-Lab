@@ -783,30 +783,30 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   passed all Windows/Linux/macOS format, lint, workspace test and build steps;
   Linux also passed GPU and live-window smoke and captured 17 of 18 requested UI
   screenshots, including populated Light/Dark Brush, Layers and Recovery states.
-  It failed at the final high-contrast Home capture because the generic screenshot
-  diversity threshold was too strict for that deliberately reduced-color palette.
-  The pending Windows canvas/package steps were canceled after Linux failed. The
-  capture guard now has a lower but still nonblank threshold only for this
-  high-contrast image. Another full matrix run is pending.
+  The failure occurred after Dark Recovery capture, before high-contrast Home;
+  the exact cause had not yet been visible in the truncated output. Windows
+  canvas packaging was canceled after Linux failed.
 - Run [`40231310053`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40231310053)
   repeated the same Linux result: all three platforms passed formatting, strict
   Clippy, tests and workspace build, Linux passed GPU/live-window smoke, and the
-  screenshot suite captured the same 17 states before failing during the final
-  high-contrast capture. The step output was truncated before the Python exception,
-  so the exact cause is not confirmed. The Linux artifact upload succeeded, but
+  screenshot suite captured the same 17 states before failing while closing the
+  dark-mode process, prior to the high-contrast screenshot. The step output was
+  truncated before the Python exception. The Linux artifact upload succeeded, but
   the other jobs were canceled before the Windows canvas package. Smoke output now
   marks capture start and sampled-color count and limits repeated application
   logs. The check annotation still truncated before the final capture marker.
 - Run [`40231796822`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40231796822)
-  repeated the same 17-screen capture/final-state failure. CI annotations truncate
-  the workflow output at 4 KiB and hid the end of the Python traceback. The smoke
-  now suppresses verbose pointer/key traces by default and prints a concise
-  exception before application diagnostics, so the next run should expose the
-  precise failing assertion. Windows and macOS standard checks passed; macOS
-  packaged its alpha app; Windows standard checks passed and was building the
-  canvas when canceled before package upload.
+  supplied the exact cause: the Dark New Artwork screenshot creates a fresh,
+  unsaved document, so Escape correctly entered the application's close-save path
+  rather than exiting. The smoke timed out waiting for clean close before it could
+  capture the final High Contrast Home. The screenshot-color hypothesis was wrong.
+  The harness now terminates that screenshot-only process after capturing its
+  windows; the previous app integration flow still tests normal clean close. CI
+  annotations cap text at 4 KiB, so the smoke also keeps concise diagnostics.
+  Windows and macOS standard checks passed; Windows was canceled during canvas
+  build, before package upload.
 
-Next: push the bounded smoke diagnostics through the expanded
+Next: run the corrected final-state lifecycle through the expanded
 cross-platform workflow. Inspect the screenshot archive if artifact access is restored; the
 workspace currently blocks the GitHub artifact blob host. Correct any visible
 issues and produce one consolidated Windows evaluation artifact only after this
