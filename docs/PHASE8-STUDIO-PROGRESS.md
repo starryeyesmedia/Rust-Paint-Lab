@@ -559,9 +559,10 @@ these latest controls have not yet been exercised by the Xvfb window workflow.
 
 Home now uses the requested slogan “A quiet place to make something.” as a large,
 strong theme-colored heading. Recent cards show real artwork thumbnails after a
-project has been opened or saved. The raster engine samples a maximum 256 × 160
-preview with a per-source-tile-row cache instead of flattening the full-resolution
-canvas; aspect ratio and alpha are preserved. The separate `home-thumbnails` cache
+project has been opened or saved. The raster engine directly composites sampled
+sparse-tile pixels into a maximum 256 × 160 preview instead of flattening the
+full-resolution canvas; aspect ratio and alpha are preserved, and previewing is
+refused while a stroke is provisional. The separate `home-thumbnails` cache
 is capped at eight PNGs, with 256 KiB input limits and invalidation by canonical
 project path, size and modification time. It is never read by document or export
 code. Projects without a cache show a message until opened or saved. Tests cover

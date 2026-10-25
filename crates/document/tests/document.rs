@@ -642,4 +642,15 @@ fn home_thumbnail_is_deterministic_transparent_and_bounded() {
             .chunks_exact(4)
             .all(|pixel| pixel == [255, 255, 255, 255])
     );
+    let mut active = Engine::new(32, 32, 96).unwrap();
+    active
+        .apply(&C::BeginStroke {
+            stroke_id: StrokeId(88),
+            sample: sample(12.0, 12.0, Some(0.5)),
+        })
+        .unwrap();
+    assert!(matches!(
+        active.thumbnail_rgba(64, 64),
+        Err(PaintError::Busy)
+    ));
 }

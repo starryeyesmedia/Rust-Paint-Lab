@@ -307,7 +307,9 @@ and integration tests, not a complete WCAG audit or screen-reader pass. See
 `docs/accessibility-assessment.md` for untested Narrator/NVDA behavior.
 
 The thumbnail generator test checks deterministic bounded RGBA output, alpha,
-aspect ratio and invalid output limits. The Home cache test checks bounded PNG
+aspect ratio, invalid output limits, and refusal to snapshot provisional strokes.
+It composites only the sampled pixels from sparse tiles rather than flattening a
+full-size image. The Home cache test checks bounded PNG
 decode, cache-key invalidation and pruning to eight files. Run:
 
 ```sh
