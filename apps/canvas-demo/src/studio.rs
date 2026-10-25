@@ -95,6 +95,14 @@ fn recovery_updated_label(timestamp: u64) -> String {
     }
 }
 
+pub(crate) fn activate_focusable_card(ui: &egui::Ui, response: &egui::Response) -> bool {
+    response.clicked()
+        || (response.has_focus()
+            && ui.input(|input| {
+                input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
+            }))
+}
+
 pub(crate) fn document_format_card(
     ui: &mut egui::Ui,
     label: &str,
@@ -121,10 +129,8 @@ pub(crate) fn document_format_card(
     } else {
         visuals.widgets.inactive.bg_fill
     };
-    let outline = if selected {
+    let outline = if selected || response.has_focus() {
         visuals.selection.stroke
-    } else if response.has_focus() {
-        visuals.widgets.active.bg_stroke
     } else {
         visuals.widgets.inactive.bg_stroke
     };
@@ -157,7 +163,7 @@ pub(crate) fn document_format_card(
         egui::FontId::proportional(14.0),
         visuals.text_color(),
     );
-    response.clicked()
+    activate_focusable_card(ui, &response)
 }
 
 pub(crate) fn brush_preset_card(
@@ -184,10 +190,8 @@ pub(crate) fn brush_preset_card(
     } else {
         visuals.widgets.inactive.bg_fill
     };
-    let stroke = if selected {
+    let stroke = if selected || response.has_focus() {
         visuals.selection.stroke
-    } else if response.has_focus() {
-        visuals.widgets.active.bg_stroke
     } else {
         visuals.widgets.inactive.bg_stroke
     };
@@ -272,7 +276,7 @@ pub(crate) fn brush_preset_card(
         egui::FontId::proportional(13.0),
         visuals.text_color(),
     );
-    response.clicked()
+    activate_focusable_card(ui, &response)
 }
 
 const MAX_REFERENCE_FILE_BYTES: u64 = 32 * 1024 * 1024;

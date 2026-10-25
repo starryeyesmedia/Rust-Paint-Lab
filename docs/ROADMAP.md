@@ -66,7 +66,7 @@ progress: Brush placement/size/scrolling, responsive visual format cards, Home
 hierarchy and theme-safe heading contrast, and populated light/dark/high-contrast
 UI screenshot coverage are being improved. These changes are not yet fully
 validated by GitHub Actions. The current local run passes formatting, strict
-Clippy, all 199 workspace tests, build, llvmpipe GPU smoke, and Windows GNU
+Clippy, all 200 workspace tests, build, llvmpipe GPU smoke, and Windows GNU
 target check/Clippy; Xvfb screenshot execution remains CI-only. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are

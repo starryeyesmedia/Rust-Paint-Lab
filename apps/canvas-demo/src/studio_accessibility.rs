@@ -165,4 +165,41 @@ mod tests {
             "inactive brush presets are marked unselected: {labels}"
         );
     }
+
+    #[test]
+    fn focusable_custom_cards_activate_with_enter_and_space() {
+        let context = egui::Context::default();
+        let mut id = None;
+        let _ = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                id = Some(
+                    ui.allocate_response(egui::vec2(120.0, 80.0), egui::Sense::click())
+                        .id,
+                );
+            });
+        });
+        context.memory_mut(|memory| memory.request_focus(id.expect("card id")));
+
+        for key in [egui::Key::Enter, egui::Key::Space] {
+            let input = egui::RawInput {
+                events: vec![egui::Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            };
+            let mut activated = false;
+            let _ = context.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let response =
+                        ui.allocate_response(egui::vec2(120.0, 80.0), egui::Sense::click());
+                    activated = crate::studio::activate_focusable_card(ui, &response);
+                });
+            });
+            assert!(activated, "focused card did not activate with {key:?}");
+        }
+    }
 }

@@ -750,6 +750,9 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   `Ctrl+Shift+N` adds a real layer, and Layers remains available from the main
   palette or `Ctrl+L`.
 - Reference zoom controls are touch-sized and have explicit accessible names.
+- Custom format and Brush preset cards now expose radio-button selection state,
+  a contrast-safe focus ring, and activate on Enter or Space. The synthetic
+  focus test covers both keys.
 - Xvfb automation now captures light/dark and high-contrast Home, New Artwork,
   Brush, Layers, Reference and Recovery screens at normal/narrow widths. It seeds
   a valid native recovery checkpoint and creates three editable layers, and
@@ -757,7 +760,7 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
 
 ### Validation and next steps
 
-- Pinned formatting and strict workspace Clippy passed; all **199 workspace
+- Pinned formatting and strict workspace Clippy passed; all **200 workspace
   tests** passed, including populated-layer and Brush/format-card AccessKit-tree
   checks. The workspace build and llvmpipe software-GPU pixel smoke passed.
   Windows GNU workspace check and Clippy also passed after adding the target.
