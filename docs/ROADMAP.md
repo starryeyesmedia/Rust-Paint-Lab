@@ -4,6 +4,14 @@ This is a working engineering sequence, not a release promise. Phase 8.3 complet
 workspace and accessibility foundations before Phase 9 adds new drawing engines.
 Artwork preservation and cross-platform validation apply to every track.
 
+## Provisional product identity — next phase
+
+- **Working candidate:** BitchPixel. Rust Paint Lab remains the development name for the repository, application identifiers, builds, and formats until the owner approves a final rename.
+- **Approved taglines:** “No limits. No bullshit.” (primary positioning) and “Create without permission.” (creative-freedom message). Keep both exact phrases available for the next phase.
+- **Interpretation:** Reject artificial commercial and ecosystem barriers: subscription tiers, paywalled features, forced accounts, ads/tracking, and unnecessary device exclusion. Do not suggest that any device can run every capability or that future creative engines are already implemented.
+- **Open decisions:** final name, trademark/domain availability, visual branding, accessible slogan treatment, metadata/About description, app identifiers and binary names, and distribution license. See [identity planning issue](https://github.com/starryeyesmedia/Rust-Paint-Lab/issues/1).
+- **Scope:** This decision must not interrupt Phase 8.3 accessibility, stability, or UI work. Final public branding is deferred.
+
 ## Experience and accessibility
 
 - **Phase 8.3 — Studio and accessibility foundation:** unified movable/dockable
