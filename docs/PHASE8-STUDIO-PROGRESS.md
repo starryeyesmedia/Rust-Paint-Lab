@@ -498,8 +498,12 @@ architecture step.
 - Full workspace strict Clippy and tests passed; workspace build and Windows GNU
   cross-check/Clippy passed. Full suite includes **186 tests**.
 - Offscreen GPU pixel smoke passed on Mesa llvmpipe/OpenGL.
-- This UI/accessibility slice is not yet pushed or covered by platform CI. No
-  Windows Narrator/NVDA, physical touch, or high-DPI hardware test was performed.
+- GitHub Actions run [`40218184731`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40218184731)
+  for code commit `4dcfc88` passed Windows, Linux and macOS. Linux window,
+  live-mouse, and alpha artwork/recovery workflows passed. The run uploaded
+  separate `rust-paint-lab-canvas-demo` and `rust-paint-lab-windows-diagnostic`
+  artifacts, plus Linux X64 and macOS ARM64 alpha artifacts. No Windows
+  Narrator/NVDA, physical touch, or high-DPI hardware test was performed.
 - No screenshot was captured in this environment; the last confirmed rendered
   application checks are the Linux Xvfb CI workflows on commit `1ad2b62`.
 
