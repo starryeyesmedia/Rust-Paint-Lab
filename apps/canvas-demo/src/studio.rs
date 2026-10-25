@@ -668,6 +668,7 @@ pub struct Studio {
     manual_file_action: Option<Action>,
     manual_file_submit: bool,
     test_path_dialog: bool,
+    test_brush_rect_logged: bool,
     confirm: Option<Action>,
     pub close_requested: bool,
     pub close_ready: bool,
@@ -825,6 +826,7 @@ impl Studio {
             manual_file_action: None,
             manual_file_submit: false,
             test_path_dialog,
+            test_brush_rect_logged: false,
             confirm: None,
             close_requested: false,
             close_ready: false,
@@ -2264,6 +2266,21 @@ impl Studio {
                                         })
                                         .inner
                                     };
+                                    if tool == EditTool::Brush
+                                        && self.test_path_dialog
+                                        && !self.test_brush_rect_logged
+                                    {
+                                        self.test_brush_rect_logged = true;
+                                        let rect = response.rect;
+                                        eprintln!(
+                                            "UI_TEST_BRUSH_RECT: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                            rect.left(),
+                                            rect.top(),
+                                            rect.width(),
+                                            rect.height(),
+                                            self.context.pixels_per_point()
+                                        );
+                                    }
                                     if response.clicked() {
                                         self.tool = tool;
                                         if tool == EditTool::Brush {

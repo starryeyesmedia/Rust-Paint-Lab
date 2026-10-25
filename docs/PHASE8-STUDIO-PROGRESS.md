@@ -648,9 +648,10 @@ explicitly demonstrated or measured here.
   sequence. Run [`40225820070`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40225820070)
   exposed that the Xvfb click did not activate Brush; the screenshot labeled
   `brush-library` was still the canvas. Escape then correctly followed the close
-  path (`UI_TEST_ESCAPE_DISMISSED: none`). The smoke now clicks lower in the
-  primary palette, waits for an explicit test-only “Brush flyout opened” signal,
-  and requires Escape to log that it dismissed Brush before moving to Layers.
+  path (`UI_TEST_ESCAPE_DISMISSED: none`). The smoke now reads the real Brush
+  button rectangle and egui scale from a test-only trace, clicks its center, waits
+  for a “Brush flyout opened” signal, and requires Escape to log that it dismissed
+  Brush before moving to Layers.
 - Follow-up run [`40224735679`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40224735679)
   captured the same four screens but reported `BadWindow` while capturing Layers
   after the Escape/`Ctrl+L` sequence. Commit `09847df` moves Escape dismissal

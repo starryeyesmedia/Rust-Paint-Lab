@@ -78,6 +78,12 @@ def wait(predicate, description):
         time.sleep(0.03)
     raise AssertionError(f'Timeout: {description}')
 
+def brush_rect():
+    for line in (directory/'application.log').read_text().splitlines():
+        if line.startswith('UI_TEST_BRUSH_RECT: '):
+            return tuple(map(float,line.partition(': ')[2].split()))
+    return None
+
 def send():
     flush(display)
     time.sleep(0.06)
@@ -253,14 +259,19 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('Return');time.sleep(0.5)
             capture_window(window,'canvas-workspace')
             capture_window(window,'reference-board')
-            move(40,150);click_button(1,True);click_button(1,False)
-            wait(lambda: 'UI_TEST_BRUSH_FLYOUT_OPENED' in (directory/'application.log').read_text(),'palette Brush control opens its flyout')
+            left, top, width, height, scale = wait(brush_rect, 'Brush control geometry')
+            move(round((left + width / 2) * scale), round((top + height / 2) * scale))
+            click_button(1, True)
+            click_button(1, False)
+            wait(lambda: 'UI_TEST_BRUSH_FLYOUT_OPENED' in (directory / 'application.log').read_text(),
+                 'palette Brush control opens its flyout')
             time.sleep(0.25)
             capture_window(window,'brush-library')
             key('Escape')
             time.sleep(0.3)
             assert process.poll() is None, 'Escape closed the application instead of dismissing Brush library'
-            wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: brush' in (directory/'application.log').read_text(),'Escape dismissed the Brush flyout')
+            wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: brush' in (directory / 'application.log').read_text(),
+                 'Escape dismissed the Brush flyout')
             window=wait(find_window,'window after Escape dismisses Brush library')
             ctrl('l');time.sleep(0.3)
             window=wait(find_window,'window after Ctrl+L opens Layers')
