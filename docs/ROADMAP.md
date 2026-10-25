@@ -114,3 +114,12 @@ consolidated `rust-paint-lab-canvas-demo` and preserved diagnostic artifacts.
 Linux screenshot-state assertions passed for 20 screens. The signed artifact
 blob host denied screenshot and log downloads with HTTP 403, so direct visual
 inspection remains outstanding; this is not phase completion.
+
+The approved concept implementation is now in code commit `59cace0` (pending
+cross-platform CI). It adds locally bundled OFL Manrope/Syne typography, a deeper
+purple-charcoal Midnight Violet palette, a persisted left/right/top/bottom/floating
+tool palette with horizontal top/bottom layouts and edge snapping, and an HSV
+Color workflow with semantic/keyboard controls. The Linux smoke now captures the
+top-docked toolbar and Color states. It preserves the native file/project names,
+canvas/input architecture, and separate Windows diagnostic. See the latest
+section of `PHASE8-STUDIO-PROGRESS.md` for full local validation and pending CI.

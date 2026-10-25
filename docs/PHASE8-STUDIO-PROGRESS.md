@@ -874,3 +874,50 @@ active until visual review and a Windows assistive-technology pass are recorded.
 - Next: inspect the screenshots when their bytes are accessible, then continue
   the Phase 8.3 redesign and accessibility work. Commit `1d5f6fb` is a substantial
   functional/visual checkpoint, not Phase 8.3 completion.
+
+### Approved concept implementation — commit `59cace0`, CI pending
+
+The owner supplied the approved BitchPixel visual reference and implementation
+brief in the continuation message. It explicitly excludes speculative social,
+cloud, premium and sharing UI, and confirms that the final logo is not ready. This
+slice follows the concept's purple-led type/surface direction without copying its
+illustrations or adding nonfunctional destinations.
+
+- The app now embeds Manrope Regular for interface text and Syne Bold for display
+  headings/wordmark. These static fonts are derived from the owner-approved Google
+  Fonts source snapshot, distributed under SIL OFL 1.1, and included in the
+  Windows/Linux/macOS package notices. No Cargo dependency or runtime download was
+  added. Source snapshot, static hashes and exact license files are recorded in
+  `assets/fonts/README.md`.
+- Midnight Violet now uses deep purple-charcoal canvas surrounds, lavender-tinted
+  surfaces, and a vivid purple primary accent. Coordinated light and high-contrast
+  paths remain active; contrast tests now assert the purple/charcoal direction.
+- The primary palette can dock left/right/top/bottom or float. Top/bottom docks
+  use a horizontal wrapped layout, palette position is reanchored after viewport
+  changes, and dragging snaps to the nearest edge within a bounded threshold.
+  Left remains the default; right/left handedness preferences keep their existing
+  behavior. Dock geometry and preference round-trip tests cover every position.
+- The floating Color panel now has hue selection, a two-dimensional
+  saturation/brightness field, keyboard-accessible component sliders, exact RGB
+  and HEX entry, previous/recent colors, and the existing eyedropper. HSV
+  conversion and pointer-coordinate mapping have finite/range tests, and the
+  AccessKit tree test asserts semantic names for the custom field and sliders.
+- Linux screenshot automation now includes a dark workspace with the persisted
+  top-docked palette, in addition to the previous major screen and theme states.
+  It now requires 21 captures. The screenshot archive remains inaccessible from
+  this environment for direct image inspection (signed Actions blob URLs have
+  returned HTTP 403), so capture will not be presented as visual approval.
+- Local `cargo fmt --all -- --check`, strict workspace Clippy, complete workspace
+  tests, and workspace build passed. `canvas-demo` has 66 unit tests and all
+  integration/GPU suites passed, including llvmpipe. Python screenshot-harness
+  syntax and `git diff --check` passed. Cross-platform CI and the new screenshot
+  run are pending until this checkpoint is pushed. No physical Windows test is
+  claimed here.
+
+Next: push this integrated slice and let CI validate top-dock rendering and
+Windows font-notice packaging; inspect the 21-state Linux screenshot artifact if
+access becomes available; continue applying the design system to Home/New
+Artwork and other creative workflows. Do not issue another owner-facing
+evaluation build until the broader redesign and functional workflow improvements
+have accumulated and passed cross-platform checks. Narrator/NVDA and native
+Windows assistive-technology validation remain outstanding.

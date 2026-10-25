@@ -110,6 +110,11 @@ interfaces, established maintained dependencies, and explicit errors. Keep
 platform dependencies target-gated. Add dependencies only for current needs;
 update Cargo.lock and `docs/dependencies.md` with versions/licenses and notices.
 Do not select a project distribution license without the owner's decision.
+Follow the owner-approved BitchPixel visual direction in the latest concept and
+living progress record: purple-led Midnight Violet surfaces, readable coordinated
+light/high-contrast variants, and the bundled Manrope/Syne families. Preserve the
+font OFL texts in every desktop package notice. Keep the primary palette movable,
+edge-snapping and accessible; visible creative controls must call the real engine.
 Overdrive authorizes raster brushes, documents/layers/history, safe storage, exports, and usable controls in P0 order; expand only after verified slices. Do not add device identifiers to persistent logs by default.
 
 ## Required validation
