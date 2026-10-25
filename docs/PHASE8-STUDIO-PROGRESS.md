@@ -914,11 +914,12 @@ illustrations or adding nonfunctional destinations.
   run are pending until this checkpoint is pushed. No physical Windows test is
   claimed here.
 
-Commits `59cace0` and `232672e` are pushed. CI has not started for this
-checkpoint yet; the pushed docs commit used `[skip ci]`, so a normal follow-up
-commit will trigger validation of top-dock rendering and Windows font-notice
-packaging. Then inspect the 21-state Linux screenshot artifact if access becomes
-available and continue applying the design system to Home/New
+Commits `59cace0` and `232672e` are pushed. Actions run
+[`40239511344`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40239511344)
+passed formatting, strict Clippy, workspace tests/build and packaging on Windows,
+Linux and macOS. Linux also completed the application/artwork smoke and uploaded
+the top-dock/Color screenshot archive. The screenshot blob remains inaccessible
+for direct visual review here. Continue applying the design system to Home/New
 Artwork and other creative workflows. Do not issue another owner-facing
 evaluation build until the broader redesign and functional workflow improvements
 have accumulated and passed cross-platform checks. Narrator/NVDA and native
@@ -950,11 +951,12 @@ Windows assistive-technology validation remain outstanding.
   workspace contains 204 tests; no desktop window screenshot is available from
   this local environment, so the responsive gallery is functionally covered
   but not visually inspected here.
-- The filename search commit `b81e099` is pushed. Actions runs
-  `40239511344` (concept/dock/color) and `40239908743` (search/accessibility)
-  were in progress at the last status check. Neither is a validation result for
-  the newer responsive-gallery and 22-screen screenshot edit yet; wait for its
-  own run before considering this continuation verified cross-platform.
+- The filename search commit `b81e099` is pushed. Run `40239511344` passed the
+  preceding concept/dock/Color checkpoint on all three operating systems. Runs
+  `40239908743` and `40240008769` validate intermediate Home commits; run
+  `40240080605` validates the wide capture and is still in progress. Latest run
+  `40240193155` covers the final `802c2c9` layout adjustment, and its CI must
+  pass before this Home continuation is considered cross-platform verified.
 - This is a small continuation slice, not Phase 8.3 completion. Next, continue
   integrating the approved Home/New Artwork visual direction with the working
   brush, color, layer, reference and recovery workflows; inspect the CI
