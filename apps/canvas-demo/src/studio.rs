@@ -1475,6 +1475,7 @@ pub struct Studio {
     test_brush_rect_logged: bool,
     test_brush_layout_logged: bool,
     test_home_preview_logged: bool,
+    test_home_quick_start_logged: bool,
     test_reference_preview_logged: bool,
     test_new_artwork_logged: bool,
     test_home_dark_contrast_logged: bool,
@@ -1650,6 +1651,7 @@ impl Studio {
             test_brush_rect_logged: false,
             test_brush_layout_logged: false,
             test_home_preview_logged: false,
+            test_home_quick_start_logged: false,
             test_reference_preview_logged: false,
             test_new_artwork_logged: false,
             test_home_dark_contrast_logged: false,
@@ -4767,43 +4769,88 @@ impl Studio {
                                                         self.test_home_preview_logged = true;
                                                         eprintln!("UI_TEST_HOME_RECENT_PREVIEW_VISIBLE");
                                                     }
+                                                } else if !compact {
+                                                    // A first-run Home still uses its generous
+                                                    // horizontal hero for real choices, rather
+                                                    // than leaving an empty image-sized void.
+                                                    ui.add_space(18.0);
+                                                    ui.vertical(|ui| {
+                                                        ui.heading("Start with a canvas");
+                                                        ui.weak("Popular formats · 300 DPI");
+                                                        ui.add_space(6.0);
+                                                        ui.horizontal_wrapped(|ui| {
+                                                            let (_, card_width) =
+                                                                quick_document_card_layout(
+                                                                    (ui.available_width() - 8.0)
+                                                                        .max(240.0),
+                                                                );
+                                                            for (name, width, height) in [
+                                                                ("Portrait", 1800, 2400),
+                                                                ("Square", 2048, 2048),
+                                                                ("Landscape", 2400, 1800),
+                                                            ] {
+                                                                if home_document_card(
+                                                                    ui,
+                                                                    name,
+                                                                    [width, height],
+                                                                    card_width,
+                                                                ) {
+                                                                    start_preset =
+                                                                        Some((width, height));
+                                                                }
+                                                            }
+                                                        });
+                                                        if ui
+                                                            .button("Custom or print size…")
+                                                            .clicked()
+                                                        {
+                                                            custom_size_requested = true;
+                                                        }
+                                                        if self.test_path_dialog
+                                                            && !self.test_home_quick_start_logged
+                                                        {
+                                                            self.test_home_quick_start_logged = true;
+                                                            eprintln!("UI_TEST_HOME_QUICK_START_VISIBLE");
+                                                        }
+                                                    });
                                                 }
                                             },
                                         );
                                     });
-                                ui.add_space(12.0);
-                                ui.horizontal(|ui| {
-                                    ui.add_space(side_pad);
-                                    ui.heading("Start with a canvas");
+                                if has_featured_artwork || screen.width() < 760.0 {
+                                    ui.add_space(12.0);
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(side_pad);
+                                        ui.heading("Start with a canvas");
+                                        ui.add_space(8.0);
+                                        ui.weak("Choose a format, then fine-tune it.");
+                                    });
                                     ui.add_space(8.0);
-                                    ui.weak("Choose a format, then fine-tune it.");
-                                });
-                                ui.add_space(8.0);
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.add_space(side_pad);
-                                    let (_, card_width) =
-                                        quick_document_card_layout(
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.add_space(side_pad);
+                                        let (_, card_width) = quick_document_card_layout(
                                             (ui.available_width() - side_pad - 8.0).max(240.0),
                                         );
-                                    for (name, width, height) in [
-                                        ("Portrait", 1800, 2400),
-                                        ("Square", 2048, 2048),
-                                        ("Landscape", 2400, 1800),
-                                        ("A4 Print", 2480, 3508),
-                                    ] {
-                                        if home_document_card(
-                                            ui,
-                                            name,
-                                            [width, height],
-                                            card_width,
-                                        ) {
-                                            start_preset = Some((width, height));
+                                        for (name, width, height) in [
+                                            ("Portrait", 1800, 2400),
+                                            ("Square", 2048, 2048),
+                                            ("Landscape", 2400, 1800),
+                                            ("A4 Print", 2480, 3508),
+                                        ] {
+                                            if home_document_card(
+                                                ui,
+                                                name,
+                                                [width, height],
+                                                card_width,
+                                            ) {
+                                                start_preset = Some((width, height));
+                                            }
                                         }
-                                    }
-                                    if home_custom_document_card(ui, card_width) {
-                                        custom_size_requested = true;
-                                    }
-                                });
+                                        if home_custom_document_card(ui, card_width) {
+                                            custom_size_requested = true;
+                                        }
+                                    });
+                                }
                                 ui.add_space(if screen.height() < 620.0 { 16.0 } else { 24.0 });
                                 ui.with_layout(
                                     if home_sections_stacked(screen.width()) {

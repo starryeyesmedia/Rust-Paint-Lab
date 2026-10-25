@@ -322,6 +322,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,1280,800)
             wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: light' in (directory / 'application.log').read_text(),
                  'light Home headline is rendered at accessible contrast')
+            wait(lambda: 'UI_TEST_HOME_QUICK_START_VISIBLE' in (directory / 'application.log').read_text(),
+                 'first-run Home uses its hero for actual quick-start canvas actions')
             capture_window(window,'home-light-normal')
             resize_window(window,1920,1080)
             capture_window(window,'home-light-wide')
