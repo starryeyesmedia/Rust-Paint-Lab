@@ -51,7 +51,8 @@ Artwork preservation and cross-platform validation apply to every track.
 Phase 8.2 is implemented through code commit `1ad2b62` with successful
 three-platform CI. Phase 8.3 remains active on
 `feature/studio-overdrive-phase-8`; the current continuation rebased onto the
-latest owner-authored identity decisions at `13f4115`.
+latest owner-authored identity decisions at `13f4115` and has advanced through
+code commit `1d5f6fb`.
 The current implementation includes AccessKit event integration and generated-tree
 tests, a movable/dockable palette, brush and color flyouts, an optional floating
 Layers panel, visual New Artwork cards, a confirmation-safe recovery manager, bounded
@@ -101,3 +102,15 @@ blob downloads return HTTP 403. Narrator/NVDA testing remains outstanding. See
 [`PHASE8-STUDIO-PROGRESS.md`](PHASE8-STUDIO-PROGRESS.md) for current CI evidence,
 limitations and exact continuation steps. Phase numbering and boundaries are
 provisional.
+
+The latest integration commit `1d5f6fb` adds BitchPixel identity across the
+running Home/app title and package guides, favorites/search in Brush Library,
+contextual brush controls, richer Color access, and populated sparse-tile
+previews plus direct rename/order/opacity/blend/visibility/lock controls in the
+floating Layers panel. Actions run
+[`40235869737`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40235869737)
+passed Windows, Linux and macOS format/lint/tests/build and uploaded the
+consolidated `rust-paint-lab-canvas-demo` and preserved diagnostic artifacts.
+Linux screenshot-state assertions passed for 20 screens. The signed artifact
+blob host denied screenshot and log downloads with HTTP 403, so direct visual
+inspection remains outstanding; this is not phase completion.

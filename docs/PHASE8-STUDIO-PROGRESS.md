@@ -787,24 +787,12 @@ broader automated capture matrix; no local claim of pixel-by-pixel review is mad
   preview.
 - Local validation after this integration: `cargo test --locked -p canvas-demo`
   passed 58 unit tests, all integration suites, and the llvmpipe GPU smoke;
-  strict workspace Clippy and the floating-Layers AccessKit test passed. The
-  screenshot workflow and cross-platform Actions for these uncommitted changes
-  are still pending. No screenshot archive has been accessible for direct visual
-  inspection in this environment (Actions artifact blobs return HTTP 403), so
-  capture success will not be reported as visual approval.
-
-Next: run the expanded Xvfb matrix and inspect its images if the artifact host is
-available; fix capture or visible defects; run full workspace formatting, tests,
-Clippy/build plus Windows and macOS CI; then publish one consolidated Windows
-evaluation package only after those checks pass. Narrator/NVDA and Windows UI
-Automation remain unverified here; the owner has already physically confirmed
-basic S Pen drawing on prior builds, while advanced input behavior remains a
-separate hardware check.
+  strict workspace Clippy and the floating-Layers AccessKit test passed.
 
 ### Validation and next steps
 
 - Pinned formatting and strict workspace Clippy passed; all **200 workspace
-  tests** passed, including populated-layer and Brush/format-card AccessKit-tree
+  tests** passed at the preceding checkpoint, including populated-layer and Brush/format-card AccessKit-tree
   checks. The workspace build and llvmpipe software-GPU pixel smoke passed.
   Windows GNU workspace check and Clippy also passed after adding the target.
 - Python smoke syntax passes. No Xvfb is installed locally, so the live screenshot
@@ -864,3 +852,25 @@ Next: this matrix is green, but manually inspect the screenshot archive if
 artifact access is restored and correct any visible issues. The consolidated
 Windows evaluation artifact is available from the run above. Keep Phase 8.3
 active until visual review and a Windows assistive-technology pass are recorded.
+
+### Latest integration validation — commit `1d5f6fb`
+
+- Run [`40235869737`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40235869737)
+  completed successfully on Windows, Linux and macOS. Each platform passed
+  formatting, strict Clippy, workspace tests and build. Linux also passed the
+  virtual-window replay, live mouse and application/artwork/recovery workflow.
+  The screenshot workflow validated 20 required UI states, including Color in
+  light and dark, populated layer/recovery panels, and narrow layouts.
+- The run uploaded the consolidated Windows app artifact
+  `rust-paint-lab-canvas-demo` (artifact `12615670691`) and separate preserved
+  `rust-paint-lab-windows-diagnostic` (`12614936837`), plus Linux/macOS packages
+  and `rust-paint-lab-studio-ui-smoke` (`12615180854`).
+- I attempted to download both the screenshot archive and Actions logs; GitHub's
+  signed blob URLs returned HTTP 403. Their visual contents therefore remain
+  uninspected here. Capture/state/diversity assertions passed but do not imply
+  visual approval. Native Narrator/NVDA and Windows UI Automation also remain
+  unverified. Basic S Pen drawing was physically observed on earlier builds;
+  advanced Windows pen behaviors are not newly validated by this run.
+- Next: inspect the screenshots when their bytes are accessible, then continue
+  the Phase 8.3 redesign and accessibility work. Commit `1d5f6fb` is a substantial
+  functional/visual checkpoint, not Phase 8.3 completion.
