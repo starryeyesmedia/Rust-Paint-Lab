@@ -1718,14 +1718,19 @@ canvas preview and advanced dimensions remain reachable by scrolling.
 
 The full Xorg/XTEST workflow passes locally with the new state, along with the
 existing populated Layers and Recovery views, painting/save/export/recovery
-scenarios, and screenshots. This adds no product dependencies. Commit `29ac86a`
-has a documentation-only Actions run `40279887697` in progress; the new
-workflow state is currently uncommitted and needs a new CI result.
+scenarios, and screenshots. This adds no product dependencies. Commit
+`6271c79` pushed the expanded screenshot matrix. Actions run `40280252877`
+failed its Linux workflow after the harness observed a workspace-save log
+marker but read the preference file before the asynchronous write completed;
+the app-level workflow passes locally. The harness now waits for the saved
+open-state and close-state values before continuing. Its Windows and macOS
+jobs were still running at the time of this update, and this test-only timing
+fix needs a fresh CI run.
 
 ### Exact continuation
 
-1. Commit and push the 33-state screenshot expansion; verify Linux XTest and the
-   Windows/macOS builds, then record the run result here.
+1. Push the saved-preference wait guard; verify Linux XTest and all platform
+   builds, then record the run result here.
 2. Continue the actual Home/canvas presentation and keyboard/focus/AccessKit
    integration. Keep the more complete narrow layouts, existing artwork
    protection, and full Phase 8.3 status; do not merge or release.

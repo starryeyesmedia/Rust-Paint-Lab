@@ -348,8 +348,10 @@ workspace and accessibility overhaul; see the [detailed progress log](PHASE8-STU
 
 ### Dark narrow New Artwork screenshot coverage
 
-The local Linux UI matrix now has 33 states, adding dark New Artwork at
-640 × 480 and checking that all seven cards stay inside the viewport in both
-themes. Its full Xorg/XTEST workflow passes locally and the capture was
-inspected. This automation update is uncommitted; CI for the docs-only parent
-`29ac86a` is still running. See the [progress log](PHASE8-STUDIO-PROGRESS.md).
+Commit `6271c79` expands the Linux UI matrix to 33 states, adding dark New
+Artwork at 640 × 480 and checking that all seven cards stay inside the viewport
+in both themes. Its full Xorg/XTEST workflow passes locally and the capture was
+inspected. Actions run `40280252877` failed after the harness read preferences
+before the asynchronous workspace-panel save finished; a wait for the saved
+state now passes locally. Windows/macOS jobs were still running. A fresh CI run
+is needed for this harness fix. See the [progress log](PHASE8-STUDIO-PROGRESS.md).

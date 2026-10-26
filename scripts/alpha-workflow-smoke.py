@@ -964,6 +964,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('F6')
             wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_RECT'),
                  'the detached workspace controls open from their keyboard shortcut')
+            wait(lambda: json.loads(prefs.read_text()).get('show_controls') is True,
+                 'opening workspace controls is persisted before the dismiss test')
             wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE') == 'Layers',
                  'floating workspace controls show the current Layers tab')
             capture_window(window,'workspace-controls-floating-light-normal')
@@ -979,6 +981,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Escape dismisses floating workspace controls')
             wait(lambda: (directory/'application.log').read_text().count('UI_TEST_WORKSPACE_SAVE:')>workspace_save_count,
                  'floating workspace close state is written to preferences')
+            wait(lambda: json.loads(prefs.read_text()).get('show_controls') is False,
+                 'floating workspace close state reaches the saved preference file')
             preferences=json.loads(prefs.read_text())
             assert preferences['show_controls'] is False, 'closing the floating workspace controls was not persisted'
             controls_position=preferences.get('workspace_controls_position')
