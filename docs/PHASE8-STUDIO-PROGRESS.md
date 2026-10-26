@@ -1506,6 +1506,19 @@ maximum capacity or on very small viewports, some board overlap can still occur;
 the artist can move and resize each board independently. This is an intentional
 best-effort layout rule rather than a docking system.
 
+### Home fixture provenance — UI-test checkpoint
+
+Synthetic Home projects now render an accessible **DEVELOPMENT TEST FIXTURE**
+pill in the isolated `RPL_TEST_PATH_DIALOG` harness only. The recent-artwork
+screenshot locates the pill and requires a visible region of its purple backing,
+alongside the real cached thumbnail and painted stroke checks. This makes fixture
+art explicit in the review archive without changing real project cards or
+persisted artwork. The expanded screenshot check is included in the next Actions
+run; no Xvfb/XTest executable is available locally. The latest local regression
+also passes formatting, strict workspace Clippy, **242 tests**, workspace build,
+Windows GNU target check/Clippy, llvmpipe GPU smoke, Python syntax, and `git diff
+--check`. The screenshot pixel assertion awaits the next Linux Actions run.
+
 ### Exact continuation from adaptive reference placement
 
 1. Run formatting, strict Clippy, all workspace tests/builds, Windows target

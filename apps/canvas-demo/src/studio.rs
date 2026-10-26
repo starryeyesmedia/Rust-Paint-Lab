@@ -6380,6 +6380,36 @@ impl Studio {
                                                                     ui.centered_and_justified(|ui| { ui.weak("Artwork preview"); });
                                                                 });
                                                             }
+                                                            if self.test_path_dialog {
+                                                                let badge_fill = ui.visuals().hyperlink_color;
+                                                                let badge_text = crate::appearance::readable_text_color(
+                                                                    ui.visuals().text_color(),
+                                                                    badge_fill,
+                                                                );
+                                                                let badge = egui::Frame::new()
+                                                                    .fill(badge_fill)
+                                                                    .corner_radius(4.0)
+                                                                    .inner_margin(egui::Margin::symmetric(6, 2))
+                                                                    .show(ui, |ui| {
+                                                                        ui.label(
+                                                                            egui::RichText::new("DEVELOPMENT TEST FIXTURE")
+                                                                                .size(10.0)
+                                                                                .strong()
+                                                                                .color(badge_text),
+                                                                        );
+                                                                    });
+                                                                if index == 0 {
+                                                                    let rect = badge.response.rect;
+                                                                    eprintln!(
+                                                                        "UI_TEST_HOME_FIXTURE_BADGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                                        rect.left(),
+                                                                        rect.top(),
+                                                                        rect.width(),
+                                                                        rect.height(),
+                                                                        ui.ctx().pixels_per_point(),
+                                                                    );
+                                                                }
+                                                            }
                                                             ui.add_space(4.0);
                                                             ui.label(egui::RichText::new(name).strong().size(17.0));
                                                             ui.label(egui::RichText::new(details).size(13.0).color(ui.visuals().weak_text_color()));

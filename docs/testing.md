@@ -344,10 +344,15 @@ real layers and a valid recovery checkpoint are present, and rejects
 blank/undersampled images. The current matrix captures 23 named states, including
 normal/narrow/wide Home, populated recent artwork, normal/narrow New Artwork,
 populated light/dark Layers and Recovery, light/dark Reference, Brush and Color
-panels, and the populated floating Workspace controls. The current suite requires
-29 visual states and produces 30 captures. The first-run Home capture waits for its rendered quick-start
-format actions inside the hero. The recent-artwork capture requires visible blue
-pixels from the real painted smoke-project thumbnail. Reference captures require
+panels, and the populated floating Workspace controls. The earlier suite required
+29 visual states and produced 30 captures; the expanded workflow now requires 31
+states and 32 captures, with the added multi-reference light views pending Actions.
+The first-run Home capture waits for its rendered quick-start format actions
+inside the hero. The recent-artwork capture requires visible blue pixels from the
+real painted smoke-project thumbnail. In test mode, each synthetic project card
+now also has an accessible **DEVELOPMENT TEST FIXTURE** pill, and the screenshot
+checks its purple pixels so generated art cannot be mistaken for an owner's
+project. Reference captures require
 pixels from a uniquely colored region of the imported reference image. The
 rendered windows are uploaded as `rust-paint-lab-studio-ui-smoke`. These
 screenshots validate the virtual Linux window, not Windows DPI, Narrator/NVDA or

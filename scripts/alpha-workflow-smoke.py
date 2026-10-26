@@ -444,6 +444,8 @@ def capture_window(window, name):
     brush_preview_colors=set()
     recent_thumbnail_pixels=0
     recent_thumbnail_bounds=None
+    recent_fixture_badge_pixels=0
+    recent_fixture_badge_bounds=None
     saved_swatch_pixels=0
     recovery_preview_bounds=None
     brush_preview_bounds=None
@@ -462,6 +464,10 @@ def capture_window(window, name):
         x,y,preview_width,preview_height,scale=wait(
             home_recent_thumbnail_rect,'first recent project exposes its real thumbnail geometry')
         recent_thumbnail_bounds=(x*scale,y*scale,(x+preview_width)*scale,(y+preview_height)*scale)
+        x,y,badge_width,badge_height,scale=wait(
+            lambda: window_rect_marker('UI_TEST_HOME_FIXTURE_BADGE_RECT'),
+            'generated Home artwork is visibly marked as a development fixture')
+        recent_fixture_badge_bounds=(x*scale,y*scale,(x+badge_width)*scale,(y+badge_height)*scale)
     if name == 'brush-library-light-normal':
         x,y,preview_width,preview_height,scale=wait(brush_preview_rect,'active raster-engine preview is laid out')
         brush_preview_bounds=(x*scale,y*scale,(x+preview_width)*scale,(y+preview_height)*scale)
@@ -504,6 +510,11 @@ def capture_window(window, name):
                 if left<=x_pixel<right and top<=y<bottom \
                     and blue > 100 and blue-red > 45 and blue-green > 20:
                     recent_thumbnail_pixels+=1
+            if recent_fixture_badge_bounds is not None:
+                left,top,right,bottom=recent_fixture_badge_bounds
+                if left<=x_pixel<right and top<=y<bottom \
+                    and red>140 and red-green>35 and blue>180 and blue-green>80:
+                    recent_fixture_badge_pixels+=1
             if name == 'home-light-wide' and y >= height-96 and red < 90 and green < 100 and blue < 110:
                 home_wide_bottom_dark_pixels+=1
             if recovery_preview_bounds is not None:
@@ -562,8 +573,11 @@ def capture_window(window, name):
         assert recent_artwork_pixels>=30, f'{name} does not visibly contain the painted blue stroke from the real recent-project thumbnail ({recent_artwork_pixels} matching pixels)'
         assert recent_thumbnail_pixels>=30, \
             f'{name} does not show the painted stroke inside the first actual project thumbnail ({recent_thumbnail_pixels} matching pixels)'
+        assert recent_fixture_badge_pixels>=25, \
+            f'{name} does not visibly identify generated artwork as a development fixture ({recent_fixture_badge_pixels} matching pixels)'
         print(f'UI_SCREENSHOT_RECENT_ART_PIXELS: {name} {recent_artwork_pixels}', flush=True)
         print(f'UI_SCREENSHOT_RECENT_THUMBNAIL_PIXELS: {name} {recent_thumbnail_pixels}', flush=True)
+        print(f'UI_SCREENSHOT_RECENT_FIXTURE_BADGE_PIXELS: {name} {recent_fixture_badge_pixels}', flush=True)
         print(f'UI_SCREENSHOT_RECENT_CARD: {name} visible={visible_height:.1f} total={total_height:.1f}', flush=True)
         if width < 1800 or height < 1000:
             print(f'UI_SCREENSHOT_RECENT_ART_WIDE: SKIPPED (capture is {width}x{height}; need 1800x1000)', flush=True)
