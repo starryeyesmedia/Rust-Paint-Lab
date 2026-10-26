@@ -84,6 +84,16 @@ def brush_rect():
            if line.startswith('UI_TEST_BRUSH_RECT: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
+def brush_preview_rect():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_BRUSH_PREVIEW_BOUNDS: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
+def brush_preset_preview_count():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_BRUSH_PRESET_PREVIEWS: ')]
+    return int(lines[-1].partition(': ')[2]) if lines else 0
+
 def recovery_preview_target():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_RECOVERY_PREVIEW_TARGET: ')]
@@ -220,11 +230,16 @@ def capture_window(window, name):
     recent_artwork_pixels=0
     home_wide_bottom_dark_pixels=0
     recovery_preview_colors=set()
+    brush_preview_colors=set()
     recovery_preview_bounds=None
+    brush_preview_bounds=None
     if name == 'recovery-manager-populated-light':
         bounds=wait(recovery_preview_image_rect,'recovery preview image is laid out')
         x,y,preview_width,preview_height,scale,content_top=bounds
         recovery_preview_bounds=(x*scale,(y+content_top)*scale,(x+preview_width)*scale,(y+content_top+preview_height)*scale)
+    if name == 'brush-library-light-normal':
+        x,y,preview_width,preview_height,scale=wait(brush_preview_rect,'active raster-engine preview is laid out')
+        brush_preview_bounds=(x*scale,y*scale,(x+preview_width)*scale,(y+preview_height)*scale)
     bytes_per_pixel=(bits_per_pixel+7)//8
     byte_order_name='little' if byte_order==0 else 'big'
     for y in range(height):
@@ -247,6 +262,10 @@ def capture_window(window, name):
                 left,top,right,bottom=recovery_preview_bounds
                 if left<=x_pixel<right and top<=y<bottom:
                     recovery_preview_colors.add((red,green,blue))
+            if brush_preview_bounds is not None:
+                left,top,right,bottom=brush_preview_bounds
+                if left<=x_pixel<right and top<=y<bottom:
+                    brush_preview_colors.add((red,green,blue))
             rows.extend((red,green,blue,255))
     raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
     destination=Path(folder) if folder else None
@@ -286,6 +305,9 @@ def capture_window(window, name):
     if name == 'recovery-manager-populated-light':
         assert len(recovery_preview_colors)>=8, f'{name} does not show a rendered artwork preview ({len(recovery_preview_colors)} visible colors)'
         print(f'UI_SCREENSHOT_RECOVERY_PREVIEW_COLORS: {name} {len(recovery_preview_colors)}', flush=True)
+    if name == 'brush-library-light-normal':
+        assert len(brush_preview_colors)>=6, f'{name} does not visibly render the active raster brush sample ({len(brush_preview_colors)} visible colors)'
+        print(f'UI_SCREENSHOT_BRUSH_SAMPLE_COLORS: {name} {len(brush_preview_colors)}', flush=True)
     captured_screenshots[name] = (width, height)
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 
@@ -401,6 +423,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_BRUSH_FLYOUT_OPENED' in (directory / 'application.log').read_text(),
                  'palette Brush control opens its flyout')
             time.sleep(0.25)
+            preview_bounds=wait(brush_preview_rect,'real raster-engine preview is present in the Brush Library')
+            assert preview_bounds[2]>=120 and preview_bounds[3]>=36, f'brush preview is too small: {preview_bounds}'
+            preset_preview_count=wait(brush_preset_preview_count,'raster-engine samples are rendered for built-in brush presets')
+            assert preset_preview_count==10, f'expected ten rendered brush samples, got {preset_preview_count}'
             capture_window(window,'brush-library-light-normal')
             resize_window(window,640,480)
             capture_window(window,'brush-library-light-narrow')

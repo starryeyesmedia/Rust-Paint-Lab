@@ -178,3 +178,15 @@ still needs three-platform Actions confirmation and fresh screenshot inspection.
 Continue the Phase 8.3 interface/accessibility work; these polish slices are not
 phase acceptance and do not authorize publication of the consolidated Windows
 evaluation artifact.
+
+The pushed toolbar/Home follow-up at `c81f3d8` is now verified by Actions run
+[`40250590747`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40250590747)
+on Windows, Linux and macOS. The current local continuation adds raster-engine
+samples for every built-in Brush Library card and an accessible, settings-aware
+sample for the selected brush. Local validation passes 232 Rust tests, strict
+Clippy, formatting, the workspace build, llvmpipe/OpenGL GPU smoke and the
+real-X11 alpha artwork workflow. This change is not yet pushed or covered by
+Actions. Its new brush screenshots have not been visually inspected because
+local screenshot capture returned black pixels and the Actions artifact host is
+blocked with HTTP 403. Phase 8.3 remains active; no Windows evaluation build is
+being promoted from this checkpoint.

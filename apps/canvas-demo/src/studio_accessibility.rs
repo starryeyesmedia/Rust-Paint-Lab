@@ -237,19 +237,21 @@ mod tests {
         context.enable_accesskit();
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                crate::studio::brush_preset_card(
+                crate::studio::brush_preset_card_with_preview(
                     ui,
                     paint_document::brush::BrushKind::Round,
                     true,
                     [100, 40, 190],
                     148.0,
+                    None,
                 );
-                crate::studio::brush_preset_card(
+                crate::studio::brush_preset_card_with_preview(
                     ui,
                     paint_document::brush::BrushKind::Ink,
                     false,
                     [100, 40, 190],
                     148.0,
+                    None,
                 );
             });
         });

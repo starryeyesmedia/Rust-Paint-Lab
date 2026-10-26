@@ -1159,3 +1159,54 @@ evidence.
   then continue keyboard traversal/AccessKit actions and floating-panel
   placement. Phase 8.3 remains active; no consolidated Windows evaluation build
   is being promoted from this local checkpoint.
+
+### BitchPixel visual/functional continuation — engine-rendered brush gallery
+
+The owner identified the previous interface work as useful progress but still
+short of the requested overhaul. The implementation is continuing beyond the
+palette correction. The pushed base `c81f3d8` is now confirmed by Actions run
+[`40250590747`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40250590747):
+Windows, Linux, and macOS checks passed, including Linux app interaction and
+separate Windows canvas/diagnostic packaging.
+
+- The Brush Library now includes the selected brush's live sample rendered by
+  the real `paint-document` raster engine. It uses a deterministic synthetic
+  pressure path, current color/size/opacity/tilt settings, and a temporary
+  transparent document that is never merged into or saved with artwork.
+- The ten built-in preset cards now use actual raster-engine samples rather
+  than only hand-drawn UI glyphs. The eraser card demonstrates a cut through a
+  colored under-stroke. Preset samples use a stable brand-violet color so
+  gallery content does not need to be regenerated after every user color change;
+  the selected-brush preview still tracks the active settings. Texture cache
+  capacity is fixed at ten cards, and each preview is bounded to 320 × 96 RGBA.
+- Accessibility metadata identifies the active sample and its current size and
+  opacity. The interaction smoke asserts all ten preset textures are created,
+  confirms the active preview bounds, and continues through painting, save/open,
+  selection, PNG/OpenRaster, reference isolation, recovery, and clean-close
+  workflows.
+- Local validation: formatting, strict Clippy, workspace build, all **232 Rust
+  tests**, and the llvmpipe/OpenGL GPU smoke pass. The full X11 mouse/key alpha
+  workflow passed and logged ten generated preset previews. This local run did
+  not emit screenshots. Actions run `40250590747` applies to the base commit,
+  not this uncommitted brush-gallery change. Its screenshot archive and other
+  binaries remain subject to the artifact host's HTTP 403 restriction in this
+  environment; current brush-gallery screenshot pixels have not been reviewed.
+- Phase 8.3 remains active. Existing keyboard actions and AccessKit tree tests
+  are retained, but native Narrator/NVDA and Windows UI Automation are still
+  untested. Basic S Pen drawing was observed in earlier owner testing; this
+  change does not claim advanced pen, Windows DPI, or hardware GPU validation.
+
+### Exact continuation
+
+1. Commit and push the verified engine-rendered brush gallery with the progress
+   and screenshot-test updates; check its new Windows/Linux/macOS Actions run.
+2. Continue with a persistent artist swatch palette in Color, including bounded
+   workspace-only persistence and real apply/add/remove behavior, then improve
+   the workspace's cohesive floating-panel and layer/color presentation.
+3. Make the Linux screenshot run prove populated brush and color states. Inspect
+   screenshots when an allowed image path is available; otherwise explicitly
+   keep visual acceptance pending rather than inferring it from dimensions or
+   color counts.
+4. Keep Home/New Artwork and workspace changes aimed at the supplied concept,
+   and do not promote the consolidated Windows evaluation build until the
+   broader visual and functional pass and CI justify it.

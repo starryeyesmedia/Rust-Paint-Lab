@@ -31,6 +31,16 @@ struct RecentProjectCard {
     thumbnail: Option<egui::TextureHandle>,
 }
 
+struct BrushPreviewCache {
+    brush: Brush,
+    texture: egui::TextureHandle,
+}
+
+struct BrushPresetPreviewCache {
+    kind: BrushKind,
+    texture: egui::TextureHandle,
+}
+
 type AppearanceKey = (
     crate::workspace::AppearanceMode,
     crate::workspace::AccentScheme,
@@ -541,12 +551,13 @@ pub(crate) fn document_format_card(
     activate_focusable_card(ui, &response)
 }
 
-pub(crate) fn brush_preset_card(
+pub(crate) fn brush_preset_card_with_preview(
     ui: &mut egui::Ui,
     kind: BrushKind,
     selected: bool,
     color: [u8; 3],
     card_width: f32,
+    preview: Option<egui::TextureId>,
 ) -> bool {
     let name = brush_display_name(kind);
     let (rect, response) = ui.allocate_exact_size(
@@ -585,73 +596,86 @@ pub(crate) fn brush_preset_card(
     let y = rect.top() + 31.0;
     let left = rect.left() + 18.0;
     let right = rect.right() - 18.0;
-    match kind {
-        BrushKind::Soft | BrushKind::Airbrush => {
-            for index in 0..5 {
-                let x = left + (right - left) * index as f32 / 4.0;
-                let radius = if kind == BrushKind::Soft { 5.5 } else { 4.0 };
-                let alpha = if kind == BrushKind::Soft { 95 } else { 52 };
-                painter.circle_filled(
-                    egui::pos2(x, y),
-                    radius,
-                    egui::Color32::from_rgba_unmultiplied(
-                        line_color.r(),
-                        line_color.g(),
-                        line_color.b(),
-                        alpha,
-                    ),
-                );
-            }
-        }
-        BrushKind::Textured => {
-            for index in 0..11 {
-                let x = left + (right - left) * index as f32 / 10.0;
-                if index % 2 == 0 {
-                    painter.circle_filled(egui::pos2(x, y), 2.6, line_color);
+    if let Some(texture) = preview {
+        let sample_rect = egui::Rect::from_min_max(
+            egui::pos2(left, rect.top() + 8.0),
+            egui::pos2(right, rect.top() + 51.0),
+        );
+        painter.image(
+            texture,
+            sample_rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        match kind {
+            BrushKind::Soft | BrushKind::Airbrush => {
+                for index in 0..5 {
+                    let x = left + (right - left) * index as f32 / 4.0;
+                    let radius = if kind == BrushKind::Soft { 5.5 } else { 4.0 };
+                    let alpha = if kind == BrushKind::Soft { 95 } else { 52 };
+                    painter.circle_filled(
+                        egui::pos2(x, y),
+                        radius,
+                        egui::Color32::from_rgba_unmultiplied(
+                            line_color.r(),
+                            line_color.g(),
+                            line_color.b(),
+                            alpha,
+                        ),
+                    );
                 }
             }
-        }
-        BrushKind::Wash | BrushKind::Marker => {
-            painter.line_segment(
-                [egui::pos2(left, y), egui::pos2(right, y)],
-                egui::Stroke::new(
-                    if kind == BrushKind::Wash { 5.0 } else { 7.0 },
-                    egui::Color32::from_rgba_unmultiplied(
-                        line_color.r(),
-                        line_color.g(),
-                        line_color.b(),
-                        150,
-                    ),
-                ),
-            );
-        }
-        _ => {
-            let steps = 8;
-            let points: Vec<_> = (0..=steps)
-                .map(|index| {
-                    let t = index as f32 / steps as f32;
-                    egui::pos2(left + (right - left) * t, y + (t - 0.5).powi(2) * 8.0 - 2.0)
-                })
-                .collect();
-            for (index, segment) in points.windows(2).enumerate() {
-                let weight = index.min(steps - 1 - index) as f32 / (steps as f32 * 0.5);
-                let width = match kind {
-                    BrushKind::Calligraphy => 1.2 + weight * 6.0,
-                    BrushKind::Pencil => 0.8 + weight * 1.0,
-                    BrushKind::Ink => 1.2 + weight * 3.5,
-                    _ => 1.8 + weight * 2.5,
-                };
+            BrushKind::Textured => {
+                for index in 0..11 {
+                    let x = left + (right - left) * index as f32 / 10.0;
+                    if index % 2 == 0 {
+                        painter.circle_filled(egui::pos2(x, y), 2.6, line_color);
+                    }
+                }
+            }
+            BrushKind::Wash | BrushKind::Marker => {
                 painter.line_segment(
-                    [segment[0], segment[1]],
-                    egui::Stroke::new(width, line_color),
+                    [egui::pos2(left, y), egui::pos2(right, y)],
+                    egui::Stroke::new(
+                        if kind == BrushKind::Wash { 5.0 } else { 7.0 },
+                        egui::Color32::from_rgba_unmultiplied(
+                            line_color.r(),
+                            line_color.g(),
+                            line_color.b(),
+                            150,
+                        ),
+                    ),
                 );
             }
-            if kind == BrushKind::Eraser {
-                painter.circle_stroke(
-                    egui::pos2((left + right) * 0.5, y),
-                    6.0,
-                    egui::Stroke::new(1.5, visuals.text_color()),
-                );
+            _ => {
+                let steps = 8;
+                let points: Vec<_> = (0..=steps)
+                    .map(|index| {
+                        let t = index as f32 / steps as f32;
+                        egui::pos2(left + (right - left) * t, y + (t - 0.5).powi(2) * 8.0 - 2.0)
+                    })
+                    .collect();
+                for (index, segment) in points.windows(2).enumerate() {
+                    let weight = index.min(steps - 1 - index) as f32 / (steps as f32 * 0.5);
+                    let width = match kind {
+                        BrushKind::Calligraphy => 1.2 + weight * 6.0,
+                        BrushKind::Pencil => 0.8 + weight * 1.0,
+                        BrushKind::Ink => 1.2 + weight * 3.5,
+                        _ => 1.8 + weight * 2.5,
+                    };
+                    painter.line_segment(
+                        [segment[0], segment[1]],
+                        egui::Stroke::new(width, line_color),
+                    );
+                }
+                if kind == BrushKind::Eraser {
+                    painter.circle_stroke(
+                        egui::pos2((left + right) * 0.5, y),
+                        6.0,
+                        egui::Stroke::new(1.5, visuals.text_color()),
+                    );
+                }
             }
         }
     }
@@ -1505,6 +1529,8 @@ pub struct Studio {
     recent_brush_colors: Vec<[u8; 3]>,
     favorite_brushes: Vec<BrushKind>,
     brush_search: String,
+    brush_preview: Option<BrushPreviewCache>,
+    brush_preset_previews: Vec<BrushPresetPreviewCache>,
     favorites_only: bool,
     observed_brush_color: Option<[u8; 3]>,
     hex_color: String,
@@ -1518,6 +1544,9 @@ pub struct Studio {
     test_path_dialog: bool,
     test_brush_rect_logged: bool,
     test_brush_layout_logged: bool,
+    test_brush_preview_logged: bool,
+    test_brush_preset_previews_logged: bool,
+    test_palette_clearance_logged: bool,
     test_home_preview_logged: bool,
     test_home_quick_start_logged: bool,
     test_recovery_label_logged: bool,
@@ -1685,6 +1714,8 @@ impl Studio {
             recent_brush_colors,
             favorite_brushes,
             brush_search: String::new(),
+            brush_preview: None,
+            brush_preset_previews: Vec::new(),
             favorites_only: false,
             observed_brush_color: None,
             hex_color: String::new(),
@@ -1698,6 +1729,9 @@ impl Studio {
             test_path_dialog,
             test_brush_rect_logged: false,
             test_brush_layout_logged: false,
+            test_brush_preview_logged: false,
+            test_brush_preset_previews_logged: false,
+            test_palette_clearance_logged: false,
             test_home_preview_logged: false,
             test_home_quick_start_logged: false,
             test_recovery_label_logged: false,
@@ -1796,6 +1830,39 @@ impl Studio {
 
     pub fn accesskit_action_request(&mut self, request: egui::accesskit::ActionRequest) {
         self.input.on_accesskit_action_request(request);
+    }
+    fn brush_preset_texture(
+        &mut self,
+        context: &egui::Context,
+        kind: BrushKind,
+    ) -> Option<egui::TextureId> {
+        if let Some(preview) = self
+            .brush_preset_previews
+            .iter()
+            .find(|preview| preview.kind == kind)
+        {
+            return Some(preview.texture.id());
+        }
+        if self.brush_preset_previews.len() >= 10 {
+            return None;
+        }
+        let pixels = crate::brush_preview::render_preset_rgba(kind).ok()?;
+        let image = egui::ColorImage::from_rgba_unmultiplied(
+            [
+                crate::brush_preview::WIDTH as usize,
+                crate::brush_preview::HEIGHT as usize,
+            ],
+            &pixels,
+        );
+        let texture = context.load_texture(
+            format!("brush preset sample {kind:?}"),
+            image,
+            egui::TextureOptions::LINEAR,
+        );
+        let id = texture.id();
+        self.brush_preset_previews
+            .push(BrushPresetPreviewCache { kind, texture });
+        Some(id)
     }
     fn reference_under_client(&self, client_px: [f64; 2]) -> bool {
         self.reference_index_under_client(client_px).is_some()
@@ -3452,7 +3519,11 @@ impl Studio {
                     });
             });
             let rect = palette_response.response.rect;
-            if self.test_path_dialog && self.palette_dock == crate::workspace::PaletteDock::Top {
+            if self.test_path_dialog
+                && self.palette_dock == crate::workspace::PaletteDock::Top
+                && !self.test_palette_clearance_logged
+            {
+                self.test_palette_clearance_logged = true;
                 eprintln!(
                     "UI_TEST_TOP_PALETTE_CLEARANCE: {:.1} {:.1}",
                     rect.top(),
@@ -4078,6 +4149,66 @@ impl Studio {
                             });
                         });
                         ui.weak("Choose a tool. Pressure is preserved; previews show each preset’s character.");
+                        if self
+                            .brush_preview
+                            .as_ref()
+                            .is_none_or(|preview| preview.brush != project.brush)
+                        {
+                            match crate::brush_preview::render_rgba(&project.brush) {
+                                Ok(pixels) => {
+                                    let image = egui::ColorImage::from_rgba_unmultiplied(
+                                        [
+                                            crate::brush_preview::WIDTH as usize,
+                                            crate::brush_preview::HEIGHT as usize,
+                                        ],
+                                        &pixels,
+                                    );
+                                    if let Some(preview) = self.brush_preview.as_mut() {
+                                        preview.brush = project.brush.clone();
+                                        preview.texture.set(image, egui::TextureOptions::LINEAR);
+                                    } else {
+                                        self.brush_preview = Some(BrushPreviewCache {
+                                            brush: project.brush.clone(),
+                                            texture: ui.ctx().load_texture(
+                                                "active raster brush preview",
+                                                image,
+                                                egui::TextureOptions::LINEAR,
+                                            ),
+                                        });
+                                    }
+                                }
+                                Err(_) => self.brush_preview = None,
+                            }
+                        }
+                        if let Some(preview) = self.brush_preview.as_ref() {
+                            ui.horizontal(|ui| {
+                                ui.strong("Current brush");
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.weak(format!(
+                                            "{:.0} px · {:.0}% opacity",
+                                            project.brush.size,
+                                            project.brush.opacity * 100.0,
+                                        ));
+                                    },
+                                );
+                            });
+                            let response =
+                                crate::brush_preview::show(ui, &preview.texture, &project.brush);
+                            if self.test_path_dialog && !self.test_brush_preview_logged {
+                                self.test_brush_preview_logged = true;
+                                eprintln!(
+                                    "UI_TEST_BRUSH_PREVIEW_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    response.rect.left(),
+                                    response.rect.top(),
+                                    response.rect.width(),
+                                    response.rect.height(),
+                                    ui.ctx().pixels_per_point(),
+                                );
+                            }
+                            ui.add_space(6.0);
+                        }
                         ui.horizontal(|ui| {
                             if ui.selectable_label(!self.favorites_only, "All brushes").clicked() {
                                 self.favorites_only = false;
@@ -4118,12 +4249,14 @@ impl Studio {
                                     ui.horizontal(|ui| {
                                         let selected = project.brush.kind == kind;
                                         let card_width = (ui.available_width() - 44.0).clamp(120.0, 440.0);
-                                        if brush_preset_card(
+                                        let texture = self.brush_preset_texture(ui.ctx(), kind);
+                                        if brush_preset_card_with_preview(
                                             ui,
                                             kind,
                                             selected,
                                             project.brush.color,
                                             card_width,
+                                            texture,
                                         ) {
                                             let color = project.brush.color;
                                             project.brush = Brush::preset(kind);
@@ -4156,7 +4289,8 @@ impl Studio {
                                     for kind in filtered {
                                         ui.vertical(|ui| {
                                             let selected = project.brush.kind == kind;
-                                            if brush_preset_card(ui, kind, selected, project.brush.color, 148.0) {
+                                            let texture = self.brush_preset_texture(ui.ctx(), kind);
+                                            if brush_preset_card_with_preview(ui, kind, selected, project.brush.color, 148.0, texture) {
                                                 let color = project.brush.color;
                                                 project.brush = Brush::preset(kind);
                                                 project.brush.color = color;
@@ -4191,6 +4325,13 @@ impl Studio {
                             } else {
                                 "No brushes match this search."
                             });
+                        }
+                        if self.test_path_dialog && !self.test_brush_preset_previews_logged {
+                            self.test_brush_preset_previews_logged = true;
+                            eprintln!(
+                                "UI_TEST_BRUSH_PRESET_PREVIEWS: {}",
+                                self.brush_preset_previews.len()
+                            );
                         }
                         ui.separator();
                         ui.horizontal(|ui| {

@@ -370,3 +370,25 @@ forced-termination/journal-recovery check runs. Recovery labels conceal internal
 numeric snapshot names, identify snapshot/journal/backup sources and pass a rendered
 4.5:1 text-contrast assertion in both Light and Dark themes. These are Linux/Xvfb
 interaction checks, not manual Windows assistive-technology validation.
+
+The Brush Library also generates deterministic preset samples by running each
+built-in brush through the raster engine on a bounded temporary document. The
+active sample reflects the current brush settings; preset cards use a stable
+violet sample. The eraser preview cuts into an under-stroke to make erase
+behavior visible. These preview pixels are UI cache data and never enter the
+artist document. Tests compare deterministic output, distinguish representative
+brush kinds, validate eraser transparency, reject invalid settings before tile
+allocation, and inspect the active preview's AccessKit label. The Linux window
+smoke requires all ten preset samples and a non-trivial active preview region.
+
+```sh
+cargo test --locked -p canvas-demo brush_preview::tests
+xvfb-run -a env PYTHONDONTWRITEBYTECODE=1 python3 scripts/alpha-workflow-smoke.py
+```
+
+The screenshot archive from Actions run `40250590747` is produced on Linux, but
+its artifact blob host returned HTTP 403 in the current environment. The local
+X11 interaction run passed without screenshot capture; no current brush-gallery
+screenshots have been visually inspected. Screenshot appearance acceptance is
+therefore still pending. Actions run `40250590747` validates pushed base commit
+`c81f3d8`, not later local changes.
