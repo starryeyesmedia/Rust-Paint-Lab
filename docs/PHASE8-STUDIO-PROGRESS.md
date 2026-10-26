@@ -1657,19 +1657,18 @@ runner, not performance on Iris Xe or RTX hardware. Physical advanced pen
 behaviors and native Narrator/NVDA semantics remain separate validation items;
 basic S Pen drawing was previously observed by the owner.
 
-The latest Actions result available before this working checkpoint is run
-[`40273523046`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40273523046),
-which passed Windows, Linux, and macOS for its predecessor commit. The changes
-in this entry need a new pushed run before CI can be called verified.
+The changes in this checkpoint and the short-window follow-up were verified on
+all three desktop CI platforms in Actions run
+[`40278687191`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40278687191)
+for commit `0384663`. Its Linux job passed the complete screenshot/artwork
+workflow, and its Windows job built and packaged both existing executables.
 
 ### Exact continuation
 
-1. Push this verified checkpoint and record the actual Windows/Linux/macOS
-   Actions result before claiming CI validation.
-2. Continue the Home and canvas visual integration, especially the recent-work
+1. Continue the Home and canvas visual integration, especially the recent-work
    preview prominence and compact/narrow workspace balance. Preserve the
    responsive palette fixes and populated-state screenshot coverage.
-3. Continue keyboard/focus and AccessKit review across themes; document actual
+2. Continue keyboard/focus and AccessKit review across themes; document actual
    Narrator/NVDA limits. Keep Phase 8.3 active, preserve the Windows diagnostic,
    and withhold the consolidated Windows evaluation build, merge, and release
    until the broader overhaul is materially implemented and validated.
@@ -1692,20 +1691,18 @@ workspace suite has **246 passing tests**. Formatting, strict workspace Clippy,
 workspace build, Windows GNU target check/Clippy, and llvmpipe offscreen GPU
 smoke pass locally.
 
-Commit `25930ed` has a completed Actions run
+Commit `25930ed` had a completed Actions run
 [`40277552431`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40277552431):
 Windows and macOS passed, but Linux failed an XTest timeout while collapsing the
 expanded palette. The test read the control rectangle immediately after a
 layout-width change. This follow-up waits for the rectangle to remain unchanged
-before clicking. Its local full application workflow passes, but the guard still
-needs a fresh CI run. The wider Phase 8.3 redesign and accessibility validation
-remain active.
+before clicking. The corrected workflow then passed in run `40278687191` for
+`0384663`. This resolves that test-timing failure; it does not complete the
+wider Phase 8.3 redesign or accessibility validation.
 
 ### Exact continuation
 
-1. Commit and push the narrow New Artwork fix and settled-geometry test guard;
-   verify the Linux XTest failure is corrected in a new Actions run.
-2. Continue visual/accessibility integration beyond the narrow card layout;
+1. Continue visual/accessibility integration beyond the narrow card layout;
    maintain populated-state screenshots and artwork/recovery regressions.
-3. Keep Phase 8.3 open and withhold the consolidated Windows evaluation build,
+2. Keep Phase 8.3 open and withhold the consolidated Windows evaluation build,
    merge, and release until the broader overhaul passes review.

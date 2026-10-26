@@ -327,25 +327,21 @@ approved by this checkpoint.
 
 ## Latest local Phase 8.3 checkpoint — palette and Home layout
 
-The current working changes correct palette viewport placement/overlap,
-scrolling, compact defaults, drag grip and edge docking; they also center Home
-content at wide sizes and put its format cards on one row. The 32-state local
-Xorg/XTEST workflow checks populated layers, themes, window sizes, palette
-movement and the existing artwork workflows. Dark/light Home, populated Layers,
-and canvas/palette screenshots were visually inspected. Local formatting,
-strict Clippy, workspace tests/build, Windows GNU target checks, and software
-GPU smoke passed. These changes still need to be committed, pushed, and verified
-by a new Windows/Linux/macOS Actions run. Phase 8.3 remains active; recent Home
+Commit `25930ed` corrects palette viewport placement/overlap, scrolling,
+compact defaults, drag grip and edge docking; it also centers Home at wide sizes.
+Its local 32-state Xorg/XTEST workflow and screenshots passed review. Actions
+run `40277552431` passed Windows/macOS but exposed a timing-sensitive Linux
+palette-collapse click. The follow-up below fixed the test geometry wait, and
+`40278687191` passed all desktop jobs. Phase 8.3 remains active; recent Home
 artwork presentation and the broader workspace/accessibility overhaul remain
 unfinished. See [the detailed progress log](PHASE8-STUDIO-PROGRESS.md).
 
 ### Short-window New Artwork follow-up
 
-All seven format cards, including Custom, now fit in the initial 640 × 480 view;
-XTest asserts the actual card bounds. The 32-state local workflow, 246-test
-workspace suite, Windows GNU target checks, and software GPU smoke pass. This
-follow-up is not yet committed; Actions run `40277552431` passed Windows and
-macOS but failed its Linux palette-collapse XTest. The XTest now waits for
-control geometry to settle after palette reflow before clicking. Verify the
-guard with the next Actions run. Phase 8.3 remains active. Continue the wider workspace and
-accessibility overhaul; see the [detailed progress log](PHASE8-STUDIO-PROGRESS.md).
+Commit `0384663` makes all seven format cards, including Custom, fit in the
+initial 640 × 480 view; XTest asserts the actual card bounds. The 32-state local
+workflow, 246-test workspace suite, Windows GNU target checks, and software GPU
+smoke pass. Actions run `40278687191` passed Windows, Linux and macOS. On Linux,
+the full UI/artwork workflow passed; on Windows the portable canvas and stylus
+diagnostic artifacts were produced. Phase 8.3 remains active. Continue the wider
+workspace and accessibility overhaul; see the [detailed progress log](PHASE8-STUDIO-PROGRESS.md).
