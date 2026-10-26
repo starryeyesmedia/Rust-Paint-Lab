@@ -1,21 +1,44 @@
 # Bundled interface fonts
 
-BitchPixel bundles the following Google Fonts families for offline, consistent
-rendering. These files are presentation assets only; no font dependency was added
-to Cargo.
+BitchPixel embeds two complementary Google Fonts families for offline,
+consistent rendering. The application does not need a system font installation
+or network access to display its interface.
 
-- **Manrope Regular** — interface controls and body copy. Derived from the
-  Manrope variable font at `wght=400`. Source: [Google Fonts `ofl/manrope`](https://github.com/google/fonts/tree/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/manrope).
-  Bundled static-font SHA-256:
-  `1e1f9be7585101a0e0d3e7463761ad3c64d7d7e3973cccbfcd5f49f84629c4c6`.
-- **Syne Bold** — display headings and wordmark. Derived from the Syne variable
-  font at `wght=700`. Source: [Google Fonts `ofl/syne`](https://github.com/google/fonts/tree/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/syne).
-  Bundled static-font SHA-256:
-  `b706f4697e71e08ce90ea78936249614bf40fad449d48fa4ec44fc40c125ae33`.
+- **Space Grotesk SemiBold and Bold** — brand, page titles and editorial
+  headings. Its distinctive geometric forms give the product a recognizable
+  voice while keeping short interface headings clear.
+- **Manrope Regular, SemiBold and Bold** — body text, actions, labels, layer
+  names, numeric controls and supporting information. The family has clear
+  shapes at small sizes and the bundled weights keep hierarchy legible without
+  relying on synthetic bolding.
 
-Both families are distributed under the SIL Open Font License 1.1. The exact
-license texts are retained beside each font as `Manrope-OFL.txt` and
-`Syne-OFL.txt`. They may be bundled with the application under the terms in those
-files. The source snapshot used was Google Fonts commit
-[`e7db6ca603fd4862010383ff17ffd6cc4ffac1c0`](https://github.com/google/fonts/tree/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0).
-Fonts are installed locally at startup and are never downloaded at runtime.
+The prior packaged Manrope file was generated at the variable font's 200-weight
+default and the prior Syne file retained Regular naming. They are replaced here
+with correctly instantiated static weights. This corrects the unusually light
+body rendering and gives egui explicit weight families.
+
+All five static files were instantiated from the variable font sources at
+Google Fonts commit
+[`e7db6ca603fd4862010383ff17ffd6cc4ffac1c0`](https://github.com/google/fonts/tree/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0)
+using fontTools 4.61.1. The source variable TTFs are Manrope
+`ofl/manrope/Manrope[wght].ttf` and Space Grotesk
+`ofl/spacegrotesk/SpaceGrotesk[wght].ttf`. Static weights were instantiated
+from the `wght` axis at 400, 600, and 700 for Manrope, and 600 and 700 for
+Space Grotesk. Their font metadata records the matching family and weight.
+
+SHA-256 checksums of the bundled static files:
+
+| File | SHA-256 |
+| --- | --- |
+| `Manrope-Regular.ttf` | `e82a2c322c2a4f89bc81de57fe6e41a4ea1c062746d86b40d021591c1344931d` |
+| `Manrope-SemiBold.ttf` | `23af9c0e39d3bc465af72267000d16a6cf828e32bd53db443001d3ce0f203891` |
+| `Manrope-Bold.ttf` | `8a0a4b5cfa880b8bb8dac3d727f5f632be5745ffdf42fc54d72c465f3c4969ba` |
+| `SpaceGrotesk-SemiBold.ttf` | `85a3df570a9e4b4c2d9919ba94babd5034aa1d90e43ea57a6ea68359335210af` |
+| `SpaceGrotesk-Bold.ttf` | `7972db8c4af0eafcdd3c85f5bb2a35eafdb7b29b380c19a53f479b8ea3efc62d` |
+
+Both families are distributed under the SIL Open Font License 1.1. The complete
+license texts are retained here as `Manrope-OFL.txt` and
+`SpaceGrotesk-OFL.txt`; desktop packages include both notices. The egui custom
+families retain the built-in proportional font list after the bundled fonts so
+unsupported scripts and symbols have fallback coverage. Icons continue to use
+the application's vector geometry and do not depend on font glyphs.

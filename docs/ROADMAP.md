@@ -116,7 +116,7 @@ blob host denied screenshot and log downloads with HTTP 403, so direct visual
 inspection remains outstanding; this is not phase completion.
 
 The approved concept implementation is in code commit `59cace0`: locally bundled
-OFL Manrope/Syne typography, a purple-charcoal Midnight Violet palette, a
+OFL typography, a purple-charcoal Midnight Violet palette, a
 persisted left/right/top/bottom/floating tool palette, and an HSV Color workflow
 with semantic/keyboard controls. The Home continuation adds a named,
 keyboard-accessible filter for recent local artwork and a responsive
@@ -156,6 +156,13 @@ and keyboard/focus traversal need further verification. Narrator/NVDA, Windows
 UI Automation and physical-device behavior were not tested by this local Linux
 run. Do not publish the next Windows evaluation build until the wider pass and
 three-platform Actions checks succeed.
+
+The typography continuation replaces the incorrect extra-light/regular static
+font instances with verified Manrope 400/600/700 and Space Grotesk 600/700
+instances, plus a named cross-screen type scale. This is a working implementation
+checkpoint, not Phase 8.3 acceptance; Home artwork presentation, workspace
+integration, brush/layer workflows, accessibility review and screenshot inspection
+remain active work.
 
 The 2026-10-26 continuation has since added readable recovery entry/source
 labels, bounded on-demand artwork previews and stronger visual assertions for
@@ -373,3 +380,17 @@ after stabilizing the Home picker Cancel assertion. The run includes
 [Phase 8 progress record](PHASE8-STUDIO-PROGRESS.md). Hosted smoke tests do not
 replace testing on the Galaxy Book2 Pro 360. This is a blocking bug fix, not
 Phase 8.3 completion.
+
+### BitchPixel typography and brush-size workflow follow-up
+
+The ongoing Phase 8.3 continuation has corrected the bundled static font
+weights and introduced a shared typography role system using Space Grotesk and
+Manrope. It applies across Home, document creation, floating Brush/Color/Layers
+panels, and recovery. Narrow Home heading hints and the Brush active-setting row
+now stay inside their allocated space. The live canvas also supports bounded
+`[` / `]` brush-size changes, with finer Shift-modified steps, covered by a
+document-level test and XTest. Local formatting, strict Clippy, 249 Rust tests,
+workspace and Windows GNU checks, llvmpipe GPU smoke, and the 34-state Linux UI
+and artwork workflow pass. Cross-platform Actions for this checkpoint are
+pending. See [Phase 8.3 progress](PHASE8-STUDIO-PROGRESS.md); the studio overhaul
+remains in progress and is not accepted as complete.

@@ -185,8 +185,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Canvas license notice generation failed' }
           Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Value "`n`nBundled font: Manrope (SIL Open Font License 1.1)`n"
           Get-Content -Raw 'assets/fonts/Manrope-OFL.txt' | Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Encoding utf8
-          Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Value "`n`nBundled font: Syne (SIL Open Font License 1.1)`n"
-          Get-Content -Raw 'assets/fonts/Syne-OFL.txt' | Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Encoding utf8
+          Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Value "`n`nBundled font: Space Grotesk (SIL Open Font License 1.1)`n"
+          Get-Content -Raw 'assets/fonts/SpaceGrotesk-OFL.txt' | Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Encoding utf8
           $rust = rustc --version
           if ($LASTEXITCODE -ne 0) { throw 'Cannot identify canvas toolchain' }
           @("Commit: $env:GITHUB_SHA", "Toolchain: $rust", 'Target: x86_64-pc-windows-msvc',
@@ -234,7 +234,7 @@ jobs:
           cp docs/overdrive-user-guide.md "$package/README.md"
           cp docs/desktop-package-README.txt "$package/README.txt"
           python3 scripts/canvas-licenses.py --target "$host" --output "$package/THIRD-PARTY-NOTICES.txt"
-          { printf '\n\nBundled font: Manrope (SIL Open Font License 1.1)\n'; cat assets/fonts/Manrope-OFL.txt; printf '\n\nBundled font: Syne (SIL Open Font License 1.1)\n'; cat assets/fonts/Syne-OFL.txt; } >> "$package/THIRD-PARTY-NOTICES.txt"
+          { printf '\n\nBundled font: Manrope (SIL Open Font License 1.1)\n'; cat assets/fonts/Manrope-OFL.txt; printf '\n\nBundled font: Space Grotesk (SIL Open Font License 1.1)\n'; cat assets/fonts/SpaceGrotesk-OFL.txt; } >> "$package/THIRD-PARTY-NOTICES.txt"
           { echo "Commit: $GITHUB_SHA"; rustc --version; echo "Target: $host"; echo 'Unsigned development alpha; no notarization'; } > "$package/BUILD.txt"
           if [ "$RUNNER_OS" = Linux ]; then ldd target/release/canvas-demo > "$package/SYSTEM-LIBRARIES.txt"; else otool -L target/release/canvas-demo > "$package/SYSTEM-LIBRARIES.txt"; fi
           (cd "$package" && shasum -a 256 canvas-demo > SHA256SUMS.txt)

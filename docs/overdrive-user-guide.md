@@ -105,7 +105,10 @@ uses `RPL_TEST_PATH_DIALOG=1` for a test-only path-entry harness.
 Reference windows overlay the canvas but are routed as workspace UI: drawing,
 selection and canvas navigation do not start under their visible bounds.
 
-Keyboard: Ctrl+Z/Y undo/redo; Ctrl+S save; Ctrl+N New Document; Ctrl+O open project
+Keyboard: `[` / `]` reduce/increase brush size by ten percent; Shift+`[` / Shift+`]`
+make fine one-percent changes. The size is bounded from 1 to 256 px and the
+shortcut is ignored while a text field is active. Ctrl+Z/Y undo/redo; Ctrl+S save;
+Ctrl+N New Document; Ctrl+O open project
 picker; Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
 Ctrl+L opens or closes the floating Layers panel; Ctrl+Shift+N adds a layer;
 Ctrl+Shift+M opens or closes the

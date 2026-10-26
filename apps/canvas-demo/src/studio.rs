@@ -117,6 +117,20 @@ fn recent_project_matches(path: &std::path::Path, query: &str) -> bool {
             .contains(&query.to_lowercase())
 }
 
+fn brush_size_after_shortcut(current: f64, increase: bool, fine: bool) -> f64 {
+    let current = if current.is_finite() {
+        current.clamp(1.0, 256.0)
+    } else {
+        1.0
+    };
+    let factor = if fine { 1.01 } else { 1.1 };
+    if increase {
+        (current * factor).min(256.0)
+    } else {
+        (current / factor).max(1.0)
+    }
+}
+
 fn recent_gallery_max_columns(available_width: f32) -> usize {
     match available_width {
         width if width >= 1500.0 => 4,
@@ -559,14 +573,14 @@ pub(crate) fn home_document_card(
         egui::pos2(rect.center().x, rect.bottom() - 28.0),
         egui::Align2::CENTER_CENTER,
         name,
-        egui::FontId::proportional(15.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::Button),
         fg,
     );
     ui.painter().text(
         egui::pos2(rect.center().x, rect.bottom() - 11.0),
         egui::Align2::CENTER_CENTER,
         format!("{} × {} px", dimensions[0], dimensions[1]),
-        egui::FontId::proportional(11.0),
+        crate::ui_tokens::font_id_at(crate::ui_tokens::TypeRole::Metadata, 11.5),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
     response.clicked()
@@ -603,25 +617,33 @@ pub(crate) fn home_custom_document_card(ui: &mut egui::Ui, card_width: f32) -> b
         },
         egui::StrokeKind::Inside,
     );
-    ui.painter().text(
-        egui::pos2(rect.center().x, rect.top() + 37.0),
-        egui::Align2::CENTER_CENTER,
-        "+",
-        egui::FontId::proportional(38.0),
-        visuals.hyperlink_color,
+    let plus_center = egui::pos2(rect.center().x, rect.top() + 37.0);
+    ui.painter().line_segment(
+        [
+            plus_center - egui::vec2(11.0, 0.0),
+            plus_center + egui::vec2(11.0, 0.0),
+        ],
+        egui::Stroke::new(2.5, visuals.hyperlink_color),
+    );
+    ui.painter().line_segment(
+        [
+            plus_center - egui::vec2(0.0, 11.0),
+            plus_center + egui::vec2(0.0, 11.0),
+        ],
+        egui::Stroke::new(2.5, visuals.hyperlink_color),
     );
     ui.painter().text(
         egui::pos2(rect.center().x, rect.bottom() - 23.0),
         egui::Align2::CENTER_CENTER,
         "Custom size",
-        egui::FontId::proportional(15.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::Button),
         visuals.text_color(),
     );
     ui.painter().text(
         egui::pos2(rect.center().x, rect.bottom() - 8.0),
         egui::Align2::CENTER_CENTER,
         "Set exact dimensions",
-        egui::FontId::proportional(11.0),
+        crate::ui_tokens::font_id_at(crate::ui_tokens::TypeRole::Metadata, 11.5),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
     response.clicked()
@@ -677,14 +699,14 @@ pub(crate) fn home_open_project_card(
         egui::pos2(rect.center().x, rect.bottom() - 65.0),
         egui::Align2::CENTER_CENTER,
         "Open another project",
-        egui::FontId::proportional(16.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::CardTitle),
         foreground,
     );
     ui.painter().text(
         egui::pos2(rect.center().x, rect.bottom() - 38.0),
         egui::Align2::CENTER_CENTER,
         "Browse saved artwork on this device",
-        egui::FontId::proportional(12.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::Metadata),
         muted,
     );
     response.widget_info(|| {
@@ -750,14 +772,14 @@ fn home_featured_artwork(
         egui::pos2(caption.left() + 16.0, caption.top() + 18.0),
         egui::Align2::LEFT_CENTER,
         title.as_ref(),
-        egui::FontId::proportional(17.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::CardTitle),
         egui::Color32::WHITE,
     );
     ui.painter().text(
         egui::pos2(caption.left() + 16.0, caption.top() + 40.0),
         egui::Align2::LEFT_CENTER,
         "Continue creating",
-        egui::FontId::proportional(12.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::Metadata),
         egui::Color32::from_rgb(230, 218, 240),
     );
     if response.clicked() {
@@ -960,21 +982,21 @@ fn document_format_card_with_preview(
         egui::pos2(rect.center().x, rect.bottom() - 35.0),
         egui::Align2::CENTER_CENTER,
         label,
-        egui::FontId::proportional(15.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::Button),
         crate::appearance::readable_text_color(visuals.text_color(), fill),
     );
     painter.text(
         egui::pos2(rect.center().x, rect.bottom() - 20.0),
         egui::Align2::CENTER_CENTER,
         format!("{}×{} px", width as u32, height as u32),
-        egui::FontId::proportional(11.0),
+        crate::ui_tokens::font_id_at(crate::ui_tokens::TypeRole::Metadata, 11.5),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
     painter.text(
         egui::pos2(rect.center().x, rect.bottom() - 6.0),
         egui::Align2::CENTER_CENTER,
         format!("{dpi} DPI"),
-        egui::FontId::proportional(10.0),
+        crate::ui_tokens::font_id_at(crate::ui_tokens::TypeRole::Metadata, 11.5),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
     (
@@ -1139,17 +1161,21 @@ pub(crate) fn brush_preset_card_with_preview(
         egui::pos2(rect.center().x, rect.bottom() - 13.0),
         egui::Align2::CENTER_CENTER,
         name,
-        egui::FontId::proportional(13.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::ToolName),
         visuals.text_color(),
     );
     if selected {
-        painter.text(
-            egui::pos2(rect.right() - 8.0, rect.top() + 9.0),
-            egui::Align2::RIGHT_CENTER,
-            "ACTIVE",
-            egui::FontId::proportional(8.0),
-            visuals.text_color(),
+        let center = egui::pos2(rect.right() - 11.0, rect.top() + 11.0);
+        painter.circle_filled(
+            center,
+            5.0,
+            if visuals.override_text_color.is_some() {
+                visuals.selection.stroke.color
+            } else {
+                visuals.hyperlink_color
+            },
         );
+        painter.circle_stroke(center, 7.0, egui::Stroke::new(1.0, visuals.window_fill));
     }
     (activate_focusable_card(ui, &response), rect)
 }
@@ -1161,13 +1187,36 @@ fn active_brush_preview(
     compact: bool,
 ) -> egui::Response {
     ui.horizontal(|ui| {
-        ui.strong("Current brush");
+        let foreground = crate::appearance::readable_text_color(
+            ui.visuals().text_color(),
+            ui.visuals().window_fill,
+        );
+        ui.label(crate::ui_tokens::type_text(
+            "Current brush",
+            crate::ui_tokens::TypeRole::ToolName,
+            foreground,
+        ));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.weak(format!(
-                "{:.0} px · {:.0}% opacity",
-                brush.size,
-                brush.opacity * 100.0,
-            ));
+            let metadata = crate::appearance::readable_text_color(
+                ui.visuals().weak_text_color(),
+                ui.visuals().window_fill,
+            );
+            ui.add_sized(
+                egui::vec2(
+                    ui.available_width(),
+                    crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::Metadata).size * 1.6,
+                ),
+                egui::Label::new(crate::ui_tokens::type_text(
+                    format!(
+                        "{:.0} px · {:.0}% opacity",
+                        brush.size,
+                        brush.opacity * 100.0
+                    ),
+                    crate::ui_tokens::TypeRole::Metadata,
+                    metadata,
+                ))
+                .truncate(),
+            );
         });
     });
     let response = if compact {
@@ -1480,7 +1529,7 @@ pub(crate) fn hue_selection_wheel(
         center,
         egui::Align2::CENTER_CENTER,
         format!("{:.0}°", clean_hue * 360.0),
-        egui::FontId::proportional(13.0),
+        crate::ui_tokens::font_id(crate::ui_tokens::TypeRole::Numeric),
         sample_text,
     );
 
@@ -2285,7 +2334,14 @@ pub(crate) fn layer_flyout_contents(
                         );
                     }
                     layer_thumbnail(ui, &thumbnail, id == selected);
-                    let label = ui.selectable_label(id == selected, &name);
+                    let label = ui.selectable_label(
+                        id == selected,
+                        crate::ui_tokens::type_text(
+                            name.clone(),
+                            crate::ui_tokens::TypeRole::LayerName,
+                            ui.visuals().text_color(),
+                        ),
+                    );
                     if label.clicked() {
                         actions.push(Action::Select(id));
                     }
@@ -3713,6 +3769,14 @@ impl Studio {
             _ => EditTool::Brush,
         };
     }
+    pub fn adjust_brush_size(&mut self, increase: bool, fine: bool, session: &mut CanvasSession) {
+        let brush = &mut session.live_mut().project_mut().brush;
+        brush.size = brush_size_after_shortcut(brush.size, increase, fine);
+        self.status = format!("Brush size {:.1} px", brush.size);
+        if self.test_path_dialog {
+            eprintln!("UI_TEST_BRUSH_SIZE: {:.3}", brush.size);
+        }
+    }
     fn remember(&mut self, path: &std::path::Path) {
         let result = self.recent.remember(path).and_then(|_| {
             self.recent_path
@@ -4458,6 +4522,7 @@ impl Studio {
                         ui.menu_button("Help", |ui| {
                             ui.label("BitchPixel — painting without permission");
                             ui.separator();
+                            ui.label("Brush size [ / ] · fine adjustment: Shift+[ / Shift+]");
                             ui.label("B Brush · C Color · M Rectangle · E Ellipse");
                             ui.label("K Lasso · I Eyedropper");
                             ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
@@ -5384,7 +5449,11 @@ impl Studio {
                                 .unwrap_or(0);
 
                             ui.separator();
-                            ui.heading("Layers");
+                            ui.label(crate::ui_tokens::type_text(
+                                "Layers",
+                                crate::ui_tokens::TypeRole::PanelTitle,
+                                ui.visuals().text_color(),
+                            ));
                             ui.small(format!("{layer_count} layers · top of list is frontmost"));
                             ui.horizontal(|ui| {
                                 if ui.button("New layer").clicked() {
@@ -6069,7 +6138,11 @@ impl Studio {
                         .show(ui, |ui| {
                             let project = session.live_mut().project_mut();
                             ui.horizontal(|ui| {
-                                ui.heading("Color");
+                                ui.label(crate::ui_tokens::type_text(
+                                    "Color",
+                                    crate::ui_tokens::TypeRole::PanelTitle,
+                                    ui.visuals().text_color(),
+                                ));
                                 ui.weak("sRGB");
                             });
                             ui.label("Pick a color or sample directly from the canvas.");
@@ -6720,8 +6793,11 @@ impl Studio {
                                                             eprintln!("UI_TEST_HOME_SLOGAN_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, slogan_contrast);
                                                         }
                                                     }
-                                                    ui.label(egui::RichText::new("No limits. No bullshit.")
-                                                        .size(18.0).strong().color(accent));
+                                                    ui.label(crate::ui_tokens::type_text(
+                                                        "No limits. No bullshit.",
+                                                        crate::ui_tokens::TypeRole::Slogan,
+                                                        accent,
+                                                    ));
                                                     ui.add_space(4.0);
                                                     ui.label(crate::ui_tokens::display_text(
                                                         "Create without permission.",
@@ -6740,7 +6816,11 @@ impl Studio {
                                                             ui.visuals().text_color(),
                                                             accent_fill,
                                                         );
-                                                        let primary = egui::Button::new(crate::ui_tokens::display_text("New artwork", 15.0, action_text))
+                                                        let primary = egui::Button::new(crate::ui_tokens::type_text(
+                                                            "New artwork",
+                                                            crate::ui_tokens::TypeRole::Button,
+                                                            action_text,
+                                                        ))
                                                             .fill(accent_fill)
                                                             .min_size(egui::vec2(action_width, action_height));
                                                         if ui.add(primary).clicked() {
@@ -6880,7 +6960,11 @@ impl Studio {
                                         if self.recent.paths.is_empty() {
                                             crate::ui_tokens::card_frame(ui.visuals(), false).inner_margin(egui::Margin::same(22)).show(ui, |ui| {
                                                 ui.set_min_width((screen.width() - 100.0).max(300.0));
-                                                ui.label(egui::RichText::new("Nothing recent yet").size(19.0).strong());
+                                                ui.label(crate::ui_tokens::type_text(
+                                                    "Nothing recent yet",
+                                                    crate::ui_tokens::TypeRole::CardTitle,
+                                                    ui.visuals().text_color(),
+                                                ));
                                                 ui.label("Your projects will appear here after you save or open one.");
                                             });
                                         } else {
@@ -6964,12 +7048,11 @@ impl Studio {
                                                                     .corner_radius(4.0)
                                                                     .inner_margin(egui::Margin::symmetric(6, 2))
                                                                     .show(ui, |ui| {
-                                                                        ui.label(
-                                                                            egui::RichText::new("DEVELOPMENT TEST FIXTURE")
-                                                                                .size(10.0)
-                                                                                .strong()
-                                                                                .color(badge_text),
-                                                                        );
+                                                                        ui.label(crate::ui_tokens::type_text(
+                                                                            "DEVELOPMENT TEST FIXTURE",
+                                                                            crate::ui_tokens::TypeRole::Caption,
+                                                                            badge_text,
+                                                                        ));
                                                                     });
                                                                 if index == 0 {
                                                                     let rect = badge.response.rect;
@@ -6984,8 +7067,16 @@ impl Studio {
                                                                 }
                                                             }
                                                             ui.add_space(4.0);
-                                                            ui.label(egui::RichText::new(name).strong().size(17.0));
-                                                            ui.label(egui::RichText::new(details).size(13.0).color(ui.visuals().weak_text_color()));
+                                                            ui.label(crate::ui_tokens::type_text(
+                                                                name.to_string(),
+                                                                crate::ui_tokens::TypeRole::CardTitle,
+                                                                ui.visuals().text_color(),
+                                                            ));
+                                                            ui.label(crate::ui_tokens::type_text(
+                                                                details,
+                                                                crate::ui_tokens::TypeRole::Metadata,
+                                                                ui.visuals().weak_text_color(),
+                                                            ));
                                                             if !available { ui.colored_label(ui.visuals().error_fg_color, "Missing project"); }
                                                         });
                                                     });
@@ -7045,7 +7136,11 @@ impl Studio {
                                         if !self.recovery_files.is_empty() {
                                             ui.add_space(8.0);
                                             egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(10.0).inner_margin(12.0).show(ui, |ui| {
-                                                ui.label(egui::RichText::new("Recoverable work").strong());
+                                                ui.label(crate::ui_tokens::type_text(
+                                                    "Recoverable work",
+                                                    crate::ui_tokens::TypeRole::PanelTitle,
+                                                    ui.visuals().text_color(),
+                                                ));
                                                 if ui.button(format!("Manage {} recovery checkpoints…", self.recovery_files.len())).clicked() {
                                                     self.recovery_files = paint_document::recovery::directory()
                                                         .map(|directory| paint_document::recovery::available(&directory))
@@ -7258,16 +7353,33 @@ impl Studio {
                                             }
                                         }
                                         ui.vertical(|ui| {
-                                            ui.label(
-                                                egui::RichText::new(name)
-                                                    .strong()
-                                                    .color(recovery_label_color),
-                                            );
-                                            ui.label(source_label);
-                                            ui.label(dimensions);
-                                            ui.label(updated);
-                                            ui.label(bytes.map(|size| format!("{} KiB", size.div_ceil(1024)))
-                                                .unwrap_or_else(|| "Recovery data unavailable".into()));
+                                            ui.label(crate::ui_tokens::type_text(
+                                                name,
+                                                crate::ui_tokens::TypeRole::CardTitle,
+                                                recovery_label_color,
+                                            ));
+                                            let metadata = ui.visuals().weak_text_color();
+                                            ui.label(crate::ui_tokens::type_text(
+                                                source_label,
+                                                crate::ui_tokens::TypeRole::Metadata,
+                                                metadata,
+                                            ));
+                                            ui.label(crate::ui_tokens::type_text(
+                                                dimensions,
+                                                crate::ui_tokens::TypeRole::Metadata,
+                                                metadata,
+                                            ));
+                                            ui.label(crate::ui_tokens::type_text(
+                                                updated,
+                                                crate::ui_tokens::TypeRole::Metadata,
+                                                metadata,
+                                            ));
+                                            ui.label(crate::ui_tokens::type_text(
+                                                bytes.map(|size| format!("{} KiB", size.div_ceil(1024)))
+                                                    .unwrap_or_else(|| "Recovery data unavailable".into()),
+                                                crate::ui_tokens::TypeRole::Metadata,
+                                                metadata,
+                                            ));
                                         });
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                             if ui.button("Remove…").clicked() {
@@ -8426,11 +8538,12 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        FormatIllustration, LassoAppend, append_lasso_point, document_format_card_height,
-        document_format_grid, fit_paper_to_box, format_illustration, home_hero_height,
-        home_open_card_needed, home_sections_stacked, layer_thumbnail_samples, native_project_path,
-        quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
-        recent_project_matches, recovery_checkpoint_label, recovery_source_label,
+        FormatIllustration, LassoAppend, append_lasso_point, brush_size_after_shortcut,
+        document_format_card_height, document_format_grid, fit_paper_to_box, format_illustration,
+        home_hero_height, home_open_card_needed, home_sections_stacked, layer_thumbnail_samples,
+        native_project_path, quick_document_card_layout, recent_artwork_preview_height,
+        recent_gallery_layout, recent_project_matches, recovery_checkpoint_label,
+        recovery_source_label,
     };
     use std::path::{Path, PathBuf};
 
@@ -8454,6 +8567,20 @@ mod tests {
             LassoAppend::LimitReached
         );
         assert_eq!(points.len(), count);
+    }
+
+    #[test]
+    fn brush_size_shortcuts_are_predictable_and_bounded() {
+        let initial = 18.0;
+        let larger = brush_size_after_shortcut(initial, true, false);
+        assert!((larger - 19.8).abs() < 0.001);
+        let restored = brush_size_after_shortcut(larger, false, false);
+        assert!((restored - initial).abs() < 0.001);
+        assert!(brush_size_after_shortcut(initial, true, true) < larger);
+        assert_eq!(brush_size_after_shortcut(256.0, true, false), 256.0);
+        assert_eq!(brush_size_after_shortcut(1.0, false, false), 1.0);
+        assert_eq!(brush_size_after_shortcut(f64::NAN, true, false), 1.1);
+        assert_eq!(brush_size_after_shortcut(f64::INFINITY, false, false), 1.0);
     }
 
     #[test]

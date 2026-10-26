@@ -463,10 +463,37 @@ actual ring, verifies that hue changes while saturation and brightness stay fixe
 and restores the previous color from the saved palette. The Color screenshot test
 checks that the rendered ring region contains at least 32 distinct chromatic
 colors. After editing this UI, rebuild `canvas-demo`, run the full workspace
-checks, and repeat the X11/XTest workflow above; the current test count is 245.
+checks, and repeat the X11/XTest workflow above. The current workspace suite has
+249 passing Rust tests.
 
 Local Windows-GNU target checking is compile/lint validation only; the native
 Windows CI job remains the executable validation for Windows builds.
+
+### Type system and brush-size hotkeys
+
+`ui_tokens::tests` checks that every type role resolves to a locally embedded
+family with the original proportional fallback chain, and that mixed Latin,
+symbol and CJK sample text can be shaped. The font assets are version-pinned
+static instances; their weights, source revision, hashes, and OFL notices are
+recorded in `assets/fonts/README.md`. The X11/XTest alpha workflow exercises `]`
+and `[` in the live canvas and verifies a ten-percent increase/decrease sequence
+against the active raster brush. Shift-modified one-percent adjustments, bounds,
+and invalid starting values have deterministic unit coverage. Text fields retain
+keyboard ownership, and replay mode does not route these brush controls.
+
+```sh
+cargo test --locked -p canvas-demo ui_tokens::tests --lib
+cargo test --locked -p canvas-demo studio::tests::brush_size_shortcuts_are_predictable_and_bounded --lib
+cargo build --locked -p canvas-demo
+xvfb-run -a env PYTHONDONTWRITEBYTECODE=1 python3 scripts/alpha-workflow-smoke.py
+```
+
+The current checkpoint's Linux Xorg/XTEST run captures 34 populated and empty
+UI states across light, dark and high-contrast themes at 640 × 480, 1280 × 800,
+and 1920 × 1080. It exercises the live bracket brush-size shortcut and checks
+the full mouse-paint/save/export/recovery path. Screenshots are inspected
+manually after capture; automated pixel checks establish content presence and
+layout bounds, not subjective design acceptance.
 
 ### 2026-10-26 Home and New Artwork integration
 

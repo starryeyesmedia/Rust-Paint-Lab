@@ -609,6 +609,19 @@ impl ApplicationHandler<AppEvent> for App {
                         if studio.context.wants_keyboard_input() {
                             return Ok(());
                         }
+                        if !studio.blocks_canvas()
+                            && self.session.mode() == Mode::Live
+                            && let PhysicalKey::Code(key) = event.physical_key
+                            && matches!(key, KeyCode::BracketLeft | KeyCode::BracketRight)
+                        {
+                            studio.adjust_brush_size(
+                                key == KeyCode::BracketRight,
+                                self.modifiers.shift_key(),
+                                &mut self.session,
+                            );
+                            g.window.request_redraw();
+                            return Ok(());
+                        }
                         if !self.modifiers.control_key() {
                             let key = match event.physical_key {
                                 PhysicalKey::Code(KeyCode::Digit0) => Some('0'),

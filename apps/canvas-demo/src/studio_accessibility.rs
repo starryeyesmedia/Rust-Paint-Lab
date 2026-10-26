@@ -4,9 +4,15 @@
 mod tests {
     use crate::studio_icons::{self, Icon};
 
+    fn app_context() -> egui::Context {
+        let context = egui::Context::default();
+        crate::ui_tokens::install(&context);
+        context
+    }
+
     #[test]
     fn accesskit_tree_contains_labeled_toolbar_and_document_controls() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -36,7 +42,7 @@ mod tests {
 
     #[test]
     fn accesskit_tree_exposes_actions_in_the_real_floating_layers_panel() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let mut project = paint_document::Engine::new(32, 32, 300).unwrap();
         project.add_layer().unwrap();
@@ -98,7 +104,7 @@ mod tests {
 
     #[test]
     fn color_field_has_a_semantic_name_and_keyboard_adjustable_components() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -135,7 +141,7 @@ mod tests {
 
     #[test]
     fn new_artwork_format_cards_have_semantic_names_in_the_accessibility_tree() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -185,7 +191,7 @@ mod tests {
 
     #[test]
     fn home_quick_start_cards_are_named_buttons_with_exact_formats() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -224,7 +230,7 @@ mod tests {
 
     #[test]
     fn recent_artwork_search_has_a_named_keyboard_editable_control() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let mut query = String::new();
         let output = context.run(Default::default(), |ctx| {
@@ -251,7 +257,7 @@ mod tests {
 
     #[test]
     fn home_gallery_open_action_has_a_descriptive_keyboard_button_name() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -277,7 +283,7 @@ mod tests {
 
     #[test]
     fn brush_preset_cards_keep_artist_facing_names_in_the_accessibility_tree() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -329,7 +335,7 @@ mod tests {
 
     #[test]
     fn focusable_custom_cards_activate_with_enter_and_space() {
-        let context = egui::Context::default();
+        let context = app_context();
         let mut id = None;
         let _ = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -366,7 +372,7 @@ mod tests {
 
     #[test]
     fn saved_color_swatches_have_a_named_accessible_action() {
-        let context = egui::Context::default();
+        let context = app_context();
         context.enable_accesskit();
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {

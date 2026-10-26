@@ -6,8 +6,83 @@ pub const TOOL_TARGET: f32 = 48.0;
 pub const BUTTON_RADIUS: f32 = 8.0;
 pub const PANEL_RADIUS: f32 = 12.0;
 
-const UI_FONT: &str = "BitchPixel Manrope";
-const DISPLAY_FONT: &str = "BitchPixel Syne";
+const UI_REGULAR: &str = "BitchPixel Manrope 400";
+const UI_SEMIBOLD: &str = "BitchPixel Manrope 600";
+const UI_BOLD: &str = "BitchPixel Manrope 700";
+const DISPLAY_SEMIBOLD: &str = "BitchPixel Space Grotesk 600";
+const DISPLAY_BOLD: &str = "BitchPixel Space Grotesk 700";
+
+/// Named roles in the shared typographic hierarchy. Components choose a role
+/// instead of inventing a point size for every label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TypeRole {
+    Brand,
+    Display,
+    PageTitle,
+    Slogan,
+    SectionTitle,
+    PanelTitle,
+    CardTitle,
+    Body,
+    Button,
+    InputLabel,
+    ToolName,
+    LayerName,
+    Caption,
+    Metadata,
+    Numeric,
+    Tooltip,
+    Status,
+}
+
+impl TypeRole {
+    fn size(self) -> f32 {
+        match self {
+            Self::Brand => 32.0,
+            Self::Display => 48.0,
+            Self::PageTitle => 30.0,
+            Self::Slogan => 18.0,
+            Self::SectionTitle => 20.0,
+            Self::PanelTitle => 17.0,
+            Self::CardTitle => 16.0,
+            Self::Body => 15.5,
+            Self::Button => 14.0,
+            Self::InputLabel | Self::ToolName | Self::Metadata | Self::Tooltip | Self::Status => {
+                13.0
+            }
+            Self::LayerName | Self::Numeric => 14.0,
+            Self::Caption => 12.5,
+        }
+    }
+
+    fn family(self) -> egui::FontFamily {
+        let name = match self {
+            Self::Brand | Self::Display | Self::PageTitle | Self::Slogan | Self::SectionTitle => {
+                DISPLAY_BOLD
+            }
+            Self::Button | Self::InputLabel | Self::ToolName | Self::LayerName | Self::Numeric => {
+                UI_SEMIBOLD
+            }
+            Self::PanelTitle | Self::CardTitle => UI_BOLD,
+            Self::Body | Self::Caption | Self::Metadata | Self::Tooltip | Self::Status => {
+                UI_REGULAR
+            }
+        };
+        egui::FontFamily::Name(name.into())
+    }
+}
+
+pub fn font_id(role: TypeRole) -> egui::FontId {
+    font_id_at(role, role.size())
+}
+
+pub fn font_id_at(role: TypeRole, size: f32) -> egui::FontId {
+    egui::FontId::new(size.max(1.0), role.family())
+}
+
+pub fn type_text(text: impl Into<String>, role: TypeRole, color: egui::Color32) -> egui::RichText {
+    egui::RichText::new(text).font(font_id(role)).color(color)
+}
 
 fn mix_color(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 {
     let amount = amount.clamp(0.0, 1.0);
@@ -18,31 +93,67 @@ fn mix_color(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 {
 }
 
 /// Install the locally bundled OFL type system before creating any widgets.
-/// The normal proportional family keeps broad glyph fallbacks; a named Syne
-/// family is reserved for display headings and the product wordmark.
+/// Named weight families keep body, action, and display hierarchy consistent;
+/// every family retains egui's normal fallback fonts for unsupported glyphs.
 fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        UI_FONT.to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-            "../../../assets/fonts/Manrope-Regular.ttf"
-        ))),
-    );
-    fonts.font_data.insert(
-        DISPLAY_FONT.to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-            "../../../assets/fonts/Syne-Bold.ttf"
-        ))),
-    );
-    fonts
+    let assets = [
+        (
+            UI_REGULAR,
+            include_bytes!("../../../assets/fonts/Manrope-Regular.ttf").as_slice(),
+        ),
+        (
+            UI_SEMIBOLD,
+            include_bytes!("../../../assets/fonts/Manrope-SemiBold.ttf").as_slice(),
+        ),
+        (
+            UI_BOLD,
+            include_bytes!("../../../assets/fonts/Manrope-Bold.ttf").as_slice(),
+        ),
+        (
+            DISPLAY_SEMIBOLD,
+            include_bytes!("../../../assets/fonts/SpaceGrotesk-SemiBold.ttf").as_slice(),
+        ),
+        (
+            DISPLAY_BOLD,
+            include_bytes!("../../../assets/fonts/SpaceGrotesk-Bold.ttf").as_slice(),
+        ),
+    ];
+    for (name, bytes) in assets {
+        fonts.font_data.insert(
+            name.to_owned(),
+            std::sync::Arc::new(egui::FontData::from_static(bytes)),
+        );
+    }
+    let proportional = fonts
         .families
         .get_mut(&egui::FontFamily::Proportional)
-        .expect("egui provides a proportional font family")
-        .insert(0, UI_FONT.to_owned());
-    fonts.families.insert(
-        egui::FontFamily::Name(DISPLAY_FONT.into()),
-        vec![DISPLAY_FONT.to_owned(), UI_FONT.to_owned()],
-    );
+        .expect("egui provides a proportional font family");
+    proportional.insert(0, UI_REGULAR.to_owned());
+    let fallback = proportional.clone();
+    for (name, weight) in [
+        (UI_REGULAR, vec![UI_REGULAR]),
+        (UI_SEMIBOLD, vec![UI_SEMIBOLD, UI_REGULAR]),
+        (UI_BOLD, vec![UI_BOLD, UI_SEMIBOLD, UI_REGULAR]),
+        (
+            DISPLAY_SEMIBOLD,
+            vec![DISPLAY_SEMIBOLD, UI_SEMIBOLD, UI_REGULAR],
+        ),
+        (
+            DISPLAY_BOLD,
+            vec![DISPLAY_BOLD, DISPLAY_SEMIBOLD, UI_BOLD, UI_REGULAR],
+        ),
+    ] {
+        let mut candidates = weight.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        for font in &fallback {
+            if !candidates.contains(font) {
+                candidates.push(font.clone());
+            }
+        }
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(name.into()), candidates);
+    }
     fonts
 }
 
@@ -55,33 +166,26 @@ pub fn brand_wordmark(ui: &mut egui::Ui, size: f32) {
     let foreground = crate::appearance::readable_text_color(ui.visuals().text_color(), surface);
     let accent =
         crate::appearance::readable_text_accent(egui::Color32::from_rgb(197, 92, 255), surface);
-    let display = egui::FontFamily::Name(DISPLAY_FONT.into());
+    let display = TypeRole::Brand.family();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.label(
             egui::RichText::new("Bitch")
                 .font(egui::FontId::new(size, display.clone()))
-                .strong()
                 .color(foreground),
         );
         ui.label(
             egui::RichText::new("Pixel")
                 .font(egui::FontId::new(size, display))
-                .strong()
                 .color(accent),
         );
     });
 }
 
 /// A display face for the brand headline and intentionally prominent actions.
-/// The bundled family is followed by the UI family for broad glyph coverage.
 pub fn display_text(text: &str, size: f32, color: egui::Color32) -> egui::RichText {
     egui::RichText::new(text)
-        .font(egui::FontId::new(
-            size,
-            egui::FontFamily::Name(DISPLAY_FONT.into()),
-        ))
-        .strong()
+        .font(egui::FontId::new(size, TypeRole::Display.family()))
         .color(color)
 }
 
@@ -176,14 +280,19 @@ pub fn section_heading(ui: &mut egui::Ui, title: &str, detail: Option<&str>) {
     ui.horizontal(|ui| {
         let (marker, _) = ui.allocate_exact_size(egui::vec2(4.0, 22.0), egui::Sense::hover());
         ui.painter().rect_filled(marker, 2.0, marker_color);
-        ui.label(display_text(title, 20.0, foreground));
+        ui.label(type_text(title, TypeRole::SectionTitle, foreground));
         if let Some(detail) = detail {
+            let detail_width = (ui.available_width() - 8.0).max(20.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
                 let metadata = crate::appearance::readable_text_color(
                     ui.visuals().weak_text_color(),
                     ui.visuals().window_fill,
                 );
-                ui.label(egui::RichText::new(detail).size(12.0).color(metadata));
+                ui.add_sized(
+                    egui::vec2(detail_width, TypeRole::Metadata.size() * 1.6),
+                    egui::Label::new(type_text(detail, TypeRole::Metadata, metadata)).truncate(),
+                );
             });
         }
     });
@@ -203,15 +312,19 @@ pub fn install(context: &egui::Context) {
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(28.0, egui::FontFamily::Name(DISPLAY_FONT.into())),
+            egui::FontId::new(25.0, TypeRole::PageTitle.family()),
         );
         style.text_styles.insert(
             egui::TextStyle::Body,
-            egui::FontId::new(15.0, egui::FontFamily::Proportional),
+            egui::FontId::new(TypeRole::Body.size(), egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Button,
-            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+            egui::FontId::new(TypeRole::Button.size(), TypeRole::Button.family()),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Small,
+            egui::FontId::new(TypeRole::Caption.size(), egui::FontFamily::Proportional),
         );
         for widget in [
             &mut style.visuals.widgets.noninteractive,
@@ -244,16 +357,56 @@ mod tests {
         );
         assert_eq!(
             style.text_styles[&egui::TextStyle::Heading].family,
-            egui::FontFamily::Name(DISPLAY_FONT.into())
+            TypeRole::PageTitle.family()
+        );
+        assert_eq!(
+            style.text_styles[&egui::TextStyle::Button].family,
+            egui::FontFamily::Name(UI_SEMIBOLD.into())
         );
         let fonts = font_definitions();
-        assert!(fonts.font_data.contains_key(UI_FONT));
-        assert!(fonts.font_data.contains_key(DISPLAY_FONT));
-        assert!(
-            fonts
-                .families
-                .contains_key(&egui::FontFamily::Name(DISPLAY_FONT.into()))
-        );
+        for name in [
+            UI_REGULAR,
+            UI_SEMIBOLD,
+            UI_BOLD,
+            DISPLAY_SEMIBOLD,
+            DISPLAY_BOLD,
+        ] {
+            assert!(
+                fonts.font_data.contains_key(name),
+                "missing local font {name}"
+            );
+        }
+        for role in [
+            TypeRole::Brand,
+            TypeRole::Display,
+            TypeRole::PageTitle,
+            TypeRole::Slogan,
+            TypeRole::SectionTitle,
+            TypeRole::PanelTitle,
+            TypeRole::CardTitle,
+            TypeRole::Body,
+            TypeRole::Button,
+            TypeRole::InputLabel,
+            TypeRole::ToolName,
+            TypeRole::LayerName,
+            TypeRole::Caption,
+            TypeRole::Metadata,
+            TypeRole::Numeric,
+            TypeRole::Tooltip,
+            TypeRole::Status,
+        ] {
+            assert!(role.size() >= 12.5 && role.size() <= 48.0);
+            assert!(fonts.families.contains_key(&role.family()));
+        }
+        let fallback = &fonts.families[&egui::FontFamily::Proportional];
+        for family in [
+            TypeRole::Body.family(),
+            TypeRole::Button.family(),
+            TypeRole::PageTitle.family(),
+        ] {
+            let members = &fonts.families[&family];
+            assert!(members.iter().any(|font| fallback.contains(font)));
+        }
     }
 
     #[test]
@@ -277,7 +430,46 @@ mod tests {
         assert!(
             font_definitions()
                 .families
-                .contains_key(&egui::FontFamily::Name(DISPLAY_FONT.into()))
+                .contains_key(&TypeRole::Brand.family())
+        );
+    }
+
+    #[test]
+    fn every_typographic_role_shapes_with_local_fonts_and_fallback_glyphs() {
+        let context = egui::Context::default();
+        install(&context);
+        let output = context.run(egui::RawInput::default(), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                for role in [
+                    TypeRole::Brand,
+                    TypeRole::Display,
+                    TypeRole::PageTitle,
+                    TypeRole::Slogan,
+                    TypeRole::SectionTitle,
+                    TypeRole::PanelTitle,
+                    TypeRole::CardTitle,
+                    TypeRole::Body,
+                    TypeRole::Button,
+                    TypeRole::InputLabel,
+                    TypeRole::ToolName,
+                    TypeRole::LayerName,
+                    TypeRole::Caption,
+                    TypeRole::Metadata,
+                    TypeRole::Numeric,
+                    TypeRole::Tooltip,
+                    TypeRole::Status,
+                ] {
+                    ui.label(type_text(
+                        "BitchPixel 2048 × 2048 · Ångström — 艺术",
+                        role,
+                        ui.visuals().text_color(),
+                    ));
+                }
+            });
+        });
+        assert!(
+            output.shapes.len() >= 17,
+            "all type roles emitted text shapes"
         );
     }
 

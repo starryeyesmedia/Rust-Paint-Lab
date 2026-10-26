@@ -392,6 +392,12 @@ def status(text):
     except AssertionError as error:
         raise AssertionError(f'{error}; current window title: {title(window)!r}') from error
 
+def active_brush_size():
+    values = [line.partition(': ')[2] for line in
+              (directory/'application.log').read_text().splitlines()
+              if line.startswith('UI_TEST_BRUSH_SIZE: ')]
+    return float(values[-1]) if values else None
+
 def path_prompt():
     return wait(lambda: 'TEST FILE PICKER' in title(window), 'test file picker is visible')
 
@@ -811,6 +817,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,1280,800)
             key('Return');time.sleep(0.5)
             capture_window(window,'canvas-workspace-light')
+            key('bracketright')
+            increased=wait(active_brush_size,'right bracket reports a brush size adjustment')
+            assert abs(increased-19.8)<0.01, f'right bracket should increase the 18 px brush by ten percent: {increased}'
+            key('bracketleft')
+            restored=wait(lambda: active_brush_size()
+                          if active_brush_size() is not None and abs(active_brush_size()-18.0)<0.01
+                          else None,
+                          'left bracket restores the starting brush size')
             palette=wait(palette_bounds,'default compact palette reports its bounds')
             clearance=wait(palette_chrome_clearance,'tool rail reports spacing below the application chrome')
             print(f'UI_PALETTE_CHROME_CLEARANCE: {clearance}', flush=True)

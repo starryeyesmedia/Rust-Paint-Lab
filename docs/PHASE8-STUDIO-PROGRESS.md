@@ -1812,3 +1812,57 @@ earlier build; advanced pen behavior is outside this startup correction.
    evaluate advanced pen behavior if it is in scope.
 3. Resume the incomplete Phase 8.3 Home/workspace/accessibility program. Do not
    merge or release.
+
+## Phase 8.3 typography and brush workflow checkpoint — local validation
+
+Continued from `f932827`. Replaced the previously mis-instantiated Manrope
+extra-light asset and mislabeled Syne Regular asset with locally embedded static
+Manrope 400/600/700 and Space Grotesk 600/700 fonts. The source revision, weight
+instantiation, hashes, fallback behavior and OFL licenses are documented in
+[`assets/fonts/README.md`](../assets/fonts/README.md), and both license texts are
+included in desktop package notices. The fonts are embedded in the binary and
+work offline.
+
+Added a shared 17-role typography scale and applied it to the wordmark, Home
+hero and quick-start cards, recent-artwork metadata, New Artwork cards, Brush
+presets, Color and Layers headings, and recovery labels. Focused screenshot
+review found and corrected two real layout issues: Home's narrow section hint
+could reach the viewport edge, and the Brush Library's active size/opacity
+summary used default body text and clipped at the panel edge. Both now fit or
+truncate within their allocated widths. The Home hint is visibly clean at
+640 × 480; the active Brush summary fits its floating panel.
+
+Added live-canvas `[` / `]` brush-size shortcuts in 10% steps and Shift + `[` /
+`]` in 1% steps, bounded to 1–256 px. They update the active document brush only
+when the live canvas owns keyboard input; replay, dialogs and editable fields
+keep their existing event ownership. Unit tests cover bounds and invalid
+starting values, and the Linux XTest scenario checks a real 18 px → 19.8 px →
+18 px sequence. No pressure or tilt is synthesized by this control.
+
+Accessibility tree tests now initialize the same bundled-font style as the
+application, so real widget trees can be exercised without missing egui named
+families. The complete test suite passes **249 tests**. Strict workspace
+Clippy, formatting, workspace build, Windows GNU target check/Clippy, and the
+offscreen llvmpipe GPU smoke pass. The actual Linux window and XTest alpha
+workflow passes with 34 screenshots across light/dark/high-contrast themes,
+640 × 480, 1280 × 800, and 1920 × 1080 views. I inspected Home, New Artwork,
+Brush, populated Layers/Recovery, and reference captures; the screenshots show
+the updated typography and responsive hint. The workflow also covers real mouse
+painting, brush shortcuts, native project save/reopen, PNG/OpenRaster, undo/redo,
+reference exclusion from export, and journal-durable process-kill recovery.
+
+No new physical-device, Narrator, NVDA, or macOS VoiceOver testing occurred.
+The owner's successful `b50e7ec` launch remains the Windows device baseline;
+this local Linux UI run is software rendering and not hardware performance
+validation. Cross-platform Actions for this checkpoint are pending until its
+commit is pushed. Phase 8.3 remains active and is not accepted as complete.
+
+### Exact continuation
+
+1. Review the Actions result for this checkpoint and retain both existing
+   Windows executable artifacts.
+2. Continue the broader Phase 8.3 visual and functional work, especially the
+   unified floating-panel workflow, Brush/Color/Layers controls, touch-friendly
+   workspace navigation, and full keyboard/accessibility review.
+3. Keep screen-reader and physical high-DPI/pen behavior identified as pending
+   until tested on their native systems. Do not merge or publish a release.
