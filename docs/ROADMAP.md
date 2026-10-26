@@ -353,5 +353,8 @@ Artwork at 640 × 480 and checking that all seven cards stay inside the viewport
 in both themes. Its full Xorg/XTEST workflow passes locally and the capture was
 inspected. Actions run `40280252877` failed after the harness read preferences
 before the asynchronous workspace-panel save finished; a wait for the saved
-state now passes locally. Windows/macOS jobs were still running. A fresh CI run
-is needed for this harness fix. See the [progress log](PHASE8-STUDIO-PROGRESS.md).
+state now passes locally. Windows and macOS passed on `40280252877`. The wait
+guard in `fb78a39` then passed all platforms in run `40280989079`; Linux passed
+the full 33-state UI and artwork workflow, and Windows uploaded both existing
+executables. See the [progress log](PHASE8-STUDIO-PROGRESS.md). Phase 8.3
+remains active and is not accepted as complete.

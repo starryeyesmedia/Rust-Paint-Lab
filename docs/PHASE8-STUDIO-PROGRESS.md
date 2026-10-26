@@ -1724,13 +1724,16 @@ failed its Linux workflow after the harness observed a workspace-save log
 marker but read the preference file before the asynchronous write completed;
 the app-level workflow passes locally. The harness now waits for the saved
 open-state and close-state values before continuing. Its Windows and macOS
-jobs were still running at the time of this update, and this test-only timing
-fix needs a fresh CI run.
+jobs also passed. The harness timing guard was pushed in commit `fb78a39`, and
+Actions run
+[`40280989079`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40280989079)
+passed Windows, Linux, and macOS. Linux passed all 33 UI states plus the artwork,
+export, and recovery workflows. Windows uploaded both the canvas demo and
+stylus diagnostic artifacts. This validates the layout/test checkpoint, not
+the complete Phase 8.3 program.
 
 ### Exact continuation
 
-1. Push the saved-preference wait guard; verify Linux XTest and all platform
-   builds, then record the run result here.
-2. Continue the actual Home/canvas presentation and keyboard/focus/AccessKit
+1. Continue the actual Home/canvas presentation and keyboard/focus/AccessKit
    integration. Keep the more complete narrow layouts, existing artwork
    protection, and full Phase 8.3 status; do not merge or release.
