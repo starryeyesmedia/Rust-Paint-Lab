@@ -179,6 +179,29 @@ Continue the Phase 8.3 interface/accessibility work; these polish slices are not
 phase acceptance and do not authorize publication of the consolidated Windows
 evaluation artifact.
 
+## Latest functional workspace continuation — active
+
+Actions run [`40251981336`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40251981336)
+passed Windows, Linux, and macOS for the preceding `c0e5ace` brush-gallery
+checkpoint. The current local continuation adds a workspace-only saved-color
+palette with bounded persistence and working add/apply/deduplicate/remove actions;
+fixes DPI-aware event ownership over the tool palette, floating Brush/Color/
+Layers panels, Workspace controls, and Reference boards; and replaces the
+optional fixed right inspector with a movable, resizable window whose position
+and size are persisted in workspace preferences and toggled with F6. The X11
+alpha workflow now exercises real clicks on over-canvas Color and Workspace
+controls, including tab changes and Escape dismissal, verifies saved-color
+add/apply/deduplicate/remove, and checks both official Home brand-line contrast
+ratios. Local formatting, strict Clippy, Windows GNU target check/Clippy, all 232
+workspace tests, full workspace build, llvmpipe/OpenGL GPU smoke, Python syntax,
+and the real-X11 alpha artwork workflow pass. The 23-state screenshot matrix
+ran through its layout assertions, but local ImageMagick window readback is
+black; the official Actions artifact download returns HTTP 403. Visual
+acceptance remains pending despite passing UI interaction and contrast checks.
+Actions for this working-tree continuation are pending its push.
+Phase 8.3 is active. Do not publish the consolidated Windows evaluation artifact
+until this broader visual review and current three-platform CI complete.
+
 The pushed toolbar/Home follow-up at `c81f3d8` is now verified by Actions run
 [`40250590747`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40250590747)
 on Windows, Linux and macOS. The current local continuation adds raster-engine

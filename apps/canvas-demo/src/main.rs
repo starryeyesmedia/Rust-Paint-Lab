@@ -425,6 +425,13 @@ impl ApplicationHandler<AppEvent> for App {
                             g.window.request_redraw();
                             return Ok(());
                         }
+                        if !studio.blocks_canvas()
+                            && event.physical_key == PhysicalKey::Code(KeyCode::F6)
+                        {
+                            studio.shortcut('i', &mut self.session);
+                            g.window.request_redraw();
+                            return Ok(());
+                        }
                         if studio.context.wants_keyboard_input() {
                             return Ok(());
                         }

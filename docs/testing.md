@@ -341,10 +341,10 @@ The dark top-dock case reports the actual palette and contextual-options bounds
 and fails if the palette overlaps the brush-size/opacity bar.
 The wide Home capture exercises the four-column gallery layout. It verifies that
 real layers and a valid recovery checkpoint are present, and rejects
-blank/undersampled images. The current matrix captures 22 named states, including
+blank/undersampled images. The current matrix captures 23 named states, including
 normal/narrow/wide Home, populated recent artwork, normal/narrow New Artwork,
-populated light/dark Layers and Recovery, and light/dark Reference, Brush and
-Color panels. The first-run Home capture waits for its rendered quick-start
+populated light/dark Layers and Recovery, light/dark Reference, Brush and Color
+panels, and the populated floating Workspace controls. The first-run Home capture waits for its rendered quick-start
 format actions inside the hero. The recent-artwork capture requires visible blue
 pixels from the real painted smoke-project thumbnail. Reference captures require
 pixels from a uniquely colored region of the imported reference image. The
@@ -356,6 +356,15 @@ flyout Escape dismissed, derives the palette click target from the rendered
 button bounds, and exercises Ctrl+B as a keyboard alternative. The companion
 `rust-paint-lab-linux-ui-diagnostics`
 artifact retains the input/action log on failures.
+
+The same Linux workflow also toggles the movable Workspace controls window with
+F6, captures it in a populated state, switches its Layers/Brush tabs, and checks
+that these window controls receive a click while geometrically over the document
+canvas. It exercises the saved Color palette's add, reuse, duplicate rejection,
+and removal against persisted workspace preferences. The official brand slogan
+is checked for at least 4.5:1 contrast in both light and dark themes. Workspace
+control geometry and size use bounded, DPI-aware workspace state; this test does
+not replace native screen-reader verification.
 
 The Home capture at 1920 × 1080 now also asserts that its full viewport covers the
 GPU canvas beneath it. For the populated recent-artwork capture, the harness reads
@@ -386,9 +395,12 @@ cargo test --locked -p canvas-demo brush_preview::tests
 xvfb-run -a env PYTHONDONTWRITEBYTECODE=1 python3 scripts/alpha-workflow-smoke.py
 ```
 
-The screenshot archive from Actions run `40250590747` is produced on Linux, but
-its artifact blob host returned HTTP 403 in the current environment. The local
-X11 interaction run passed without screenshot capture; no current brush-gallery
-screenshots have been visually inspected. Screenshot appearance acceptance is
-therefore still pending. Actions run `40250590747` validates pushed base commit
-`c81f3d8`, not later local changes.
+Actions run [`40251981336`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40251981336)
+passed on Windows, Linux and macOS for `c0e5ace`. Its screenshot archive and the
+newer local screenshot archive cannot currently be visually reviewed here:
+`gh run download` receives HTTP 403 from the artifact blob host, and this X11
+environment's ImageMagick window readback produces black pixels. The alternate
+local capture confirmed all 23 named window states and sizes, but it is not
+valid visual evidence. The current real-X11 mouse/key workflow does pass its
+interaction and document-integrity checks. Visual appearance acceptance remains
+pending; CI passing and screenshot presence do not constitute review.

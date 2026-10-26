@@ -699,6 +699,16 @@ pub(crate) fn brush_preset_card_with_preview(
 }
 
 fn color_swatch(ui: &mut egui::Ui, color: [u8; 3], label: &str, selected: bool, size: f32) -> bool {
+    color_swatch_response(ui, color, label, selected, size).clicked()
+}
+
+pub(crate) fn color_swatch_response(
+    ui: &mut egui::Ui,
+    color: [u8; 3],
+    label: &str,
+    selected: bool,
+    size: f32,
+) -> egui::Response {
     let color32 = egui::Color32::from_rgb(color[0], color[1], color[2]);
     let response = ui.add_sized(
         [size, size],
@@ -723,7 +733,136 @@ fn color_swatch(ui: &mut egui::Ui, color: [u8; 3], label: &str, selected: bool, 
         outline,
         egui::StrokeKind::Inside,
     );
-    response.on_hover_text(label).clicked()
+    response.on_hover_text(label)
+}
+
+fn saved_color_palette_contents(
+    ui: &mut egui::Ui,
+    current_color: &mut [u8; 3],
+    swatches: &mut Vec<[u8; 3]>,
+    test_mode: bool,
+    ready_logged: &mut bool,
+    workspace_changed: &mut bool,
+    status: &mut String,
+) {
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.strong("Saved palette");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let add = ui.button("+ Save current");
+            add.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    "Save current brush color to the workspace palette",
+                )
+            });
+            if test_mode {
+                eprintln!(
+                    "UI_TEST_COLOR_PALETTE_ADD_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                    add.rect.left(),
+                    add.rect.top(),
+                    add.rect.width(),
+                    add.rect.height(),
+                    ui.ctx().pixels_per_point(),
+                );
+            }
+            if add.clicked() {
+                if test_mode {
+                    eprintln!("UI_TEST_COLOR_PALETTE_ADD_CLICKED");
+                }
+                if swatches.contains(current_color) {
+                    *status = "That color is already in the saved palette".into();
+                } else if crate::workspace::add_saved_color_swatch(swatches, *current_color) {
+                    *status = "Color saved to workspace palette".into();
+                    *workspace_changed = true;
+                } else {
+                    *status = format!(
+                        "Saved palette is limited to {} colors",
+                        crate::workspace::MAX_SAVED_COLOR_SWATCHES,
+                    );
+                }
+            }
+        });
+    });
+    if test_mode && !*ready_logged {
+        *ready_logged = true;
+        eprintln!("UI_TEST_COLOR_PALETTE_READY: {}", swatches.len());
+    }
+    if swatches.is_empty() {
+        ui.weak("Save colors here for reuse across projects.");
+        return;
+    }
+
+    let mut remove_swatch = None;
+    ui.horizontal_wrapped(|ui| {
+        for (index, color) in swatches.iter().copied().enumerate() {
+            ui.horizontal(|ui| {
+                let hex = crate::color_controls::format_hex_rgb(color);
+                let swatch = color_swatch_response(
+                    ui,
+                    color,
+                    &format!("Use saved color {hex}"),
+                    *current_color == color,
+                    38.0,
+                );
+                if index == 0 && test_mode {
+                    eprintln!(
+                        "UI_TEST_COLOR_SWATCH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2} {} {} {}",
+                        swatch.rect.left(),
+                        swatch.rect.top(),
+                        swatch.rect.width(),
+                        swatch.rect.height(),
+                        ui.ctx().pixels_per_point(),
+                        color[0],
+                        color[1],
+                        color[2],
+                    );
+                }
+                if swatch.clicked() {
+                    *current_color = color;
+                    if test_mode {
+                        eprintln!("UI_TEST_COLOR_SWATCH_APPLIED: {}", hex);
+                    }
+                }
+                let remove = ui.add_sized([32.0, 38.0], egui::Button::new("×"));
+                let remove_label = format!("Remove saved color {hex}");
+                remove.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        &remove_label,
+                    )
+                });
+                let remove = remove.on_hover_text(&remove_label);
+                if index == 0 && test_mode {
+                    eprintln!(
+                        "UI_TEST_COLOR_PALETTE_REMOVE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        remove.rect.left(),
+                        remove.rect.top(),
+                        remove.rect.width(),
+                        remove.rect.height(),
+                        ui.ctx().pixels_per_point(),
+                    );
+                }
+                if remove.clicked() {
+                    remove_swatch = Some(index);
+                    if test_mode {
+                        eprintln!("UI_TEST_COLOR_SWATCH_REMOVAL_REQUESTED: {hex}");
+                    }
+                }
+            });
+        }
+    });
+    if let Some(index) = remove_swatch
+        && let Some(removed) = crate::workspace::remove_saved_color_swatch(swatches, index)
+    {
+        *status = format!(
+            "Removed {} from saved palette",
+            crate::color_controls::format_hex_rgb(removed),
+        );
+        *workspace_changed = true;
+    }
 }
 
 pub(crate) fn saturation_value_field(
@@ -1527,6 +1666,7 @@ pub struct Studio {
     new_custom_size_selected: bool,
     recent_document_sizes: Vec<crate::workspace::RecentDocumentSize>,
     recent_brush_colors: Vec<[u8; 3]>,
+    saved_color_swatches: Vec<[u8; 3]>,
     favorite_brushes: Vec<BrushKind>,
     brush_search: String,
     brush_preview: Option<BrushPreviewCache>,
@@ -1546,6 +1686,7 @@ pub struct Studio {
     test_brush_layout_logged: bool,
     test_brush_preview_logged: bool,
     test_brush_preset_previews_logged: bool,
+    test_color_palette_logged: bool,
     test_palette_clearance_logged: bool,
     test_home_preview_logged: bool,
     test_home_quick_start_logged: bool,
@@ -1594,6 +1735,8 @@ pub struct Studio {
     layers_flyout_size: [f32; 2],
     brush_flyout_position: [f32; 2],
     color_flyout_position: [f32; 2],
+    workspace_controls_position: [f32; 2],
+    workspace_controls_size: [f32; 2],
     brush_flyout_open: bool,
     layers_flyout_open: bool,
     color_flyout_open: bool,
@@ -1674,6 +1817,7 @@ impl Studio {
         let document_setup = preferences.new_document.clone();
         let recent_document_sizes = preferences.recent_document_sizes.clone();
         let recent_brush_colors = preferences.recent_brush_colors.clone();
+        let saved_color_swatches = preferences.saved_color_swatches.clone();
         let favorite_brushes = preferences.favorite_brushes.clone();
         let references: Vec<ReferenceImage> = preferences
             .references
@@ -1712,6 +1856,7 @@ impl Studio {
             new_custom_size_selected: false,
             recent_document_sizes,
             recent_brush_colors,
+            saved_color_swatches,
             favorite_brushes,
             brush_search: String::new(),
             brush_preview: None,
@@ -1731,6 +1876,7 @@ impl Studio {
             test_brush_layout_logged: false,
             test_brush_preview_logged: false,
             test_brush_preset_previews_logged: false,
+            test_color_palette_logged: false,
             test_palette_clearance_logged: false,
             test_home_preview_logged: false,
             test_home_quick_start_logged: false,
@@ -1782,6 +1928,8 @@ impl Studio {
             layers_flyout_size: preferences.layers_flyout_size,
             brush_flyout_position: preferences.brush_flyout_position,
             color_flyout_position: preferences.color_flyout_position,
+            workspace_controls_position: preferences.workspace_controls_position,
+            workspace_controls_size: preferences.workspace_controls_size,
             brush_flyout_open: false,
             layers_flyout_open: false,
             color_flyout_open: false,
@@ -1864,8 +2012,68 @@ impl Studio {
             .push(BrushPresetPreviewCache { kind, texture });
         Some(id)
     }
+    fn visible_workspace_obstacles(
+        &self,
+        context: &egui::Context,
+        except: &str,
+    ) -> Vec<egui::Rect> {
+        let mut obstacles: Vec<_> = self
+            .references
+            .iter()
+            .filter_map(|reference| {
+                let id = egui::Id::new(("reference-board", reference.layout.path.clone()));
+                egui::AreaState::load(context, id).map(|state| state.rect())
+            })
+            .collect();
+        for (name, open) in [
+            ("Layers", self.layers_flyout_open),
+            ("Brush library", self.brush_flyout_open),
+            ("Color controls", self.color_flyout_open),
+            ("Workspace controls", self.show_controls),
+        ] {
+            if name != except
+                && open
+                && let Some(state) = egui::AreaState::load(context, egui::Id::new(name))
+            {
+                obstacles.push(state.rect());
+            }
+        }
+        obstacles
+    }
     fn reference_under_client(&self, client_px: [f64; 2]) -> bool {
         self.reference_index_under_client(client_px).is_some()
+    }
+    /// True when a point lies over an interactive floating surface. Winit
+    /// mouse events over the document normally bypass egui so the stroke
+    /// router can receive them; overlays must therefore be excluded before
+    /// that decision or their controls become canvas clicks.
+    fn floating_ui_under_client(&self, client_px: [f64; 2]) -> bool {
+        let scale = self.context.pixels_per_point();
+        let mut ids = vec![egui::Id::new("tool palette")];
+        ids.extend(
+            [
+                ("Layers", self.layers_flyout_open),
+                ("Brush library", self.brush_flyout_open),
+                ("Color controls", self.color_flyout_open),
+                ("Workspace controls", self.show_controls),
+            ]
+            .into_iter()
+            .filter(|(_, open)| *open)
+            .map(|(name, _)| egui::Id::new(name)),
+        );
+        if ids.into_iter().any(|id| {
+            egui::AreaState::load(&self.context, id).is_some_and(|state| {
+                crate::studio_layout::client_point_in_rect(state.rect(), client_px, scale)
+            })
+        }) {
+            return true;
+        }
+        self.references.iter().any(|reference| {
+            let id = egui::Id::new(("reference-board", reference.layout.path.clone()));
+            egui::AreaState::load(&self.context, id).is_some_and(|state| {
+                crate::studio_layout::client_point_in_rect(state.rect(), client_px, scale)
+            })
+        })
     }
     fn reference_index_under_client(&self, client_px: [f64; 2]) -> Option<usize> {
         let pixels_per_point = self.context.pixels_per_point();
@@ -1977,6 +2185,7 @@ impl Studio {
                         .mapping
                         .is_some_and(|mapping| mapping.contains_client(p))
                     && !self.reference_under_client(p)
+                    && !self.floating_ui_under_client(p)
                 {
                     Some(crate::navigation::TouchTarget::Canvas)
                 } else {
@@ -2239,6 +2448,7 @@ impl Studio {
             && self.mouse_position.is_some_and(|p| {
                 self.mapping.is_some_and(|m| m.contains_client(p))
                     && !self.reference_under_client(p)
+                    && !self.floating_ui_under_client(p)
             });
         match event {
             E::MouseInput {
@@ -2296,6 +2506,7 @@ impl Studio {
         use paint_input::Phase;
         let outside = self.blocks_canvas()
             || self.reference_under_client(s.position_px)
+            || self.floating_ui_under_client(s.position_px)
             || !self
                 .mapping
                 .is_some_and(|m| m.contains_client(s.position_px));
@@ -2335,11 +2546,13 @@ impl Studio {
         if self.tool == EditTool::Brush
             || session.mode() != crate::interaction::Mode::Live
             || self.blocks_canvas()
+            || self.floating_ui_under_client(client)
         {
             return false;
         }
         let on_canvas = self.mapping.is_some_and(|m| m.contains_client(client))
-            && !self.reference_under_client(client);
+            && !self.reference_under_client(client)
+            && !self.floating_ui_under_client(client);
         let captured = self.edit_pointer == Some(id);
         if !on_canvas && !captured {
             return false;
@@ -2495,6 +2708,11 @@ impl Studio {
             self.layers_flyout_open = !self.layers_flyout_open;
             return;
         }
+        if key == 'i' {
+            self.show_controls = !self.show_controls;
+            self.workspace_needs_save = true;
+            return;
+        }
         if key == 'g' {
             if self.recovery_manager {
                 self.recovery_manager = false;
@@ -2602,9 +2820,15 @@ impl Studio {
         } else if self.layers_flyout_open {
             self.layers_flyout_open = false;
             "layers"
+        } else if self.show_controls {
+            self.show_controls = false;
+            "workspace controls"
         } else {
             "none"
         };
+        if dismissed != "none" {
+            self.workspace_needs_save = true;
+        }
         if self.test_path_dialog {
             eprintln!("UI_TEST_ESCAPE_DISMISSED: {dismissed}");
         }
@@ -2698,6 +2922,7 @@ impl Studio {
             },
             recent_document_sizes: self.recent_document_sizes.clone(),
             recent_brush_colors: self.recent_brush_colors.clone(),
+            saved_color_swatches: self.saved_color_swatches.clone(),
             favorite_brushes: self.favorite_brushes.clone(),
             canvas_zoom: self.navigation.zoom,
             canvas_pan: self.navigation.pan,
@@ -2713,6 +2938,8 @@ impl Studio {
             layers_flyout_size: self.layers_flyout_size,
             brush_flyout_position: self.brush_flyout_position,
             color_flyout_position: self.color_flyout_position,
+            workspace_controls_position: self.workspace_controls_position,
+            workspace_controls_size: self.workspace_controls_size,
             ..Default::default()
         };
         if self.test_path_dialog {
@@ -3070,7 +3297,10 @@ impl Studio {
                         });
                         ui.menu_button("Window", |ui| {
                             workspace_changed |= ui
-                                .checkbox(&mut self.show_controls, "Show workspace panel")
+                                .checkbox(
+                                    &mut self.show_controls,
+                                    "Floating workspace controls · F6",
+                                )
                                 .changed();
                             ui.checkbox(&mut self.layers_flyout_open, "Show floating Layers panel");
                             if ui.button("Reset workspace layout").clicked() {
@@ -3581,481 +3811,544 @@ impl Studio {
             });
 
             if self.show_controls {
-                let side_panel = egui::SidePanel::right("painting controls")
-                    .default_width(self.brush_panel_width)
+                let mut controls_open = true;
+                let controls_size = egui::vec2(
+                    self.workspace_controls_size[0].min((screen.width() - 16.0).max(1.0)),
+                    self.workspace_controls_size[1].min((screen.height() - 16.0).max(1.0)),
+                );
+                let controls_obstacles =
+                    self.visible_workspace_obstacles(ctx, "Workspace controls");
+                let controls_position = crate::studio_layout::flyout_position_avoiding(
+                    screen,
+                    palette_response.response.rect,
+                    controls_size,
+                    egui::pos2(
+                        self.workspace_controls_position[0],
+                        self.workspace_controls_position[1],
+                    ),
+                    &controls_obstacles,
+                );
+                let controls_area = egui::AreaState::load(ctx, egui::Id::new("Workspace controls"));
+                let controls_need_reanchor = controls_area.is_some_and(|state| {
+                    let current = state.rect();
+                    !screen.contains_rect(current)
+                        || current.intersects(palette_response.response.rect)
+                        || controls_obstacles
+                            .iter()
+                            .any(|obstacle| current.intersects(*obstacle))
+                });
+                let controls_window = egui::Window::new("Workspace controls")
+                    .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
+                    .open(&mut controls_open)
                     .resizable(true)
-                    .show(ctx, |ui| {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                for (tab, label) in [
-                                    (crate::workspace::InspectorTab::Layers, "Layers"),
-                                    (crate::workspace::InspectorTab::Brush, "Brush"),
-                                    (crate::workspace::InspectorTab::Edit, "Edit"),
-                                ] {
-                                    if ui
-                                        .selectable_label(self.inspector_tab == tab, label)
-                                        .clicked()
-                                    {
-                                        self.inspector_tab = tab;
-                                        workspace_changed = true;
+                    .default_size(controls_size)
+                    .max_size(egui::vec2(
+                        (screen.width() - 16.0).max(1.0),
+                        (screen.height() - 16.0).max(1.0),
+                    ))
+                    .default_pos(controls_position)
+                    .constrain_to(screen.shrink(8.0));
+                let controls_window = if controls_need_reanchor {
+                    controls_window.current_pos(controls_position)
+                } else {
+                    controls_window
+                };
+                let controls_window = controls_window.show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            for (tab, label) in [
+                                (crate::workspace::InspectorTab::Layers, "Layers"),
+                                (crate::workspace::InspectorTab::Brush, "Brush"),
+                                (crate::workspace::InspectorTab::Edit, "Edit"),
+                            ] {
+                                let response =
+                                    ui.selectable_label(self.inspector_tab == tab, label);
+                                if self.test_path_dialog && label == "Brush" {
+                                    eprintln!(
+                                        "UI_TEST_WORKSPACE_BRUSH_TAB_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                        response.rect.left(),
+                                        response.rect.top(),
+                                        response.rect.width(),
+                                        response.rect.height(),
+                                        ui.ctx().pixels_per_point(),
+                                    );
+                                }
+                                if response.clicked() {
+                                    self.inspector_tab = tab;
+                                    workspace_changed = true;
+                                }
+                            }
+                        });
+                        if self.test_path_dialog {
+                            eprintln!(
+                                "UI_TEST_WORKSPACE_CONTROLS_ACTIVE: {:?}",
+                                self.inspector_tab
+                            );
+                        }
+                        ui.separator();
+                        let project = session.live_mut().project_mut();
+
+                        if self.inspector_tab == crate::workspace::InspectorTab::Brush {
+                            ui.heading("Brush presets and color");
+                            egui::ComboBox::from_label("Preset")
+                                .selected_text(brush_display_name(project.brush.kind))
+                                .show_ui(ui, |ui| {
+                                    for k in [
+                                        BrushKind::Round,
+                                        BrushKind::Ink,
+                                        BrushKind::Pencil,
+                                        BrushKind::Marker,
+                                        BrushKind::Airbrush,
+                                        BrushKind::Soft,
+                                        BrushKind::Textured,
+                                        BrushKind::Calligraphy,
+                                        BrushKind::Eraser,
+                                        BrushKind::Wash,
+                                    ] {
+                                        if ui
+                                            .selectable_label(
+                                                project.brush.kind == k,
+                                                brush_display_name(k),
+                                            )
+                                            .clicked()
+                                        {
+                                            let color = project.brush.color;
+                                            project.brush = Brush::preset(k);
+                                            project.brush.color = color;
+                                        }
                                     }
+                                });
+
+                            ui.horizontal(|ui| {
+                                crate::studio_icons::label(
+                                    ui,
+                                    crate::studio_icons::Icon::Color,
+                                    "Color",
+                                );
+                                ui.color_edit_button_srgb(&mut project.brush.color);
+                                let mut eraser = project.brush.kind == BrushKind::Eraser;
+                                if ui.checkbox(&mut eraser, "Eraser mode").changed() {
+                                    project.brush.kind = if eraser {
+                                        BrushKind::Eraser
+                                    } else {
+                                        BrushKind::Round
+                                    };
                                 }
                             });
-                            ui.separator();
-                            let project = session.live_mut().project_mut();
-
-                            if self.inspector_tab == crate::workspace::InspectorTab::Brush {
-                                ui.heading("Brush presets and color");
-                                egui::ComboBox::from_label("Preset")
-                                    .selected_text(brush_display_name(project.brush.kind))
-                                    .show_ui(ui, |ui| {
-                                        for k in [
-                                            BrushKind::Round,
-                                            BrushKind::Ink,
-                                            BrushKind::Pencil,
-                                            BrushKind::Marker,
-                                            BrushKind::Airbrush,
-                                            BrushKind::Soft,
-                                            BrushKind::Textured,
-                                            BrushKind::Calligraphy,
-                                            BrushKind::Eraser,
-                                            BrushKind::Wash,
-                                        ] {
-                                            if ui
-                                                .selectable_label(
-                                                    project.brush.kind == k,
-                                                    brush_display_name(k),
-                                                )
-                                                .clicked()
-                                            {
-                                                let color = project.brush.color;
-                                                project.brush = Brush::preset(k);
-                                                project.brush.color = color;
-                                            }
-                                        }
-                                    });
-
+                            if self.hex_color_for != Some(project.brush.color) {
+                                self.hex_color =
+                                    crate::color_controls::format_hex_rgb(project.brush.color);
+                                self.hex_color_for = Some(project.brush.color);
+                            }
+                            ui.collapsing("Color values (sRGB)", |ui| {
                                 ui.horizontal(|ui| {
-                                    crate::studio_icons::label(
-                                        ui,
-                                        crate::studio_icons::Icon::Color,
-                                        "Color",
+                                    ui.label("HEX");
+                                    let response = ui.add(
+                                        egui::TextEdit::singleline(&mut self.hex_color)
+                                            .char_limit(7)
+                                            .desired_width(88.0),
                                     );
-                                    ui.color_edit_button_srgb(&mut project.brush.color);
-                                    let mut eraser = project.brush.kind == BrushKind::Eraser;
-                                    if ui.checkbox(&mut eraser, "Eraser mode").changed() {
-                                        project.brush.kind = if eraser {
-                                            BrushKind::Eraser
+                                    let apply = ui.button("Apply").clicked()
+                                        || (response.lost_focus()
+                                            && ui.input(|input| {
+                                                input.key_pressed(egui::Key::Enter)
+                                            }));
+                                    if apply {
+                                        if let Some(color) =
+                                            crate::color_controls::parse_hex_rgb(&self.hex_color)
+                                        {
+                                            project.brush.color = color;
+                                            self.hex_color =
+                                                crate::color_controls::format_hex_rgb(color);
+                                            self.hex_color_for = Some(color);
+                                            self.status = "Brush color updated".into();
                                         } else {
-                                            BrushKind::Round
-                                        };
+                                            self.status =
+                                                "Enter a six-digit color such as #4B86D1".into();
+                                        }
                                     }
                                 });
-                                if self.hex_color_for != Some(project.brush.color) {
-                                    self.hex_color =
-                                        crate::color_controls::format_hex_rgb(project.brush.color);
-                                    self.hex_color_for = Some(project.brush.color);
-                                }
-                                ui.collapsing("Color values (sRGB)", |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label("HEX");
-                                        let response = ui.add(
-                                            egui::TextEdit::singleline(&mut self.hex_color)
-                                                .char_limit(7)
-                                                .desired_width(88.0),
+                                let mut rgb = project.brush.color;
+                                ui.horizontal(|ui| {
+                                    ui.label("RGB");
+                                    for component in &mut rgb {
+                                        ui.add(
+                                            egui::DragValue::new(component).range(0..=255).speed(1),
                                         );
-                                        let apply = ui.button("Apply").clicked()
-                                            || (response.lost_focus()
-                                                && ui.input(|input| {
-                                                    input.key_pressed(egui::Key::Enter)
-                                                }));
-                                        if apply {
-                                            if let Some(color) =
-                                                crate::color_controls::parse_hex_rgb(
-                                                    &self.hex_color,
-                                                )
+                                    }
+                                });
+                                if rgb != project.brush.color {
+                                    project.brush.color = rgb;
+                                    self.hex_color = crate::color_controls::format_hex_rgb(rgb);
+                                    self.hex_color_for = Some(rgb);
+                                }
+                            });
+                            ui.collapsing("Recent brush colors", |ui| {
+                                if self.recent_brush_colors.is_empty() {
+                                    ui.small("Colors you choose will appear here.");
+                                } else {
+                                    ui.horizontal_wrapped(|ui| {
+                                        for color in self.recent_brush_colors.clone() {
+                                            let hex = crate::color_controls::format_hex_rgb(color);
+                                            if crate::studio_icons::color_swatch(
+                                                ui,
+                                                egui::Color32::from_rgb(
+                                                    color[0], color[1], color[2],
+                                                ),
+                                                &format!("Brush color {hex}"),
+                                            )
+                                            .clicked()
                                             {
                                                 project.brush.color = color;
-                                                self.hex_color =
-                                                    crate::color_controls::format_hex_rgb(color);
+                                                self.hex_color = hex;
                                                 self.hex_color_for = Some(color);
-                                                self.status = "Brush color updated".into();
-                                            } else {
-                                                self.status =
-                                                    "Enter a six-digit color such as #4B86D1"
-                                                        .into();
                                             }
                                         }
                                     });
-                                    let mut rgb = project.brush.color;
-                                    ui.horizontal(|ui| {
-                                        ui.label("RGB");
-                                        for component in &mut rgb {
-                                            ui.add(
-                                                egui::DragValue::new(component)
-                                                    .range(0..=255)
-                                                    .speed(1),
-                                            );
-                                        }
-                                    });
-                                    if rgb != project.brush.color {
-                                        project.brush.color = rgb;
-                                        self.hex_color = crate::color_controls::format_hex_rgb(rgb);
-                                        self.hex_color_for = Some(rgb);
-                                    }
-                                });
-                                ui.collapsing("Recent brush colors", |ui| {
-                                    if self.recent_brush_colors.is_empty() {
-                                        ui.small("Colors you choose will appear here.");
-                                    } else {
-                                        ui.horizontal_wrapped(|ui| {
-                                            for color in self.recent_brush_colors.clone() {
-                                                let hex =
-                                                    crate::color_controls::format_hex_rgb(color);
-                                                if crate::studio_icons::color_swatch(
-                                                    ui,
-                                                    egui::Color32::from_rgb(
-                                                        color[0], color[1], color[2],
-                                                    ),
-                                                    &format!("Brush color {hex}"),
-                                                )
-                                                .clicked()
-                                                {
-                                                    project.brush.color = color;
-                                                    self.hex_color = hex;
-                                                    self.hex_color_for = Some(color);
-                                                }
-                                            }
-                                        });
-                                    }
-                                });
+                                }
+                            });
 
-                                ui.horizontal(|ui| {
-                                    ui.label("Size");
-                                    ui.add(
-                                        egui::DragValue::new(&mut project.brush.size)
-                                            .range(1.0..=256.0)
-                                            .speed(0.25)
-                                            .suffix(" px"),
-                                    );
-                                });
+                            ui.horizontal(|ui| {
+                                ui.label("Size");
                                 ui.add(
-                                    egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
-                                        .show_value(false)
-                                        .text("Size"),
+                                    egui::DragValue::new(&mut project.brush.size)
+                                        .range(1.0..=256.0)
+                                        .speed(0.25)
+                                        .suffix(" px"),
                                 );
-                                ui.horizontal(|ui| {
-                                    ui.label("Opacity");
-                                    ui.add(
-                                        egui::DragValue::new(&mut project.brush.opacity)
-                                            .range(0.0..=1.0)
-                                            .speed(0.01),
-                                    );
-                                });
+                            });
+                            ui.add(
+                                egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
+                                    .show_value(false)
+                                    .text("Size"),
+                            );
+                            ui.horizontal(|ui| {
+                                ui.label("Opacity");
                                 ui.add(
-                                    egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
-                                        .show_value(false)
-                                        .text("Opacity"),
+                                    egui::DragValue::new(&mut project.brush.opacity)
+                                        .range(0.0..=1.0)
+                                        .speed(0.01),
                                 );
-                                ui.collapsing("More brush settings", |ui| {
-                                    ui.add(
-                                        egui::Slider::new(&mut project.brush.flow, 0.0..=1.0)
-                                            .text("Flow"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut project.brush.hardness, 0.0..=1.0)
-                                            .text("Hardness"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut project.brush.spacing, 0.05..=1.0)
-                                            .text("Spacing"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut project.brush.smoothing, 0.0..=1.0)
-                                            .text("Smoothing"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut project.brush.angle,
-                                            -std::f64::consts::PI..=std::f64::consts::PI,
-                                        )
-                                        .text("Angle"),
-                                    );
-                                    ui.checkbox(&mut project.brush.pressure_size, "Pressure size");
-                                    ui.checkbox(
-                                        &mut project.brush.pressure_opacity,
-                                        "Pressure opacity",
-                                    );
-                                    ui.checkbox(&mut project.brush.tilt, "Tilt angle");
-                                });
+                            });
+                            ui.add(
+                                egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
+                                    .show_value(false)
+                                    .text("Opacity"),
+                            );
+                            ui.collapsing("More brush settings", |ui| {
+                                ui.add(
+                                    egui::Slider::new(&mut project.brush.flow, 0.0..=1.0)
+                                        .text("Flow"),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut project.brush.hardness, 0.0..=1.0)
+                                        .text("Hardness"),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut project.brush.spacing, 0.05..=1.0)
+                                        .text("Spacing"),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut project.brush.smoothing, 0.0..=1.0)
+                                        .text("Smoothing"),
+                                );
+                                ui.add(
+                                    egui::Slider::new(
+                                        &mut project.brush.angle,
+                                        -std::f64::consts::PI..=std::f64::consts::PI,
+                                    )
+                                    .text("Angle"),
+                                );
+                                ui.checkbox(&mut project.brush.pressure_size, "Pressure size");
+                                ui.checkbox(
+                                    &mut project.brush.pressure_opacity,
+                                    "Pressure opacity",
+                                );
+                                ui.checkbox(&mut project.brush.tilt, "Tilt angle");
+                            });
+                        }
+
+                        if self.inspector_tab == crate::workspace::InspectorTab::Edit {
+                            ui.heading("Canvas and selection");
+                            let mut transparent = project.state().background.is_none();
+
+                            if ui
+                                .checkbox(&mut transparent, "Transparent background")
+                                .changed()
+                                && let Err(e) = project.edit(|s| {
+                                    s.background = if transparent { None } else { Some([255; 3]) };
+                                    Ok(())
+                                })
+                            {
+                                self.status = e.to_string();
                             }
 
-                            if self.inspector_tab == crate::workspace::InspectorTab::Edit {
-                                ui.heading("Canvas and selection");
-                                let mut transparent = project.state().background.is_none();
+                            ui.collapsing("Edit selected pixels", |ui| {
+                                ui.label("Selected layer only; outside canvas is clipped.");
 
-                                if ui
-                                    .checkbox(&mut transparent, "Transparent background")
-                                    .changed()
-                                    && let Err(e) = project.edit(|s| {
-                                        s.background =
-                                            if transparent { None } else { Some([255; 3]) };
-                                        Ok(())
-                                    })
-                                {
-                                    self.status = e.to_string();
+                                ui.horizontal(|ui| {
+                                    ui.label("Move X/Y");
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.transform_offset[0])
+                                            .range(-4096.0..=4096.0),
+                                    );
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.transform_offset[1])
+                                            .range(-4096.0..=4096.0),
+                                    );
+                                });
+
+                                ui.add(
+                                    egui::Slider::new(&mut self.transform_scale, 0.1..=4.0)
+                                        .text("Scale"),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut self.transform_angle, -180.0..=180.0)
+                                        .text("Rotation"),
+                                );
+
+                                let bounds = project
+                                    .state()
+                                    .selection
+                                    .as_ref()
+                                    .map(Selection::bounds)
+                                    .unwrap_or([
+                                        0.0,
+                                        0.0,
+                                        project.state().width as f64,
+                                        project.state().height as f64,
+                                    ]);
+
+                                let cx = (bounds[0] + bounds[2]) / 2.0;
+                                let cy = (bounds[1] + bounds[3]) / 2.0;
+
+                                if ui.button("Apply transform").clicked() {
+                                    let a = self.transform_angle.to_radians();
+                                    let (sin, cos) = a.sin_cos();
+                                    let c = cos * self.transform_scale;
+                                    let b = sin * self.transform_scale;
+                                    actions.push(Action::Transform([
+                                        c,
+                                        b,
+                                        -b,
+                                        c,
+                                        cx - c * cx + b * cy + self.transform_offset[0],
+                                        cy - b * cx - c * cy + self.transform_offset[1],
+                                    ]));
                                 }
 
-                                ui.collapsing("Edit selected pixels", |ui| {
-                                    ui.label("Selected layer only; outside canvas is clipped.");
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("Move X/Y");
-                                        ui.add(
-                                            egui::DragValue::new(&mut self.transform_offset[0])
-                                                .range(-4096.0..=4096.0),
-                                        );
-                                        ui.add(
-                                            egui::DragValue::new(&mut self.transform_offset[1])
-                                                .range(-4096.0..=4096.0),
-                                        );
-                                    });
-
-                                    ui.add(
-                                        egui::Slider::new(&mut self.transform_scale, 0.1..=4.0)
-                                            .text("Scale"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self.transform_angle,
-                                            -180.0..=180.0,
-                                        )
-                                        .text("Rotation"),
-                                    );
-
-                                    let bounds = project
-                                        .state()
-                                        .selection
-                                        .as_ref()
-                                        .map(Selection::bounds)
-                                        .unwrap_or([
-                                            0.0,
-                                            0.0,
-                                            project.state().width as f64,
-                                            project.state().height as f64,
-                                        ]);
-
-                                    let cx = (bounds[0] + bounds[2]) / 2.0;
-                                    let cy = (bounds[1] + bounds[3]) / 2.0;
-
-                                    if ui.button("Apply transform").clicked() {
-                                        let a = self.transform_angle.to_radians();
-                                        let (sin, cos) = a.sin_cos();
-                                        let c = cos * self.transform_scale;
-                                        let b = sin * self.transform_scale;
+                                ui.horizontal(|ui| {
+                                    if ui.button("Flip H").clicked() {
                                         actions.push(Action::Transform([
-                                            c,
-                                            b,
-                                            -b,
-                                            c,
-                                            cx - c * cx + b * cy + self.transform_offset[0],
-                                            cy - b * cx - c * cy + self.transform_offset[1],
+                                            -1.0,
+                                            0.0,
+                                            0.0,
+                                            1.0,
+                                            2.0 * cx,
+                                            0.0,
                                         ]));
                                     }
 
-                                    ui.horizontal(|ui| {
-                                        if ui.button("Flip H").clicked() {
-                                            actions.push(Action::Transform([
-                                                -1.0,
-                                                0.0,
-                                                0.0,
-                                                1.0,
-                                                2.0 * cx,
-                                                0.0,
-                                            ]));
-                                        }
-
-                                        if ui.button("Flip V").clicked() {
-                                            actions.push(Action::Transform([
-                                                1.0,
-                                                0.0,
-                                                0.0,
-                                                -1.0,
-                                                0.0,
-                                                2.0 * cy,
-                                            ]));
-                                        }
-                                    });
-
-                                    if ui
-                                        .add_enabled(
-                                            project.state().selection.is_some(),
-                                            egui::Button::new("Crop document to selection bounds"),
-                                        )
-                                        .clicked()
-                                    {
-                                        actions.push(Action::Crop);
-                                    }
-                                });
-                            }
-
-                            if self.inspector_tab == crate::workspace::InspectorTab::Layers {
-                                let selected = project.state().selected;
-                                let layer_count = project.state().layers.len();
-                                let selected_index = project
-                                    .state()
-                                    .layers
-                                    .iter()
-                                    .position(|layer| layer.id == selected)
-                                    .unwrap_or(0);
-
-                                ui.separator();
-                                ui.heading("Layers");
-                                ui.small(format!(
-                                    "{layer_count} layers · top of list is frontmost"
-                                ));
-                                ui.horizontal(|ui| {
-                                    if ui.button("New layer").clicked() {
-                                        actions.push(Action::Add);
-                                    }
-                                    if ui.button("Duplicate").clicked() {
-                                        actions.push(Action::Duplicate);
-                                    }
-                                    if ui
-                                        .add_enabled(layer_count > 1, egui::Button::new("Delete"))
-                                        .clicked()
-                                    {
-                                        actions.push(Action::Delete);
+                                    if ui.button("Flip V").clicked() {
+                                        actions.push(Action::Transform([
+                                            1.0,
+                                            0.0,
+                                            0.0,
+                                            -1.0,
+                                            0.0,
+                                            2.0 * cy,
+                                        ]));
                                     }
                                 });
 
-                                ui.horizontal(|ui| {
-                                    if ui
-                                        .add_enabled(
-                                            selected_index + 1 < layer_count,
-                                            egui::Button::new("Raise"),
-                                        )
-                                        .clicked()
-                                    {
-                                        actions.push(Action::Move(1));
-                                    }
-                                    if ui
-                                        .add_enabled(selected_index > 0, egui::Button::new("Lower"))
-                                        .clicked()
-                                    {
-                                        actions.push(Action::Move(-1));
-                                    }
-                                    if ui.button("Clear layer").clicked() {
-                                        actions.push(Action::Clear);
-                                    }
-                                });
-
-                                let layers: Vec<_> = project
-                                    .state()
-                                    .layers
-                                    .iter()
-                                    .rev()
-                                    .map(|l| {
-                                        (
-                                            l.id,
-                                            l.name.clone(),
-                                            l.visible,
-                                            l.locked,
-                                            l.opacity,
-                                            l.blend,
-                                        )
-                                    })
-                                    .collect();
-
-                                for (
-                                    id,
-                                    mut name,
-                                    mut visible,
-                                    mut locked,
-                                    mut opacity,
-                                    mut blend,
-                                ) in layers
+                                if ui
+                                    .add_enabled(
+                                        project.state().selection.is_some(),
+                                        egui::Button::new("Crop document to selection bounds"),
+                                    )
+                                    .clicked()
                                 {
-                                    ui.group(|ui| {
-                                        let mut changed = false;
-                                        ui.horizontal(|ui| {
-                                            if ui.selectable_label(id == selected, &name).clicked()
-                                            {
-                                                actions.push(Action::Select(id));
-                                            }
-                                            changed |=
-                                                ui.checkbox(&mut visible, "Visible").changed();
-                                            changed |= ui.checkbox(&mut locked, "Locked").changed();
-                                        });
-                                        egui::CollapsingHeader::new("Layer settings")
-                                            .id_salt(("layer-settings", id))
-                                            .show(ui, |ui| {
-                                                changed |= ui
-                                                    .add(
-                                                        egui::TextEdit::singleline(&mut name)
-                                                            .char_limit(64)
-                                                            .hint_text("Layer name"),
-                                                    )
-                                                    .changed();
-                                                let mut opacity_percent =
-                                                    f32::from(opacity) * 100.0 / 255.0;
-                                                if ui
-                                                    .add(
-                                                        egui::Slider::new(
-                                                            &mut opacity_percent,
-                                                            0.0..=100.0,
-                                                        )
-                                                        .suffix("%")
-                                                        .text("Opacity"),
-                                                    )
-                                                    .changed()
-                                                {
-                                                    opacity =
-                                                        (opacity_percent * 2.55).round() as u8;
-                                                    changed = true;
-                                                }
-                                                let old = blend;
-                                                egui::ComboBox::from_id_salt(("blend", id))
-                                                    .selected_text(format!("{blend:?}"))
-                                                    .show_ui(ui, |ui| {
-                                                        for b in [
-                                                            Blend::Normal,
-                                                            Blend::Multiply,
-                                                            Blend::Screen,
-                                                            Blend::Overlay,
-                                                        ] {
-                                                            ui.selectable_value(
-                                                                &mut blend,
-                                                                b,
-                                                                format!("{b:?}"),
-                                                            );
-                                                        }
-                                                    });
-                                                changed |= old != blend;
-                                            });
-                                        if changed {
-                                            actions.push(Action::Layer(
-                                                id, name, visible, locked, opacity, blend,
-                                            ));
-                                        }
-                                    });
+                                    actions.push(Action::Crop);
                                 }
+                            });
+                        }
 
-                                ui.separator();
-                                ui.label("Ctrl-Z / Ctrl-Y: history");
+                        if self.inspector_tab == crate::workspace::InspectorTab::Layers {
+                            let selected = project.state().selected;
+                            let layer_count = project.state().layers.len();
+                            let selected_index = project
+                                .state()
+                                .layers
+                                .iter()
+                                .position(|layer| layer.id == selected)
+                                .unwrap_or(0);
+
+                            ui.separator();
+                            ui.heading("Layers");
+                            ui.small(format!("{layer_count} layers · top of list is frontmost"));
+                            ui.horizontal(|ui| {
+                                if ui.button("New layer").clicked() {
+                                    actions.push(Action::Add);
+                                }
+                                if ui.button("Duplicate").clicked() {
+                                    actions.push(Action::Duplicate);
+                                }
+                                if ui
+                                    .add_enabled(layer_count > 1, egui::Button::new("Delete"))
+                                    .clicked()
+                                {
+                                    actions.push(Action::Delete);
+                                }
+                            });
+
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .add_enabled(
+                                        selected_index + 1 < layer_count,
+                                        egui::Button::new("Raise"),
+                                    )
+                                    .clicked()
+                                {
+                                    actions.push(Action::Move(1));
+                                }
+                                if ui
+                                    .add_enabled(selected_index > 0, egui::Button::new("Lower"))
+                                    .clicked()
+                                {
+                                    actions.push(Action::Move(-1));
+                                }
+                                if ui.button("Clear layer").clicked() {
+                                    actions.push(Action::Clear);
+                                }
+                            });
+
+                            let layers: Vec<_> = project
+                                .state()
+                                .layers
+                                .iter()
+                                .rev()
+                                .map(|l| {
+                                    (
+                                        l.id,
+                                        l.name.clone(),
+                                        l.visible,
+                                        l.locked,
+                                        l.opacity,
+                                        l.blend,
+                                    )
+                                })
+                                .collect();
+
+                            for (id, mut name, mut visible, mut locked, mut opacity, mut blend) in
+                                layers
+                            {
+                                ui.group(|ui| {
+                                    let mut changed = false;
+                                    ui.horizontal(|ui| {
+                                        if ui.selectable_label(id == selected, &name).clicked() {
+                                            actions.push(Action::Select(id));
+                                        }
+                                        changed |= ui.checkbox(&mut visible, "Visible").changed();
+                                        changed |= ui.checkbox(&mut locked, "Locked").changed();
+                                    });
+                                    egui::CollapsingHeader::new("Layer settings")
+                                        .id_salt(("layer-settings", id))
+                                        .show(ui, |ui| {
+                                            changed |= ui
+                                                .add(
+                                                    egui::TextEdit::singleline(&mut name)
+                                                        .char_limit(64)
+                                                        .hint_text("Layer name"),
+                                                )
+                                                .changed();
+                                            let mut opacity_percent =
+                                                f32::from(opacity) * 100.0 / 255.0;
+                                            if ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut opacity_percent,
+                                                        0.0..=100.0,
+                                                    )
+                                                    .suffix("%")
+                                                    .text("Opacity"),
+                                                )
+                                                .changed()
+                                            {
+                                                opacity = (opacity_percent * 2.55).round() as u8;
+                                                changed = true;
+                                            }
+                                            let old = blend;
+                                            egui::ComboBox::from_id_salt(("blend", id))
+                                                .selected_text(format!("{blend:?}"))
+                                                .show_ui(ui, |ui| {
+                                                    for b in [
+                                                        Blend::Normal,
+                                                        Blend::Multiply,
+                                                        Blend::Screen,
+                                                        Blend::Overlay,
+                                                    ] {
+                                                        ui.selectable_value(
+                                                            &mut blend,
+                                                            b,
+                                                            format!("{b:?}"),
+                                                        );
+                                                    }
+                                                });
+                                            changed |= old != blend;
+                                        });
+                                    if changed {
+                                        actions.push(Action::Layer(
+                                            id, name, visible, locked, opacity, blend,
+                                        ));
+                                    }
+                                });
                             }
-                        });
+
+                            ui.separator();
+                            ui.label("Ctrl-Z / Ctrl-Y: history");
+                        }
                     });
-                let panel_width = side_panel.response.rect.width();
-                if (panel_width - self.brush_panel_width).abs() > 0.5 {
-                    self.brush_panel_width = panel_width.clamp(180.0, 640.0);
-                    workspace_changed = true;
+                });
+                self.show_controls = controls_open;
+                if let Some(controls_window) = controls_window {
+                    let panel_position = [
+                        controls_window.response.rect.left(),
+                        controls_window.response.rect.top(),
+                    ];
+                    if self.test_path_dialog {
+                        eprintln!(
+                            "UI_TEST_WORKSPACE_CONTROLS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            panel_position[0],
+                            panel_position[1],
+                            controls_window.response.rect.width(),
+                            controls_window.response.rect.height(),
+                            self.context.pixels_per_point(),
+                        );
+                    }
+                    if panel_position != self.workspace_controls_position {
+                        self.workspace_controls_position = panel_position;
+                        workspace_changed = true;
+                    }
+                    let panel_width = controls_window.response.rect.width();
+                    if (panel_width - self.brush_panel_width).abs() > 0.5 {
+                        self.brush_panel_width = panel_width.clamp(180.0, 640.0);
+                        workspace_changed = true;
+                    }
+                    let panel_size = [
+                        panel_width.clamp(240.0, 900.0),
+                        controls_window.response.rect.height().clamp(200.0, 1400.0),
+                    ];
+                    if panel_size != self.workspace_controls_size {
+                        self.workspace_controls_size = panel_size;
+                        workspace_changed = true;
+                    }
                 }
             }
 
             if self.layers_flyout_open {
                 let mut open = self.layers_flyout_open;
-                let layers_position = crate::studio_layout::flyout_position(
+                let obstacles = self.visible_workspace_obstacles(ctx, "Layers");
+                let layers_position = crate::studio_layout::flyout_position_avoiding(
                     screen,
                     palette_response.response.rect,
                     egui::vec2(self.layers_flyout_size[0], self.layers_flyout_size[1]),
@@ -4063,7 +4356,17 @@ impl Studio {
                         self.layers_flyout_position[0],
                         self.layers_flyout_position[1],
                     ),
+                    &obstacles,
                 );
+                let layers_area = egui::AreaState::load(ctx, egui::Id::new("Layers"));
+                let layers_needs_reanchor = layers_area.is_some_and(|state| {
+                    let current = state.rect();
+                    !screen.contains_rect(current)
+                        || current.intersects(palette_response.response.rect)
+                        || obstacles
+                            .iter()
+                            .any(|obstacle| current.intersects(*obstacle))
+                });
                 let panel = egui::Window::new("Layers")
                     .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
@@ -4077,10 +4380,15 @@ impl Studio {
                         (screen.height() - 16.0).max(1.0),
                     ))
                     .default_pos(layers_position)
-                    .constrain_to(screen.shrink(8.0))
-                    .show(ctx, |ui| {
-                        layer_flyout_contents(ui, session.live_mut().project_mut(), actions);
-                    });
+                    .constrain_to(screen.shrink(8.0));
+                let panel = if layers_needs_reanchor {
+                    panel.current_pos(layers_position)
+                } else {
+                    panel
+                }
+                .show(ctx, |ui| {
+                    layer_flyout_contents(ui, session.live_mut().project_mut(), actions);
+                });
                 if let Some(panel) = panel {
                     let rect = panel.response.rect;
                     let position = [rect.left(), rect.top()];
@@ -4096,16 +4404,18 @@ impl Studio {
 
             if self.brush_flyout_open {
                 let mut open = self.brush_flyout_open;
+                let obstacles = self.visible_workspace_obstacles(ctx, "Brush library");
                 let brush_size = crate::studio_layout::flyout_size(
                     screen,
                     palette_response.response.rect,
                     egui::vec2(620.0, 560.0),
                 );
-                let brush_position = crate::studio_layout::flyout_position(
+                let brush_position = crate::studio_layout::flyout_position_avoiding(
                     screen,
                     palette_response.response.rect,
                     brush_size,
                     egui::pos2(self.brush_flyout_position[0], self.brush_flyout_position[1]),
+                    &obstacles,
                 );
                 let brush_area = egui::AreaState::load(ctx, egui::Id::new("Brush library"));
                 let brush_previous_rect = brush_area.map(|state| state.rect());
@@ -4113,6 +4423,9 @@ impl Studio {
                     let current_rect = state.rect();
                     !screen.contains_rect(current_rect)
                         || current_rect.intersects(palette_response.response.rect)
+                        || obstacles
+                            .iter()
+                            .any(|obstacle| current_rect.intersects(*obstacle))
                 });
                 let panel = egui::Window::new("Brush library")
                     .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
@@ -4398,141 +4711,182 @@ impl Studio {
             }
             if self.color_flyout_open {
                 let mut open = self.color_flyout_open;
-                let color_position = crate::studio_layout::flyout_position(
+                let obstacles = self.visible_workspace_obstacles(ctx, "Color controls");
+                // Reserve the window frame and any minimum-width controls when
+                // picking a collision-free position; the content size remains
+                // 360 × 620 below.
+                let color_size = egui::vec2(420.0, 660.0);
+                let color_position = crate::studio_layout::flyout_position_avoiding(
                     screen,
                     palette_response.response.rect,
-                    egui::vec2(280.0, 340.0),
+                    color_size,
                     egui::pos2(self.color_flyout_position[0], self.color_flyout_position[1]),
+                    &obstacles,
                 );
+                let color_area = egui::AreaState::load(ctx, egui::Id::new("Color controls"));
+                let color_needs_reanchor = color_area.is_some_and(|state| {
+                    let current = state.rect();
+                    !screen.contains_rect(current)
+                        || current.intersects(palette_response.response.rect)
+                        || obstacles
+                            .iter()
+                            .any(|obstacle| current.intersects(*obstacle))
+                });
                 let panel = egui::Window::new("Color controls")
                     .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
                     .resizable(true)
-                    .default_size(egui::vec2(320.0, 390.0))
+                    .default_size(egui::vec2(360.0, 620.0))
                     .max_size(egui::vec2(
                         (screen.width() - 16.0).max(1.0),
                         (screen.height() - 16.0).max(1.0),
                     ))
                     .default_pos(color_position)
-                    .constrain_to(screen.shrink(8.0))
-                    .show(ctx, |ui| {
-                        let project = session.live_mut().project_mut();
-                        ui.horizontal(|ui| {
-                            ui.heading("Color");
-                            ui.weak("sRGB");
-                        });
-                        ui.label("Pick a color or sample directly from the canvas.");
-                        ui.horizontal(|ui| {
-                            ui.label("Current");
-                            if let Some(previous) = self
-                                .recent_brush_colors
-                                .iter()
-                                .copied()
-                                .find(|color| *color != project.brush.color)
-                            {
-                                let _ =
-                                    color_swatch(ui, previous, "Previous brush color", false, 42.0);
-                                ui.weak("Previous");
-                            }
-                        });
-                        ui.color_edit_button_srgb(&mut project.brush.color);
-                        let mut hsv = crate::color_controls::rgb_to_hsv(project.brush.color);
-                        if hsv[1] > 0.01 && hsv[2] > 0.01 {
-                            self.color_hue = hsv[0];
-                        }
-                        let mut hue_degrees = self.color_hue * 360.0;
-                        ui.label("Pick a shade");
-                        let hue_changed = ui
-                            .add(
-                                egui::Slider::new(&mut hue_degrees, 0.0..=360.0)
-                                    .suffix("°")
-                                    .text("Hue"),
-                            )
-                            .changed();
-                        let hue = (hue_degrees / 360.0).rem_euclid(1.0);
-                        if let Some([saturation, value]) =
-                            saturation_value_field(ui, hue, hsv[1], hsv[2])
-                        {
-                            hsv[1] = saturation;
-                            hsv[2] = value;
-                            self.color_hue = hue;
-                            project.brush.color = crate::color_controls::hsv_to_rgb(hsv);
-                        }
-                        let saturation_changed = ui
-                            .add(egui::Slider::new(&mut hsv[1], 0.0..=1.0).text("Saturation"))
-                            .changed();
-                        let value_changed = ui
-                            .add(egui::Slider::new(&mut hsv[2], 0.0..=1.0).text("Brightness"))
-                            .changed();
-                        if hue_changed || saturation_changed || value_changed {
-                            self.color_hue = hue;
-                            project.brush.color =
-                                crate::color_controls::hsv_to_rgb([hue, hsv[1], hsv[2]]);
-                        }
-                        let current_hex =
-                            crate::color_controls::format_hex_rgb(project.brush.color);
-                        if self.hex_color_for != Some(project.brush.color) {
-                            self.hex_color.clone_from(&current_hex);
-                            self.hex_color_for = Some(project.brush.color);
-                        }
-                        ui.horizontal(|ui| {
-                            ui.label("HEX");
-                            let response = ui.add(
-                                egui::TextEdit::singleline(&mut self.hex_color)
-                                    .char_limit(7)
-                                    .desired_width(104.0)
-                                    .hint_text("#RRGGBB"),
-                            );
-                            let apply = ui.button("Apply").clicked()
-                                || (response.lost_focus()
-                                    && ui.input(|input| input.key_pressed(egui::Key::Enter)));
-                            if apply {
-                                if let Some(color) =
-                                    crate::color_controls::parse_hex_rgb(&self.hex_color)
+                    .constrain_to(screen.shrink(8.0));
+                let panel = if color_needs_reanchor {
+                    panel.current_pos(color_position)
+                } else {
+                    panel
+                }
+                .show(ctx, |ui| {
+                    ui.set_width((screen.width() - 48.0).clamp(220.0, 360.0));
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .max_height((screen.height() - 112.0).max(120.0))
+                        .show(ui, |ui| {
+                            let project = session.live_mut().project_mut();
+                            ui.horizontal(|ui| {
+                                ui.heading("Color");
+                                ui.weak("sRGB");
+                            });
+                            ui.label("Pick a color or sample directly from the canvas.");
+                            ui.horizontal(|ui| {
+                                ui.label("Current");
+                                if let Some(previous) = self
+                                    .recent_brush_colors
+                                    .iter()
+                                    .copied()
+                                    .find(|color| *color != project.brush.color)
                                 {
-                                    project.brush.color = color;
-                                    self.hex_color_for = Some(color);
-                                    self.status = "Brush color updated".into();
-                                } else {
-                                    self.status = "Enter a six-digit color such as #C55CFF".into();
+                                    let _ = color_swatch(
+                                        ui,
+                                        previous,
+                                        "Previous brush color",
+                                        false,
+                                        42.0,
+                                    );
+                                    ui.weak("Previous");
                                 }
+                            });
+                            ui.color_edit_button_srgb(&mut project.brush.color);
+                            saved_color_palette_contents(
+                                ui,
+                                &mut project.brush.color,
+                                &mut self.saved_color_swatches,
+                                self.test_path_dialog,
+                                &mut self.test_color_palette_logged,
+                                &mut workspace_changed,
+                                &mut self.status,
+                            );
+                            let mut hsv = crate::color_controls::rgb_to_hsv(project.brush.color);
+                            if hsv[1] > 0.01 && hsv[2] > 0.01 {
+                                self.color_hue = hsv[0];
                             }
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("RGB");
-                            for component in &mut project.brush.color {
-                                ui.add(egui::DragValue::new(component).range(0..=255).speed(1));
-                            }
-                        });
-                        if ui.button("Eyedropper  ·  I").clicked() {
-                            self.tool = EditTool::Eyedropper;
-                            self.color_flyout_open = false;
-                        }
-                        ui.separator();
-                        ui.strong("Recent colors");
-                        ui.horizontal_wrapped(|ui| {
-                            if self.recent_brush_colors.is_empty() {
-                                ui.weak("Colors you choose will appear here.");
-                            }
-                            for (index, color) in
-                                self.recent_brush_colors.clone().into_iter().enumerate()
+                            let mut hue_degrees = self.color_hue * 360.0;
+                            ui.label("Pick a shade");
+                            let hue_changed = ui
+                                .add(
+                                    egui::Slider::new(&mut hue_degrees, 0.0..=360.0)
+                                        .suffix("°")
+                                        .text("Hue"),
+                                )
+                                .changed();
+                            let hue = (hue_degrees / 360.0).rem_euclid(1.0);
+                            if let Some([saturation, value]) =
+                                saturation_value_field(ui, hue, hsv[1], hsv[2])
                             {
-                                let hex = crate::color_controls::format_hex_rgb(color);
-                                if color_swatch(
-                                    ui,
-                                    color,
-                                    &format!("Use color {hex}"),
-                                    project.brush.color == color,
-                                    38.0,
-                                ) {
-                                    project.brush.color = color;
-                                }
-                                if index == crate::workspace::MAX_RECENT_BRUSH_COLORS - 1 {
-                                    break;
-                                }
+                                hsv[1] = saturation;
+                                hsv[2] = value;
+                                self.color_hue = hue;
+                                project.brush.color = crate::color_controls::hsv_to_rgb(hsv);
                             }
+                            let saturation_changed = ui
+                                .add(egui::Slider::new(&mut hsv[1], 0.0..=1.0).text("Saturation"))
+                                .changed();
+                            let value_changed = ui
+                                .add(egui::Slider::new(&mut hsv[2], 0.0..=1.0).text("Brightness"))
+                                .changed();
+                            if hue_changed || saturation_changed || value_changed {
+                                self.color_hue = hue;
+                                project.brush.color =
+                                    crate::color_controls::hsv_to_rgb([hue, hsv[1], hsv[2]]);
+                            }
+                            let current_hex =
+                                crate::color_controls::format_hex_rgb(project.brush.color);
+                            if self.hex_color_for != Some(project.brush.color) {
+                                self.hex_color.clone_from(&current_hex);
+                                self.hex_color_for = Some(project.brush.color);
+                            }
+                            ui.horizontal(|ui| {
+                                ui.label("HEX");
+                                let response = ui.add(
+                                    egui::TextEdit::singleline(&mut self.hex_color)
+                                        .char_limit(7)
+                                        .desired_width(104.0)
+                                        .hint_text("#RRGGBB"),
+                                );
+                                let apply = ui.button("Apply").clicked()
+                                    || (response.lost_focus()
+                                        && ui.input(|input| input.key_pressed(egui::Key::Enter)));
+                                if apply {
+                                    if let Some(color) =
+                                        crate::color_controls::parse_hex_rgb(&self.hex_color)
+                                    {
+                                        project.brush.color = color;
+                                        self.hex_color_for = Some(color);
+                                        self.status = "Brush color updated".into();
+                                    } else {
+                                        self.status =
+                                            "Enter a six-digit color such as #C55CFF".into();
+                                    }
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("RGB");
+                                for component in &mut project.brush.color {
+                                    ui.add(egui::DragValue::new(component).range(0..=255).speed(1));
+                                }
+                            });
+                            if ui.button("Eyedropper  ·  I").clicked() {
+                                self.tool = EditTool::Eyedropper;
+                                self.color_flyout_open = false;
+                            }
+                            ui.separator();
+                            ui.strong("Recent colors");
+                            ui.horizontal_wrapped(|ui| {
+                                if self.recent_brush_colors.is_empty() {
+                                    ui.weak("Colors you choose will appear here.");
+                                }
+                                for (index, color) in
+                                    self.recent_brush_colors.clone().into_iter().enumerate()
+                                {
+                                    let hex = crate::color_controls::format_hex_rgb(color);
+                                    if color_swatch(
+                                        ui,
+                                        color,
+                                        &format!("Use color {hex}"),
+                                        project.brush.color == color,
+                                        38.0,
+                                    ) {
+                                        project.brush.color = color;
+                                    }
+                                    if index == crate::workspace::MAX_RECENT_BRUSH_COLORS - 1 {
+                                        break;
+                                    }
+                                }
+                            });
                         });
-                    });
+                });
                 if let Some(panel) = panel {
                     let position = [panel.response.rect.left(), panel.response.rect.top()];
                     if position != self.color_flyout_position {
@@ -4912,6 +5266,8 @@ impl Studio {
                                                     );
                                                     let dark_mode = ui.visuals().dark_mode;
                                                     let contrast = crate::appearance::contrast_ratio(foreground, surface);
+                                                    let accent = crate::appearance::readable_text_accent(ui.visuals().hyperlink_color, surface);
+                                                    let slogan_contrast = crate::appearance::contrast_ratio(accent, surface);
                                                     if self.test_path_dialog && contrast >= 4.5 {
                                                         let logged = if dark_mode {
                                                             &mut self.test_home_dark_contrast_logged
@@ -4921,9 +5277,9 @@ impl Studio {
                                                         if !*logged {
                                                             *logged = true;
                                                             eprintln!("UI_TEST_HOME_HEADLINE_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, contrast);
+                                                            eprintln!("UI_TEST_HOME_SLOGAN_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, slogan_contrast);
                                                         }
                                                     }
-                                                    let accent = crate::appearance::readable_text_accent(ui.visuals().hyperlink_color, surface);
                                                     ui.label(egui::RichText::new("No limits. No bullshit.")
                                                         .size(16.0).strong().color(accent));
                                                     ui.add_space(4.0);

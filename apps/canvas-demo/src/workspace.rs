@@ -8,6 +8,7 @@ pub const MAX_REFERENCE_PATH: usize = 4096;
 pub const MAX_PREFERENCES_BYTES: usize = 64 * 1024;
 pub const MAX_RECENT_DOCUMENT_SIZES: usize = 8;
 pub const MAX_RECENT_BRUSH_COLORS: usize = 12;
+pub const MAX_SAVED_COLOR_SWATCHES: usize = 24;
 pub const MAX_FAVORITE_BRUSHES: usize = 10;
 pub const MIN_REFERENCE_ZOOM: f32 = 0.25;
 pub const MAX_REFERENCE_ZOOM: f32 = 8.0;
@@ -52,6 +53,14 @@ fn default_color_flyout_position() -> [f32; 2] {
     [104.0, 300.0]
 }
 
+fn default_workspace_controls_position() -> [f32; 2] {
+    [820.0, 88.0]
+}
+
+fn default_workspace_controls_size() -> [f32; 2] {
+    [360.0, 620.0]
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InspectorTab {
     #[default]
@@ -81,6 +90,20 @@ pub fn remember_brush_color(colors: &mut Vec<[u8; 3]>, color: [u8; 3]) {
     colors.retain(|existing| *existing != color);
     colors.insert(0, color);
     colors.truncate(MAX_RECENT_BRUSH_COLORS);
+}
+
+/// Add a reusable workspace-only paint color. Duplicate colors are ignored so
+/// a saved palette remains small and intentional.
+pub fn add_saved_color_swatch(swatches: &mut Vec<[u8; 3]>, color: [u8; 3]) -> bool {
+    if swatches.contains(&color) || swatches.len() >= MAX_SAVED_COLOR_SWATCHES {
+        return false;
+    }
+    swatches.push(color);
+    true
+}
+
+pub fn remove_saved_color_swatch(swatches: &mut Vec<[u8; 3]>, index: usize) -> Option<[u8; 3]> {
+    (index < swatches.len()).then(|| swatches.remove(index))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,6 +197,8 @@ pub struct WorkspacePreferences {
     #[serde(default)]
     pub recent_brush_colors: Vec<[u8; 3]>,
     #[serde(default)]
+    pub saved_color_swatches: Vec<[u8; 3]>,
+    #[serde(default)]
     pub favorite_brushes: Vec<BrushKind>,
     #[serde(default = "default_canvas_zoom")]
     pub canvas_zoom: f64,
@@ -203,6 +228,10 @@ pub struct WorkspacePreferences {
     pub brush_flyout_position: [f32; 2],
     #[serde(default = "default_color_flyout_position")]
     pub color_flyout_position: [f32; 2],
+    #[serde(default = "default_workspace_controls_position")]
+    pub workspace_controls_position: [f32; 2],
+    #[serde(default = "default_workspace_controls_size")]
+    pub workspace_controls_size: [f32; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -265,6 +294,7 @@ impl Default for WorkspacePreferences {
             new_document: NewDocumentPreferences::default(),
             recent_document_sizes: Vec::new(),
             recent_brush_colors: Vec::new(),
+            saved_color_swatches: Vec::new(),
             favorite_brushes: Vec::new(),
             canvas_zoom: 1.0,
             canvas_pan: [0.0, 0.0],
@@ -280,6 +310,8 @@ impl Default for WorkspacePreferences {
             layers_flyout_size: default_layers_flyout_size(),
             brush_flyout_position: default_brush_flyout_position(),
             color_flyout_position: default_color_flyout_position(),
+            workspace_controls_position: default_workspace_controls_position(),
+            workspace_controls_size: default_workspace_controls_size(),
         }
     }
 }
@@ -304,6 +336,11 @@ impl WorkspacePreferences {
             || !self.layers_flyout_size.iter().all(|v| v.is_finite())
             || !self.brush_flyout_position.iter().all(|v| v.is_finite())
             || !self.color_flyout_position.iter().all(|v| v.is_finite())
+            || !self
+                .workspace_controls_position
+                .iter()
+                .all(|v| v.is_finite())
+            || !self.workspace_controls_size.iter().all(|v| v.is_finite())
             || !self.canvas_pan.iter().all(|v| v.is_finite())
             || !self.new_document.validate()
         {
@@ -320,6 +357,13 @@ impl WorkspacePreferences {
         ];
         self.brush_flyout_position = self.brush_flyout_position.map(|v| v.clamp(0.0, 32768.0));
         self.color_flyout_position = self.color_flyout_position.map(|v| v.clamp(0.0, 32768.0));
+        self.workspace_controls_position = self
+            .workspace_controls_position
+            .map(|v| v.clamp(0.0, 32768.0));
+        self.workspace_controls_size = [
+            self.workspace_controls_size[0].clamp(240.0, 900.0),
+            self.workspace_controls_size[1].clamp(200.0, 1400.0),
+        ];
         self.canvas_pan = self.canvas_pan.map(|v| v.clamp(-32768.0, 32768.0));
         if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
             self.accent_scheme = AccentScheme::Violet;
@@ -345,6 +389,16 @@ impl WorkspacePreferences {
             }
         });
         self.recent_brush_colors.truncate(MAX_RECENT_BRUSH_COLORS);
+        let mut seen_swatches = Vec::new();
+        self.saved_color_swatches.retain(|color| {
+            if seen_swatches.contains(color) {
+                false
+            } else {
+                seen_swatches.push(*color);
+                true
+            }
+        });
+        self.saved_color_swatches.truncate(MAX_SAVED_COLOR_SWATCHES);
         let mut seen_brushes = Vec::new();
         self.favorite_brushes.retain(|brush| {
             if seen_brushes.contains(brush) {
@@ -465,6 +519,8 @@ mod tests {
             layers_flyout_size: [900.0, 90.0],
             brush_flyout_position: [-200.0, 40_000.0],
             color_flyout_position: [300.0, 400.0],
+            workspace_controls_position: [510.0, -12.0],
+            workspace_controls_size: [1200.0, 80.0],
             ..Default::default()
         };
         assert!(preferences.validate());
@@ -472,6 +528,8 @@ mod tests {
         assert_eq!(preferences.layers_flyout_size, [800.0, 160.0]);
         assert_eq!(preferences.brush_flyout_position, [0.0, 32768.0]);
         assert_eq!(preferences.color_flyout_position, [300.0, 400.0]);
+        assert_eq!(preferences.workspace_controls_position, [510.0, 0.0]);
+        assert_eq!(preferences.workspace_controls_size, [900.0, 200.0]);
 
         let json = serde_json::to_vec(&preferences).unwrap();
         let mut restored: WorkspacePreferences = serde_json::from_slice(&json).unwrap();
@@ -480,6 +538,8 @@ mod tests {
         assert_eq!(restored.layers_flyout_size, [800.0, 160.0]);
         assert_eq!(restored.brush_flyout_position, [0.0, 32768.0]);
         assert_eq!(restored.color_flyout_position, [300.0, 400.0]);
+        assert_eq!(restored.workspace_controls_position, [510.0, 0.0]);
+        assert_eq!(restored.workspace_controls_size, [900.0, 200.0]);
 
         restored.layers_flyout_position[0] = f32::INFINITY;
         assert!(!restored.validate());
@@ -552,6 +612,8 @@ mod tests {
         assert_eq!(preferences.layers_flyout_size, [300.0, 260.0]);
         assert_eq!(preferences.brush_flyout_position, [104.0, 72.0]);
         assert_eq!(preferences.color_flyout_position, [104.0, 300.0]);
+        assert_eq!(preferences.workspace_controls_position, [820.0, 88.0]);
+        assert_eq!(preferences.workspace_controls_size, [360.0, 620.0]);
         assert!(!preferences.new_document.transparent);
         assert!(!preferences.show_controls);
         assert_eq!(preferences.appearance_mode, None);
@@ -658,6 +720,43 @@ mod tests {
         restored.recent_brush_colors = vec![[1, 2, 3], [1, 2, 3]];
         assert!(restored.validate());
         assert_eq!(restored.recent_brush_colors, vec![[1, 2, 3]]);
+    }
+
+    #[test]
+    fn saved_color_palette_is_deduplicated_bounded_persistent_and_legacy_safe() {
+        let mut swatches = Vec::new();
+        for value in 0..MAX_SAVED_COLOR_SWATCHES as u8 {
+            assert!(add_saved_color_swatch(&mut swatches, [value, 20, 30]));
+        }
+        assert!(!add_saved_color_swatch(&mut swatches, [0, 20, 30]));
+        assert!(!add_saved_color_swatch(&mut swatches, [240, 20, 30]));
+        assert_eq!(swatches.len(), MAX_SAVED_COLOR_SWATCHES);
+        assert_eq!(
+            remove_saved_color_swatch(&mut swatches, 0),
+            Some([0, 20, 30])
+        );
+        assert_eq!(remove_saved_color_swatch(&mut swatches, usize::MAX), None);
+        assert!(add_saved_color_swatch(&mut swatches, [240, 20, 30]));
+
+        let mut preferences = WorkspacePreferences {
+            saved_color_swatches: swatches.clone(),
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.saved_color_swatches, swatches);
+
+        restored.saved_color_swatches = vec![[1, 2, 3], [1, 2, 3]];
+        assert!(restored.validate());
+        assert_eq!(restored.saved_color_swatches, vec![[1, 2, 3]]);
+        let mut legacy: WorkspacePreferences = serde_json::from_str(
+            r#"{"version":1,"dark_theme":false,"brush_panel_width":300,"references":[]}"#,
+        )
+        .unwrap();
+        assert!(legacy.validate());
+        assert!(legacy.saved_color_swatches.is_empty());
     }
 
     #[test]

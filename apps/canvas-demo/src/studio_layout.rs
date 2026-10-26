@@ -2,6 +2,24 @@
 
 use crate::workspace::PaletteDock;
 
+/// Convert a physical client-pixel position to egui points and test whether it
+/// belongs to a panel rect. The window scale is explicit so input routing stays
+/// correct on high-DPI displays.
+pub fn client_point_in_rect(rect: egui::Rect, client_px: [f64; 2], pixels_per_point: f32) -> bool {
+    if !pixels_per_point.is_finite()
+        || pixels_per_point <= 0.0
+        || !client_px[0].is_finite()
+        || !client_px[1].is_finite()
+    {
+        return false;
+    }
+    let point = egui::pos2(
+        (client_px[0] / f64::from(pixels_per_point)) as f32,
+        (client_px[1] / f64::from(pixels_per_point)) as f32,
+    );
+    point.x.is_finite() && point.y.is_finite() && rect.contains(point)
+}
+
 /// Position a docked tool palette inside the available canvas viewport. The
 /// caller excludes application menu and contextual-option bars from this
 /// viewport, so top and side docks can sit close to the canvas edge. Top and
@@ -81,6 +99,69 @@ pub fn flyout_position(
     )
 }
 
+/// Place a contextual panel without covering the movable palette or any
+/// caller-supplied floating surfaces (for example the reference board). The
+/// base placement preserves existing palette-aware behavior; additional
+/// candidates move the panel around blockers before accepting overlap.
+pub fn flyout_position_avoiding(
+    viewport: egui::Rect,
+    palette: egui::Rect,
+    panel_size: egui::Vec2,
+    preferred: egui::Pos2,
+    obstacles: &[egui::Rect],
+) -> egui::Pos2 {
+    const MARGIN: f32 = 8.0;
+    let size = egui::vec2(
+        panel_size.x.min((viewport.width() - MARGIN * 2.0).max(1.0)),
+        panel_size
+            .y
+            .min((viewport.height() - MARGIN * 2.0).max(1.0)),
+    );
+    let mut candidates = vec![
+        flyout_position(viewport, palette, size, preferred),
+        egui::pos2(viewport.right() - size.x - MARGIN, viewport.top() + MARGIN),
+        egui::pos2(
+            viewport.right() - size.x - MARGIN,
+            viewport.bottom() - size.y - MARGIN,
+        ),
+        egui::pos2(viewport.left() + MARGIN, viewport.top() + MARGIN),
+        egui::pos2(
+            viewport.left() + MARGIN,
+            viewport.bottom() - size.y - MARGIN,
+        ),
+    ];
+    for obstacle in obstacles {
+        candidates.extend([
+            egui::pos2(obstacle.right() + MARGIN, obstacle.top()),
+            egui::pos2(obstacle.left() - size.x - MARGIN, obstacle.top()),
+            egui::pos2(obstacle.left(), obstacle.bottom() + MARGIN),
+            egui::pos2(obstacle.left(), obstacle.top() - size.y - MARGIN),
+        ]);
+    }
+
+    let mut best = None;
+    for candidate in candidates {
+        let position = clamp_position(viewport, size, candidate, MARGIN);
+        let rect = egui::Rect::from_min_size(position, size);
+        let overlap = rect.intersect(palette).area()
+            + obstacles
+                .iter()
+                .map(|obstacle| rect.intersect(*obstacle).area())
+                .sum::<f32>();
+        if overlap <= 0.5 {
+            return position;
+        }
+        let score = rect.intersect(viewport).area() - overlap * 5.0;
+        if best.is_none_or(|(_, best_score)| score > best_score) {
+            best = Some((position, score));
+        }
+    }
+    best.map_or(
+        egui::pos2(viewport.left() + MARGIN, viewport.top() + MARGIN),
+        |(position, _)| position,
+    )
+}
+
 /// Limit a floating panel to the free space beside a vertical palette. On a
 /// narrow window the toolbar is made compact by the workspace, leaving a
 /// usable strip for the panel instead of letting it open behind the tools.
@@ -144,6 +225,35 @@ mod tests {
         let flyout = rect(pos.x, pos.y, 360.0, 500.0);
         assert!(!flyout.intersects(palette));
         assert!(viewport.contains_rect(flyout));
+    }
+
+    #[test]
+    fn color_flyout_moves_clear_of_reference_board() {
+        let viewport = rect(0.0, 0.0, 1280.0, 800.0);
+        let palette = rect(8.0, 64.0, 90.0, 420.0);
+        let reference = rect(47.0, 309.0, 360.0, 245.0);
+        let size = egui::vec2(360.0, 620.0);
+        let position = flyout_position_avoiding(
+            viewport,
+            palette,
+            size,
+            egui::pos2(104.0, 300.0),
+            &[reference],
+        );
+        let panel = rect(position.x, position.y, size.x, size.y);
+        assert!(viewport.contains_rect(panel));
+        assert!(!panel.intersects(palette));
+        assert!(!panel.intersects(reference));
+    }
+
+    #[test]
+    fn floating_panel_hit_testing_converts_physical_pixels_at_display_scale() {
+        let panel = rect(100.0, 80.0, 240.0, 160.0);
+        assert!(client_point_in_rect(panel, [400.0, 320.0], 2.0));
+        assert!(!client_point_in_rect(panel, [190.0, 160.0], 2.0));
+        assert!(!client_point_in_rect(panel, [400.0, 320.0], 0.0));
+        assert!(!client_point_in_rect(panel, [f64::NAN, 320.0], 2.0));
+        assert!(!client_point_in_rect(panel, [f64::MAX, 320.0], 0.5));
     }
 
     #[test]

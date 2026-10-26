@@ -103,6 +103,14 @@ phase's historical checkpoint and remains available for context.
   do not add competing loops; native pen adapters stay isolated here. Winit remains capture owner.
 - Run mouse tests, GPU pixel validation, and Linux Xvfb/XTest interaction smoke.
   Distinguish these from pending manual Windows mouse/capture validation.
+- Before routing a pointer event away from egui to the canvas, exclude every
+  interactive floating `Area`/`Window` under the pointer. Convert physical client
+  pixels to egui points using the active pixels-per-point scale. Apply the same
+  ownership rule to mouse edits, native pen UI capture, and touch navigation;
+  exercise real over-canvas panel clicks in the X11 workflow.
+- Persist movable/resizable workspace panel geometry in workspace preferences,
+  never in the artwork document. Keep hit-testing, placement, and persisted
+  dimensions bounded and finite across resize and display-scale changes.
 
 ## Development conventions
 Use the pinned Rust toolchain and Cargo workspace. Prefer safe Rust, small

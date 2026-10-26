@@ -317,4 +317,36 @@ mod tests {
             assert!(activated, "focused card did not activate with {key:?}");
         }
     }
+
+    #[test]
+    fn saved_color_swatches_have_a_named_accessible_action() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::color_swatch_response(
+                    ui,
+                    [245, 88, 206],
+                    "Use saved color #F558CE",
+                    true,
+                    38.0,
+                );
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("saved swatch emits an AccessKit node");
+        let labels = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            labels.contains("Use saved color #F558CE"),
+            "saved color action is unnamed: {labels}"
+        );
+        assert!(labels.contains("role: Button"));
+    }
 }

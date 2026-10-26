@@ -94,6 +94,32 @@ def brush_preset_preview_count():
            if line.startswith('UI_TEST_BRUSH_PRESET_PREVIEWS: ')]
     return int(lines[-1].partition(': ')[2]) if lines else 0
 
+def color_palette_marker(name):
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(name + ': ')]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].partition(': ')[2].split()))
+
+def stable_marker(name):
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(name + ': ')]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return lines[-1].partition(': ')[2]
+
+def assert_slogan_contrast(theme):
+    prefix=f'UI_TEST_HOME_SLOGAN_CONTRAST: {theme} '
+    line=next((line for line in reversed((directory/'application.log').read_text().splitlines())
+               if line.startswith(prefix)),None)
+    assert line is not None,f'{theme} Home did not report the approved slogan contrast'
+    contrast=float(line.partition(prefix)[2])
+    assert contrast>=4.5,f'{theme} Home slogan contrast is below 4.5:1 ({contrast:.2f})'
+
+def workspace_brush_tab_rect():
+    marker=stable_marker('UI_TEST_WORKSPACE_BRUSH_TAB_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
 def recovery_preview_target():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_RECOVERY_PREVIEW_TARGET: ')]
@@ -146,6 +172,11 @@ def click_button(number, pressed):
     trace('button',number,'down' if pressed else 'up')
     assert button(display, number, int(pressed), 0)
     send()
+
+def click_at(px, py):
+    move(round(px),round(py))
+    click_button(1,True)
+    click_button(1,False)
 
 def key(name):
     trace('key',name)
@@ -231,8 +262,11 @@ def capture_window(window, name):
     home_wide_bottom_dark_pixels=0
     recovery_preview_colors=set()
     brush_preview_colors=set()
+    saved_swatch_pixels=0
     recovery_preview_bounds=None
     brush_preview_bounds=None
+    saved_swatch_bounds=None
+    saved_swatch_color=None
     if name == 'recovery-manager-populated-light':
         bounds=wait(recovery_preview_image_rect,'recovery preview image is laid out')
         x,y,preview_width,preview_height,scale,content_top=bounds
@@ -240,6 +274,11 @@ def capture_window(window, name):
     if name == 'brush-library-light-normal':
         x,y,preview_width,preview_height,scale=wait(brush_preview_rect,'active raster-engine preview is laid out')
         brush_preview_bounds=(x*scale,y*scale,(x+preview_width)*scale,(y+preview_height)*scale)
+    if name == 'color-controls-light':
+        marker=wait(lambda: color_palette_marker('UI_TEST_COLOR_SWATCH_RECT'),'saved color swatch is laid out')
+        x,y,swatch_width,swatch_height,scale,red,green,blue=marker
+        saved_swatch_bounds=(x*scale,y*scale,(x+swatch_width)*scale,(y+swatch_height)*scale)
+        saved_swatch_color=(int(red),int(green),int(blue))
     bytes_per_pixel=(bits_per_pixel+7)//8
     byte_order_name='little' if byte_order==0 else 'big'
     for y in range(height):
@@ -266,6 +305,10 @@ def capture_window(window, name):
                 left,top,right,bottom=brush_preview_bounds
                 if left<=x_pixel<right and top<=y<bottom:
                     brush_preview_colors.add((red,green,blue))
+            if saved_swatch_bounds is not None:
+                left,top,right,bottom=saved_swatch_bounds
+                if left<=x_pixel<right and top<=y<bottom and (red,green,blue)==saved_swatch_color:
+                    saved_swatch_pixels+=1
             rows.extend((red,green,blue,255))
     raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
     destination=Path(folder) if folder else None
@@ -308,6 +351,9 @@ def capture_window(window, name):
     if name == 'brush-library-light-normal':
         assert len(brush_preview_colors)>=6, f'{name} does not visibly render the active raster brush sample ({len(brush_preview_colors)} visible colors)'
         print(f'UI_SCREENSHOT_BRUSH_SAMPLE_COLORS: {name} {len(brush_preview_colors)}', flush=True)
+    if name == 'color-controls-light':
+        assert saved_swatch_pixels>=8, f'{name} does not visibly render the populated saved color palette ({saved_swatch_pixels} matching pixels)'
+        print(f'UI_SCREENSHOT_SAVED_SWATCH_PIXELS: {name} {saved_swatch_pixels}', flush=True)
     captured_screenshots[name] = (width, height)
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 
@@ -384,7 +430,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     reference.write_bytes(b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',reference_width,reference_height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(reference_rows),6))+png_chunk(b'IEND',b''))
     prefs=directory/'state/rust-paint-lab/workspace.json'
     prefs.parent.mkdir(parents=True)
-    prefs.write_text(json.dumps({'version':1,'dark_theme':False,'brush_panel_width':280.0,'references':[{'path':str(reference),'position':[620.0,100.0],'size':[320.0,260.0],'opacity':0.7}]}))
+    initial_swatches=[[245,88,206],[116,88,246],[60,205,180]]
+    prefs.write_text(json.dumps({'version':1,'dark_theme':False,'brush_panel_width':280.0,'saved_color_swatches':initial_swatches,'references':[{'path':str(reference),'position':[620.0,100.0],'size':[320.0,260.0],'opacity':0.7}]}))
     with (directory/'application.log').open('w') as log:
         process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
         try:
@@ -395,6 +442,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,1280,800)
             wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: light' in (directory / 'application.log').read_text(),
                  'light Home headline is rendered at accessible contrast')
+            assert_slogan_contrast('light')
             wait(lambda: 'UI_TEST_HOME_QUICK_START_VISIBLE' in (directory / 'application.log').read_text(),
                  'first-run Home uses its hero for actual quick-start canvas actions')
             capture_window(window,'home-light-normal')
@@ -444,11 +492,58 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert process.poll() is None, 'Escape closed the application instead of dismissing keyboard-opened Brush library'
             wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_ESCAPE_DISMISSED: brush') >= 2,
                  'Escape dismisses the keyboard-opened Brush flyout')
+            key('F6')
+            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_RECT'),
+                 'the detached workspace controls open from their keyboard shortcut')
+            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE') == 'Layers',
+                 'floating workspace controls show the current Layers tab')
+            capture_window(window,'workspace-controls-floating-light-normal')
+            tab_bounds=wait(workspace_brush_tab_rect,'floating Brush settings tab is laid out')
+            click_at((tab_bounds[0]+tab_bounds[2]/2)*tab_bounds[4],
+                     (tab_bounds[1]+tab_bounds[3]/2)*tab_bounds[4])
+            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE') == 'Brush',
+                 'floating workspace controls switch to Brush settings')
+            workspace_save_count=(directory/'application.log').read_text().count('UI_TEST_WORKSPACE_SAVE:')
+            key('Escape')
+            assert process.poll() is None, 'Escape closed the application instead of dismissing workspace controls'
+            wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: workspace controls' in (directory/'application.log').read_text(),
+                 'Escape dismisses floating workspace controls')
+            wait(lambda: (directory/'application.log').read_text().count('UI_TEST_WORKSPACE_SAVE:')>workspace_save_count,
+                 'floating workspace close state is written to preferences')
+            preferences=json.loads(prefs.read_text())
+            assert preferences['show_controls'] is False, 'closing the floating workspace controls was not persisted'
+            controls_position=preferences.get('workspace_controls_position')
+            assert controls_position and all(isinstance(value,(int,float)) for value in controls_position), 'floating workspace position was not persisted'
+            controls_size=preferences.get('workspace_controls_size')
+            assert controls_size and all(200<=value<=1400 for value in controls_size), 'floating workspace size was not persisted within safe bounds'
             key('c')
             wait(lambda: 'UI_TEST_COLOR_FLYOUT_OPENED: shortcut' in (directory/'application.log').read_text(),
                  'C opens Color controls for keyboard users')
+            wait(lambda: 'UI_TEST_COLOR_PALETTE_READY: 3' in (directory/'application.log').read_text(),
+                 'Color panel restores the three saved workspace swatches')
             time.sleep(0.25)
             capture_window(window,'color-controls-light')
+            add_bounds=wait(lambda: color_palette_marker('UI_TEST_COLOR_PALETTE_ADD_RECT'), 'Save current color control is laid out')
+            remove_bounds=wait(lambda: color_palette_marker('UI_TEST_COLOR_PALETTE_REMOVE_RECT'), 'saved swatch remove control is laid out')
+            click_at((add_bounds[0]+add_bounds[2]/2)*add_bounds[4],(add_bounds[1]+add_bounds[3]/2)*add_bounds[4])
+            wait(lambda: 'UI_TEST_COLOR_PALETTE_ADD_CLICKED' in (directory/'application.log').read_text(),
+                 'clicking Save current color activates its actual UI control')
+            wait(lambda: len(json.loads(prefs.read_text()).get('saved_color_swatches',[]))==4,
+                 'Save current color persists a reusable workspace swatch')
+            saved_after_add=json.loads(prefs.read_text())['saved_color_swatches']
+            assert saved_after_add[-1]==[35,65,180], f'palette saved unexpected color: {saved_after_add[-1]}'
+            swatch_bounds=wait(lambda: color_palette_marker('UI_TEST_COLOR_SWATCH_RECT'), 'first saved color action is laid out')
+            click_at((swatch_bounds[0]+swatch_bounds[2]/2)*swatch_bounds[4],(swatch_bounds[1]+swatch_bounds[3]/2)*swatch_bounds[4])
+            wait(lambda: [245,88,206] in json.loads(prefs.read_text()).get('recent_brush_colors',[]),
+                 'selecting a saved swatch applies its color to the active brush')
+            click_at((add_bounds[0]+add_bounds[2]/2)*add_bounds[4],(add_bounds[1]+add_bounds[3]/2)*add_bounds[4])
+            time.sleep(0.2)
+            assert len(json.loads(prefs.read_text())['saved_color_swatches'])==4, 'saving an existing swatch should not create a duplicate'
+            click_at((remove_bounds[0]+remove_bounds[2]/2)*remove_bounds[4],(remove_bounds[1]+remove_bounds[3]/2)*remove_bounds[4])
+            wait(lambda: len(json.loads(prefs.read_text()).get('saved_color_swatches',[]))==3,
+                 'Remove saved color updates workspace preferences')
+            saved_after_remove=json.loads(prefs.read_text())['saved_color_swatches']
+            assert saved_after_remove==initial_swatches[1:]+[[35,65,180]], f'palette removal changed unrelated colors: {saved_after_remove}'
             key('Escape')
             wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: color' in (directory/'application.log').read_text(),
                  'Escape dismisses Color controls')
@@ -622,6 +717,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             window=wait(find_window,'dark Home after saved artwork restart');focus(display,window,2,0);send();time.sleep(0.5)
             wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: dark' in (directory / 'application.log').read_text(),
                  'dark Home headline is rendered at accessible contrast')
+            assert_slogan_contrast('dark')
             resize_window(window,1280,800);capture_window(window,'home-dark-normal')
             resize_window(window,640,480);capture_window(window,'home-dark-narrow')
             resize_window(window,1280,800)
@@ -659,7 +755,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             key('Escape');assert process.wait(timeout=20)==0
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','recovery-manager-populated-light','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','brush-library-dark','color-controls-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','recovery-manager-populated-light','workspace-controls-floating-light-normal','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','brush-library-dark','color-controls-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -671,7 +767,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                         assert width>=1800 and height>=1000,f'{name} was not captured at a wide size: {width}x{height}'
                     if name == 'home-recent-artwork-light':
                         assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise
