@@ -1777,11 +1777,6 @@ hosted Windows GUI-session validation; it is not an Iris Xe or physical-monitor
 test. Both `rust-paint-lab-canvas-demo` and the separate
 `rust-paint-lab-windows-diagnostic` artifacts are present on the run page.
 
-The existing macOS job built and packaged successfully but did not launch its
-window. A macOS `--alpha-smoke` launch check has now been added; its result is
-pending the next Actions run. The Windows fix and artifact are already verified
-by run `40332091800`.
-
 Follow-up Actions run `40334210743` exposed a Linux XTest timeout after it had
 captured all requested artwork/recovery states: the test clicked Cancel in the
 Home Open-project path modal but did not observe the modal close within its
@@ -1792,18 +1787,28 @@ stable Cancel bounds and a test-only cancellation event before checking that Hom
 returns. The diagnostic event is gated by the existing test mode and does not
 change ordinary file-picker behavior. Local formatting, strict Clippy, all 247
 workspace tests, build, Windows GNU checks/Clippy, and Python syntax checks pass
-after this test stabilization. The new Actions run is pending; no claim is made
-yet that the Linux workflow flake is resolved.
+after this test stabilization.
+
+Actions run [`40335600464`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40335600464)
+passed Windows, Linux, and macOS on commit `b50e7ec`. Linux passed the full
+screenshot, live mouse, artwork, export, recovery, and stabilized Home-picker
+workflow. The Windows visible-HWND/first-frame smoke and macOS first-frame smoke
+both passed without adapter-inconclusive warnings. The run has the refreshed
+`rust-paint-lab-canvas-demo` and separate `rust-paint-lab-windows-diagnostic`
+artifacts, plus Linux/macOS alpha packages. The Windows artifact includes the
+referenced startup-smoke notes under `docs/`.
+
+The Windows GUI smoke exercises the hosted runner session; no physical Galaxy
+Book2 Pro 360 or Iris Xe launch was performed on this build. It does not replace
+the owner's requested device evaluation. Basic S Pen drawing was observed on an
+earlier build; advanced pen behavior is outside this startup correction.
 
 ### Exact continuation
 
-1. Verify the new Linux run gets past the settled Cancel assertion and completes
-   the full screenshot/artwork/recovery workflow; inspect its failure output if
-   it remains flaky.
-2. Run and record the newly added macOS first-frame smoke. If its runner has no
-   compatible adapter, preserve the explicit inconclusive result and use an
-   interactive macOS GUI session for runtime startup validation.
-3. Use the artifact panel on Actions run `40332091800` to download the fixed
+1. Use the artifact panel on Actions run `40335600464` to download the fixed
    `rust-paint-lab-canvas-demo`; retain the separate stylus diagnostic artifact.
-4. Resume the incomplete Phase 8.3 Home/workspace/accessibility program after
-   the cross-platform startup checks. Do not merge or release.
+2. Retest launch on the Galaxy Book2 Pro 360, checking that the window appears
+   without an AccessKit panic. Preserve the prior basic S Pen observation; only
+   evaluate advanced pen behavior if it is in scope.
+3. Resume the incomplete Phase 8.3 Home/workspace/accessibility program. Do not
+   merge or release.

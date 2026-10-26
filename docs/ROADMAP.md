@@ -359,17 +359,17 @@ the full 33-state UI and artwork workflow, and Windows uploaded both existing
 executables. See the [progress log](PHASE8-STUDIO-PROGRESS.md). Phase 8.3
 remains active and is not accepted as complete.
 
-### Windows AccessKit startup correction (Windows verified; macOS smoke pending)
+### Windows AccessKit startup correction (cross-platform CI verified)
 
 Commit `089c40b` exposed a physical Windows startup panic because the window was
 shown before AccessKit initialization. Commit `140b789` creates it hidden and
 shows it only after AccessKit, GPU and initial surface setup. Actions run
-`40332091800` passed Windows, Linux and macOS, including a Windows release launch
-smoke that checked the visible top-level window and first Studio frame; both
-Windows artifacts are available from the run. A macOS first-frame launch smoke
-has now been added and awaits its next run. See [the startup-smoke strategy](windows-startup-smoke.md)
-and the [Phase 8 progress record](PHASE8-STUDIO-PROGRESS.md). The follow-up run
-`40334210743` also exposed a Linux XTest timing failure on Cancel in Home's
-open-project picker; the test now waits for stable button bounds and confirms
-the cancellation event, pending a rerun. This is a blocking bug fix, not Phase
-8.3 completion.
+`40335600464` passed Windows, Linux, and macOS. The Windows release smoke
+checked the visible top-level window and first Studio frame; the macOS smoke
+checked its first rendered frame. Linux screenshot/artwork checks also passed
+after stabilizing the Home picker Cancel assertion. The run includes
+`rust-paint-lab-canvas-demo` and the separate stylus diagnostic artifacts. See
+[the startup-smoke strategy](windows-startup-smoke.md) and the
+[Phase 8 progress record](PHASE8-STUDIO-PROGRESS.md). Hosted smoke tests do not
+replace testing on the Galaxy Book2 Pro 360. This is a blocking bug fix, not
+Phase 8.3 completion.
