@@ -178,6 +178,8 @@ jobs:
           New-Item -ItemType Directory -Force $package | Out-Null
           Copy-Item $exe "$package/canvas-demo.exe"
           Copy-Item 'docs/windows-canvas-README.txt' "$package/README.txt"
+          New-Item -ItemType Directory -Force "$package/docs" | Out-Null
+          Copy-Item 'docs/windows-startup-smoke.md' "$package/docs/windows-startup-smoke.md"
           Copy-Item 'docs/overdrive-user-guide.md' "$package/USER-GUIDE.md"
           python scripts/canvas-licenses.py --output "$package/THIRD-PARTY-NOTICES.txt"
           if ($LASTEXITCODE -ne 0) { throw 'Canvas license notice generation failed' }
@@ -245,3 +247,7 @@ jobs:
           path: target/painting-alpha.tar.gz
           if-no-files-found: error
           retention-days: 30
+      - name: macOS visible canvas startup smoke
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: python3 scripts/macos-startup-smoke.py

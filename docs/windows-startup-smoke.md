@@ -31,3 +31,9 @@ must continue to run even when no dedicated GUI machine is available.
 
 The startup smoke is enabled only by `RPL_STARTUP_SMOKE=1`; normal application
 launches do not emit its markers or use its test exit behavior.
+
+The Linux CI job continues to launch real virtual-window, mouse, and full
+artwork/recovery screenshot workflows. The macOS job also launches the packaged
+binary with `--alpha-smoke`, requiring the show marker, first presented frame,
+and clean exit. That check may be marked inconclusive if Metal exposes no
+compatible adapter; it does not claim a visually inspected macOS desktop.

@@ -1765,21 +1765,31 @@ Local validation passes: Rust 1.90 formatting, strict workspace Clippy, all
 Clippy, and the offscreen llvmpipe GPU smoke. The GPU test exercised the existing
 artwork/rendering checks, not native window startup. This environment has no
 Xvfb/display, so the Linux screenshot and artwork-window workflows were not run
-locally. It is not Windows, so the new Windows launch smoke and Windows release
-package remain pending Actions. No graphical startup result is claimed yet.
-After the new workflow completes, record its run URL, whether the GUI check
-passed or was inconclusive, and the actual Windows hardware retest separately.
-Continue Phase 8.3 after this blocking correction; this does not accept the
-wider visual or accessibility overhaul.
+locally.
+
+Actions run [`40332091800`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40332091800)
+passed Windows, Linux, and macOS. Linux passed its full screenshot, live-mouse,
+artwork, export, and recovery workflows. The Windows release startup smoke
+passed: its test step succeeded without the no-adapter inconclusive warning,
+and it checks the visible process-owned HWND, post-initialization show marker,
+first presented Studio frame, alpha-smoke completion, and clean exit. That is
+hosted Windows GUI-session validation; it is not an Iris Xe or physical-monitor
+test. Both `rust-paint-lab-canvas-demo` and the separate
+`rust-paint-lab-windows-diagnostic` artifacts are present on the run page.
+
+The existing macOS job built and packaged successfully but did not launch its
+window. A macOS `--alpha-smoke` launch check has now been added; its result is
+pending the next Actions run. The Windows fix and artifact are already verified
+by run `40332091800`; the added macOS check does not alter the Windows startup
+code or Linux screenshot/workflow coverage. Continue Phase 8.3 after the macOS
+check, and do not accept the wider visual or accessibility overhaul here.
 
 ### Exact continuation
 
-1. Push the hidden-window startup fix, Windows smoke script/workflow, README, and
-   this progress record. Inspect all three platform jobs and both Windows
-   artifacts from the resulting Actions run.
-2. If hosted Windows reports no compatible adapter or cannot expose a visible
-   top-level window, report that exact limitation and use an interactive
-   self-hosted GUI session for the launch/frame check. Do not count compilation
-   as a graphical startup pass.
-3. Resume the incomplete Phase 8.3 Home/workspace/accessibility program after the
-   startup correction is validated. Do not merge or release.
+1. Run and record the newly added macOS first-frame smoke. If its runner has no
+   compatible adapter, preserve the explicit inconclusive result and use an
+   interactive macOS GUI session for runtime startup validation.
+2. Use the artifact panel on Actions run `40332091800` to download the fixed
+   `rust-paint-lab-canvas-demo`; retain the separate stylus diagnostic artifact.
+3. Resume the incomplete Phase 8.3 Home/workspace/accessibility program after
+   the cross-platform startup checks. Do not merge or release.

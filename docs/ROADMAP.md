@@ -359,13 +359,14 @@ the full 33-state UI and artwork workflow, and Windows uploaded both existing
 executables. See the [progress log](PHASE8-STUDIO-PROGRESS.md). Phase 8.3
 remains active and is not accepted as complete.
 
-### Windows AccessKit startup correction (pending validation)
+### Windows AccessKit startup correction (Windows verified; macOS smoke pending)
 
 Commit `089c40b` exposed a physical Windows startup panic because the window was
-shown before AccessKit initialization. The correction now creates it hidden and
-shows it only after AccessKit, GPU and initial surface setup; a Windows release
-launch smoke checks the visible top-level window and first presented Studio
-frame. See [the startup-smoke strategy](windows-startup-smoke.md) and the
-[Phase 8 progress record](PHASE8-STUDIO-PROGRESS.md). Cross-platform CI and a
-new Windows artifact are pending; this is a blocking bug fix, not Phase 8.3
-completion.
+shown before AccessKit initialization. Commit `140b789` creates it hidden and
+shows it only after AccessKit, GPU and initial surface setup. Actions run
+`40332091800` passed Windows, Linux and macOS, including a Windows release launch
+smoke that checked the visible top-level window and first Studio frame; both
+Windows artifacts are available from the run. A macOS first-frame launch smoke
+has now been added and awaits its next run. See [the startup-smoke strategy](windows-startup-smoke.md)
+and the [Phase 8 progress record](PHASE8-STUDIO-PROGRESS.md). This is a blocking
+bug fix, not Phase 8.3 completion.
