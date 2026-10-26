@@ -206,6 +206,15 @@ def stable_format_card_rect(label):
         return None
     return tuple(map(float,lines[-1].split()[:5]))
 
+def assert_format_card_fully_visible(label, width, height):
+    rect=wait(lambda: stable_format_card_rect(label),
+              f'{label} format card has stable bounds')
+    assert rect[0] >= 0.0 and rect[1] >= 0.0 \
+        and rect[0]+rect[2] <= width/rect[4]+1.0 \
+        and rect[1]+rect[3] <= height/rect[4]-4.0, \
+        f'{label} format card is clipped in {width}x{height}: {rect}'
+    return rect
+
 def reference_image_rect():
     return stable_window_rect_marker('UI_TEST_REFERENCE_LAST_IMAGE_RECT')
 
@@ -798,12 +807,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'new-artwork-light-normal')
             resize_window(window,640,480)
             capture_window(window,'new-artwork-light-narrow')
-            custom_card=wait(lambda: stable_format_card_rect('Custom'),
-                             'compact New Artwork layout reports its complete Custom card bounds')
-            assert custom_card[0] >= 0.0 and custom_card[1] >= 0.0 \
-                and custom_card[0]+custom_card[2] <= 640/custom_card[4]+1.0 \
-                and custom_card[1]+custom_card[3] <= 480/custom_card[4]-4.0, \
-                f'narrow New Artwork format card is clipped: {custom_card}'
+            assert_format_card_fully_visible('Custom',640,480)
             resize_window(window,1280,800)
             key('Return');time.sleep(0.5)
             capture_window(window,'canvas-workspace-light')
@@ -1309,7 +1313,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('n');new_document_prompt()
             wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 2,
                  'dark New Artwork interface has rendered before capture')
-            time.sleep(0.25);capture_window(window,'new-artwork-dark-normal');key('Return');time.sleep(0.4)
+            time.sleep(0.25);capture_window(window,'new-artwork-dark-normal')
+            resize_window(window,640,480)
+            capture_window(window,'new-artwork-dark-narrow')
+            assert_format_card_fully_visible('Custom',640,480)
+            resize_window(window,1280,800);key('Return');time.sleep(0.4)
             capture_window(window,'canvas-workspace-dark-toolbar-top')
             clearance=wait(top_palette_clearance,'top-docked palette reports its measured app-toolbar clearance')
             assert clearance[0]>=clearance[1]-0.5, f'top palette overlaps contextual options: {clearance}'
@@ -1368,7 +1376,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             key('Escape');assert process.wait(timeout=20)==0
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','reference-board-multi-light','reference-board-multi-light-narrow','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','reference-board-multi-light','reference-board-multi-light-narrow','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

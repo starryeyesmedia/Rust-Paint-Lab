@@ -1706,3 +1706,26 @@ wider Phase 8.3 redesign or accessibility validation.
    maintain populated-state screenshots and artwork/recovery regressions.
 2. Keep Phase 8.3 open and withhold the consolidated Windows evaluation build,
    merge, and release until the broader overhaul passes review.
+
+## Dark narrow New Artwork visual regression — 2026-10-26
+
+Extended the real Linux screenshot workflow to **33 states** by adding a dark
+theme New Artwork capture at 640 × 480. It runs the same live Custom-card bounds
+assertion as the light narrow capture, so all seven format options are checked
+in both themes at the smallest tested size. I inspected the rendered dark
+capture; the Custom card and its selected state fit completely, while the
+canvas preview and advanced dimensions remain reachable by scrolling.
+
+The full Xorg/XTEST workflow passes locally with the new state, along with the
+existing populated Layers and Recovery views, painting/save/export/recovery
+scenarios, and screenshots. This adds no product dependencies. Commit `29ac86a`
+has a documentation-only Actions run `40279887697` in progress; the new
+workflow state is currently uncommitted and needs a new CI result.
+
+### Exact continuation
+
+1. Commit and push the 33-state screenshot expansion; verify Linux XTest and the
+   Windows/macOS builds, then record the run result here.
+2. Continue the actual Home/canvas presentation and keyboard/focus/AccessKit
+   integration. Keep the more complete narrow layouts, existing artwork
+   protection, and full Phase 8.3 status; do not merge or release.

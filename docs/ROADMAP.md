@@ -345,3 +345,11 @@ smoke pass. Actions run `40278687191` passed Windows, Linux and macOS. On Linux,
 the full UI/artwork workflow passed; on Windows the portable canvas and stylus
 diagnostic artifacts were produced. Phase 8.3 remains active. Continue the wider
 workspace and accessibility overhaul; see the [detailed progress log](PHASE8-STUDIO-PROGRESS.md).
+
+### Dark narrow New Artwork screenshot coverage
+
+The local Linux UI matrix now has 33 states, adding dark New Artwork at
+640 × 480 and checking that all seven cards stay inside the viewport in both
+themes. Its full Xorg/XTEST workflow passes locally and the capture was
+inspected. This automation update is uncommitted; CI for the docs-only parent
+`29ac86a` is still running. See the [progress log](PHASE8-STUDIO-PROGRESS.md).
