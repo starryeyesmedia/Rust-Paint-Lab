@@ -1780,16 +1780,30 @@ test. Both `rust-paint-lab-canvas-demo` and the separate
 The existing macOS job built and packaged successfully but did not launch its
 window. A macOS `--alpha-smoke` launch check has now been added; its result is
 pending the next Actions run. The Windows fix and artifact are already verified
-by run `40332091800`; the added macOS check does not alter the Windows startup
-code or Linux screenshot/workflow coverage. Continue Phase 8.3 after the macOS
-check, and do not accept the wider visual or accessibility overhaul here.
+by run `40332091800`.
+
+Follow-up Actions run `40334210743` exposed a Linux XTest timeout after it had
+captured all requested artwork/recovery states: the test clicked Cancel in the
+Home Open-project path modal but did not observe the modal close within its
+timeout. The previous run passed this same workflow. Inspection found that this
+test used the latest Cancel geometry without waiting for layout to settle and
+did not prove the button event had reached Studio. The harness now waits for
+stable Cancel bounds and a test-only cancellation event before checking that Home
+returns. The diagnostic event is gated by the existing test mode and does not
+change ordinary file-picker behavior. Local formatting, strict Clippy, all 247
+workspace tests, build, Windows GNU checks/Clippy, and Python syntax checks pass
+after this test stabilization. The new Actions run is pending; no claim is made
+yet that the Linux workflow flake is resolved.
 
 ### Exact continuation
 
-1. Run and record the newly added macOS first-frame smoke. If its runner has no
+1. Verify the new Linux run gets past the settled Cancel assertion and completes
+   the full screenshot/artwork/recovery workflow; inspect its failure output if
+   it remains flaky.
+2. Run and record the newly added macOS first-frame smoke. If its runner has no
    compatible adapter, preserve the explicit inconclusive result and use an
    interactive macOS GUI session for runtime startup validation.
-2. Use the artifact panel on Actions run `40332091800` to download the fixed
+3. Use the artifact panel on Actions run `40332091800` to download the fixed
    `rust-paint-lab-canvas-demo`; retain the separate stylus diagnostic artifact.
-3. Resume the incomplete Phase 8.3 Home/workspace/accessibility program after
+4. Resume the incomplete Phase 8.3 Home/workspace/accessibility program after
    the cross-platform startup checks. Do not merge or release.

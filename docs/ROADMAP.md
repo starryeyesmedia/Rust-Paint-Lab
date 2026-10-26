@@ -368,5 +368,8 @@ shows it only after AccessKit, GPU and initial surface setup. Actions run
 smoke that checked the visible top-level window and first Studio frame; both
 Windows artifacts are available from the run. A macOS first-frame launch smoke
 has now been added and awaits its next run. See [the startup-smoke strategy](windows-startup-smoke.md)
-and the [Phase 8 progress record](PHASE8-STUDIO-PROGRESS.md). This is a blocking
-bug fix, not Phase 8.3 completion.
+and the [Phase 8 progress record](PHASE8-STUDIO-PROGRESS.md). The follow-up run
+`40334210743` also exposed a Linux XTest timing failure on Cancel in Home's
+open-project picker; the test now waits for stable button bounds and confirms
+the cancellation event, pending a rerun. This is a blocking bug fix, not Phase
+8.3 completion.

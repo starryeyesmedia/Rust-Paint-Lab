@@ -7644,6 +7644,9 @@ impl Studio {
                         );
                     }
                     if cancel.clicked() {
+                        if self.test_path_dialog {
+                            eprintln!("UI_TEST_FILE_PICKER_CANCELLED");
+                        }
                         self.manual_file_action = None;
                         self.manual_file_dialog = false;
                         self.manual_file_submit = false;

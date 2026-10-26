@@ -1276,11 +1276,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                      (open_card_y+96.0)*open_card_scale)
             path_prompt()
             cancel_x,cancel_y,cancel_width,cancel_height,cancel_scale=wait(
-                lambda: window_rect_marker('UI_TEST_FILE_PICKER_CANCEL_RECT'),
-                'the opened file picker exposes its cancel action',
+                lambda: settled_window_rect_marker('UI_TEST_FILE_PICKER_CANCEL_RECT'),
+                'the opened file picker exposes stable cancel-button bounds',
             )
+            cancel_marker='UI_TEST_FILE_PICKER_CANCELLED'
+            cancel_count=sum(line.startswith(cancel_marker)
+                             for line in (directory/'application.log').read_text().splitlines())
             click_at((cancel_x+cancel_width/2)*cancel_scale,
                      (cancel_y+cancel_height/2)*cancel_scale)
+            wait(lambda: sum(line.startswith(cancel_marker)
+                             for line in (directory/'application.log').read_text().splitlines())>cancel_count,
+                 'Cancel click reaches the file-picker action')
             wait(lambda: 'TEST FILE PICKER' not in title(window),
                  'Cancel returns to Home from the open-project tile')
             key('Escape');assert process.wait(timeout=20)==0
