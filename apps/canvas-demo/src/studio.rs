@@ -1271,6 +1271,58 @@ fn centered_reference_position(size: [f32; 2], viewport: egui::Rect) -> egui::Po
     )
 }
 
+fn default_reference_size(viewport: egui::Rect) -> [f32; 2] {
+    [
+        (viewport.width() - 32.0).clamp(1.0, 360.0),
+        (viewport.height() - 96.0).clamp(1.0, 300.0),
+    ]
+}
+
+/// Choose a visible corner for a newly imported reference image. Favor the
+/// side away from the primary palette, then minimize overlap with existing
+/// boards. This keeps the first image off the artist's controls and cascades
+/// later images into unused corners instead of stacking them exactly.
+fn default_reference_position(
+    viewport: egui::Rect,
+    size: [f32; 2],
+    palette: Option<egui::Rect>,
+    occupied: &[egui::Rect],
+) -> egui::Pos2 {
+    let margin = 16.0;
+    let left = viewport.left() + margin;
+    let right = viewport.right() - size[0] - margin;
+    let top = viewport.top() + margin;
+    let bottom = viewport.bottom() - size[1] - margin;
+    let prefer_right = palette
+        .map(|rect| rect.center().x < viewport.center().x)
+        .unwrap_or(true);
+    let corners = if prefer_right {
+        [[right, top], [right, bottom], [left, top], [left, bottom]]
+    } else {
+        [[left, top], [left, bottom], [right, top], [right, bottom]]
+    };
+    let area = |rect: egui::Rect| rect.width().max(0.0) * rect.height().max(0.0);
+    let overlap = |a: egui::Rect, b: egui::Rect| area(a.intersect(b));
+    corners
+        .into_iter()
+        .map(|position| clamp_reference_position(position, size, viewport))
+        .min_by(|left_pos, right_pos| {
+            let score = |position: egui::Pos2| {
+                let rect = egui::Rect::from_min_size(position, egui::vec2(size[0], size[1]));
+                let palette_overlap = palette.map(|other| overlap(rect, other)).unwrap_or(0.0);
+                // Palette overlap is more disruptive than board overlap, while
+                // a lighter board penalty still spreads multi-image imports.
+                palette_overlap * 4.0
+                    + occupied
+                        .iter()
+                        .map(|other| overlap(rect, *other) * 1.5)
+                        .sum::<f32>()
+            };
+            score(*left_pos).total_cmp(&score(*right_pos))
+        })
+        .unwrap_or_else(|| clamp_reference_position([left, top], size, viewport))
+}
+
 fn reference_zoom_about(
     layout: &mut crate::workspace::ReferenceLayout,
     viewport: egui::Rect,
@@ -1308,6 +1360,57 @@ fn reference_zoom_about(
 #[cfg(test)]
 mod reference_tests {
     use super::*;
+
+    fn overlaps(left: egui::Rect, right: egui::Rect) -> bool {
+        let intersection = left.intersect(right);
+        intersection.width() > 0.0 && intersection.height() > 0.0
+    }
+
+    #[test]
+    fn new_reference_boards_avoid_palette_and_stagger_around_existing_boards() {
+        let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let size = default_reference_size(viewport);
+        assert_eq!(size, [360.0, 300.0]);
+        let left_palette =
+            egui::Rect::from_min_size(egui::pos2(8.0, 48.0), egui::vec2(210.0, 700.0));
+        let first = default_reference_position(viewport, size, Some(left_palette), &[]);
+        let first_rect = egui::Rect::from_min_size(first, egui::vec2(size[0], size[1]));
+        assert!(first.x > viewport.center().x);
+        assert!(!overlaps(first_rect, left_palette));
+
+        let second = default_reference_position(viewport, size, Some(left_palette), &[first_rect]);
+        let second_rect = egui::Rect::from_min_size(second, egui::vec2(size[0], size[1]));
+        assert_ne!(first_rect, second_rect);
+        assert!(!overlaps(first_rect, second_rect));
+
+        let right_palette =
+            egui::Rect::from_min_size(egui::pos2(1060.0, 48.0), egui::vec2(210.0, 700.0));
+        let left_side = default_reference_position(viewport, size, Some(right_palette), &[]);
+        assert!(left_side.x < viewport.center().x);
+        assert!(!overlaps(
+            egui::Rect::from_min_size(left_side, egui::vec2(size[0], size[1])),
+            right_palette
+        ));
+
+        let top_palette =
+            egui::Rect::from_min_size(egui::pos2(300.0, 90.0), egui::vec2(680.0, 120.0));
+        let below_top_palette = default_reference_position(viewport, size, Some(top_palette), &[]);
+        assert!(!overlaps(
+            egui::Rect::from_min_size(below_top_palette, egui::vec2(size[0], size[1])),
+            top_palette
+        ));
+    }
+
+    #[test]
+    fn new_reference_board_fits_a_narrow_window_without_covering_left_palette() {
+        let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 480.0));
+        let size = default_reference_size(viewport);
+        let palette = egui::Rect::from_min_size(egui::pos2(8.0, 32.0), egui::vec2(210.0, 440.0));
+        let position = default_reference_position(viewport, size, Some(palette), &[]);
+        let board = egui::Rect::from_min_size(position, egui::vec2(size[0], size[1]));
+        assert!(viewport.contains_rect(board));
+        assert!(!overlaps(board, palette));
+    }
 
     #[test]
     fn reference_window_bounds_block_canvas_input_in_physical_pixels() {
@@ -2087,6 +2190,9 @@ pub struct Studio {
     manual_file_action: Option<Action>,
     manual_file_submit: bool,
     test_path_dialog: bool,
+    test_reference_import: Option<PathBuf>,
+    test_reference_centered: bool,
+    test_palette_rect_logged: Option<[i32; 5]>,
     test_brush_rect_logged: bool,
     test_brush_layout_logged: bool,
     test_brush_preview_logged: bool,
@@ -2141,6 +2247,7 @@ pub struct Studio {
     palette_collapsed: bool,
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
+    palette_rect: Option<egui::Rect>,
     layers_flyout_position: [f32; 2],
     layers_flyout_size: [f32; 2],
     brush_flyout_position: [f32; 2],
@@ -2222,6 +2329,10 @@ impl Studio {
             .and_then(|p| p.parent())
             .map(|p| p.join("workspace.json"));
         let test_path_dialog = std::env::var_os("RPL_TEST_PATH_DIALOG").is_some();
+        let test_reference_import = test_path_dialog
+            .then(|| std::env::var_os("RPL_TEST_REFERENCE_IMPORT_PATH"))
+            .flatten()
+            .map(PathBuf::from);
         let new_name = if test_path_dialog {
             std::env::var("RPL_TEST_DOCUMENT_NAME").unwrap_or_else(|_| "Untitled".into())
         } else {
@@ -2289,6 +2400,9 @@ impl Studio {
             manual_file_action: None,
             manual_file_submit: false,
             test_path_dialog,
+            test_reference_import,
+            test_reference_centered: false,
+            test_palette_rect_logged: None,
             test_brush_rect_logged: false,
             test_brush_layout_logged: false,
             test_brush_preview_logged: false,
@@ -2346,6 +2460,7 @@ impl Studio {
             palette_collapsed: preferences.palette_collapsed,
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
+            palette_rect: None,
             layers_flyout_position: preferences.layers_flyout_position,
             layers_flyout_size: preferences.layers_flyout_size,
             brush_flyout_position: preferences.brush_flyout_position,
@@ -4269,6 +4384,28 @@ impl Studio {
                     });
             });
             let rect = palette_response.response.rect;
+            self.palette_rect = Some(rect);
+            if self.test_path_dialog {
+                let scale = ctx.pixels_per_point();
+                let marker = [
+                    (rect.left() * 100.0).round() as i32,
+                    (rect.top() * 100.0).round() as i32,
+                    (rect.width() * 100.0).round() as i32,
+                    (rect.height() * 100.0).round() as i32,
+                    (scale * 1000.0).round() as i32,
+                ];
+                if self.test_palette_rect_logged != Some(marker) {
+                    self.test_palette_rect_logged = Some(marker);
+                    eprintln!(
+                        "UI_TEST_PALETTE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        rect.left(),
+                        rect.top(),
+                        rect.width(),
+                        rect.height(),
+                        scale
+                    );
+                }
+            }
             if self.test_path_dialog
                 && self.palette_dock == crate::workspace::PaletteDock::Top
                 && !self.test_palette_clearance_logged
@@ -5578,6 +5715,7 @@ impl Studio {
                 });
 
             let screen_viewport = ctx.content_rect();
+            let last_reference_index = self.references.len().saturating_sub(1);
             for (index, reference) in self.references.iter_mut().enumerate() {
                 let title = reference
                     .layout
@@ -5695,6 +5833,9 @@ impl Studio {
                             }
                             if center_image.clicked() {
                                 reference.layout.view_pan = [0.0, 0.0];
+                                if self.test_path_dialog && self.test_reference_import.is_some() {
+                                    self.test_reference_centered = true;
+                                }
                                 ui.close();
                             }
                             if ui.button("Fit image to window").clicked() {
@@ -5793,6 +5934,16 @@ impl Studio {
                                 visible_image_rect.height(),
                                 ctx.pixels_per_point(),
                             );
+                            if index == last_reference_index {
+                                eprintln!(
+                                    "UI_TEST_REFERENCE_LAST_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    visible_image_rect.left(),
+                                    visible_image_rect.top(),
+                                    visible_image_rect.width(),
+                                    visible_image_rect.height(),
+                                    ctx.pixels_per_point(),
+                                );
+                            }
                         }
                         ui.painter().with_clip_rect(viewport).image(
                             reference.texture.id(),
@@ -5830,6 +5981,16 @@ impl Studio {
                             rect.height(),
                             ctx.pixels_per_point(),
                         );
+                        if index == last_reference_index {
+                            eprintln!(
+                                "UI_TEST_REFERENCE_LAST_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                rect.left(),
+                                rect.top(),
+                                rect.width(),
+                                rect.height(),
+                                ctx.pixels_per_point(),
+                            );
+                        }
                     }
                     let next_position = if center_requested {
                         centered_reference_position([rect.width(), rect.height()], screen_viewport)
@@ -6914,7 +7075,17 @@ impl Studio {
         }
         let raw = self.input.take_egui_input(window);
         let ctx = self.context.clone();
+        self.palette_rect = None;
         let mut actions = Vec::new();
+        if self.test_path_dialog && !self.new_dialog && self.test_reference_centered {
+            self.test_reference_centered = false;
+            // This is an integration-test-only injection point. It lets the
+            // real import and placement path be exercised without opening a
+            // native file picker in the headless Linux workflow.
+            if let Some(path) = self.test_reference_import.take() {
+                actions.push(Action::AddReference(path));
+            }
+        }
         if let Some((id, target_index)) = self.pending_layer_move.take() {
             actions.push(Action::MoveLayerTo(id, target_index));
         }
@@ -7020,8 +7191,42 @@ impl Studio {
                 continue;
             }
             if let Action::AddReference(path) = a {
+                let viewport = ctx.content_rect();
                 match add_reference_path(&ctx, &mut self.references, path) {
-                    Ok(()) => reference_imported += 1,
+                    Ok(()) => {
+                        let index = self.references.len() - 1;
+                        let size = default_reference_size(viewport);
+                        let occupied: Vec<_> = self
+                            .references
+                            .iter()
+                            .take(index)
+                            .map(|existing| {
+                                egui::Rect::from_min_size(
+                                    egui::pos2(
+                                        existing.layout.position[0],
+                                        existing.layout.position[1],
+                                    ),
+                                    egui::vec2(existing.layout.size[0], existing.layout.size[1]),
+                                )
+                            })
+                            .collect();
+                        let position = default_reference_position(
+                            viewport,
+                            size,
+                            self.palette_rect,
+                            &occupied,
+                        );
+                        let reference = &mut self.references[index];
+                        reference.layout.position = [position.x, position.y];
+                        reference.layout.size = size;
+                        if self.test_path_dialog {
+                            eprintln!(
+                                "UI_TEST_REFERENCE_INITIAL_POSITION: {:.1} {:.1} {:.1} {:.1}",
+                                position.x, position.y, size[0], size[1]
+                            );
+                        }
+                        reference_imported += 1;
+                    }
                     Err(error) => reference_errors.push(error),
                 }
                 continue;

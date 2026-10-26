@@ -287,14 +287,22 @@ reference viewport. X11/XTest also opens Settings from a panned 110% view, selec
 Center image, and verifies pan resets while zoom persists in workspace settings;
 Fit image to window remains the separate zoom-and-pan reset.
 
-The 30-image matrix and full X11 artwork workflow pass after this work, including
-real live mouse strokes, layer transactions and Undo, exports, reference-image
-isolation, reopen, and process-kill journal recovery. The Color screenshot
-contains 2,204 distinct chromatic wheel colors. Local formatting, strict Clippy,
-all 240 workspace tests, workspace build, Windows GNU target checks/Clippy, and
-llvmpipe offscreen GPU smoke pass. Images were visually reviewed through the
-local viewer. Actions run [`40265944815`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40265944815)
-passed all desktop platforms on predecessor `2b615f9`; this change requires a
-new run after push. Continue the Phase 8.3 workspace redesign after CI; Windows
-evaluation, advanced pen verification and native screen-reader validation remain
-pending.
+The 30-image matrix and full X11 artwork workflow passed after the hue and
+reference-center changes, including real live mouse strokes, layer transactions
+and Undo, exports, reference-image isolation, reopen, and process-kill journal
+recovery. The Color screenshot contains 2,204 distinct chromatic wheel colors.
+Local formatting, strict Clippy, all 240 workspace tests, workspace build,
+Windows GNU target checks/Clippy, and llvmpipe offscreen GPU smoke passed. Images
+were visually reviewed through the local viewer. Actions run
+[`40265944815`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40265944815)
+passed all desktop platforms on predecessor `2b615f9`.
+
+The next Linux alpha workflow expands the matrix to 31 required UI states and 32
+rendered PNGs. It imports a second reference image through the real application
+path and checks that automatic placement stays inside normal/narrow viewports and
+clear of the movable palette. Local unit tests for placement pass, but the window
+workflow itself is pending the next Actions run because this execution image has
+no Xvfb/XTest. The latest local run passes formatting, strict Clippy, **242
+workspace tests**, workspace build, Windows GNU target checks/Clippy, and the
+llvmpipe GPU smoke. Overall Phase 8.3 visual acceptance, Windows evaluation,
+advanced pen verification, and native screen-reader validation remain pending.

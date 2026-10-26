@@ -170,7 +170,7 @@ def stable_window_rect_marker(name):
     return tuple(map(float,lines[-1].split()[:5]))
 
 def reference_image_rect():
-    return stable_window_rect_marker('UI_TEST_REFERENCE_IMAGE_RECT')
+    return stable_window_rect_marker('UI_TEST_REFERENCE_LAST_IMAGE_RECT')
 
 def rects_overlap(left, right):
     return left[0] < right[0] + right[2] and right[0] < left[0] + left[2] \
@@ -476,7 +476,7 @@ def capture_window(window, name):
         x,y,image_width,image_height,scale=wait(reference_image_rect,'reference screenshot reports its actual image bounds')
         reference_image_bounds=(x*scale,y*scale,(x+image_width)*scale,(y+image_height)*scale)
         reference_window=wait(
-            lambda: stable_window_rect_marker('UI_TEST_REFERENCE_WINDOW_RECT'),
+            lambda: stable_window_rect_marker('UI_TEST_REFERENCE_LAST_WINDOW_RECT'),
             'reference screenshot reports stable outer-window bounds',
         )
         reference_image_share=image_width/reference_window[2]
@@ -661,6 +661,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 color=(round(104-20*blend),round(148-28*blend),round(190-18*blend),255)
             reference_rows.extend(color)
     reference.write_bytes(b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',reference_width,reference_height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(reference_rows),6))+png_chunk(b'IEND',b''))
+    second_reference=directory/'reference-imported.png'
+    second_reference.write_bytes(reference.read_bytes())
+    env['RPL_TEST_REFERENCE_IMPORT_PATH']=str(second_reference)
     prefs=directory/'state/rust-paint-lab/workspace.json'
     prefs.parent.mkdir(parents=True)
     initial_swatches=[[245,88,206],[116,88,246],[60,205,180]]
@@ -714,6 +717,36 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                           and abs(state.get('view_zoom',0.0)-1.1)<0.01)(
                               json.loads(prefs.read_text())['references'][0]),
                  'Center image persists a centered pan while preserving the existing zoom')
+            wait(lambda: event_marker('UI_TEST_REFERENCE_INITIAL_POSITION') is not None,
+                 'the real reference import path places a second image after Center image')
+            wait(lambda: len(json.loads(prefs.read_text()).get('references',[]))==2,
+                 'the imported reference layout is persisted beside the existing image')
+            second_layout=json.loads(prefs.read_text())['references'][1]
+            palette=wait(lambda: window_rect_marker('UI_TEST_PALETTE_RECT'),
+                         'the movable tool palette reports bounds for import placement')
+            second_rect=tuple(second_layout['position']+second_layout['size'])
+            assert not rects_overlap(second_rect,palette[:4]), \
+                f'new reference overlaps the tool palette: reference={second_rect}, palette={palette[:4]}'
+            assert second_rect[0]>=0 and second_rect[1]>=0 \
+                and second_rect[0]+second_rect[2]<=1280/palette[4] \
+                and second_rect[1]+second_rect[3]<=800/palette[4], \
+                f'new reference is outside the normal viewport: {second_rect}'
+            time.sleep(0.3)
+            capture_window(window,'reference-board-multi-light')
+            resize_window(window,640,480)
+            time.sleep(0.3)
+            narrow_palette=wait(lambda: window_rect_marker('UI_TEST_PALETTE_RECT'),
+                                'the palette reports current bounds in a narrow window')
+            narrow_layout=json.loads(prefs.read_text())['references'][1]
+            narrow_rect=tuple(narrow_layout['position']+narrow_layout['size'])
+            assert not rects_overlap(narrow_rect,narrow_palette[:4]), \
+                f'narrow reference overlaps the tool palette: reference={narrow_rect}, palette={narrow_palette[:4]}'
+            assert narrow_rect[0]>=0 and narrow_rect[1]>=0 \
+                and narrow_rect[0]+narrow_rect[2]<=640/narrow_palette[4] \
+                and narrow_rect[1]+narrow_rect[3]<=480/narrow_palette[4], \
+                f'narrow reference is outside the viewport: {narrow_rect}'
+            capture_window(window,'reference-board-multi-light-narrow')
+            resize_window(window,1280,800)
             left, top, width, height, scale = wait(brush_rect, 'Brush control geometry')
             move(round((left + width / 2) * scale), round((top + height / 2) * scale))
             click_button(1, True)
@@ -730,7 +763,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             print('UI_SCREENSHOT_BRUSH_LAYOUT: ' + str(event_marker('UI_TEST_BRUSH_PANEL')), flush=True)
             brush_bounds=wait(lambda: window_rect_marker('UI_TEST_BRUSH_WINDOW_RECT'),
                               'brush window reports its final bounds')
-            reference_bounds=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCE_WINDOW_RECT'),
+            reference_bounds=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCE_LAST_WINDOW_RECT'),
                                   'reference board reports its final bounds')
             brush_rect=tuple(value*brush_bounds[4] for value in brush_bounds[:4])
             reference_rect=tuple(value*reference_bounds[4] for value in reference_bounds[:4])
@@ -1083,8 +1116,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             preferences=json.loads(prefs.read_text())
             preferences['appearance_mode']='dark';preferences['dark_theme']=True;preferences['high_contrast']=False
             preferences['palette_dock']='Top'
-            for reference_layout in preferences.get('references',[]):
-                reference_layout['position']=[40.0,190.0]
+            for index,reference_layout in enumerate(preferences.get('references',[])):
+                reference_layout['position']=[40.0+28.0*index,190.0+24.0*index]
                 reference_layout['size']=[360.0,300.0]
             prefs.write_text(json.dumps(preferences))
             recovery_dir.mkdir(parents=True,exist_ok=True)
@@ -1161,7 +1194,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             key('Escape');assert process.wait(timeout=20)==0
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','reference-board-multi-light','reference-board-multi-light-narrow','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -1177,7 +1210,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board and Center image preserving zoom, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, hue wheel color change and saved swatch restore, targeted layer duplicate/reorder/delete and drag-reorder with undo, native right-click layer menu, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, image centering that preserves zoom, multi-reference auto-placement away from the movable palette at normal/narrow sizes, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, hue wheel color change and saved swatch restore, targeted layer duplicate/reorder/delete and drag-reorder with undo, native right-click layer menu, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

@@ -409,6 +409,15 @@ local X11 run preceded that extra upper-bound assertion because the current
 execution image has no Xvfb; the observed ratios (91.1% light, 96.3% dark) are
 inside the new bound, and the exact script awaits the next Linux Actions run.
 
+The expanded workflow accepts `RPL_TEST_REFERENCE_IMPORT_PATH` only when the
+existing test-only path harness is enabled. After centering the first board it
+imports a second image through the normal bounded loader and asserts that the
+saved window remains on-screen and clear of the movable palette at 1280 × 800 and
+640 × 480. It captures the populated multi-reference state at both sizes, using
+stable geometry markers for the topmost board. These new UI checks await the next
+Linux Actions run because this execution image lacks Xvfb/XTest. They do not
+replace testing the native Windows multi-select dialog.
+
 The Brush Library also generates deterministic preset samples by running each
 built-in brush through the raster engine on a bounded temporary document. The
 active sample reflects the current brush settings; preset cards use a stable
@@ -450,4 +459,4 @@ actual ring, verifies that hue changes while saturation and brightness stay fixe
 and restores the previous color from the saved palette. The Color screenshot test
 checks that the rendered ring region contains at least 32 distinct chromatic
 colors. After editing this UI, rebuild `canvas-demo`, run the full workspace
-checks, and repeat the X11/XTest workflow above; current test count is 240.
+checks, and repeat the X11/XTest workflow above; current test count is 242.

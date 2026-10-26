@@ -1474,3 +1474,47 @@ and no consolidated evaluation package, merge, or release was produced.
    routing.
 3. Keep Phase 8.3 active and withhold the consolidated Windows evaluation build
    until the broader visual/functional work and current CI are complete.
+
+### Adaptive reference-board import placement — local checkpoint
+
+New reference images now receive a viewport-sized default window and an
+initial position chosen from the available corners. Placement favors the side
+opposite the current movable palette, avoids palette overlap, and scores existing
+reference windows so multi-image imports cascade into open space when possible.
+The normal reference movement, resize, pan, zoom, and workspace persistence paths
+remain unchanged. A narrow-window policy keeps the default board within the
+available client area before showing it.
+
+The X11/XTest artwork workflow now has a test-only path that imports a second
+image through the real bounded decoder, workspace update, texture upload, and
+placement logic after testing Center image. It checks that the new board is
+visible inside normal and 640 × 480 windows without covering the palette, then
+captures both single- and multi-reference states in light mode. The dark-mode
+capture also uses the multi-reference workspace. Stable screenshot markers now
+identify the topmost reference window rather than mixing geometry from several
+windows. These workflow additions are not yet run locally: this environment has
+no Xvfb/XTest display. The placement helper's **two new unit tests passed**
+alongside the existing reference tests, and Python syntax plus `git diff --check`
+pass. Full local checks also pass: formatting, strict workspace Clippy, **242
+workspace tests**, workspace build, Windows GNU target check/Clippy, and the
+llvmpipe offscreen GPU smoke. The next feature-branch Actions run must validate
+the exact expanded workflow before its outcome is recorded.
+
+The current palette-overlap score strongly penalizes collisions with the primary
+tool palette and lightly penalizes overlap with existing reference boards. At
+maximum capacity or on very small viewports, some board overlap can still occur;
+the artist can move and resize each board independently. This is an intentional
+best-effort layout rule rather than a docking system.
+
+### Exact continuation from adaptive reference placement
+
+1. Run formatting, strict Clippy, all workspace tests/builds, Windows target
+   checks, and the expanded Linux X11/XTest workflow in Actions; inspect the
+   resulting multi-reference screenshots before documenting visual results.
+2. Continue the broader purple-first workspace redesign and functional work.
+   Revisit Home/New Artwork hierarchy and canvas composition, then continue the
+   keyboard/focus/accessibility pass while preserving document/recovery/export
+   regressions.
+3. Keep Phase 8.3 active. Do not merge, release, or publish the consolidated
+   Windows evaluation build until the larger overhaul and cross-platform run
+   justify it.
