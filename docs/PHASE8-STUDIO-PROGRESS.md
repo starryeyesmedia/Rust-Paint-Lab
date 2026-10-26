@@ -1737,3 +1737,49 @@ the complete Phase 8.3 program.
 1. Continue the actual Home/canvas presentation and keyboard/focus/AccessKit
    integration. Keep the more complete narrow layouts, existing artwork
    protection, and full Phase 8.3 status; do not merge or release.
+
+## Windows AccessKit startup blocker — implementation checkpoint
+
+Physical evaluation of commit `089c40b` reproduced an AccessKit panic on the
+Galaxy Book2 Pro 360: the HWND was visible before `Studio::init_accesskit` ran.
+`Graphics::new` now requests an initially hidden winit window, installs the
+existing Windows pointer observer, initializes the GPU and Studio/AccessKit,
+configures the initial surface, and only then shows the window and requests its
+first redraw. Initialization errors still flow through the existing application
+failure path; the hidden local window/resources are dropped and the error is
+reported instead of leaving an invisible process running. The WM_POINTER observer
+and event loop are unchanged.
+
+The Windows Actions job now includes a release-binary launch smoke. It checks a
+visible BitchPixel top-level HWND, the post-AccessKit show marker, the first
+presented Studio frame, completion of the existing alpha smoke, and a clean
+process exit. The executable artifact is uploaded before this GUI check, so a
+runner without a compatible wgpu adapter can report the GUI check as
+inconclusive without losing the fixed Windows build. See
+[`windows-startup-smoke.md`](windows-startup-smoke.md) for its coverage and the
+dedicated interactive-runner strategy. Hosted CI cannot prove physical-monitor
+visibility, inspect the rendered UI with a human, or test the Iris Xe driver.
+
+Local validation passes: Rust 1.90 formatting, strict workspace Clippy, all
+**247 workspace tests**, workspace build, Windows GNU workspace check and
+Clippy, and the offscreen llvmpipe GPU smoke. The GPU test exercised the existing
+artwork/rendering checks, not native window startup. This environment has no
+Xvfb/display, so the Linux screenshot and artwork-window workflows were not run
+locally. It is not Windows, so the new Windows launch smoke and Windows release
+package remain pending Actions. No graphical startup result is claimed yet.
+After the new workflow completes, record its run URL, whether the GUI check
+passed or was inconclusive, and the actual Windows hardware retest separately.
+Continue Phase 8.3 after this blocking correction; this does not accept the
+wider visual or accessibility overhaul.
+
+### Exact continuation
+
+1. Push the hidden-window startup fix, Windows smoke script/workflow, README, and
+   this progress record. Inspect all three platform jobs and both Windows
+   artifacts from the resulting Actions run.
+2. If hosted Windows reports no compatible adapter or cannot expose a visible
+   top-level window, report that exact limitation and use an interactive
+   self-hosted GUI session for the launch/frame check. Do not count compilation
+   as a graphical startup pass.
+3. Resume the incomplete Phase 8.3 Home/workspace/accessibility program after the
+   startup correction is validated. Do not merge or release.

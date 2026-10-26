@@ -200,6 +200,24 @@ jobs:
           path: target/windows-canvas-package/
           if-no-files-found: error
           retention-days: 30
+      - name: Windows visible canvas startup smoke
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        env:
+          RPL_STARTUP_SMOKE: '1'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $result = & ./scripts/windows-startup-smoke.ps1
+          if ($result -eq 'INCONCLUSIVE') {
+            Write-Host '::warning title=Windows GUI startup smoke inconclusive::The hosted runner has no compatible graphics adapter; use the dedicated interactive Windows strategy in docs/windows-startup-smoke.md.'
+            if ($env:GITHUB_STEP_SUMMARY) {
+              'Windows GUI startup smoke was inconclusive because this hosted runner exposed no compatible wgpu adapter. The application was not reported as launched.' | Add-Content $env:GITHUB_STEP_SUMMARY
+            }
+          }
+          elseif ($result -ne 'PASSED') {
+            throw "Unexpected Windows GUI smoke result: $result"
+          }
 
       - name: Package Linux or macOS painting alpha
         if: runner.os != 'Windows'

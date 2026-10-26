@@ -50,3 +50,9 @@ If startup or rendering fails, run .\canvas-demo.exe from PowerShell and retain
 BUILD.txt. Include Windows version, GPU/driver, display scaling, and the error text
 when diagnosing graphics compatibility. Direct3D 12 support varies by driver.
 SmartScreen or organization policy may block unsigned development builds.
+
+The Studio creates its AccessKit adapter while the native window is hidden and
+shows the window only after GPU and UI initialization succeeds. A startup failure
+closes the hidden window and reports the error to the launching console. See
+docs/windows-startup-smoke.md for what the automated Windows launch check verifies
+and its hosted-runner limitations.

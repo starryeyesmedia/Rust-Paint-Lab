@@ -49,6 +49,8 @@ struct Graphics {
     home_clear_logged: bool,
     screenshot_capture_enabled: bool,
     screenshot_capture: Option<egui_wgpu::capture::CaptureState>,
+    startup_smoke_enabled: bool,
+    startup_smoke_first_frame: bool,
 }
 impl Graphics {
     async fn new(
@@ -62,7 +64,8 @@ impl Graphics {
                 Window::default_attributes()
                     .with_title("BitchPixel — Creative Studio")
                     .with_inner_size(winit::dpi::LogicalSize::new(1000, 700))
-                    .with_max_inner_size(winit::dpi::PhysicalSize::new(4096, 4096)),
+                    .with_max_inner_size(winit::dpi::PhysicalSize::new(4096, 4096))
+                    .with_visible(false),
             )?,
         );
         #[cfg(windows)]
@@ -109,8 +112,18 @@ impl Graphics {
             home_clear_logged: false,
             screenshot_capture_enabled: screenshot_test,
             screenshot_capture: None,
+            startup_smoke_enabled: std::env::var_os("RPL_STARTUP_SMOKE").is_some(),
+            startup_smoke_first_frame: false,
         };
         this.resize([size.width, size.height])?;
+        // AccessKit's winit adapter must exist before the native window is
+        // first shown. Keep the window hidden while GPU and Studio setup can
+        // still fail, then expose it and explicitly schedule the first frame.
+        this.window.set_visible(true);
+        if this.startup_smoke_enabled {
+            eprintln!("WINDOW_STARTUP_SMOKE_VISIBLE");
+        }
+        this.window.request_redraw();
         Ok(this)
     }
     fn resize(&mut self, size: [u32; 2]) -> Result<(), Failure> {
@@ -241,6 +254,10 @@ impl Graphics {
         }
         self.window.pre_present_notify();
         frame.present();
+        if self.startup_smoke_enabled && !self.startup_smoke_first_frame {
+            self.startup_smoke_first_frame = true;
+            eprintln!("WINDOW_STARTUP_SMOKE_FIRST_FRAME");
+        }
         self.recoveries = 0;
         if suboptimal {
             self.resize(self.size)?;
