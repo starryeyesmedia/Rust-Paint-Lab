@@ -1673,3 +1673,39 @@ in this entry need a new pushed run before CI can be called verified.
    Narrator/NVDA limits. Keep Phase 8.3 active, preserve the Windows diagnostic,
    and withhold the consolidated Windows evaluation build, merge, and release
    until the broader overhaul is materially implemented and validated.
+
+## Short-window New Artwork follow-up — 2026-10-26
+
+Screenshot inspection at 640 × 480 showed the Custom format card clipped at the
+bottom of the initial New Artwork view. Format cards now compact from 154 to 112
+points when the viewport height is at most 560 points, while keeping their
+illustrations, selected state, dimensions, and resolution readable. All seven
+format cards, including Custom, fit in the first narrow viewport; the canvas
+preview and precision settings remain below in the existing scrollable dialog.
+An XTest assertion reads the live card bounds and fails if Custom is clipped.
+
+The changed narrow capture was inspected and shows the complete Custom card.
+The full 32-state Xorg/XTEST application workflow passes with this assertion,
+including existing mouse painting, saved artwork, export-isolation, layer,
+undo/redo, and process-kill recovery paths. The new unit test passes; the full
+workspace suite has **246 passing tests**. Formatting, strict workspace Clippy,
+workspace build, Windows GNU target check/Clippy, and llvmpipe offscreen GPU
+smoke pass locally.
+
+Commit `25930ed` has a completed Actions run
+[`40277552431`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40277552431):
+Windows and macOS passed, but Linux failed an XTest timeout while collapsing the
+expanded palette. The test read the control rectangle immediately after a
+layout-width change. This follow-up waits for the rectangle to remain unchanged
+before clicking. Its local full application workflow passes, but the guard still
+needs a fresh CI run. The wider Phase 8.3 redesign and accessibility validation
+remain active.
+
+### Exact continuation
+
+1. Commit and push the narrow New Artwork fix and settled-geometry test guard;
+   verify the Linux XTest failure is corrected in a new Actions run.
+2. Continue visual/accessibility integration beyond the narrow card layout;
+   maintain populated-state screenshots and artwork/recovery regressions.
+3. Keep Phase 8.3 open and withhold the consolidated Windows evaluation build,
+   merge, and release until the broader overhaul passes review.

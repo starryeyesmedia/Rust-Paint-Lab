@@ -338,3 +338,14 @@ GPU smoke passed. These changes still need to be committed, pushed, and verified
 by a new Windows/Linux/macOS Actions run. Phase 8.3 remains active; recent Home
 artwork presentation and the broader workspace/accessibility overhaul remain
 unfinished. See [the detailed progress log](PHASE8-STUDIO-PROGRESS.md).
+
+### Short-window New Artwork follow-up
+
+All seven format cards, including Custom, now fit in the initial 640 × 480 view;
+XTest asserts the actual card bounds. The 32-state local workflow, 246-test
+workspace suite, Windows GNU target checks, and software GPU smoke pass. This
+follow-up is not yet committed; Actions run `40277552431` passed Windows and
+macOS but failed its Linux palette-collapse XTest. The XTest now waits for
+control geometry to settle after palette reflow before clicking. Verify the
+guard with the next Actions run. Phase 8.3 remains active. Continue the wider workspace and
+accessibility overhaul; see the [detailed progress log](PHASE8-STUDIO-PROGRESS.md).

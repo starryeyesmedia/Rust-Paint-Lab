@@ -182,8 +182,24 @@ def stable_window_rect_marker(name):
         return None
     return tuple(map(float,lines[-1].split()[:5]))
 
+def settled_window_rect_marker(name):
+    # Panels can reflow for a frame after their visibility changes. Avoid
+    # clicking the previous frame's valid but now stale geometry.
+    first=window_rect_marker(name)
+    if first is None: return None
+    time.sleep(0.2)
+    return first if first==window_rect_marker(name) else None
+
 def stable_format_preview_rect(label):
     prefix=f'UI_TEST_FORMAT_PREVIEW_RECT|{label}|'
+    lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()[:5]))
+
+def stable_format_card_rect(label):
+    prefix=f'UI_TEST_FORMAT_CARD_RECT|{label}|'
     lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
@@ -782,6 +798,12 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'new-artwork-light-normal')
             resize_window(window,640,480)
             capture_window(window,'new-artwork-light-narrow')
+            custom_card=wait(lambda: stable_format_card_rect('Custom'),
+                             'compact New Artwork layout reports its complete Custom card bounds')
+            assert custom_card[0] >= 0.0 and custom_card[1] >= 0.0 \
+                and custom_card[0]+custom_card[2] <= 640/custom_card[4]+1.0 \
+                and custom_card[1]+custom_card[3] <= 480/custom_card[4]-4.0, \
+                f'narrow New Artwork format card is clipped: {custom_card}'
             resize_window(window,1280,800)
             key('Return');time.sleep(0.5)
             capture_window(window,'canvas-workspace-light')
@@ -794,7 +816,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert palette[3] >= 440.0, f'normal-height tool rail should show more than a clipped handful of tools: {palette}'
             assert palette[1] + palette[3] <= 800/palette[4] - 40.0, \
                 f'tool rail must leave the bottom status area accessible: {palette}'
-            toggle=wait(lambda: window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
+            toggle=wait(lambda: settled_window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
                         'compact palette exposes a keyboard-labeled expand control')
             click_at((toggle[0]+toggle[2]/2)*toggle[4],
                      (toggle[1]+toggle[3]/2)*toggle[4])
@@ -806,7 +828,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                           'expanded toolbar exposes labeled tools')
             assert expanded[2] > palette[2], \
                 f'expanded toolbar should provide more room for tool names: compact={palette}, expanded={expanded}'
-            toggle=wait(lambda: window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
+            toggle=wait(lambda: settled_window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
                         'expanded toolbar exposes its updated collapse control')
             click_at((toggle[0]+toggle[2]/2)*toggle[4],
                      (toggle[1]+toggle[3]/2)*toggle[4])

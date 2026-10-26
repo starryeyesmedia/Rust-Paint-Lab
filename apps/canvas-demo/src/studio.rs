@@ -157,6 +157,14 @@ fn document_format_grid(available_width: f32) -> (usize, f32) {
     (columns, card_width)
 }
 
+fn document_format_card_height(viewport_height: f32) -> f32 {
+    if viewport_height.is_finite() && viewport_height <= 560.0 {
+        112.0
+    } else {
+        154.0
+    }
+}
+
 pub(crate) fn quick_document_card_layout(available_width: f32) -> (usize, f32) {
     let columns = if available_width >= 1150.0 {
         5
@@ -886,8 +894,9 @@ fn document_format_card_with_preview(
     dpi: u32,
     selected: bool,
     card_width: f32,
-) -> (bool, egui::Rect) {
-    let size = egui::vec2(card_width, 154.0);
+) -> (bool, egui::Rect, egui::Rect) {
+    let card_height = document_format_card_height(ui.ctx().content_rect().height());
+    let size = egui::vec2(card_width, card_height);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     let accessible_name = format!("{label}, {width:.0} by {height:.0} pixels at {dpi} DPI");
     response.widget_info(|| {
@@ -937,27 +946,32 @@ fn document_format_card_with_preview(
 
     // A paper silhouette makes format choice legible at a glance even when
     // the label is translated or the dialog is narrow.
-    let paper_max = egui::vec2((card_width - 24.0).min(104.0), 82.0);
+    let paper_max = egui::vec2(
+        (card_width - 24.0).min(104.0),
+        (card_height * 0.52).min(82.0),
+    );
     let paper_size = fit_paper_to_box(paper_max, width, height);
-    let paper =
-        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 48.0), paper_size);
+    let paper = egui::Rect::from_center_size(
+        egui::pos2(rect.center().x, rect.top() + card_height * 0.30),
+        paper_size,
+    );
     paint_format_illustration(painter, paper, visuals, label);
     painter.text(
-        egui::pos2(rect.center().x, rect.bottom() - 45.0),
+        egui::pos2(rect.center().x, rect.bottom() - 35.0),
         egui::Align2::CENTER_CENTER,
         label,
         egui::FontId::proportional(15.0),
         crate::appearance::readable_text_color(visuals.text_color(), fill),
     );
     painter.text(
-        egui::pos2(rect.center().x, rect.bottom() - 26.0),
+        egui::pos2(rect.center().x, rect.bottom() - 20.0),
         egui::Align2::CENTER_CENTER,
         format!("{}×{} px", width as u32, height as u32),
         egui::FontId::proportional(11.0),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
     painter.text(
-        egui::pos2(rect.center().x, rect.bottom() - 11.0),
+        egui::pos2(rect.center().x, rect.bottom() - 6.0),
         egui::Align2::CENTER_CENTER,
         format!("{dpi} DPI"),
         egui::FontId::proportional(10.0),
@@ -966,6 +980,7 @@ fn document_format_card_with_preview(
     (
         activate_focusable_card(ui, &response),
         paper.intersect(rect),
+        rect,
     )
 }
 
@@ -976,6 +991,17 @@ fn log_format_preview_rect(ui: &egui::Ui, label: &str, paper: egui::Rect) {
         paper.top(),
         paper.width(),
         paper.height(),
+        ui.ctx().pixels_per_point(),
+    );
+}
+
+fn log_format_card_rect(ui: &egui::Ui, label: &str, rect: egui::Rect) {
+    eprintln!(
+        "UI_TEST_FORMAT_CARD_RECT|{label}|{:.1} {:.1} {:.1} {:.1} {:.2}",
+        rect.left(),
+        rect.top(),
+        rect.width(),
+        rect.height(),
         ui.ctx().pixels_per_point(),
     );
 }
@@ -7359,7 +7385,7 @@ impl Studio {
                             && current_height_px == Some(height)
                             && self.new_dpi == dpi
                             && !self.new_custom_size_selected;
-                        let (activated, _paper) = document_format_card_with_preview(
+                        let (activated, _paper, card_rect) = document_format_card_with_preview(
                             ui,
                             label,
                             width as f32,
@@ -7370,6 +7396,7 @@ impl Studio {
                         );
                         if self.test_path_dialog {
                             log_format_preview_rect(ui, label, _paper);
+                            log_format_card_rect(ui, label, card_rect);
                         }
                         if activated {
                             self.new_unit = crate::document_setup::DocumentUnit::Pixels;
@@ -7381,7 +7408,7 @@ impl Studio {
                     }
                     let custom_width = current_width_px.unwrap_or(1080);
                     let custom_height = current_height_px.unwrap_or(1080);
-                    let (activated, _paper) = document_format_card_with_preview(
+                    let (activated, _paper, card_rect) = document_format_card_with_preview(
                         ui,
                         "Custom",
                         custom_width as f32,
@@ -7392,6 +7419,7 @@ impl Studio {
                     );
                     if self.test_path_dialog {
                         log_format_preview_rect(ui, "Custom", _paper);
+                        log_format_card_rect(ui, "Custom", card_rect);
                     }
                     if activated {
                         self.new_custom_size_selected = true;
@@ -8395,9 +8423,9 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        FormatIllustration, LassoAppend, append_lasso_point, document_format_grid,
-        fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
-        home_sections_stacked, layer_thumbnail_samples, native_project_path,
+        FormatIllustration, LassoAppend, append_lasso_point, document_format_card_height,
+        document_format_grid, fit_paper_to_box, format_illustration, home_hero_height,
+        home_open_card_needed, home_sections_stacked, layer_thumbnail_samples, native_project_path,
         quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
         recent_project_matches, recovery_checkpoint_label, recovery_source_label,
     };
@@ -8488,6 +8516,19 @@ mod tests {
             let total = columns as f32 * card_width + 12.0 * (columns - 1) as f32;
             assert!(total <= available + 0.1, "cards overflow {available}px");
         }
+    }
+
+    #[test]
+    fn document_format_cards_compact_for_short_viewports() {
+        assert_eq!(document_format_card_height(480.0), 112.0);
+        assert_eq!(document_format_card_height(560.0), 112.0);
+        assert_eq!(document_format_card_height(561.0), 154.0);
+        assert_eq!(document_format_card_height(f32::NAN), 154.0);
+
+        // The narrow dialog's three rows now fit within its initial viewport,
+        // including both row gaps and the short heading/subtitle block.
+        let grid_height = 3.0 * document_format_card_height(480.0) + 2.0 * 7.0;
+        assert!(grid_height + 88.0 <= 448.0);
     }
 
     #[test]
