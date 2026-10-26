@@ -117,15 +117,27 @@ fn recent_project_matches(path: &std::path::Path, query: &str) -> bool {
             .contains(&query.to_lowercase())
 }
 
-fn recent_gallery_layout(available_width: f32) -> (usize, f32) {
-    let columns = match available_width {
+fn recent_gallery_max_columns(available_width: f32) -> usize {
+    match available_width {
         width if width >= 1500.0 => 4,
         width if width >= 1000.0 => 3,
         width if width >= 600.0 => 2,
         _ => 1,
-    };
+    }
+}
+
+fn home_open_card_needed(project_count: usize, max_columns: usize, search_is_empty: bool) -> bool {
+    search_is_empty && project_count > 0 && !project_count.is_multiple_of(max_columns.max(1))
+}
+
+fn recent_gallery_layout(available_width: f32, item_count: usize) -> (usize, f32) {
+    let columns = recent_gallery_max_columns(available_width).min(item_count.max(1));
     let gaps = 14.0 * (columns - 1) as f32;
-    let card_width = ((available_width - gaps) / columns as f32).clamp(180.0, 500.0);
+    // `card_width` is the content width. Leave space for the shared card's
+    // 12-point inset on each side so the outer card stays inside the grid cell.
+    // Without this allowance, four 500-point cards overflow a 1920-point Home
+    // and the rightmost project is silently clipped from the screenshot/window.
+    let card_width = (((available_width - gaps) / columns as f32) - 24.0).clamp(180.0, 476.0);
     (columns, card_width)
 }
 
@@ -160,47 +172,334 @@ pub(crate) fn quick_document_card_layout(available_width: f32) -> (usize, f32) {
     (columns, card_width)
 }
 
-/// A small, decorative illustration inside a paper silhouette. It communicates
-/// the chosen page shape without pretending to be saved user artwork.
-fn paint_format_illustration(painter: &egui::Painter, paper: egui::Rect, visuals: &egui::Visuals) {
-    let paper_fill = if visuals.dark_mode {
-        egui::Color32::from_rgb(0x22, 0x1B, 0x2C)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FormatIllustration {
+    Portrait,
+    Landscape,
+    Square,
+    Print,
+    Comic,
+    Screen,
+    Custom,
+}
+
+fn format_illustration(label: &str) -> FormatIllustration {
+    match label {
+        "Portrait" => FormatIllustration::Portrait,
+        "Landscape" => FormatIllustration::Landscape,
+        "Square" => FormatIllustration::Square,
+        "A4 Print" => FormatIllustration::Print,
+        "Comic Page" => FormatIllustration::Comic,
+        "Full HD" => FormatIllustration::Screen,
+        _ => FormatIllustration::Custom,
+    }
+}
+
+fn mix_rgb(left: [u8; 3], right: [u8; 3], amount: f32) -> egui::Color32 {
+    let amount = amount.clamp(0.0, 1.0);
+    let channel =
+        |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * amount).round() as u8;
+    egui::Color32::from_rgb(
+        channel(left[0], right[0]),
+        channel(left[1], right[1]),
+        channel(left[2], right[2]),
+    )
+}
+
+fn format_point(paper: egui::Rect, x: f32, y: f32) -> egui::Pos2 {
+    egui::pos2(
+        paper.left() + paper.width() * x,
+        paper.top() + paper.height() * y,
+    )
+}
+
+fn fit_paper_to_box(bounds: egui::Vec2, width: f32, height: f32) -> egui::Vec2 {
+    let aspect = if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+        (width / height).clamp(0.05, 20.0)
     } else {
-        egui::Color32::WHITE
+        1.0
+    };
+    if aspect >= bounds.x / bounds.y.max(1.0) {
+        egui::vec2(bounds.x, bounds.x / aspect)
+    } else {
+        egui::vec2(bounds.y * aspect, bounds.y)
+    }
+}
+
+fn format_polygon(
+    painter: &egui::Painter,
+    paper: egui::Rect,
+    points: &[(f32, f32)],
+    color: egui::Color32,
+) {
+    painter.add(egui::Shape::convex_polygon(
+        points
+            .iter()
+            .map(|(x, y)| format_point(paper, *x, *y))
+            .collect(),
+        color,
+        egui::Stroke::NONE,
+    ));
+}
+
+/// Render an original, lightweight format illustration inside the paper
+/// silhouette. These are schematic format cues, not artwork or project
+/// thumbnails. Each supported preset gets a distinct miniature composition.
+fn paint_format_illustration(
+    painter: &egui::Painter,
+    paper: egui::Rect,
+    visuals: &egui::Visuals,
+    label: &str,
+) {
+    let kind = format_illustration(label);
+    let paper_fill = if matches!(kind, FormatIllustration::Print | FormatIllustration::Comic) {
+        egui::Color32::from_rgb(0xF9, 0xF5, 0xEF)
+    } else {
+        egui::Color32::from_rgb(0x20, 0x18, 0x31)
     };
     painter.rect_filled(paper, 3.0, paper_fill);
+    let art = painter.with_clip_rect(paper.shrink(1.0));
+    let (top, bottom) = match kind {
+        FormatIllustration::Portrait => ([0x53, 0x2B, 0x72], [0xF0, 0x8E, 0xBC]),
+        FormatIllustration::Landscape => ([0x39, 0x55, 0x9C], [0xF1, 0xA3, 0xC1]),
+        FormatIllustration::Square => ([0x4C, 0x2B, 0x80], [0xDB, 0x74, 0xBC]),
+        FormatIllustration::Screen => ([0x17, 0x1A, 0x43], [0x66, 0x42, 0xA4]),
+        FormatIllustration::Print | FormatIllustration::Comic => {
+            ([0xFF, 0xF9, 0xF0], [0xF2, 0xE8, 0xE1])
+        }
+        FormatIllustration::Custom => ([0x42, 0x2E, 0x76], [0x76, 0x56, 0xB0]),
+    };
+    // Six thin bands give the tiny preview a soft depth without allocating
+    // textures or adding another renderer dependency.
+    for band in 0..6 {
+        let y0 = paper.top() + paper.height() * band as f32 / 6.0;
+        let y1 = paper.top() + paper.height() * (band + 1) as f32 / 6.0;
+        let amount = band as f32 / 5.0;
+        art.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(paper.left(), y0),
+                egui::pos2(paper.right(), y1 + 0.4),
+            ),
+            0.0,
+            mix_rgb(top, bottom, amount),
+        );
+    }
+
+    let scale = paper.width().min(paper.height()).max(1.0);
+    let violet = if visuals.dark_mode {
+        egui::Color32::from_rgb(0xCE, 0x82, 0xFF)
+    } else {
+        egui::Color32::from_rgb(0x82, 0x3D, 0xC8)
+    };
+    let pink = egui::Color32::from_rgb(0xF5, 0x78, 0xC4);
+    let teal = egui::Color32::from_rgb(0x68, 0xDF, 0xD2);
+    let ink = egui::Color32::from_rgb(0x31, 0x20, 0x43);
+
+    match kind {
+        FormatIllustration::Portrait => {
+            format_polygon(
+                &art,
+                paper,
+                &[
+                    (0.12, 1.0),
+                    (0.2, 0.75),
+                    (0.39, 0.62),
+                    (0.67, 0.63),
+                    (0.89, 0.82),
+                    (0.94, 1.0),
+                ],
+                violet,
+            );
+            art.circle_filled(format_point(paper, 0.54, 0.43), scale * 0.2, ink);
+            art.circle_filled(format_point(paper, 0.55, 0.42), scale * 0.15, pink);
+            art.circle_filled(format_point(paper, 0.76, 0.24), scale * 0.07, teal);
+            art.line_segment(
+                [
+                    format_point(paper, 0.26, 0.52),
+                    format_point(paper, 0.38, 0.38),
+                ],
+                egui::Stroke::new((scale * 0.045).max(1.0), teal),
+            );
+        }
+        FormatIllustration::Landscape => {
+            art.circle_filled(format_point(paper, 0.77, 0.28), scale * 0.13, pink);
+            format_polygon(
+                &art,
+                paper,
+                &[
+                    (0.0, 0.75),
+                    (0.24, 0.43),
+                    (0.4, 0.62),
+                    (0.64, 0.34),
+                    (1.0, 0.71),
+                    (1.0, 1.0),
+                    (0.0, 1.0),
+                ],
+                violet,
+            );
+            format_polygon(
+                &art,
+                paper,
+                &[
+                    (0.0, 0.84),
+                    (0.31, 0.65),
+                    (0.55, 0.8),
+                    (0.82, 0.57),
+                    (1.0, 0.72),
+                    (1.0, 1.0),
+                    (0.0, 1.0),
+                ],
+                teal,
+            );
+        }
+        FormatIllustration::Square => {
+            art.circle_filled(format_point(paper, 0.51, 0.51), scale * 0.3, pink);
+            art.circle_filled(format_point(paper, 0.51, 0.51), scale * 0.2, violet);
+            art.circle_filled(format_point(paper, 0.51, 0.51), scale * 0.1, teal);
+            art.rect_filled(
+                egui::Rect::from_min_max(
+                    format_point(paper, 0.12, 0.77),
+                    format_point(paper, 0.88, 0.86),
+                ),
+                2.0,
+                ink,
+            );
+        }
+        FormatIllustration::Print => {
+            let margin = paper.shrink2(egui::vec2(paper.width() * 0.16, paper.height() * 0.14));
+            art.rect_stroke(
+                margin,
+                0.0,
+                egui::Stroke::new(0.8, egui::Color32::from_rgb(0xB8, 0xA9, 0xB5)),
+                egui::StrokeKind::Inside,
+            );
+            art.circle_filled(format_point(margin, 0.73, 0.27), scale * 0.09, pink);
+            format_polygon(
+                &art,
+                margin,
+                &[
+                    (0.05, 0.7),
+                    (0.32, 0.43),
+                    (0.5, 0.62),
+                    (0.74, 0.38),
+                    (0.96, 0.7),
+                    (0.96, 0.82),
+                    (0.05, 0.82),
+                ],
+                violet,
+            );
+            for line in 0..3 {
+                let y = 0.9 + line as f32 * 0.035;
+                art.line_segment(
+                    [format_point(margin, 0.1, y), format_point(margin, 0.88, y)],
+                    egui::Stroke::new(0.6, egui::Color32::from_rgb(0x8E, 0x7E, 0x8A)),
+                );
+            }
+        }
+        FormatIllustration::Comic => {
+            let panels = [
+                (0.08, 0.08, 0.47, 0.43, violet),
+                (0.54, 0.08, 0.92, 0.43, teal),
+                (0.08, 0.48, 0.92, 0.92, pink),
+            ];
+            for (left, top, right, bottom, color) in panels {
+                let panel = egui::Rect::from_min_max(
+                    format_point(paper, left, top),
+                    format_point(paper, right, bottom),
+                );
+                art.rect_filled(panel.shrink(1.0), 1.0, color);
+                art.rect_stroke(
+                    panel,
+                    1.0,
+                    egui::Stroke::new(1.0, ink),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            art.circle_filled(
+                format_point(paper, 0.34, 0.27),
+                scale * 0.1,
+                egui::Color32::WHITE,
+            );
+            art.circle_filled(
+                format_point(paper, 0.75, 0.27),
+                scale * 0.1,
+                egui::Color32::WHITE,
+            );
+            art.line_segment(
+                [
+                    format_point(paper, 0.18, 0.73),
+                    format_point(paper, 0.42, 0.58),
+                ],
+                egui::Stroke::new(1.8, ink),
+            );
+            art.line_segment(
+                [
+                    format_point(paper, 0.42, 0.58),
+                    format_point(paper, 0.68, 0.75),
+                ],
+                egui::Stroke::new(1.8, ink),
+            );
+        }
+        FormatIllustration::Screen => {
+            format_polygon(
+                &art,
+                paper,
+                &[
+                    (0.0, 0.7),
+                    (0.25, 0.4),
+                    (0.52, 0.72),
+                    (0.78, 0.31),
+                    (1.0, 0.62),
+                    (1.0, 1.0),
+                    (0.0, 1.0),
+                ],
+                teal,
+            );
+            art.circle_filled(format_point(paper, 0.22, 0.28), scale * 0.08, pink);
+            let center = format_point(paper, 0.51, 0.53);
+            art.circle_filled(center, scale * 0.19, egui::Color32::from_black_alpha(150));
+            art.add(egui::Shape::convex_polygon(
+                vec![
+                    center + egui::vec2(-scale * 0.05, -scale * 0.08),
+                    center + egui::vec2(scale * 0.1, 0.0),
+                    center + egui::vec2(-scale * 0.05, scale * 0.08),
+                ],
+                egui::Color32::WHITE,
+                egui::Stroke::NONE,
+            ));
+        }
+        FormatIllustration::Custom => {
+            art.circle_filled(format_point(paper, 0.72, 0.28), scale * 0.12, pink);
+            format_polygon(
+                &art,
+                paper,
+                &[
+                    (0.0, 0.78),
+                    (0.28, 0.48),
+                    (0.47, 0.64),
+                    (0.71, 0.43),
+                    (1.0, 0.71),
+                    (1.0, 1.0),
+                    (0.0, 1.0),
+                ],
+                teal,
+            );
+            art.line_segment(
+                [
+                    format_point(paper, 0.12, 0.2),
+                    format_point(paper, 0.43, 0.2),
+                ],
+                egui::Stroke::new((scale * 0.04).max(1.0), violet),
+            );
+        }
+    }
+
     painter.rect_stroke(
         paper,
         3.0,
         egui::Stroke::new(1.0, visuals.window_stroke.color),
         egui::StrokeKind::Inside,
     );
-    let point = |x: f32, y: f32| {
-        egui::pos2(
-            paper.left() + paper.width() * x,
-            paper.top() + paper.height() * y,
-        )
-    };
-    let scale = paper.width().min(paper.height()).max(1.0);
-    let violet = visuals.hyperlink_color;
-    let pink = egui::Color32::from_rgb(0xE8, 0x59, 0xC8);
-    let teal = egui::Color32::from_rgb(0x48, 0xC7, 0xBE);
-    painter.circle_filled(point(0.72, 0.28), scale * 0.12, pink);
-    for (points, color, width) in [
-        (
-            [point(0.08, 0.75), point(0.30, 0.48), point(0.47, 0.62)],
-            violet,
-            2.2,
-        ),
-        (
-            [point(0.38, 0.72), point(0.62, 0.47), point(0.91, 0.66)],
-            teal,
-            2.0,
-        ),
-    ] {
-        painter.line_segment([points[0], points[1]], egui::Stroke::new(width, color));
-        painter.line_segment([points[1], points[2]], egui::Stroke::new(width, color));
-    }
 }
 
 pub(crate) fn home_document_card(
@@ -243,15 +542,10 @@ pub(crate) fn home_document_card(
         (card_width * 0.22).clamp(54.0, 82.0),
         (card_width * 0.18).clamp(44.0, 66.0),
     );
-    let aspect = dimensions[0] as f32 / dimensions[1] as f32;
-    let paper_size = if aspect >= 1.0 {
-        egui::vec2(max_paper.x, max_paper.x / aspect)
-    } else {
-        egui::vec2(max_paper.y * aspect, max_paper.y)
-    };
+    let paper_size = fit_paper_to_box(max_paper, dimensions[0] as f32, dimensions[1] as f32);
     let paper =
         egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 39.0), paper_size);
-    paint_format_illustration(ui.painter(), paper, visuals);
+    paint_format_illustration(ui.painter(), paper, visuals, name);
     let fg = crate::appearance::readable_text_color(visuals.text_color(), fill);
     ui.painter().text(
         egui::pos2(rect.center().x, rect.bottom() - 28.0),
@@ -322,6 +616,86 @@ pub(crate) fn home_custom_document_card(ui: &mut egui::Ui, card_width: f32) -> b
         egui::FontId::proportional(11.0),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
+    response.clicked()
+        || (response.has_focus()
+            && ui.input(|input| {
+                input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
+            }))
+}
+
+pub(crate) fn home_open_project_card(
+    ui: &mut egui::Ui,
+    content_width: f32,
+    test_mode: bool,
+) -> bool {
+    let size = egui::vec2(content_width + 24.0, 314.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let visuals = ui.visuals();
+    let fill = if response.hovered() {
+        visuals.selection.bg_fill.gamma_multiply(0.34)
+    } else {
+        visuals.faint_bg_color
+    };
+    let stroke = if response.hovered() || response.has_focus() {
+        visuals.selection.stroke
+    } else {
+        visuals.window_stroke
+    };
+    ui.painter().rect_filled(rect, 12.0, fill);
+    ui.painter()
+        .rect_stroke(rect, 12.0, stroke, egui::StrokeKind::Inside);
+
+    let center = egui::pos2(rect.center().x, rect.top() + 96.0);
+    let accent = visuals.hyperlink_color;
+    ui.painter()
+        .circle_filled(center, 32.0, accent.gamma_multiply(0.18));
+    ui.painter().line_segment(
+        [
+            center - egui::vec2(12.0, 0.0),
+            center + egui::vec2(12.0, 0.0),
+        ],
+        egui::Stroke::new(3.0, accent),
+    );
+    ui.painter().line_segment(
+        [
+            center - egui::vec2(0.0, 12.0),
+            center + egui::vec2(0.0, 12.0),
+        ],
+        egui::Stroke::new(3.0, accent),
+    );
+    let foreground = crate::appearance::readable_text_color(visuals.text_color(), fill);
+    let muted = crate::appearance::readable_text_color(visuals.weak_text_color(), fill);
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 65.0),
+        egui::Align2::CENTER_CENTER,
+        "Open another project",
+        egui::FontId::proportional(16.0),
+        foreground,
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 38.0),
+        egui::Align2::CENTER_CENTER,
+        "Browse saved artwork on this device",
+        egui::FontId::proportional(12.0),
+        muted,
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            "Open another project from this device",
+        )
+    });
+    if test_mode {
+        eprintln!(
+            "UI_TEST_HOME_OPEN_CARD_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            rect.left(),
+            rect.top(),
+            rect.width(),
+            rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
     response.clicked()
         || (response.has_focus()
             && ui.input(|input| {
@@ -491,6 +865,7 @@ pub(crate) fn activate_focusable_card(ui: &egui::Ui, response: &egui::Response) 
             }))
 }
 
+#[cfg(test)]
 pub(crate) fn document_format_card(
     ui: &mut egui::Ui,
     label: &str,
@@ -500,7 +875,19 @@ pub(crate) fn document_format_card(
     selected: bool,
     card_width: f32,
 ) -> bool {
-    let size = egui::vec2(card_width, 136.0);
+    document_format_card_with_preview(ui, label, width, height, dpi, selected, card_width).0
+}
+
+fn document_format_card_with_preview(
+    ui: &mut egui::Ui,
+    label: &str,
+    width: f32,
+    height: f32,
+    dpi: u32,
+    selected: bool,
+    card_width: f32,
+) -> (bool, egui::Rect) {
+    let size = egui::vec2(card_width, 154.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     let accessible_name = format!("{label}, {width:.0} by {height:.0} pixels at {dpi} DPI");
     response.widget_info(|| {
@@ -550,38 +937,47 @@ pub(crate) fn document_format_card(
 
     // A paper silhouette makes format choice legible at a glance even when
     // the label is translated or the dialog is narrow.
-    let ratio = width / height;
-    let paper_max = egui::vec2((card_width - 24.0).min(72.0), 62.0);
-    let paper_size = if ratio >= 1.0 {
-        egui::vec2(paper_max.x, paper_max.x / ratio)
-    } else {
-        egui::vec2(paper_max.y * ratio, paper_max.y)
-    };
+    let paper_max = egui::vec2((card_width - 24.0).min(104.0), 82.0);
+    let paper_size = fit_paper_to_box(paper_max, width, height);
     let paper =
-        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 38.0), paper_size);
-    paint_format_illustration(painter, paper, visuals);
+        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 48.0), paper_size);
+    paint_format_illustration(painter, paper, visuals, label);
     painter.text(
-        egui::pos2(rect.center().x, rect.bottom() - 35.0),
+        egui::pos2(rect.center().x, rect.bottom() - 45.0),
         egui::Align2::CENTER_CENTER,
         label,
-        egui::FontId::proportional(14.0),
+        egui::FontId::proportional(15.0),
         crate::appearance::readable_text_color(visuals.text_color(), fill),
     );
     painter.text(
-        egui::pos2(rect.center().x, rect.bottom() - 20.0),
+        egui::pos2(rect.center().x, rect.bottom() - 26.0),
         egui::Align2::CENTER_CENTER,
         format!("{}×{} px", width as u32, height as u32),
-        egui::FontId::proportional(10.0),
+        egui::FontId::proportional(11.0),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
     painter.text(
-        egui::pos2(rect.center().x, rect.bottom() - 7.0),
+        egui::pos2(rect.center().x, rect.bottom() - 11.0),
         egui::Align2::CENTER_CENTER,
         format!("{dpi} DPI"),
         egui::FontId::proportional(10.0),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
-    activate_focusable_card(ui, &response)
+    (
+        activate_focusable_card(ui, &response),
+        paper.intersect(rect),
+    )
+}
+
+fn log_format_preview_rect(ui: &egui::Ui, label: &str, paper: egui::Rect) {
+    eprintln!(
+        "UI_TEST_FORMAT_PREVIEW_RECT|{label}|{:.1} {:.1} {:.1} {:.1} {:.2}",
+        paper.left(),
+        paper.top(),
+        paper.width(),
+        paper.height(),
+        ui.ctx().pixels_per_point(),
+    );
 }
 
 pub(crate) fn brush_preset_card_with_preview(
@@ -6085,6 +6481,7 @@ impl Studio {
             let screen = ctx.content_rect();
             let side_pad = if screen.width() < 720.0 { 16.0 } else { 32.0 };
             let mut open_recent = None;
+            let mut open_project_requested = false;
             let mut remove_draft = None;
             let mut start_preset = None;
             let mut custom_size_requested = false;
@@ -6330,8 +6727,18 @@ impl Studio {
                                                 ui.add_space(8.0);
                                                 ui.label(egui::RichText::new("No recent artwork matches that filename.").color(ui.visuals().weak_text_color()));
                                             } else {
-                                            let (columns, card_width) =
-                                                recent_gallery_layout(ui.available_width());
+                                            let gallery_width = ui.available_width();
+                                            let max_columns = recent_gallery_max_columns(gallery_width);
+                                            let displayed_count = visible_recent.len().min(8);
+                                            let include_open_card = home_open_card_needed(
+                                                displayed_count,
+                                                max_columns,
+                                                self.recent_search.trim().is_empty(),
+                                            );
+                                            let (columns, card_width) = recent_gallery_layout(
+                                                gallery_width,
+                                                displayed_count + usize::from(include_open_card),
+                                            );
                                             egui::Grid::new("home recent projects").num_columns(columns).spacing([14.0, 14.0]).show(ui, |ui| {
                                                 for (index, card) in visible_recent.iter().take(8).enumerate() {
                                                     let path = &card.path;
@@ -6445,7 +6852,17 @@ impl Studio {
                                                             open_recent = Some(path.clone());
                                                         }
                                                     }
-                                                    if (index + 1) % columns == 0 || index == visible_recent.len().min(8) - 1 { ui.end_row(); }
+                                                    if (index + 1) % columns == 0
+                                                        || (!include_open_card && index == visible_recent.len().min(8) - 1)
+                                                    { ui.end_row(); }
+                                                }
+                                                if include_open_card {
+                                                    if home_open_project_card(ui, card_width, self.test_path_dialog) {
+                                                        open_project_requested = true;
+                                                    }
+                                                    if (visible_recent.len() + 1) % columns == 0 {
+                                                        ui.end_row();
+                                                    }
                                                 }
                                             });
                                             }
@@ -6501,6 +6918,11 @@ impl Studio {
                             });
                         });
                 });
+            if open_project_requested {
+                self.picker_from_welcome = true;
+                self.picker = Some(FileRequest::OpenProject);
+                self.welcome = false;
+            }
             if let Some((width, height)) = start_preset {
                 self.new_unit = crate::document_setup::DocumentUnit::Pixels;
                 self.new_width = f64::from(width);
@@ -6791,7 +7213,7 @@ impl Studio {
                             && current_height_px == Some(height)
                             && self.new_dpi == dpi
                             && !self.new_custom_size_selected;
-                        if document_format_card(
+                        let (activated, _paper) = document_format_card_with_preview(
                             ui,
                             label,
                             width as f32,
@@ -6799,7 +7221,11 @@ impl Studio {
                             dpi,
                             selected,
                             card_width,
-                        ) {
+                        );
+                        if self.test_path_dialog {
+                            log_format_preview_rect(ui, label, _paper);
+                        }
+                        if activated {
                             self.new_unit = crate::document_setup::DocumentUnit::Pixels;
                             self.new_width = f64::from(width);
                             self.new_height = f64::from(height);
@@ -6809,7 +7235,7 @@ impl Studio {
                     }
                     let custom_width = current_width_px.unwrap_or(1080);
                     let custom_height = current_height_px.unwrap_or(1080);
-                    if document_format_card(
+                    let (activated, _paper) = document_format_card_with_preview(
                         ui,
                         "Custom",
                         custom_width as f32,
@@ -6817,21 +7243,34 @@ impl Studio {
                         self.new_dpi,
                         self.new_custom_size_selected || !current_matches_preset,
                         card_width,
-                    ) {
+                    );
+                    if self.test_path_dialog {
+                        log_format_preview_rect(ui, "Custom", _paper);
+                    }
+                    if activated {
                         self.new_custom_size_selected = true;
                     }
                 });
-                let preview_width: f32 = 128.0;
-                let aspect = (self.new_height / self.new_width).clamp(0.25, 4.0) as f32;
-                let preview_size = [preview_width.min(128.0 / aspect), (preview_width * aspect).min(128.0)];
+                let (preview_document_width, preview_document_height) = match (
+                    current_width_px,
+                    current_height_px,
+                ) {
+                    (Some(width), Some(height)) => (width as f32, height as f32),
+                    _ => (1.0, 1.0),
+                };
+                let preview_slot_size = egui::vec2(224.0, 158.0);
+                let preview_size = fit_paper_to_box(
+                    preview_slot_size - egui::vec2(24.0, 24.0),
+                    preview_document_width,
+                    preview_document_height,
+                );
                 ui.horizontal_wrapped(|ui| {
-                    let (preview, _) = ui.allocate_exact_size(
-                        egui::vec2(preview_size[0], preview_size[1]),
-                        egui::Sense::hover(),
-                    );
+                    let (slot, _) = ui.allocate_exact_size(preview_slot_size, egui::Sense::hover());
                     let painter = ui.painter();
+                    painter.rect_filled(slot, 8.0, ui.visuals().faint_bg_color);
+                    let preview = egui::Rect::from_center_size(slot.center(), preview_size);
                     if self.new_transparent {
-                        let cell = 8.0;
+                        let cell = 10.0;
                         let colors = [ui.visuals().faint_bg_color, ui.visuals().extreme_bg_color];
                         for y in 0..((preview.height() / cell).ceil() as i32) {
                             for x in 0..((preview.width() / cell).ceil() as i32) {
@@ -6854,20 +7293,30 @@ impl Studio {
                         );
                     }
                     painter.rect_stroke(preview, 4.0, ui.visuals().window_stroke, egui::StrokeKind::Inside);
+                    painter.rect_stroke(slot, 8.0, ui.visuals().window_stroke, egui::StrokeKind::Inside);
                     ui.vertical(|ui| {
                         let preview_heading = crate::appearance::readable_text_color(
                             ui.visuals().text_color(),
                             ui.visuals().window_fill,
                         );
-                        ui.label(egui::RichText::new("Canvas preview").strong().color(preview_heading));
+                        ui.label(crate::ui_tokens::display_text(
+                            "Canvas preview",
+                            17.0,
+                            preview_heading,
+                        ));
                         if let (Some(width), Some(height)) = (
                             self.new_unit.to_pixels(self.new_width, self.new_dpi),
                             self.new_unit.to_pixels(self.new_height, self.new_dpi),
                         ) {
-                            ui.label(format!("{width} × {height} px"));
+                            ui.label(egui::RichText::new(format!("{width} × {height} px")).strong());
                         }
-                        ui.label(if self.new_transparent { "Transparent background" } else { "Solid background" });
-                        ui.label(format!("{} DPI", self.new_dpi));
+                        ui.add_space(4.0);
+                        ui.label(if self.new_transparent {
+                            "Transparent background"
+                        } else {
+                            "Solid color background"
+                        });
+                        ui.weak(format!("{} DPI · sRGB RGBA8", self.new_dpi));
                     });
                 });
                 ui.add_sized(
@@ -7008,7 +7457,19 @@ impl Studio {
                         self.manual_file_dialog = false;
                         self.manual_file_submit = false;
                     }
-                    if ui.button("Cancel").clicked() {
+                    let cancel = ui.button("Cancel");
+                    if self.test_path_dialog {
+                        let rect = cancel.rect;
+                        eprintln!(
+                            "UI_TEST_FILE_PICKER_CANCEL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            rect.left(),
+                            rect.top(),
+                            rect.width(),
+                            rect.height(),
+                            ui.ctx().pixels_per_point(),
+                        );
+                    }
+                    if cancel.clicked() {
                         self.manual_file_action = None;
                         self.manual_file_dialog = false;
                         self.manual_file_submit = false;
@@ -7788,7 +8249,8 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        LassoAppend, append_lasso_point, document_format_grid, home_hero_height,
+        FormatIllustration, LassoAppend, append_lasso_point, document_format_grid,
+        fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
         home_sections_stacked, layer_thumbnail_samples, native_project_path,
         quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
         recent_project_matches, recovery_checkpoint_label, recovery_source_label,
@@ -7849,14 +8311,26 @@ mod tests {
     }
 
     #[test]
-    fn recent_artwork_gallery_scales_from_single_column_to_four_columns() {
-        for (available, expected_columns) in [(420.0, 1), (800.0, 2), (1280.0, 3), (1920.0, 4)] {
-            let (columns, card_width) = recent_gallery_layout(available);
+    fn recent_artwork_gallery_accounts_for_card_insets_at_each_breakpoint() {
+        for (available, item_count, expected_columns) in
+            [(420.0, 1, 1), (800.0, 2, 2), (1280.0, 3, 3), (1920.0, 4, 4)]
+        {
+            let (columns, card_width) = recent_gallery_layout(available, item_count);
             assert_eq!(columns, expected_columns, "viewport width {available}");
-            assert!((180.0..=500.0).contains(&card_width));
-            let total = columns as f32 * card_width + 14.0 * (columns - 1) as f32;
+            assert!((180.0..=476.0).contains(&card_width));
+            let total = columns as f32 * (card_width + 24.0) + 14.0 * (columns - 1) as f32;
             assert!(total <= available + 0.1, "cards overflow {available}px");
         }
+    }
+
+    #[test]
+    fn home_gallery_adds_a_real_open_action_only_to_an_unfiltered_partial_row() {
+        assert!(home_open_card_needed(3, 4, true));
+        assert!(!home_open_card_needed(4, 4, true));
+        assert!(!home_open_card_needed(3, 4, false));
+        assert!(!home_open_card_needed(0, 4, true));
+        assert_eq!(recent_gallery_layout(1920.0, 3).0, 3);
+        assert_eq!(recent_gallery_layout(1920.0, 4).0, 4);
     }
 
     #[test]
@@ -7868,6 +8342,41 @@ mod tests {
             let total = columns as f32 * card_width + 12.0 * (columns - 1) as f32;
             assert!(total <= available + 0.1, "cards overflow {available}px");
         }
+    }
+
+    #[test]
+    fn format_cards_use_distinct_visual_cues_and_true_page_aspects() {
+        let labels = [
+            "Portrait",
+            "Landscape",
+            "Square",
+            "A4 Print",
+            "Comic Page",
+            "Full HD",
+            "Custom",
+        ];
+        let kinds = labels.map(format_illustration);
+        for left in 0..kinds.len() {
+            for right in left + 1..kinds.len() {
+                assert_ne!(
+                    kinds[left], kinds[right],
+                    "{} and {} need distinct art",
+                    labels[left], labels[right]
+                );
+            }
+        }
+        let box_size = egui::vec2(72.0, 62.0);
+        let portrait = fit_paper_to_box(box_size, 1800.0, 2400.0);
+        let landscape = fit_paper_to_box(box_size, 2400.0, 1800.0);
+        let square = fit_paper_to_box(box_size, 2048.0, 2048.0);
+        assert!(portrait.x < portrait.y);
+        assert!(landscape.x > landscape.y);
+        assert!((square.x - square.y).abs() < 0.01);
+        assert_eq!(
+            fit_paper_to_box(box_size, f32::NAN, 0.0),
+            egui::vec2(62.0, 62.0)
+        );
+        assert_eq!(kinds[0], FormatIllustration::Portrait);
     }
 
     #[test]

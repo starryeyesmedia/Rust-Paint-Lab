@@ -408,20 +408,19 @@ window width for visible artwork (91.1% light and 96.3% dark in normal and narro
 states). The initial reference fixture is both panned and zoomed. X11/XTest opens
 the actual Settings menu, chooses Center image, and verifies pan resets while
 110% zoom persists to workspace preferences. Representative normal and narrow
-captures were opened and visually reviewed locally. The final script now also
-rejects a visible image rectangle wider than its containing window. The full
-local X11 run preceded that extra upper-bound assertion because the current
-execution image has no Xvfb; the observed ratios (91.1% light, 96.3% dark) are
-inside the new bound, and the exact script awaits the next Linux Actions run.
+captures were opened and visually reviewed locally. The final script also
+rejects a visible image rectangle wider than its containing window. This
+execution image has no Xvfb, so the latest complete local run used a dedicated
+dummy Xorg server with XTEST; the exact final matrix passed there.
 
 The expanded workflow accepts `RPL_TEST_REFERENCE_IMPORT_PATH` only when the
 existing test-only path harness is enabled. After centering the first board it
 imports a second image through the normal bounded loader and asserts that the
 saved window remains on-screen and clear of the movable palette at 1280 × 800 and
 640 × 480. It captures the populated multi-reference state at both sizes, using
-stable geometry markers for the topmost board. These new UI checks await the next
-Linux Actions run because this execution image lacks Xvfb/XTest. They do not
-replace testing the native Windows multi-select dialog.
+stable geometry markers for the topmost board. These UI checks passed locally on
+the Xorg/XTEST display. They do not replace testing the native Windows
+multi-select dialog.
 
 The Brush Library also generates deterministic preset samples by running each
 built-in brush through the raster engine on a bounded temporary document. The
@@ -464,4 +463,38 @@ actual ring, verifies that hue changes while saturation and brightness stay fixe
 and restores the previous color from the saved palette. The Color screenshot test
 checks that the rendered ring region contains at least 32 distinct chromatic
 colors. After editing this UI, rebuild `canvas-demo`, run the full workspace
-checks, and repeat the X11/XTest workflow above; current test count is 242.
+checks, and repeat the X11/XTest workflow above; the current test count is 245.
+
+Local Windows-GNU target checking is compile/lint validation only; the native
+Windows CI job remains the executable validation for Windows builds.
+
+### 2026-10-26 Home and New Artwork integration
+
+This environment has no Xvfb binary. The same real winit/egui application
+workflow was run locally on a dedicated dummy Xorg display with XTEST and Mesa
+software rendering (`DISPLAY=:200`), using the repository's supported wgpu
+offscreen window capture. The complete 31-state screenshot matrix and artwork
+workflow passed, including live drawing, layer actions/undo, save/reopen,
+PNG/OpenRaster exports, reference isolation, and process-kill journal recovery.
+The final Home tile was clicked with XTEST; it opened the deterministic Open
+Project picker and the actual Cancel action returned to Home.
+
+New Artwork screenshots use dynamically reported egui bounds for all seven
+paper illustrations, not hard-coded approximate coordinates. Each preview was
+checked for colored paper pixels (Portrait 318 colors, Landscape 281, Square
+262, A4 Print 174, Comic Page 230, Full HD 272, Custom 196). The live document
+preview shows the selected aspect ratio and configured solid or transparent
+background. The recent-artwork screenshot requires a real cached project
+thumbnail, a harness-only DEVELOPMENT TEST FIXTURE badge, and the accessible
+Open another project action card. Home gallery sizing includes card insets and
+only allocates the columns that its current project/action count can fill.
+
+The reference fixture's unique green marker now sits in the visible center of
+the image rather than at a panned/cropped corner. The latest dark normal/narrow
+screens showed 915/913 marker pixels and 325/398 scene colors; light and dark
+image-width shares were 91.1% and 96.3%. I visually inspected Home, populated
+Home, New Artwork in Light and Dark, and the dark multi-reference canvas captures
+locally. Screenshots are review evidence, not design acceptance for Phase 8.3.
+The latest pushed commit `76a77b0` still has a Linux alpha workflow failure in
+Actions run `40270241090` (Windows and macOS passed); its run-log/artifact receiver
+returned HTTP 403. The current source has not yet received a fresh Actions run.

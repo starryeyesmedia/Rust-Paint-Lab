@@ -169,6 +169,14 @@ def stable_window_rect_marker(name):
         return None
     return tuple(map(float,lines[-1].split()[:5]))
 
+def stable_format_preview_rect(label):
+    prefix=f'UI_TEST_FORMAT_PREVIEW_RECT|{label}|'
+    lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()[:5]))
+
 def reference_image_rect():
     return stable_window_rect_marker('UI_TEST_REFERENCE_LAST_IMAGE_RECT')
 
@@ -444,6 +452,8 @@ def capture_window(window, name):
     brush_preview_colors=set()
     recent_thumbnail_pixels=0
     recent_thumbnail_bounds=None
+    home_open_card_bounds=None
+    home_open_card_colors=set()
     recent_fixture_badge_pixels=0
     recent_fixture_badge_bounds=None
     saved_swatch_pixels=0
@@ -453,6 +463,9 @@ def capture_window(window, name):
     saved_swatch_color=None
     hue_wheel_bounds=None
     hue_wheel_colors=set()
+    format_preview_bounds={}
+    format_preview_pixels={}
+    format_preview_color_counts={}
     reference_image_bounds=None
     reference_image_colors=set()
     reference_image_share=None
@@ -468,6 +481,25 @@ def capture_window(window, name):
             lambda: window_rect_marker('UI_TEST_HOME_FIXTURE_BADGE_RECT'),
             'generated Home artwork is visibly marked as a development fixture')
         recent_fixture_badge_bounds=(x*scale,y*scale,(x+badge_width)*scale,(y+badge_height)*scale)
+        x,y,card_width,card_height,scale=wait(
+            lambda: window_rect_marker('UI_TEST_HOME_OPEN_CARD_RECT'),
+            'Home open-project action card is laid out after populated recent artwork')
+        home_open_card_bounds=(x*scale,y*scale,(x+card_width)*scale,(y+card_height)*scale)
+    if name == 'new-artwork-light-normal':
+        # Use the actual paper rectangles reported by egui instead of guessing
+        # card positions. These disjoint bounds verify the illustrations (not
+        # the dialog labels) at any supported pixels-per-point scale.
+        assert (width,height)==(1280,800), +            f'{name} format illustration review expects 1280x800, got {width}x{height}'
+        for label in ['Portrait','Landscape','Square','A4 Print','Comic Page','Full HD','Custom']:
+            x,y,preview_width,preview_height,scale=wait(
+                lambda label=label: stable_format_preview_rect(label),
+                f'{label} paper illustration is laid out',
+            )
+            format_preview_bounds[label]=(x*scale,y*scale,
+                                          (x+preview_width)*scale,
+                                          (y+preview_height)*scale)
+            format_preview_pixels[label]=0
+            format_preview_color_counts[label]=set()
     if name == 'brush-library-light-normal':
         x,y,preview_width,preview_height,scale=wait(brush_preview_rect,'active raster-engine preview is laid out')
         brush_preview_bounds=(x*scale,y*scale,(x+preview_width)*scale,(y+preview_height)*scale)
@@ -515,6 +547,15 @@ def capture_window(window, name):
                 if left<=x_pixel<right and top<=y<bottom \
                     and red>140 and red-green>35 and blue>180 and blue-green>80:
                     recent_fixture_badge_pixels+=1
+            if home_open_card_bounds is not None:
+                left,top,right,bottom=home_open_card_bounds
+                if left<=x_pixel<right and top<=y<bottom:
+                    home_open_card_colors.add((red,green,blue))
+            for label,(left,top,right,bottom) in format_preview_bounds.items():
+                if left<=x_pixel<right and top<=y<bottom:
+                    format_preview_color_counts[label].add((red,green,blue))
+                    if max(red,green,blue)-min(red,green,blue)>48:
+                        format_preview_pixels[label]+=1
             if name == 'home-light-wide' and y >= height-96 and red < 90 and green < 100 and blue < 110:
                 home_wide_bottom_dark_pixels+=1
             if recovery_preview_bounds is not None:
@@ -578,9 +619,22 @@ def capture_window(window, name):
         print(f'UI_SCREENSHOT_RECENT_ART_PIXELS: {name} {recent_artwork_pixels}', flush=True)
         print(f'UI_SCREENSHOT_RECENT_THUMBNAIL_PIXELS: {name} {recent_thumbnail_pixels}', flush=True)
         print(f'UI_SCREENSHOT_RECENT_FIXTURE_BADGE_PIXELS: {name} {recent_fixture_badge_pixels}', flush=True)
+        assert len(home_open_card_colors)>=8, \
+            f'{name} does not show the real open-project action in the remaining gallery slot ({len(home_open_card_colors)} colors)'
+        print(f'UI_SCREENSHOT_HOME_OPEN_CARD_COLORS: {name} {len(home_open_card_colors)}', flush=True)
         print(f'UI_SCREENSHOT_RECENT_CARD: {name} visible={visible_height:.1f} total={total_height:.1f}', flush=True)
         if width < 1800 or height < 1000:
             print(f'UI_SCREENSHOT_RECENT_ART_WIDE: SKIPPED (capture is {width}x{height}; need 1800x1000)', flush=True)
+    if name == 'new-artwork-light-normal':
+        assert set(format_preview_bounds)=={
+            'Portrait','Landscape','Square','A4 Print','Comic Page','Full HD','Custom'
+        }, f'{name} is missing one or more visual format choices: {sorted(format_preview_bounds)}'
+        for label in sorted(format_preview_bounds):
+            colors=len(format_preview_color_counts[label])
+            vivid=format_preview_pixels[label]
+            assert colors>=6 and vivid>=12, \
+                f'{name} {label} page preview is blank or lacks its illustrated content ({colors} colors, {vivid} vivid pixels)'
+            print(f'UI_SCREENSHOT_FORMAT_PREVIEW: {label} colors={colors} vivid-pixels={vivid}', flush=True)
     if name == 'home-light-wide':
         if width < 1920 or height < 1080:
             print(
@@ -658,9 +712,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
         for x_pixel in range(reference_width):
             if x_pixel == 0 and y == 0:
                 color=(255,0,255,255)
-            elif x_pixel < 32 and y < 32:
-                # A large, unique green corner makes screenshots prove that the
-                # imported reference itself is visible, not merely the canvas.
+            elif 224 <= x_pixel < 256 and 144 <= y < 176:
+                # A large, unique green center marker stays in view after the
+                # persisted test zoom/pan and adaptive multi-board placement.
+                # It lets screenshots prove the imported reference is visible,
+                # not merely the canvas behind a clipped image corner.
                 color=(0,255,0,255)
             elif (x_pixel-360)**2+(y-70)**2 < 38**2:
                 color=(255,205,112,255)
@@ -1121,6 +1177,21 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 card_bounds=home_recent_card_rect() or card_bounds
             assert card_bounds[3]>=card_bounds[4]-1.0, 'scrolling Home did not bring the complete recent-artwork card into view'
             capture_window(window,'home-recent-artwork-light')
+            open_card_x,open_card_y,open_card_width,open_card_height,open_card_scale=wait(
+                lambda: window_rect_marker('UI_TEST_HOME_OPEN_CARD_RECT'),
+                'the Home open-project tile reports its real bounds',
+            )
+            click_at((open_card_x+open_card_width/2)*open_card_scale,
+                     (open_card_y+96.0)*open_card_scale)
+            path_prompt()
+            cancel_x,cancel_y,cancel_width,cancel_height,cancel_scale=wait(
+                lambda: window_rect_marker('UI_TEST_FILE_PICKER_CANCEL_RECT'),
+                'the opened file picker exposes its cancel action',
+            )
+            click_at((cancel_x+cancel_width/2)*cancel_scale,
+                     (cancel_y+cancel_height/2)*cancel_scale)
+            wait(lambda: 'TEST FILE PICKER' not in title(window),
+                 'Cancel returns to Home from the open-project tile')
             key('Escape');assert process.wait(timeout=20)==0
             home_preferences=json.loads(prefs.read_text())
             assert any(item['path']==str(reference) for item in home_preferences.get('references',[])), 'reference board path survives an app restart through Home'

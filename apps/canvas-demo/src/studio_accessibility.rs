@@ -250,6 +250,32 @@ mod tests {
     }
 
     #[test]
+    fn home_gallery_open_action_has_a_descriptive_keyboard_button_name() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::home_open_project_card(ui, 420.0, false);
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("the open-project tile emits its AccessKit semantics");
+        let nodes = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            nodes.contains("Open another project from this device"),
+            "the open-project action is described in the accessibility tree: {nodes}"
+        );
+        assert!(nodes.contains("role: Button"));
+    }
+
+    #[test]
     fn brush_preset_cards_keep_artist_facing_names_in_the_accessibility_tree() {
         let context = egui::Context::default();
         context.enable_accesskit();
