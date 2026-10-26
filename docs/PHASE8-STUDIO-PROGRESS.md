@@ -1112,9 +1112,50 @@ approval.
   Advanced pen input, Windows DPI behavior, power-loss durability, Narrator/NVDA
   and Windows UI Automation were not exercised in this Linux continuation.
 
-Next: commit and push this verified Recovery/Home checkpoint; verify the new
-Windows/Linux/macOS Actions run and preserve the existing separate Windows
-artifacts; then continue the visual/accessibility overhaul with keyboard/focus
-and AccessKit action coverage plus coordinated floating-panel and Reference
-workspace polish. Keep Phase 8.3 active and defer the consolidated Windows
-evaluation build until the broader pass is justified by rendered UI evidence.
+The Recovery/Home code was pushed in `3a0a299`. Its Windows and macOS Actions
+jobs passed; the Linux failure was isolated to the screenshot harness's
+last-card selection and is corrected in the follow-up below. Continue the
+keyboard/focus and AccessKit action coverage plus coordinated floating-panel and
+Reference workspace polish. Keep Phase 8.3 active and defer the consolidated
+Windows evaluation build until the broader pass is justified by rendered UI
+evidence.
+
+### Toolbar and docked-palette follow-up — local validation
+
+- Replaced the palette's Braille drag glyph, which rendered as tofu on the
+  inspected Linux font stack, with six original vector dots. The non-button grip
+  is exposed as “Move tool palette” in egui's semantic tree and retains the
+  existing palette drag/dock gesture.
+- The top dock previously anchored to a fixed 64-pixel offset from the window
+  origin, placing it over the contextual brush size/opacity row. Dock placement
+  and edge snapping now use a viewport whose top begins below the measured
+  contextual-options panel. Top and side docks therefore avoid application
+  chrome without relying on a guessed fixed offset. Unit tests cover anchoring
+  and snapping relative to the content viewport below app chrome. The Linux
+  smoke now logs and asserts that the rendered palette begins below the measured
+  contextual-options row.
+- Actions run `40249283516` confirmed that two Home cards were fully visible and
+  the last card in the responsive grid was clipped at the bottom. The smoke had
+  incorrectly insisted on the last card being complete. Its follow-up selects
+  the largest fully visible card and scrolls only if none is visible, while
+  retaining the actual-thumbnail pixel assertion.
+- Local validation after these changes: formatting, Python syntax, diff checks,
+  strict workspace Clippy, workspace build, all **227 workspace tests** including
+  doctests, and a required llvmpipe/OpenGL GPU smoke passed. Xvfb is unavailable
+  in this shell, so the updated Xvfb flow and measured rendered-clearance
+  assertion await Actions. The six-dot handle was visually reviewed in previous
+  Light/Dark screenshots; the new top-dock position awaits a fresh screenshot
+  review. Linux rendering does not validate Windows DPI or native accessibility
+  APIs.
+- Actions run
+  [`40249283516`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40249283516)
+  completed with Windows and macOS success and Linux screenshot-smoke failure on
+  `3a0a299`. The separate `rust-paint-lab-canvas-demo` and
+  `rust-paint-lab-windows-diagnostic` artifacts remain available from that run.
+  Its screenshot archive exists, but artifact download returned HTTP 403, so
+  the new top-dock position could not be visually inspected here. Verify the
+  follow-up commit on all platforms and confirm the separate Windows artifacts.
+- Next: inspect the top-docked palette with the measured canvas-edge anchor,
+  then continue keyboard traversal/AccessKit actions and floating-panel
+  placement. Phase 8.3 remains active; no consolidated Windows evaluation build
+  is being promoted from this local checkpoint.

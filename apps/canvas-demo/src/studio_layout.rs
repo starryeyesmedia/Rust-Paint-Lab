@@ -2,8 +2,10 @@
 
 use crate::workspace::PaletteDock;
 
-/// Position a docked tool palette with comfortable clearance from the app menu
-/// and status bars. Top and bottom docks are centered and use a horizontal row.
+/// Position a docked tool palette inside the available canvas viewport. The
+/// caller excludes application menu and contextual-option bars from this
+/// viewport, so top and side docks can sit close to the canvas edge. Top and
+/// bottom docks are centered and use a horizontal row.
 pub fn palette_anchor(viewport: egui::Rect, dock: PaletteDock, floating: egui::Pos2) -> egui::Pos2 {
     let margin = 8.0;
     let right_anchor = (viewport.right() - 72.0).max(viewport.left() + margin);
@@ -12,9 +14,9 @@ pub fn palette_anchor(viewport: egui::Rect, dock: PaletteDock, floating: egui::P
         (viewport.right() - 656.0).max(viewport.left() + margin),
     );
     match dock {
-        PaletteDock::Left => egui::pos2(viewport.left() + margin, viewport.top() + 64.0),
-        PaletteDock::Right => egui::pos2(right_anchor, viewport.top() + 64.0),
-        PaletteDock::Top => egui::pos2(horizontal_anchor, viewport.top() + 64.0),
+        PaletteDock::Left => egui::pos2(viewport.left() + margin, viewport.top() + margin),
+        PaletteDock::Right => egui::pos2(right_anchor, viewport.top() + margin),
+        PaletteDock::Top => egui::pos2(horizontal_anchor, viewport.top() + margin),
         PaletteDock::Bottom => egui::pos2(horizontal_anchor, viewport.bottom() - 72.0),
         PaletteDock::Floating => floating,
     }
@@ -26,7 +28,7 @@ pub fn snap_palette(viewport: egui::Rect, rect: egui::Rect) -> PaletteDock {
     let edges = [
         (PaletteDock::Left, (rect.left() - viewport.left()).abs()),
         (PaletteDock::Right, (viewport.right() - rect.right()).abs()),
-        (PaletteDock::Top, (rect.top() - viewport.top() - 56.0).abs()),
+        (PaletteDock::Top, (rect.top() - viewport.top()).abs()),
         (
             PaletteDock::Bottom,
             (viewport.bottom() - rect.bottom()).abs(),
@@ -211,7 +213,7 @@ mod tests {
         for (bounds, expected) in [
             (rect(4.0, 120.0, 72.0, 400.0), PaletteDock::Left),
             (rect(1204.0, 120.0, 72.0, 400.0), PaletteDock::Right),
-            (rect(400.0, 60.0, 480.0, 72.0), PaletteDock::Top),
+            (rect(400.0, 4.0, 480.0, 72.0), PaletteDock::Top),
             (rect(400.0, 720.0, 480.0, 72.0), PaletteDock::Bottom),
             (rect(400.0, 300.0, 480.0, 72.0), PaletteDock::Floating),
         ] {
@@ -224,7 +226,7 @@ mod tests {
         let viewport = rect(0.0, 0.0, 1280.0, 800.0);
         assert_eq!(
             palette_anchor(viewport, PaletteDock::Top, egui::Pos2::ZERO),
-            egui::pos2(320.0, 64.0)
+            egui::pos2(320.0, 8.0)
         );
         assert_eq!(
             palette_anchor(viewport, PaletteDock::Bottom, egui::Pos2::ZERO),
@@ -232,20 +234,37 @@ mod tests {
         );
         assert_eq!(
             palette_anchor(viewport, PaletteDock::Left, egui::Pos2::ZERO),
-            egui::pos2(8.0, 64.0)
+            egui::pos2(8.0, 8.0)
         );
         assert_eq!(
             palette_anchor(viewport, PaletteDock::Right, egui::Pos2::ZERO),
-            egui::pos2(1208.0, 64.0)
+            egui::pos2(1208.0, 8.0)
         );
         let narrow = rect(0.0, 0.0, 320.0, 240.0);
         assert_eq!(
             palette_anchor(narrow, PaletteDock::Top, egui::Pos2::ZERO),
-            egui::pos2(8.0, 64.0)
+            egui::pos2(8.0, 8.0)
         );
         assert_eq!(
             palette_anchor(narrow, PaletteDock::Bottom, egui::Pos2::ZERO),
             egui::pos2(8.0, 168.0)
+        );
+    }
+
+    #[test]
+    fn docked_palette_uses_the_canvas_edge_below_app_chrome() {
+        let canvas = rect(0.0, 126.0, 1280.0, 800.0);
+        assert_eq!(
+            palette_anchor(canvas, PaletteDock::Top, egui::Pos2::ZERO),
+            egui::pos2(320.0, 134.0)
+        );
+        assert_eq!(
+            palette_anchor(canvas, PaletteDock::Left, egui::Pos2::ZERO),
+            egui::pos2(8.0, 134.0)
+        );
+        assert_eq!(
+            snap_palette(canvas, rect(320.0, 130.0, 640.0, 56.0)),
+            PaletteDock::Top
         );
     }
 }

@@ -337,6 +337,8 @@ board, Brush library, Color controls, Layers panel and Recovery manager, then
 restarts the app to capture recent artwork and dark/high-contrast appearances.
 It exercises the top-docked horizontal palette as well as the default left dock,
 and resizes the live window for narrow, normal and 1920 × 1080 wide captures.
+The dark top-dock case reports the actual palette and contextual-options bounds
+and fails if the palette overlaps the brush-size/opacity bar.
 The wide Home capture exercises the four-column gallery layout. It verifies that
 real layers and a valid recovery checkpoint are present, and rejects
 blank/undersampled images. The current matrix captures 22 named states, including
@@ -356,10 +358,11 @@ button bounds, and exercises Ctrl+B as a keyboard alternative. The companion
 artifact retains the input/action log on failures.
 
 The Home capture at 1920 × 1080 now also asserts that its full viewport covers the
-GPU canvas beneath it. For the populated recent-artwork capture, X11 wheel input
-scrolls the actual Home UI until a complete project card, including its real cached
-thumbnail and readable metadata, is inside the viewport; the test checks the card's
-visible and total layout bounds and blue painted pixels. Recovery screenshots
+GPU canvas beneath it. For the populated recent-artwork capture, the harness reads
+the actual responsive-grid bounds and selects the largest complete project card
+visible in the viewport, scrolling if no card is complete. It checks visible versus
+total layout height, readable card content, and blue pixels from the real cached
+thumbnail; another card can remain clipped at the bottom edge. Recovery screenshots
 exercise the actual Preview button using an app-produced `.rpl` artwork fixture in
 the isolated test recovery directory. The captured preview region must contain
 multiple rendered colors. That visual fixture is removed before the independent

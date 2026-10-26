@@ -3103,7 +3103,7 @@ impl Studio {
                 });
             });
 
-            egui::TopBottomPanel::top("contextual tool options")
+            let contextual_options = egui::TopBottomPanel::top("contextual tool options")
                 .resizable(false)
                 .show(ctx, |ui| {
                     egui::Frame::new()
@@ -3202,9 +3202,18 @@ impl Studio {
 
             let old_tool = self.tool;
             let screen = ctx.content_rect();
+            // Dock positions are relative to the canvas area beneath both
+            // application chrome rows. Using the full window rectangle here
+            // placed a top-docked palette over the brush size/opacity strip.
+            let mut palette_viewport = screen;
+            palette_viewport.min.y = (contextual_options.response.rect.bottom() + 8.0)
+                .min(palette_viewport.bottom() - 1.0);
             let floating_position = egui::pos2(self.palette_position[0], self.palette_position[1]);
-            let dock_position =
-                crate::studio_layout::palette_anchor(screen, self.palette_dock, floating_position);
+            let dock_position = crate::studio_layout::palette_anchor(
+                palette_viewport,
+                self.palette_dock,
+                floating_position,
+            );
             let horizontal_palette = matches!(
                 self.palette_dock,
                 crate::workspace::PaletteDock::Top | crate::workspace::PaletteDock::Bottom
@@ -3239,11 +3248,7 @@ impl Studio {
                             if !horizontal_palette {
                                 ui.add_space(8.0);
                             }
-                            ui.label(egui::RichText::new("⠿").size(18.0).strong())
-                                .on_hover_text(
-                                    "Drag this palette to move it; release near an edge to dock",
-                                )
-                                .on_disabled_hover_text("Tool palette");
+                            crate::studio_icons::palette_drag_handle(ui);
                             if !compact_palette
                                 && ui
                                     .small_button(if self.palette_collapsed {
@@ -3447,6 +3452,13 @@ impl Studio {
                     });
             });
             let rect = palette_response.response.rect;
+            if self.test_path_dialog && self.palette_dock == crate::workspace::PaletteDock::Top {
+                eprintln!(
+                    "UI_TEST_TOP_PALETTE_CLEARANCE: {:.1} {:.1}",
+                    rect.top(),
+                    contextual_options.response.rect.bottom(),
+                );
+            }
             let clamped = clamp_reference_position(
                 [rect.min.x, rect.min.y],
                 [rect.width(), rect.height()],
@@ -3457,7 +3469,7 @@ impl Studio {
                 self.palette_dragging = true;
             }
             if palette_response.response.drag_stopped() {
-                self.palette_dock = crate::studio_layout::snap_palette(screen, rect);
+                self.palette_dock = crate::studio_layout::snap_palette(palette_viewport, rect);
                 self.palette_dragging = false;
                 workspace_changed = true;
             }

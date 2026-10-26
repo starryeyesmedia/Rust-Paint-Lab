@@ -97,6 +97,19 @@ def recovery_preview_image_rect():
 def home_recent_card_rect():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_HOME_RECENT_CARD_GEOMETRY: ')]
+    cards=[tuple(map(float,line.partition(': ')[2].split())) for line in lines[-8:]]
+    if not cards:
+        return None
+    # A responsive grid can contain cards with different metadata wrapping.
+    # The last card may be clipped at the viewport even while a taller card
+    # earlier in the same row is already fully visible. Prefer the largest
+    # complete card; scroll only if no complete card exists yet.
+    complete=[bounds for bounds in cards if bounds[3]>=bounds[4]-1.0]
+    return max(complete,key=lambda bounds:bounds[4]) if complete else cards[-1]
+
+def top_palette_clearance():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_TOP_PALETTE_CLEARANCE: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def send():
@@ -591,6 +604,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'dark New Artwork interface has rendered before capture')
             time.sleep(0.25);capture_window(window,'new-artwork-dark-normal');key('Return');time.sleep(0.4)
             capture_window(window,'canvas-workspace-dark-toolbar-top')
+            clearance=wait(top_palette_clearance,'top-docked palette reports its measured app-toolbar clearance')
+            assert clearance[0]>=clearance[1]-0.5, f'top palette overlaps contextual options: {clearance}'
             wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_REFERENCE_IMAGE_VISIBLE:') > reference_markers_before_dark,
                  'dark reference screenshot renders its imported image')
             time.sleep(0.35)  # wait until the marked reference frame is presented

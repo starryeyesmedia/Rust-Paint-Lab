@@ -163,3 +163,18 @@ the complete recent-artwork card and full-screen Home background. See the latest
 entry in `PHASE8-STUDIO-PROGRESS.md`; local checks are current, and the new
 three-platform Actions run remains pending. Phase 8.3 remains active and no
 evaluation build is being promoted.
+
+The follow-on local review replaced the missing-font toolbar grip with accessible
+vector geometry and corrected top/side palette anchors to start below the
+measured contextual-options bar. Formatting, strict Clippy, 227 workspace tests,
+the software-GPU smoke and workspace build passed locally. This shell has no
+Xvfb, so the updated screenshot workflow has not run here. Actions run
+[`40249283516`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40249283516)
+passed Windows/macOS and failed Linux only because the screenshot harness chose
+the last clipped Home card despite two complete cards being visible; the follow-up
+fixes that selection and adds a measured top-palette clearance assertion. Its
+artifact blob host rejects downloads with HTTP 403. The new source checkpoint
+still needs three-platform Actions confirmation and fresh screenshot inspection.
+Continue the Phase 8.3 interface/accessibility work; these polish slices are not
+phase acceptance and do not authorize publication of the consolidated Windows
+evaluation artifact.

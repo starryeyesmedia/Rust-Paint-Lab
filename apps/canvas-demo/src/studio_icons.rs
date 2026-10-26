@@ -19,6 +19,7 @@ pub enum Icon {
     Color,
     Settings,
     Reference,
+    DragHandle,
 }
 
 fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::Color32) {
@@ -206,6 +207,13 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
                 (6.0, 4.0),
             ]);
         }
+        Icon::DragHandle => {
+            for y in [-5.0, 0.0, 5.0] {
+                for x in [-4.0, 4.0] {
+                    painter.circle_filled(at(x, y), 1.25 * scale, color);
+                }
+            }
+        }
     }
 }
 
@@ -233,6 +241,23 @@ pub fn button(
     paint(ui.painter(), response.rect.shrink(9.0), icon, color);
     let tooltip = shortcut.map_or_else(|| name.to_string(), |key| format!("{name} ({key})"));
     response.on_hover_text(tooltip)
+}
+
+/// Draw a recognizable, font-independent palette grip while leaving dragging
+/// to the containing movable Area. The semantic label gives screen readers a
+/// named point to locate the moveable tool palette.
+pub fn palette_drag_handle(ui: &mut egui::Ui) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover());
+    paint(
+        ui.painter(),
+        rect.shrink(3.0),
+        Icon::DragHandle,
+        ui.visuals().text_color(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, "Move tool palette")
+    });
+    response.on_hover_text("Drag this palette to move it; release near an edge to dock")
 }
 
 /// Add a vector mark to a normal text button. The text remains the accessible
@@ -314,6 +339,7 @@ mod tests {
             Icon::Color,
             Icon::Settings,
             Icon::Reference,
+            Icon::DragHandle,
         ];
         let context = egui::Context::default();
         let output = context.run(egui::RawInput::default(), |context| {
@@ -343,5 +369,22 @@ mod tests {
         });
         assert!(width >= 32.0);
         assert!(!output.shapes.is_empty());
+    }
+
+    #[test]
+    fn palette_drag_handle_uses_vector_geometry_and_accessible_label() {
+        let context = egui::Context::default();
+        let output = context.run(egui::RawInput::default(), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                palette_drag_handle(ui);
+            });
+        });
+        assert!(output.shapes.len() >= 6);
+        assert!(
+            !output
+                .shapes
+                .iter()
+                .any(|shape| { matches!(shape.shape, egui::epaint::Shape::Text(_)) })
+        );
     }
 }
