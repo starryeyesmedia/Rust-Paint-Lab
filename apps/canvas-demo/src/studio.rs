@@ -5682,12 +5682,22 @@ impl Studio {
                         }
                         ui.weak(format!("{:.0}%", reference.layout.view_zoom * 100.0));
                         let settings = ui.menu_button("Settings", |ui| {
-                            if ui.button("Fit image to window").clicked() {
-                                reference.layout.view_zoom = 1.0;
+                            let center_image = ui.button("Center image");
+                            if self.test_path_dialog {
+                                eprintln!(
+                                    "UI_TEST_REFERENCE_CENTER_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    center_image.rect.left(),
+                                    center_image.rect.top(),
+                                    center_image.rect.width(),
+                                    center_image.rect.height(),
+                                    ui.ctx().pixels_per_point(),
+                                );
+                            }
+                            if center_image.clicked() {
                                 reference.layout.view_pan = [0.0, 0.0];
                                 ui.close();
                             }
-                            if ui.button("Reset image view").clicked() {
+                            if ui.button("Fit image to window").clicked() {
                                 reference.layout.view_zoom = 1.0;
                                 reference.layout.view_pan = [0.0, 0.0];
                                 ui.close();
@@ -5720,7 +5730,18 @@ impl Studio {
                                 "Reference settings",
                             )
                         });
+                        let settings_rect = settings.response.rect;
                         settings.response.on_hover_text("Reference settings");
+                        if self.test_path_dialog {
+                            eprintln!(
+                                "UI_TEST_REFERENCE_SETTINGS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                settings_rect.left(),
+                                settings_rect.top(),
+                                settings_rect.width(),
+                                settings_rect.height(),
+                                ctx.pixels_per_point(),
+                            );
+                        }
                     });
                     let available = ui.available_size().max(egui::vec2(48.0, 48.0));
                     let source_size = reference.texture.size_vec2();
@@ -5759,13 +5780,17 @@ impl Studio {
                         reference.layout.view_pan,
                     );
                     if let Some(image_rect) = image_rect {
-                        if self.test_path_dialog && reference_visible_workspace {
+                        let visible_image_rect = image_rect.intersect(viewport);
+                        if self.test_path_dialog
+                            && reference_visible_workspace
+                            && visible_image_rect.is_positive()
+                        {
                             eprintln!(
                                 "UI_TEST_REFERENCE_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                image_rect.left(),
-                                image_rect.top(),
-                                image_rect.width(),
-                                image_rect.height(),
+                                visible_image_rect.left(),
+                                visible_image_rect.top(),
+                                visible_image_rect.width(),
+                                visible_image_rect.height(),
                                 ctx.pixels_per_point(),
                             );
                         }

@@ -281,8 +281,11 @@ checks both the color result and restoration from a saved swatch. The reference
 board now has a smaller filename header, compact zoom actions and an accessible
 Settings menu. Screenshot assertions measure pixels inside its actual image
 bounds and require the unique fixture marker, scene-color variety, and at least
-85% image width. Local captures show 89.4% width in light mode and 95.9% in dark
-mode at normal and narrow sizes.
+85% image width. Local captures show 91.1% width in light mode and 96.3% in dark
+mode at normal and narrow sizes. The screenshot rectangle is clipped to the actual
+reference viewport. X11/XTest also opens Settings from a panned 110% view, selects
+Center image, and verifies pan resets while zoom persists in workspace settings;
+Fit image to window remains the separate zoom-and-pan reset.
 
 The 30-image matrix and full X11 artwork workflow pass after this work, including
 real live mouse strokes, layer transactions and Undo, exports, reference-image

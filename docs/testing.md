@@ -396,12 +396,18 @@ Reference-board captures report the current image rectangle after each resize.
 Pixel checks are restricted to that rectangle and require both the fixture's
 unique green marker and varied scene colors (at least 12). This prevents toolbar,
 canvas, or unrelated UI colors from satisfying the reference-image assertion.
-On the latest local run the light normal/narrow captures each showed 379 marker
-pixels and 151 image colors; dark normal showed 575 marker pixels and 285 image
+On the latest local run the light normal/narrow captures each showed 483 marker
+pixels and 176 image colors; dark normal showed 126 marker pixels and 295 image
 colors. The compact reference header/Settings row leaves at least 85% of its
-window width for artwork (89.4% light and 95.9% dark in normal and narrow states).
-Representative normal and narrow captures were opened and visually reviewed
-locally.
+window width for visible artwork (91.1% light and 96.3% dark in normal and narrow
+states). The initial reference fixture is both panned and zoomed. X11/XTest opens
+the actual Settings menu, chooses Center image, and verifies pan resets while
+110% zoom persists to workspace preferences. Representative normal and narrow
+captures were opened and visually reviewed locally. The final script now also
+rejects a visible image rectangle wider than its containing window. The full
+local X11 run preceded that extra upper-bound assertion because the current
+execution image has no Xvfb; the observed ratios (91.1% light, 96.3% dark) are
+inside the new bound, and the exact script awaits the next Linux Actions run.
 
 The Brush Library also generates deterministic preset samples by running each
 built-in brush through the raster engine on a bounded temporary document. The

@@ -552,8 +552,8 @@ def capture_window(window, name):
         assert len(reference_image_colors)>=12, \
             f'{name} image bounds contain too few colors to prove the reference is visible ({len(reference_image_colors)})'
         print(f'UI_SCREENSHOT_REFERENCE_COLORS: {name} {len(reference_image_colors)}', flush=True)
-        assert reference_image_share>=0.85, \
-            f'{name} gives too much horizontal space to reference-window chrome ({reference_image_share:.1%} image width)'
+        assert 0.85<=reference_image_share<=1.0, \
+            f'{name} has an invalid reference image/window width ratio ({reference_image_share:.1%})'
         print(f'UI_SCREENSHOT_REFERENCE_IMAGE_WIDTH_SHARE: {name} {reference_image_share:.1%}', flush=True)
     if name == 'home-recent-artwork-light':
         card_bounds=wait(home_recent_card_rect,'recent-artwork card geometry is available')
@@ -664,7 +664,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     prefs=directory/'state/rust-paint-lab/workspace.json'
     prefs.parent.mkdir(parents=True)
     initial_swatches=[[245,88,206],[116,88,246],[60,205,180]]
-    prefs.write_text(json.dumps({'version':1,'dark_theme':False,'brush_panel_width':280.0,'saved_color_swatches':initial_swatches,'references':[{'path':str(reference),'position':[620.0,100.0],'size':[320.0,260.0],'opacity':0.7}]}))
+    prefs.write_text(json.dumps({'version':1,'dark_theme':False,'brush_panel_width':280.0,'saved_color_swatches':initial_swatches,'references':[{'path':str(reference),'position':[620.0,100.0],'size':[320.0,260.0],'opacity':0.7,'view_zoom':1.1,'view_pan':[20.0,20.0]}]}))
     with (directory/'application.log').open('w') as log:
         process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
         try:
@@ -702,6 +702,18 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'reference-board-light')
             resize_window(window,640,480);capture_window(window,'reference-board-light-narrow')
             resize_window(window,1280,800)
+            settings=wait(lambda: color_palette_marker('UI_TEST_REFERENCE_SETTINGS_RECT'),
+                          'reference board exposes its accessible Settings menu')
+            click_at((settings[0]+settings[2]/2)*settings[4],
+                     (settings[1]+settings[3]/2)*settings[4])
+            center_image=wait(lambda: color_palette_marker('UI_TEST_REFERENCE_CENTER_IMAGE_RECT'),
+                              'reference Settings menu exposes Center image')
+            click_at((center_image[0]+center_image[2]/2)*center_image[4],
+                     (center_image[1]+center_image[3]/2)*center_image[4])
+            wait(lambda: (lambda state: state.get('view_pan')==[0.0,0.0]
+                          and abs(state.get('view_zoom',0.0)-1.1)<0.01)(
+                              json.loads(prefs.read_text())['references'][0]),
+                 'Center image persists a centered pan while preserving the existing zoom')
             left, top, width, height, scale = wait(brush_rect, 'Brush control geometry')
             move(round((left + width / 2) * scale), round((top + height / 2) * scale))
             click_button(1, True)
@@ -1165,7 +1177,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, targeted layer duplicate/reorder/delete and drag-reorder with undo, native right-click layer menu, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board and Center image preserving zoom, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, hue wheel color change and saved swatch restore, targeted layer duplicate/reorder/delete and drag-reorder with undo, native right-click layer menu, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

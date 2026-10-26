@@ -1427,24 +1427,36 @@ transactions/undo, reference isolation, file round trips, PNG/OpenRaster exports
 and journal-only process-kill recovery.
 
 The same review tightened reference-board screenshot evidence: each reference
-state now captures the actual image rectangle after resize, counts colors only
-inside that image, and requires the fixture's distinctive green marker as well as
-at least 12 scene colors. The real image region passed in all four light/dark,
-normal/narrow captures (light normal/narrow: 379 marker pixels and 151 colors;
-dark normal: 575 marker pixels and 285 colors). I visually inspected those
-rendered captures, confirming the reference picture itself is visible rather than
-merely inferring it from app state or full-window pixel diversity. To make it
-more image-first, the reference window uses a smaller title and compact zoom
-buttons plus a readable Settings menu instead of a wide text control; the capture
-asserts the image occupies at least 85% of the reference window's width (89.4% in
-light normal/narrow and 95.9% in dark normal/narrow).
+state now captures the visible, viewport-clipped image rectangle after resize,
+counts colors only inside that image, and requires the fixture's distinctive
+green marker as well as at least 12 scene colors. The current real image region
+passed in all four light/dark, normal/narrow captures (light normal/narrow: 483
+marker pixels and 176 colors; dark normal: 126 marker pixels and 295 colors). I
+visually inspected those rendered captures, confirming the reference picture is
+visible rather than merely inferring it from app state or full-window pixel
+diversity. To make it more image-first, the reference window uses a smaller title
+and compact zoom buttons plus a readable Settings menu instead of a wide text
+control; the visible image occupies at least 85% of the window's width (91.1% in
+light normal/narrow and 96.3% in dark normal/narrow).
+
+The Settings menu no longer offers two identical reset actions: **Fit image to
+window** resets zoom and pan, while **Center image** resets pan and retains zoom.
+The X11 workflow opens the real menu from an initially panned 110% view, clicks
+Center image, and verifies the zero pan and retained zoom are saved in workspace
+preferences.
 
 Local validation after this addition: formatting, strict workspace Clippy, all
 **240 workspace tests**, workspace build, Windows GNU target check and strict
 Clippy, llvmpipe offscreen GPU pixel smoke, and full X11/XTest artwork workflow
-passed. Basic S Pen drawing remains owner-observed; advanced capture, pressure/
-tilt edge cases, Windows display scaling, and native Narrator/NVDA behavior were
-not tested in this Linux session. Actions run
+passed before the final screenshot-width assertion was tightened to reject an
+image rectangle wider than its containing reference window. The newly added
+upper-bound assertion has not been rerun locally because this execution
+environment has neither `Xvfb` nor `xvfb-run`; the measured image/window ratios
+were 91.1% and 96.3%, both within the tightened bound. The next Actions Linux
+window job will exercise the exact final script. Basic S Pen drawing remains
+owner-observed; advanced capture, pressure/tilt edge cases, Windows display
+scaling, and native Narrator/NVDA behavior were not tested in this Linux session.
+Actions run
 [`40265944815`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40265944815)
 passed for Windows, Linux and macOS on preceding commit `2b615f9`; the wheel
 changes still require a fresh Actions result after push. Phase 8.3 remains active,
