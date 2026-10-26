@@ -6,7 +6,7 @@ path, screenshots, user input recording, or additional Python packages.
 """
 import ctypes as c
 from pathlib import Path
-import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii
+import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii, shutil
 import subprocess
 import time
 
@@ -82,6 +82,21 @@ def wait(predicate, description):
 def brush_rect():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_BRUSH_RECT: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
+def recovery_preview_target():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_RECOVERY_PREVIEW_TARGET: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
+def recovery_preview_image_rect():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_RECOVERY_PREVIEW_IMAGE_RECT: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
+def home_recent_card_rect():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_HOME_RECENT_CARD_GEOMETRY: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def send():
@@ -190,6 +205,13 @@ def capture_window(window, name):
     rows=bytearray()
     reference_marker_pixels=0
     recent_artwork_pixels=0
+    home_wide_bottom_dark_pixels=0
+    recovery_preview_colors=set()
+    recovery_preview_bounds=None
+    if name == 'recovery-manager-populated-light':
+        bounds=wait(recovery_preview_image_rect,'recovery preview image is laid out')
+        x,y,preview_width,preview_height,scale,content_top=bounds
+        recovery_preview_bounds=(x*scale,(y+content_top)*scale,(x+preview_width)*scale,(y+content_top+preview_height)*scale)
     bytes_per_pixel=(bits_per_pixel+7)//8
     byte_order_name='little' if byte_order==0 else 'big'
     for y in range(height):
@@ -206,6 +228,12 @@ def capture_window(window, name):
                 reference_marker_pixels+=1
             if name == 'home-recent-artwork-light' and blue > 100 and blue-red > 45 and blue-green > 20:
                 recent_artwork_pixels+=1
+            if name == 'home-light-wide' and y >= height-96 and red < 90 and green < 100 and blue < 110:
+                home_wide_bottom_dark_pixels+=1
+            if recovery_preview_bounds is not None:
+                left,top,right,bottom=recovery_preview_bounds
+                if left<=x_pixel<right and top<=y<bottom:
+                    recovery_preview_colors.add((red,green,blue))
             rows.extend((red,green,blue,255))
     raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
     destination=Path(folder) if folder else None
@@ -233,8 +261,18 @@ def capture_window(window, name):
         assert reference_marker_pixels>=40, f'{name} did not visibly render the unique reference-image marker ({reference_marker_pixels} matching pixels)'
         print(f'UI_SCREENSHOT_REFERENCE_PIXELS: {name} {reference_marker_pixels}', flush=True)
     if name == 'home-recent-artwork-light':
+        card_bounds=wait(home_recent_card_rect,'recent-artwork card geometry is available')
+        _left,_top,_width,visible_height,total_height=card_bounds
+        assert visible_height>=total_height-1.0, f'{name} crops its visible recent-artwork card ({visible_height:.1f}/{total_height:.1f} points)'
         assert recent_artwork_pixels>=30, f'{name} does not visibly contain the painted blue stroke from the real recent-project thumbnail ({recent_artwork_pixels} matching pixels)'
         print(f'UI_SCREENSHOT_RECENT_ART_PIXELS: {name} {recent_artwork_pixels}', flush=True)
+        print(f'UI_SCREENSHOT_RECENT_CARD: {name} visible={visible_height:.1f} total={total_height:.1f}', flush=True)
+    if name == 'home-light-wide':
+        assert home_wide_bottom_dark_pixels<=width*96//20, f'{name} leaves the canvas exposed beneath Home ({home_wide_bottom_dark_pixels} dark canvas pixels in the final 96 rows)'
+        print(f'UI_SCREENSHOT_HOME_FULL_VIEWPORT: {name} dark-bottom-pixels={home_wide_bottom_dark_pixels}', flush=True)
+    if name == 'recovery-manager-populated-light':
+        assert len(recovery_preview_colors)>=8, f'{name} does not show a rendered artwork preview ({len(recovery_preview_colors)} visible colors)'
+        print(f'UI_SCREENSHOT_RECOVERY_PREVIEW_COLORS: {name} {len(recovery_preview_colors)}', flush=True)
     captured_screenshots[name] = (width, height)
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 
@@ -440,7 +478,42 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             snapshot=wait(lambda: next((p for p in sorted(recovery_dir.glob('recovery-*.rpl'),reverse=True) if valid_project(p)),None),'initial recovery checkpoint')
             # Recovery snapshots are submitted only while the current document is
             # dirty. Wait for this checkpoint before an explicit save makes it clean.
-            ctrl_shift('m');time.sleep(0.4);capture_window(window,'recovery-manager-populated-light');ctrl_shift('m')
+            # Put an app-produced saved painting beside the live recovery entry
+            # so the manager preview is visibly populated, while the later
+            # forced-termination scenario continues to exercise the live journal.
+            recovery_preview_fixture=recovery_dir/'recovery-visual-review.rpl'
+            shutil.copyfile(project,recovery_preview_fixture)
+            ctrl_shift('m');time.sleep(0.4)
+            wait(lambda: 'UI_TEST_RECOVERY_LABEL: Visual review' in (directory/'application.log').read_text(),
+                 'recovery manager displays a readable, artwork-backed preview fixture')
+            light_recovery_contrast = next(line for line in (directory/'application.log').read_text().splitlines()
+                if line.startswith('UI_TEST_RECOVERY_LABEL_CONTRAST: light '))
+            assert float(light_recovery_contrast.rsplit(' ',1)[1]) >= 4.5, 'light recovery label contrast is below 4.5:1'
+            preview_target=wait(recovery_preview_target,'recovery preview button geometry')
+            left,top,width,height,scale,content_top=preview_target
+            hover_marker='UI_TEST_RECOVERY_PREVIEW_HOVERED'
+            application_log=directory/'application.log'
+            click_x=round((left+width/2)*scale)
+            click_y=None
+            # Window-manager client offsets can differ from egui's viewport
+            # origin. Probe a bounded vertical range and click only after the
+            # real egui button reports hover, instead of assuming a decoration
+            # offset from the screenshot dimensions.
+            for offset in range(-80,81,4):
+                candidate_y=round((top+height/2)*scale)+offset
+                move(click_x,candidate_y)
+                if hover_marker in application_log.read_text():
+                    click_y=candidate_y
+                    break
+            assert click_y is not None, 'pointer movement did not reach the recovery preview button'
+            print(f'UI_TEST_RECOVERY_PREVIEW_HIT: {click_x} {click_y}', flush=True)
+            click_button(1,True);click_button(1,False)
+            wait(lambda: 'UI_TEST_RECOVERY_PREVIEW_VISIBLE' in (directory/'application.log').read_text(),
+                 'recovery manager renders the requested native artwork preview')
+            time.sleep(0.25)
+            capture_window(window,'recovery-manager-populated-light');ctrl_shift('m')
+            recovery_preview_fixture.unlink(missing_ok=True)
+            recovery_preview_fixture.with_suffix('.owner').unlink(missing_ok=True)
             ctrl('s')
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
             journal_path=Path(str(snapshot)+'.journal')
@@ -478,7 +551,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_HOME_RECENT_PREVIEW_VISIBLE' in (directory / 'application.log').read_text(),
                  'recent Home screenshot renders a real cached project thumbnail')
             resize_window(window,1920,1080)
-            time.sleep(0.35)
+            card_bounds=wait(home_recent_card_rect,'recent-artwork card layout at wide size')
+            move(1500,900)
+            for _ in range(6):
+                if card_bounds[3]>=card_bounds[4]-1.0:
+                    break
+                assert button(display,5,1,0);assert button(display,5,0,0);send()
+                time.sleep(0.2)
+                card_bounds=home_recent_card_rect() or card_bounds
+            assert card_bounds[3]>=card_bounds[4]-1.0, 'scrolling Home did not bring the complete recent-artwork card into view'
             capture_window(window,'home-recent-artwork-light')
             key('Escape');assert process.wait(timeout=20)==0
             home_preferences=json.loads(prefs.read_text())
@@ -517,8 +598,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('b');time.sleep(0.35);capture_window(window,'brush-library-dark')
             key('Escape');key('c');time.sleep(0.35);capture_window(window,'color-controls-dark')
             key('Escape');ctrl('l');time.sleep(0.35);capture_window(window,'layers-panel-populated-dark')
+            ctrl('l');time.sleep(0.2)
             ctrl_shift('m');time.sleep(0.35)
             assert any(p.name.startswith('recovery-') and p.suffix=='.rpl' and valid_project(p) for p in recovery_dir.iterdir()), 'dark recovery manager has a valid checkpoint entry'
+            wait(lambda: 'UI_TEST_RECOVERY_LABEL_CONTRAST: dark ' in (directory/'application.log').read_text(),
+                 'dark recovery entry uses readable text contrast')
+            dark_recovery_contrast = next(line for line in reversed((directory/'application.log').read_text().splitlines())
+                if line.startswith('UI_TEST_RECOVERY_LABEL_CONTRAST: dark '))
+            assert float(dark_recovery_contrast.rsplit(' ',1)[1]) >= 4.5, 'dark recovery label contrast is below 4.5:1'
             capture_window(window,'recovery-manager-populated-dark')
             ctrl_shift('m')
             # The preceding New Artwork capture creates a fresh unsaved

@@ -104,6 +104,10 @@ fn recent_gallery_layout(available_width: f32) -> (usize, f32) {
     (columns, card_width)
 }
 
+fn recent_artwork_preview_height(card_width: f32) -> f32 {
+    (card_width * 0.48).clamp(128.0, 176.0)
+}
+
 fn document_format_grid(available_width: f32) -> (usize, f32) {
     let columns = match available_width {
         width if width >= 780.0 => 4,
@@ -349,14 +353,8 @@ fn home_sections_stacked(screen_width: f32) -> bool {
     !(1050.0..1700.0).contains(&screen_width)
 }
 
-fn home_hero_height(screen_width: f32, has_featured_artwork: bool) -> f32 {
-    if screen_width < 760.0 {
-        280.0
-    } else if has_featured_artwork {
-        370.0
-    } else {
-        340.0
-    }
+fn home_hero_height(screen_width: f32) -> f32 {
+    if screen_width < 760.0 { 280.0 } else { 340.0 }
 }
 
 pub(crate) fn recent_search_field(ui: &mut egui::Ui, query: &mut String) {
@@ -387,6 +385,52 @@ fn recovery_updated_label(timestamp: u64) -> String {
         0 => "Updated today".into(),
         1 => "Updated yesterday".into(),
         days => format!("Updated {days} days ago"),
+    }
+}
+
+fn recovery_checkpoint_label(path: &std::path::Path, index: usize) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    let suffix = stem
+        .strip_prefix("recovery-")
+        .unwrap_or(stem)
+        .trim_matches(['-', '_', ' ']);
+    let readable: String = suffix
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphabetic() || matches!(*character, ' ' | '-' | '_')
+        })
+        .take(48)
+        .collect();
+    if readable
+        .chars()
+        .any(|character| character.is_ascii_alphabetic())
+    {
+        let readable = readable.replace(['_', '-'], " ");
+        let mut characters = readable.chars();
+        return characters
+            .next()
+            .map(|first| first.to_uppercase().collect::<String>() + characters.as_str())
+            .unwrap_or_else(|| "Artwork checkpoint".into());
+    }
+    if index == 0 {
+        "Artwork checkpoint · Most recent".into()
+    } else {
+        format!("Artwork checkpoint · {}", index + 1)
+    }
+}
+
+fn recovery_source_label(has_snapshot: bool, has_journal: bool, has_backup: bool) -> &'static str {
+    if has_snapshot {
+        "Snapshot available"
+    } else if has_journal {
+        "Journal checkpoint · validated on recovery"
+    } else if has_backup {
+        "Backup checkpoint · validated on recovery"
+    } else {
+        "Recovery data unavailable"
     }
 }
 
@@ -1476,6 +1520,10 @@ pub struct Studio {
     test_brush_layout_logged: bool,
     test_home_preview_logged: bool,
     test_home_quick_start_logged: bool,
+    test_recovery_label_logged: bool,
+    test_recovery_preview_hover_logged: bool,
+    test_recovery_preview_target_logged: bool,
+    test_recovery_preview_logged: bool,
     test_reference_preview_logged: bool,
     test_new_artwork_logged: bool,
     test_home_dark_contrast_logged: bool,
@@ -1652,6 +1700,10 @@ impl Studio {
             test_brush_layout_logged: false,
             test_home_preview_logged: false,
             test_home_quick_start_logged: false,
+            test_recovery_label_logged: false,
+            test_recovery_preview_hover_logged: false,
+            test_recovery_preview_target_logged: false,
+            test_recovery_preview_logged: false,
             test_reference_preview_logged: false,
             test_new_artwork_logged: false,
             test_home_dark_contrast_logged: false,
@@ -4664,6 +4716,14 @@ impl Studio {
                 .show(ctx, |ui| {
                     ui.set_min_size(screen.size());
                     ui.set_max_size(screen.size());
+                    // Home is a full-workspace destination. Paint the complete
+                    // viewport so the GPU canvas cannot show through beneath a
+                    // short or scrolled Home layout after a large resize.
+                    ui.painter().rect_filled(
+                        screen,
+                        0.0,
+                        ctx.style().visuals.panel_fill,
+                    );
                     egui::Frame::new()
                         .fill(ctx.style().visuals.panel_fill)
                         .show(ui, |ui| {
@@ -4676,10 +4736,7 @@ impl Studio {
                                     .corner_radius(22.0)
                                     .inner_margin(egui::Margin::same(hero_margin))
                                     .show(ui, |ui| {
-                                        ui.set_max_height(home_hero_height(
-                                            screen.width(),
-                                            has_featured_artwork,
-                                        ));
+                                        ui.set_max_height(home_hero_height(screen.width()));
                                         ui.set_min_width((screen.width() - side_pad * 2.0).max(240.0));
                                         ui.horizontal(|ui| {
                                             crate::ui_tokens::brand_wordmark(ui, 31.0);
@@ -4901,7 +4958,7 @@ impl Studio {
                                                         ui.vertical(|ui| {
                                                             if let Some(texture) = thumbnail {
                                                                 let source_size = texture.size();
-                                                                let preview_height = (card_width * 0.62).clamp(140.0, 220.0);
+                                                                let preview_height = recent_artwork_preview_height(card_width);
                                                                 let scale = ((card_width - 30.0) / source_size[0] as f32).min(preview_height / source_size[1] as f32);
                                                                 let image_size = egui::vec2(source_size[0] as f32 * scale, source_size[1] as f32 * scale);
                                                                 egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(8.0).inner_margin(4.0).show(ui, |ui| {
@@ -4922,6 +4979,19 @@ impl Studio {
                                                             if !available { ui.colored_label(ui.visuals().error_fg_color, "Missing project"); }
                                                         });
                                                     });
+                                                    let visible_card = card.response.rect.intersect(ui.clip_rect());
+                                                    if self.test_path_dialog
+                                                        && screen.width() >= 1800.0
+                                                    {
+                                                        eprintln!(
+                                                            "UI_TEST_HOME_RECENT_CARD_GEOMETRY: {:.1} {:.1} {:.1} {:.1} {:.1}",
+                                                            card.response.rect.left(),
+                                                            card.response.rect.top(),
+                                                            card.response.rect.width(),
+                                                            visible_card.height(),
+                                                            card.response.rect.height(),
+                                                        );
+                                                    }
                                                     if available {
                                                         let response = ui.interact(
                                                             card.response.rect,
@@ -5031,22 +5101,69 @@ impl Studio {
                     ui.label("No inactive recovery checkpoints are available.");
                 } else {
                     egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                        for path in self.recovery_files.clone() {
-                            let name = path.file_stem().and_then(|name| name.to_str())
-                                .unwrap_or("Unsaved artwork")
-                                .strip_prefix("recovery-")
-                                .unwrap_or_else(|| path.file_stem().and_then(|name| name.to_str()).unwrap_or("Unsaved artwork"))
-                                .replace(['_', '-'], " ");
-                            let metadata = std::fs::metadata(&path).ok();
-                            let bytes = metadata.as_ref().map(|metadata| metadata.len());
+                        for (index, path) in self.recovery_files.clone().into_iter().enumerate() {
+                            let name = recovery_checkpoint_label(&path, index);
+                            let recovery_surface = ui.visuals().faint_bg_color;
+                            let recovery_label_color = crate::appearance::readable_text_color(
+                                ui.visuals().text_color(),
+                                recovery_surface,
+                            );
+                            if self.test_path_dialog && !self.test_recovery_label_logged {
+                                self.test_recovery_label_logged = true;
+                                eprintln!("UI_TEST_RECOVERY_LABEL: {name}");
+                                if index == 0 {
+                                let contrast = crate::appearance::contrast_ratio(
+                                    recovery_label_color,
+                                    recovery_surface,
+                                );
+                                eprintln!(
+                                    "UI_TEST_RECOVERY_LABEL_CONTRAST: {} {:.2}",
+                                    if ui.visuals().dark_mode { "dark" } else { "light" },
+                                    contrast,
+                                );
+                                }
+                            }
+                            let snapshot_metadata = std::fs::metadata(&path)
+                                .ok()
+                                .filter(|metadata| metadata.is_file());
+                            let journal_path = path.with_extension("rpl.journal");
+                            let journal_metadata = std::fs::metadata(&journal_path)
+                                .ok()
+                                .filter(|metadata| metadata.is_file());
+                            let backup_path = path.with_extension("rpl.bak");
+                            let backup_metadata = std::fs::metadata(&backup_path)
+                                .ok()
+                                .filter(|metadata| metadata.is_file());
+                            let metadata = snapshot_metadata
+                                .as_ref()
+                                .or(journal_metadata.as_ref())
+                                .or(backup_metadata.as_ref());
+                            let can_recover = metadata.is_some();
+                            let source_label = recovery_source_label(
+                                snapshot_metadata.is_some(),
+                                journal_metadata.is_some(),
+                                backup_metadata.is_some(),
+                            );
+                            let bytes = metadata.map(std::fs::Metadata::len);
                             let updated = metadata
                                 .and_then(|metadata| metadata.modified().ok())
                                 .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
                                 .map(|duration| recovery_updated_label(duration.as_secs()))
                                 .unwrap_or_else(|| "Checkpoint time unavailable".into());
                             let dimensions = storage::peek_dimensions(&path)
+                                .or_else(|| {
+                                    backup_metadata
+                                        .as_ref()
+                                        .and_then(|_| storage::peek_dimensions(&backup_path))
+                                })
                                 .map(|(width, height, dpi)| format!("{width} × {height} px · {dpi} DPI"))
-                                .unwrap_or_else(|| "Project dimensions unavailable".into());
+                                .unwrap_or_else(|| {
+                                    if journal_metadata.is_some() {
+                                        "Dimensions will be checked during recovery".into()
+                                    } else {
+                                        "Project dimensions unavailable".into()
+                                    }
+                                });
                             let preview = self.recovery_preview.as_ref()
                                 .filter(|(preview_path, _)| preview_path == &path)
                                 .and_then(|(_, texture)| texture.clone());
@@ -5056,29 +5173,76 @@ impl Studio {
                                 .corner_radius(8.0).inner_margin(10.0).show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         if let Some(texture) = preview {
-                                            ui.add(
+                                            let response = ui.add(
                                                 egui::Image::new(&texture)
                                                     .max_size(egui::vec2(120.0, 80.0))
                                                     .alt_text("Artwork recovery preview"),
                                             );
+                                            if self.test_path_dialog
+                                                && !self.test_recovery_preview_logged
+                                            {
+                                                self.test_recovery_preview_logged = true;
+                                                eprintln!("UI_TEST_RECOVERY_PREVIEW_VISIBLE");
+                                                eprintln!(
+                                                    "UI_TEST_RECOVERY_PREVIEW_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2} {:.1}",
+                                                    response.rect.left(),
+                                                    response.rect.top(),
+                                                    response.rect.width(),
+                                                    response.rect.height(),
+                                                    ctx.pixels_per_point(),
+                                                    ctx.content_rect().min.y,
+                                                );
+                                            }
                                         } else if preview_attempted {
                                             ui.label("Preview unavailable");
-                                        } else if ui.button("Preview").clicked() {
-                                            let texture = crate::recovery_previews::load(&path, ctx);
-                                            self.recovery_preview = Some((path.clone(), texture));
+                                        } else {
+                                            let response = ui.button("Preview");
+                                            if self.test_path_dialog
+                                                && index == 0
+                                                && !self.test_recovery_preview_target_logged
+                                            {
+                                                self.test_recovery_preview_target_logged = true;
+                                                eprintln!(
+                                                    "UI_TEST_RECOVERY_PREVIEW_TARGET: {:.1} {:.1} {:.1} {:.1} {:.2} {:.1}",
+                                                    response.rect.left(),
+                                                    response.rect.top(),
+                                                    response.rect.width(),
+                                                    response.rect.height(),
+                                                    ctx.pixels_per_point(),
+                                                    ctx.content_rect().min.y,
+                                                );
+                                            }
+                                            if self.test_path_dialog
+                                                && index == 0
+                                                && response.hovered()
+                                                && !self.test_recovery_preview_hover_logged
+                                            {
+                                                self.test_recovery_preview_hover_logged = true;
+                                                eprintln!("UI_TEST_RECOVERY_PREVIEW_HOVERED");
+                                            }
+                                            if response.clicked() {
+                                                let texture =
+                                                    crate::recovery_previews::load(&path, ctx);
+                                                self.recovery_preview = Some((path.clone(), texture));
+                                            }
                                         }
                                         ui.vertical(|ui| {
-                                            ui.strong(name);
+                                            ui.label(
+                                                egui::RichText::new(name)
+                                                    .strong()
+                                                    .color(recovery_label_color),
+                                            );
+                                            ui.label(source_label);
                                             ui.label(dimensions);
                                             ui.label(updated);
                                             ui.label(bytes.map(|size| format!("{} KiB", size.div_ceil(1024)))
-                                                .unwrap_or_else(|| "Checkpoint file unavailable".into()));
+                                                .unwrap_or_else(|| "Recovery data unavailable".into()));
                                         });
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                             if ui.button("Remove…").clicked() {
                                                 self.cleanup = Some(path.clone());
                                             }
-                                            if ui.button("Recover").clicked() {
+                                            if ui.add_enabled(can_recover, egui::Button::new("Recover")).clicked() {
                                                 actions.push(Action::Recover(path.clone()));
                                                 self.recovery_manager = false;
                                                 self.welcome = false;
@@ -6046,7 +6210,8 @@ mod tests {
     use super::{
         LassoAppend, append_lasso_point, document_format_grid, home_hero_height,
         home_sections_stacked, layer_thumbnail_samples, native_project_path,
-        quick_document_card_layout, recent_gallery_layout, recent_project_matches,
+        quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
+        recent_project_matches, recovery_checkpoint_label, recovery_source_label,
     };
     use std::path::{Path, PathBuf};
 
@@ -6126,6 +6291,42 @@ mod tests {
     }
 
     #[test]
+    fn recovery_labels_hide_internal_numeric_identifiers() {
+        assert_eq!(
+            recovery_checkpoint_label(Path::new("recovery-visual-checkpoint.rpl"), 0),
+            "Visual checkpoint"
+        );
+        assert_eq!(
+            recovery_checkpoint_label(Path::new("recovery-1792972309-473412.rpl"), 0),
+            "Artwork checkpoint · Most recent"
+        );
+        assert_eq!(
+            recovery_checkpoint_label(Path::new("recovery-1792972309-473412.rpl"), 1),
+            "Artwork checkpoint · 2"
+        );
+    }
+
+    #[test]
+    fn recovery_manager_identifies_which_durable_source_can_be_restored() {
+        assert_eq!(
+            recovery_source_label(true, true, true),
+            "Snapshot available"
+        );
+        assert_eq!(
+            recovery_source_label(false, true, false),
+            "Journal checkpoint · validated on recovery"
+        );
+        assert_eq!(
+            recovery_source_label(false, false, true),
+            "Backup checkpoint · validated on recovery"
+        );
+        assert_eq!(
+            recovery_source_label(false, false, false),
+            "Recovery data unavailable"
+        );
+    }
+
+    #[test]
     fn home_stacks_secondary_panel_on_narrow_and_wide_displays() {
         assert!(home_sections_stacked(640.0));
         assert!(!home_sections_stacked(1280.0));
@@ -6134,9 +6335,15 @@ mod tests {
 
     #[test]
     fn home_hero_reserves_more_space_for_real_art_and_adapts_to_narrow_windows() {
-        assert_eq!(home_hero_height(640.0, false), 280.0);
-        assert_eq!(home_hero_height(1280.0, false), 340.0);
-        assert_eq!(home_hero_height(1280.0, true), 370.0);
+        assert_eq!(home_hero_height(640.0), 280.0);
+        assert_eq!(home_hero_height(1280.0), 340.0);
+    }
+
+    #[test]
+    fn recent_artwork_previews_leave_room_for_project_details() {
+        assert_eq!(recent_artwork_preview_height(180.0), 128.0);
+        assert!((recent_artwork_preview_height(360.0) - 172.8).abs() < 0.01);
+        assert_eq!(recent_artwork_preview_height(500.0), 176.0);
     }
 
     #[test]

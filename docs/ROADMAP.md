@@ -156,3 +156,10 @@ and keyboard/focus traversal need further verification. Narrator/NVDA, Windows
 UI Automation and physical-device behavior were not tested by this local Linux
 run. Do not publish the next Windows evaluation build until the wider pass and
 three-platform Actions checks succeed.
+
+The 2026-10-26 continuation has since added readable recovery entry/source
+labels, bounded on-demand artwork previews and stronger visual assertions for
+the complete recent-artwork card and full-screen Home background. See the latest
+entry in `PHASE8-STUDIO-PROGRESS.md`; local checks are current, and the new
+three-platform Actions run remains pending. Phase 8.3 remains active and no
+evaluation build is being promoted.

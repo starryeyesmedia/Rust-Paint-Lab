@@ -1052,3 +1052,69 @@ Phase 8.3 remains active.
 4. Only after the broader checkpoint and cross-platform CI succeed, create one
    consolidated Windows evaluation artifact. Record physical-device and
    Narrator/NVDA checks as outstanding until performed.
+
+### Recovery presentation and wide Home review — local checkpoint (2026-10-26)
+
+The previous visual pass is preserved and Phase 8.3 remains active. This
+continuation follows screenshot review rather than treating the capture count as
+approval.
+
+- Recovery entries now replace generated timestamp/process-number filenames with
+  readable checkpoint names. Each row identifies an available native snapshot,
+  journal, or backup source and uses its actual file metadata; the Recover action
+  is disabled when none of those sources is present. Journal-only dimensions are
+  described as checked during recovery rather than guessed. Recovery names use a
+  contrast-adjusted theme color. Unit tests cover generated-name cleanup and
+  source selection.
+- The Linux application workflow opens the actual Recovery Preview button and
+  captures a non-empty thumbnail from a valid `.rpl` created by the same smoke
+  workflow. It requires at least eight colors in the preview region. The test
+  fixture is copied only into its temporary recovery directory and removed before
+  the independent forced-termination journal-recovery scenario, so those two
+  checks remain isolated.
+- Recent-artwork cards use a shorter image well to leave more room for names and
+  metadata. The wide Home capture scrolls through the real UI until a complete
+  project card is within the viewport; its layout bounds and the real painted
+  blue pixels are asserted. The Home overlay explicitly paints the full viewport
+  so a resized 1920 × 1080 workspace no longer exposes the GPU canvas beneath a
+  short Home page. The screenshot assertion found zero dark canvas pixels in its
+  final 96 rows. Locally inspected screenshots showed the complete recent cards
+  with their project names, dimensions, file sizes and opened dates.
+- The expanded Xvfb workflow completed all 22 UI captures. It recorded 1,155
+  painted-artwork pixels in the recent gallery, 77 distinct colors in the
+  Recovery preview, 419/575 distinctive reference-image pixels in Light/Dark,
+  and 0 dark canvas pixels beneath wide Home. Recovery name contrast measured
+  15.53:1 in Light and 16.61:1 in Dark; the Home headline measured 15.53:1,
+  16.61:1 and 21.00:1 in Light, Dark and High Contrast. These are selected
+  screenshot-derived checks, not a complete WCAG audit.
+- Visually reviewed the generated wide/first-run and populated Home screens,
+  New Artwork, Recovery Light/Dark, populated Layers, Reference, Brush, Color and
+  High Contrast states. New Artwork remains a scrollable precision dialog, and
+  the overall interface is still short of the approved concept's visual finish.
+  This review did not test native Narrator/NVDA or Windows UI Automation.
+
+### Local validation and continuation
+
+- `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked
+  -- -D warnings`, and `cargo build --workspace --locked` passed.
+- `cargo test --workspace --locked -- --quiet` passed **225 tests**. The GPU
+  smoke passed both during the workspace run on llvmpipe/OpenGL and in a separate
+  required-adapter run on llvmpipe/Vulkan (`RPL_REQUIRE_GPU=1`). Neither is a
+  physical Iris Xe/RTX result.
+- `scripts/alpha-workflow-smoke.py` passed through real X11 mouse/key events,
+  save/reopen, undo/redo, PNG/OpenRaster export/import, Recovery Preview and
+  forced-termination journal recovery. All 22 screenshots were inspected from
+  `/tmp/rpl-studio-final-review`. Python syntax and `git diff --check` passed.
+- Actions run `40246806374` completed successfully on the preceding pushed
+  checkpoint. Cross-platform Actions for this continuation are pending its push;
+  no consolidated Windows evaluation artifact is being promoted yet.
+- Basic S Pen drawing remains previously observed on the owner's hardware.
+  Advanced pen input, Windows DPI behavior, power-loss durability, Narrator/NVDA
+  and Windows UI Automation were not exercised in this Linux continuation.
+
+Next: commit and push this verified Recovery/Home checkpoint; verify the new
+Windows/Linux/macOS Actions run and preserve the existing separate Windows
+artifacts; then continue the visual/accessibility overhaul with keyboard/focus
+and AccessKit action coverage plus coordinated floating-panel and Reference
+workspace polish. Keep Phase 8.3 active and defer the consolidated Windows
+evaluation build until the broader pass is justified by rendered UI evidence.

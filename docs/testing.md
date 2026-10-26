@@ -354,3 +354,16 @@ flyout Escape dismissed, derives the palette click target from the rendered
 button bounds, and exercises Ctrl+B as a keyboard alternative. The companion
 `rust-paint-lab-linux-ui-diagnostics`
 artifact retains the input/action log on failures.
+
+The Home capture at 1920 × 1080 now also asserts that its full viewport covers the
+GPU canvas beneath it. For the populated recent-artwork capture, X11 wheel input
+scrolls the actual Home UI until a complete project card, including its real cached
+thumbnail and readable metadata, is inside the viewport; the test checks the card's
+visible and total layout bounds and blue painted pixels. Recovery screenshots
+exercise the actual Preview button using an app-produced `.rpl` artwork fixture in
+the isolated test recovery directory. The captured preview region must contain
+multiple rendered colors. That visual fixture is removed before the independent
+forced-termination/journal-recovery check runs. Recovery labels conceal internal
+numeric snapshot names, identify snapshot/journal/backup sources and pass a rendered
+4.5:1 text-contrast assertion in both Light and Dark themes. These are Linux/Xvfb
+interaction checks, not manual Windows assistive-technology validation.
