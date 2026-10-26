@@ -12,7 +12,26 @@ pub const PRESET_COLOR: [u8; 3] = [197, 92, 255];
 /// Show a cached raster-engine preview and expose its active settings as an
 /// accessible image label.
 pub fn show(ui: &mut egui::Ui, texture: &egui::TextureHandle, brush: &Brush) -> egui::Response {
-    let width = ui.available_width().clamp(120.0, 440.0);
+    show_with_max_width(ui, texture, brush, 440.0)
+}
+
+/// Smaller live sample for narrow floating panels, leaving the preset list in
+/// view without reducing the preview below a useful 120-point width.
+pub fn show_compact(
+    ui: &mut egui::Ui,
+    texture: &egui::TextureHandle,
+    brush: &Brush,
+) -> egui::Response {
+    show_with_max_width(ui, texture, brush, 220.0)
+}
+
+fn show_with_max_width(
+    ui: &mut egui::Ui,
+    texture: &egui::TextureHandle,
+    brush: &Brush,
+    max_width: f32,
+) -> egui::Response {
+    let width = ui.available_width().min(max_width).clamp(120.0, 440.0);
     let size = egui::vec2(width, width * HEIGHT as f32 / WIDTH as f32);
     let label = format!(
         "Raster-engine preview of {} at {:.0} pixel size and {:.0}% opacity",

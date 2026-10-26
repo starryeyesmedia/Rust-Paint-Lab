@@ -344,7 +344,8 @@ real layers and a valid recovery checkpoint are present, and rejects
 blank/undersampled images. The current matrix captures 23 named states, including
 normal/narrow/wide Home, populated recent artwork, normal/narrow New Artwork,
 populated light/dark Layers and Recovery, light/dark Reference, Brush and Color
-panels, and the populated floating Workspace controls. The first-run Home capture waits for its rendered quick-start
+panels, and the populated floating Workspace controls. The current suite requires
+29 visual states and produces 30 captures. The first-run Home capture waits for its rendered quick-start
 format actions inside the hero. The recent-artwork capture requires visible blue
 pixels from the real painted smoke-project thumbnail. Reference captures require
 pixels from a uniquely colored region of the imported reference image. The
@@ -372,6 +373,10 @@ the actual document state. Ctrl+Z must restore each layer count/order. A separat
 secondary-click on the row name must open the native context menu. The semantic
 AccessKit tree asserts that every populated row exposes the text-labeled
 **Actions** control; this does not stand in for Narrator/NVDA validation.
+XTest also holds the dedicated pointer drag grip, moves a layer over the
+backmost row and releases it; the test compares the full visible ID order before
+and after Ctrl+Z. The grip is explicitly described as a pointer action, while
+Bring forward/Send backward remain the keyboard path.
 
 The Home capture at 1920 × 1080 now also asserts that its full viewport covers the
 GPU canvas beneath it. For the populated recent-artwork capture, the harness reads
@@ -399,15 +404,23 @@ smoke requires all ten preset samples and a non-trivial active preview region.
 
 ```sh
 cargo test --locked -p canvas-demo brush_preview::tests
+cargo build --locked -p canvas-demo
 xvfb-run -a env PYTHONDONTWRITEBYTECODE=1 python3 scripts/alpha-workflow-smoke.py
 ```
 
-Actions run [`40251981336`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40251981336)
-passed on Windows, Linux and macOS for `c0e5ace`. Its screenshot archive and the
-newer local screenshot archive cannot currently be visually reviewed here:
-`gh run download` receives HTTP 403 from the artifact blob host, and this X11
-environment's ImageMagick window readback produces black pixels. The alternate
-local capture confirmed all 23 named window states and sizes, but it is not
-valid visual evidence. The current real-X11 mouse/key workflow does pass its
-interaction and document-integrity checks. Visual appearance acceptance remains
-pending; CI passing and screenshot presence do not constitute review.
+The alpha script launches `target/debug/canvas-demo` directly. Rebuild that
+executable after source edits; `cargo test` can leave it stale. On 2026-10-26,
+the updated 29-state matrix completed and its 30 rendered images were inspected
+locally through the supported image viewer. The narrow Brush capture now asserts
+that the viewport contains at least two fully visible preset cards and that the
+window clears the palette. The screenshot workflow uses a bounded wgpu offscreen
+copy, so it does not depend on reading the X11 window surface with ImageMagick.
+This is actual local visual review, while overall visual acceptance remains
+pending for the broader Phase 8.3 redesign and Windows-specific layout behavior.
+
+The latest available Actions run [`40256352269`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40256352269)
+is for base commit `11fc732`: Windows and macOS passed, but Linux failed the
+alpha artwork step. GitHub returns HTTP 403 from the results/artifact log host,
+so the failure cannot be diagnosed from that run. Fresh CI for the current
+working changes must be recorded after push. Captures and pixel-region checks
+do not replace Windows DPI, Narrator/NVDA, touch or physical device testing.

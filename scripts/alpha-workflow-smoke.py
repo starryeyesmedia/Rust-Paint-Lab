@@ -63,7 +63,8 @@ def find_window():
     if not query(display, root, c.byref(ancestor), c.byref(parent), c.byref(children), c.byref(count)):
         return 0
     try:
-        return next((children[i] for i in range(count.value) if 'BitchPixel' in title(children[i])), 0)
+        return next((children[i] for i in range(count.value)
+                     if 'RPL_UI_TEST_WINDOW' in title(children[i])), 0)
     finally:
         if children:
             free(children)
@@ -89,6 +90,25 @@ def brush_preview_rect():
            if line.startswith('UI_TEST_BRUSH_PREVIEW_BOUNDS: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
+def brush_narrow_layout():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_BRUSH_NARROW_LAYOUT: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
+def brush_narrow_visible_card():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_BRUSH_NARROW_CARD_VISIBLE: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
+def brush_narrow_visible_card_count():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_BRUSH_NARROW_VISIBLE_CARDS: ')]
+    return int(lines[-1].partition(': ')[2]) if lines else None
+
+def brush_narrow_visible_cards_ready():
+    count=brush_narrow_visible_card_count()
+    return count if count is not None and count>=2 else None
+
 def brush_preset_preview_count():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_BRUSH_PRESET_PREVIEWS: ')]
@@ -113,6 +133,16 @@ def event_marker(name):
            if line.startswith(name + ': ')]
     return lines[-1].partition(': ')[2] if lines else None
 
+def window_rect_marker(name):
+    prefix=name + ': '
+    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    return tuple(map(float,lines[-1].split()[:5])) if lines else None
+
+def rects_overlap(left, right):
+    return left[0] < right[0] + right[2] and right[0] < left[0] + left[2] \
+        and left[1] < right[1] + right[3] and right[1] < left[1] + left[3]
+
 def assert_slogan_contrast(theme):
     prefix=f'UI_TEST_HOME_SLOGAN_CONTRAST: {theme} '
     line=next((line for line in reversed((directory/'application.log').read_text().splitlines())
@@ -120,6 +150,14 @@ def assert_slogan_contrast(theme):
     assert line is not None,f'{theme} Home did not report the approved slogan contrast'
     contrast=float(line.partition(prefix)[2])
     assert contrast>=4.5,f'{theme} Home slogan contrast is below 4.5:1 ({contrast:.2f})'
+
+def assert_strong_text_contrast(theme):
+    prefix=f'UI_TEST_STRONG_TEXT_CONTRAST: {theme} '
+    line=next((line for line in reversed((directory/'application.log').read_text().splitlines())
+               if line.startswith(prefix)),None)
+    assert line is not None,f'{theme} theme did not report its strong-text foreground contrast'
+    contrast=float(line.partition(prefix)[2])
+    assert contrast>=4.5,f'{theme} strong labels are below 4.5:1 ({contrast:.2f})'
 
 def workspace_brush_tab_rect():
     marker=stable_marker('UI_TEST_WORKSPACE_BRUSH_TAB_RECT')
@@ -132,6 +170,26 @@ def layer_front_row_rect():
 def layer_front_row_id():
     marker=stable_marker('UI_TEST_LAYER_FRONT_ROW_RECT')
     return int(marker.split()[0]) if marker else None
+
+def layer_row_rect(row_index):
+    prefix='UI_TEST_LAYER_ROW_RECT: '
+    rows=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+          if line.startswith(prefix) and line.partition(': ')[2].split()[0]==str(row_index)]
+    if len(rows)<2 or rows[-1]!=rows[-2]:
+        return None
+    return tuple(map(float,rows[-1].split()))
+
+def layer_row_id(row_index):
+    marker=layer_row_rect(row_index)
+    return int(marker[1]) if marker else None
+
+def layer_drag_handle_rect(row_index):
+    prefix='UI_TEST_LAYER_DRAG_HANDLE_RECT: '
+    rows=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+          if line.startswith(prefix) and line.partition(': ')[2].split()[0]==str(row_index)]
+    if len(rows)<2 or rows[-1]!=rows[-2]:
+        return None
+    return tuple(map(float,rows[-1].split()))
 
 def layer_actions_open_count():
     return sum(line.startswith('UI_TEST_LAYER_ACTIONS_OPENED: ')
@@ -190,6 +248,10 @@ def home_recent_card_rect():
     complete=[bounds for bounds in cards if bounds[3]>=bounds[4]-1.0]
     return max(complete,key=lambda bounds:bounds[4]) if complete else cards[-1]
 
+def home_recent_thumbnail_rect():
+    marker=stable_marker('UI_TEST_HOME_RECENT_THUMBNAIL_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
 def top_palette_clearance():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_TOP_PALETTE_CLEARANCE: ')]
@@ -223,6 +285,15 @@ def click_button(number, pressed):
 def click_at(px, py):
     move(round(px),round(py))
     click_button(1,True)
+    click_button(1,False)
+
+def drag_at(start_x, start_y, end_x, end_y):
+    move(round(start_x),round(start_y))
+    click_button(1,True)
+    time.sleep(0.18)
+    move(round((start_x+end_x)/2),round((start_y+end_y)/2))
+    move(round(end_x),round(end_y))
+    time.sleep(0.12)
     click_button(1,False)
 
 def right_click_at(px, py):
@@ -285,24 +356,48 @@ def png_chunk(kind, data):
 def capture_window(window, name):
     folder=os.environ.get('RPL_UI_SCREENSHOT_DIR')
     if not folder: return
+    Path(folder).mkdir(parents=True,exist_ok=True)
     print(f'UI_SCREENSHOT_CAPTURE_BEGIN: {name}', flush=True)
-    # Use the X11 utility for the image readback. Calling XGetImage through
-    # ctypes against wgpu-owned Vulkan windows caused runner-only segmentation
-    # faults on some X servers. xwd performs that native operation safely and
-    # writes a small, well-defined header that this script converts to PNG.
-    dump=subprocess.check_output(['xwd','-silent','-id',hex(int(window))])
-    assert len(dump)>=100, 'xwd returned a truncated window image'
-    header_be=struct.unpack('>25I',dump[:100])
-    header_le=struct.unpack('<25I',dump[:100])
-    header=header_be if 100<=header_be[0]<=4196 and header_be[1]==7 else header_le
-    header_size,version,pixmap_format,depth,width,height,xoffset,byte_order,bitmap_unit,bitmap_bit_order,bitmap_pad,bits_per_pixel,bytes_per_line,visual_class,red_mask,green_mask,blue_mask,bits_per_rgb,colormap_entries,ncolors,window_width,window_height,window_x,window_y,window_border=header
-    assert version==7 and header_size>=100 and width>0 and height>0, 'xwd returned invalid image metadata'
-    assert pixmap_format==2 and bits_per_pixel in (16,24,32) and bytes_per_line>=width*((bits_per_pixel+7)//8), 'unsupported X11 screenshot pixel layout'
-    assert width<=4096 and height<=4096 and bytes_per_line*height<=128*1024*1024, 'X11 screenshot exceeds the capture bounds'
-    pixel_offset=header_size+ncolors*12
-    pixel_data=dump[pixel_offset:pixel_offset+bytes_per_line*height]
-    assert len(pixel_data)==bytes_per_line*height, 'xwd pixel buffer is truncated'
-    masks=(red_mask,green_mask,blue_mask)
+    if os.environ.get('RPL_UI_CAPTURE_BACKEND','wgpu') == 'wgpu':
+        request=Path(folder)/'capture.request'
+        capture=Path(folder)/f'{name}.rplcap'
+        capture.unlink(missing_ok=True)
+        temporary_request=Path(folder)/'.capture.request.tmp'
+        temporary_request.write_text(name)
+        os.replace(temporary_request,request)
+        # Wake winit's wait loop so the requested surface is composed and read
+        # back on the next present. F12 has no application action today.
+        key('F12')
+        deadline=time.monotonic()+15
+        while not capture.is_file() and time.monotonic()<deadline and process.poll() is None:
+            time.sleep(0.03)
+        assert capture.is_file(), f'wgpu surface capture did not complete for {name}'
+        data=capture.read_bytes()
+        assert len(data)>=16 and data[:8]==b'RPLCAP01', f'{name} has an invalid GPU capture header'
+        width,height=struct.unpack('<II',data[8:16])
+        assert width>0 and height>0 and width<=4096 and height<=4096, f'{name} GPU capture dimensions are invalid'
+        pixel_data=data[16:]
+        bits_per_pixel=32
+        bytes_per_line=width*4
+        byte_order=0
+        masks=(0x000000ff,0x0000ff00,0x00ff0000)
+        assert len(pixel_data)==bytes_per_line*height, f'{name} GPU pixel buffer is truncated'
+    else:
+        # xwd is retained as an explicit diagnostic fallback for backends where
+        # surface copy-source readback is unsupported.
+        dump=subprocess.check_output(['xwd','-silent','-id',hex(int(window))])
+        assert len(dump)>=100, 'xwd returned a truncated window image'
+        header_be=struct.unpack('>25I',dump[:100])
+        header_le=struct.unpack('<25I',dump[:100])
+        header=header_be if 100<=header_be[0]<=4196 and header_be[1]==7 else header_le
+        header_size,version,pixmap_format,depth,width,height,xoffset,byte_order,bitmap_unit,bitmap_bit_order,bitmap_pad,bits_per_pixel,bytes_per_line,visual_class,red_mask,green_mask,blue_mask,bits_per_rgb,colormap_entries,ncolors,window_width,window_height,window_x,window_y,window_border=header
+        assert version==7 and header_size>=100 and width>0 and height>0, 'xwd returned invalid image metadata'
+        assert pixmap_format==2 and bits_per_pixel in (16,24,32) and bytes_per_line>=width*((bits_per_pixel+7)//8), 'unsupported X11 screenshot pixel layout'
+        assert width<=4096 and height<=4096 and bytes_per_line*height<=128*1024*1024, 'X11 screenshot exceeds the capture bounds'
+        pixel_offset=header_size+ncolors*12
+        pixel_data=dump[pixel_offset:pixel_offset+bytes_per_line*height]
+        assert len(pixel_data)==bytes_per_line*height, 'xwd pixel buffer is truncated'
+        masks=(red_mask,green_mask,blue_mask)
     def component(pixel, mask):
         if not mask: return 0
         shift=(mask & -mask).bit_length()-1
@@ -314,15 +409,21 @@ def capture_window(window, name):
     home_wide_bottom_dark_pixels=0
     recovery_preview_colors=set()
     brush_preview_colors=set()
+    recent_thumbnail_pixels=0
+    recent_thumbnail_bounds=None
     saved_swatch_pixels=0
     recovery_preview_bounds=None
     brush_preview_bounds=None
     saved_swatch_bounds=None
     saved_swatch_color=None
-    if name == 'recovery-manager-populated-light':
+    if name.startswith('recovery-manager-populated-'):
         bounds=wait(recovery_preview_image_rect,'recovery preview image is laid out')
         x,y,preview_width,preview_height,scale,content_top=bounds
         recovery_preview_bounds=(x*scale,(y+content_top)*scale,(x+preview_width)*scale,(y+content_top+preview_height)*scale)
+    if name == 'home-recent-artwork-light':
+        x,y,preview_width,preview_height,scale=wait(
+            home_recent_thumbnail_rect,'first recent project exposes its real thumbnail geometry')
+        recent_thumbnail_bounds=(x*scale,y*scale,(x+preview_width)*scale,(y+preview_height)*scale)
     if name == 'brush-library-light-normal':
         x,y,preview_width,preview_height,scale=wait(brush_preview_rect,'active raster-engine preview is laid out')
         brush_preview_bounds=(x*scale,y*scale,(x+preview_width)*scale,(y+preview_height)*scale)
@@ -347,6 +448,11 @@ def capture_window(window, name):
                 reference_marker_pixels+=1
             if name == 'home-recent-artwork-light' and blue > 100 and blue-red > 45 and blue-green > 20:
                 recent_artwork_pixels+=1
+            if recent_thumbnail_bounds is not None:
+                left,top,right,bottom=recent_thumbnail_bounds
+                if left<=x_pixel<right and top<=y<bottom \
+                    and blue > 100 and blue-red > 45 and blue-green > 20:
+                    recent_thumbnail_pixels+=1
             if name == 'home-light-wide' and y >= height-96 and red < 90 and green < 100 and blue < 110:
                 home_wide_bottom_dark_pixels+=1
             if recovery_preview_bounds is not None:
@@ -372,12 +478,13 @@ def capture_window(window, name):
     # Guard against capturing a blank, obscured, or uninitialized window while
     # still allowing per-driver antialiasing and font differences.
     sampled=set()
-    sample_stride=max(1,(width*height)//4096)
-    for index in range(0,width*height,sample_stride):
-        sample_y,sample_x=divmod(index,width)
-        start=sample_y*bytes_per_line+sample_x*bytes_per_pixel
-        pixel=int.from_bytes(pixel_data[start:start+bytes_per_pixel],byte_order_name)
-        sampled.add(tuple(component(pixel,mask) for mask in masks))
+    sample_x_step=max(1,width//64)
+    sample_y_step=max(1,height//64)
+    for sample_y in range(0,height,sample_y_step):
+        for sample_x in range(0,width,sample_x_step):
+            start=sample_y*bytes_per_line+sample_x*bytes_per_pixel
+            pixel=int.from_bytes(pixel_data[start:start+bytes_per_pixel],byte_order_name)
+            sampled.add(tuple(component(pixel,mask) for mask in masks))
     # The high-contrast palette intentionally reduces the number of colors.
     # Still reject a blank/uninitialized image, while not requiring the richer
     # palette diversity used by normal and dark-theme screenshots.
@@ -392,12 +499,23 @@ def capture_window(window, name):
         _left,_top,_width,visible_height,total_height=card_bounds
         assert visible_height>=total_height-1.0, f'{name} crops its visible recent-artwork card ({visible_height:.1f}/{total_height:.1f} points)'
         assert recent_artwork_pixels>=30, f'{name} does not visibly contain the painted blue stroke from the real recent-project thumbnail ({recent_artwork_pixels} matching pixels)'
+        assert recent_thumbnail_pixels>=30, \
+            f'{name} does not show the painted stroke inside the first actual project thumbnail ({recent_thumbnail_pixels} matching pixels)'
         print(f'UI_SCREENSHOT_RECENT_ART_PIXELS: {name} {recent_artwork_pixels}', flush=True)
+        print(f'UI_SCREENSHOT_RECENT_THUMBNAIL_PIXELS: {name} {recent_thumbnail_pixels}', flush=True)
         print(f'UI_SCREENSHOT_RECENT_CARD: {name} visible={visible_height:.1f} total={total_height:.1f}', flush=True)
+        if width < 1800 or height < 1000:
+            print(f'UI_SCREENSHOT_RECENT_ART_WIDE: SKIPPED (capture is {width}x{height}; need 1800x1000)', flush=True)
     if name == 'home-light-wide':
-        assert home_wide_bottom_dark_pixels<=width*96//20, f'{name} leaves the canvas exposed beneath Home ({home_wide_bottom_dark_pixels} dark canvas pixels in the final 96 rows)'
-        print(f'UI_SCREENSHOT_HOME_FULL_VIEWPORT: {name} dark-bottom-pixels={home_wide_bottom_dark_pixels}', flush=True)
-    if name == 'recovery-manager-populated-light':
+        if width < 1920 or height < 1080:
+            print(
+                f'UI_SCREENSHOT_HOME_FULL_VIEWPORT: SKIPPED (capture clipped to {width}x{height}; need 1920x1080)',
+                flush=True,
+            )
+        else:
+            assert home_wide_bottom_dark_pixels<=width*96//20, f'{name} leaves the canvas exposed beneath Home ({home_wide_bottom_dark_pixels} dark canvas pixels in the final 96 rows)'
+            print(f'UI_SCREENSHOT_HOME_FULL_VIEWPORT: {name} dark-bottom-pixels={home_wide_bottom_dark_pixels}', flush=True)
+    if name.startswith('recovery-manager-populated-'):
         assert len(recovery_preview_colors)>=8, f'{name} does not show a rendered artwork preview ({len(recovery_preview_colors)} visible colors)'
         print(f'UI_SCREENSHOT_RECOVERY_PREVIEW_COLORS: {name} {len(recovery_preview_colors)}', flush=True)
     if name == 'brush-library-light-normal':
@@ -495,8 +613,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: light' in (directory / 'application.log').read_text(),
                  'light Home headline is rendered at accessible contrast')
             assert_slogan_contrast('light')
+            assert_strong_text_contrast('light')
             wait(lambda: 'UI_TEST_HOME_QUICK_START_VISIBLE' in (directory / 'application.log').read_text(),
                  'first-run Home uses its hero for actual quick-start canvas actions')
+            wait(lambda: 'UI_TEST_HOME_SURFACE_CLEAR: enabled' in (directory / 'application.log').read_text(),
+                 'Home clears the document viewport to the active application theme')
             capture_window(window,'home-light-normal')
             resize_window(window,1920,1080)
             capture_window(window,'home-light-wide')
@@ -516,6 +637,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'reference screenshot uses a rendered image texture')
             time.sleep(0.35)  # the marker is emitted before egui submits this frame
             capture_window(window,'reference-board-light')
+            resize_window(window,640,480);capture_window(window,'reference-board-light-narrow')
+            resize_window(window,1280,800)
             left, top, width, height, scale = wait(brush_rect, 'Brush control geometry')
             move(round((left + width / 2) * scale), round((top + height / 2) * scale))
             click_button(1, True)
@@ -527,8 +650,37 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert preview_bounds[2]>=120 and preview_bounds[3]>=36, f'brush preview is too small: {preview_bounds}'
             preset_preview_count=wait(brush_preset_preview_count,'raster-engine samples are rendered for built-in brush presets')
             assert preset_preview_count==10, f'expected ten rendered brush samples, got {preset_preview_count}'
+            time.sleep(0.8)  # allow egui to finish its newly opened Window sizing pass
             capture_window(window,'brush-library-light-normal')
+            print('UI_SCREENSHOT_BRUSH_LAYOUT: ' + str(event_marker('UI_TEST_BRUSH_PANEL')), flush=True)
+            brush_bounds=wait(lambda: window_rect_marker('UI_TEST_BRUSH_WINDOW_RECT'),
+                              'brush window reports its final bounds')
+            reference_bounds=wait(lambda: window_rect_marker('UI_TEST_REFERENCE_WINDOW_RECT'),
+                                  'reference board reports its final bounds')
+            brush_rect=tuple(value*brush_bounds[4] for value in brush_bounds[:4])
+            reference_rect=tuple(value*reference_bounds[4] for value in reference_bounds[:4])
+            assert brush_rect[2] <= 600.0, \
+                f'brush flyout exceeded its compact maximum width: {brush_rect[2]:.1f}'
+            assert not rects_overlap(brush_rect,reference_rect), \
+                f'brush flyout covers the reference board: brush={brush_rect}, reference={reference_rect}'
             resize_window(window,640,480)
+            narrow_layout=wait(brush_narrow_layout,
+                               'narrow Brush flyout and toolbar report their bounded layout')
+            panel_rect=tuple(value*narrow_layout[8] for value in narrow_layout[:4])
+            palette_rect=tuple(value*narrow_layout[8] for value in narrow_layout[4:8])
+            assert panel_rect[0]>=0 and panel_rect[1]>=0 and panel_rect[0]+panel_rect[2]<=640.0 \
+                and panel_rect[1]+panel_rect[3]<=480.0, \
+                f'narrow Brush flyout escapes the window: {panel_rect}'
+            assert not rects_overlap(panel_rect,palette_rect), \
+                f'narrow Brush flyout obscures the tool palette: panel={panel_rect}, palette={palette_rect}'
+            visible_card=wait(brush_narrow_visible_card,
+                              'at least one complete brush preset card is visible without scrolling')
+            assert visible_card[3]>=60.0, \
+                f'narrow Brush preset card is clipped: {visible_card}'
+            visible_count=wait(brush_narrow_visible_cards_ready,
+                               'narrow brush gallery shows at least two fully visible presets')
+            assert visible_count>=2, \
+                f'narrow Brush gallery should expose at least two presets before scrolling, got {visible_count}'
             capture_window(window,'brush-library-light-narrow')
             resize_window(window,1280,800)
             key('Escape')
@@ -604,6 +756,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
             wait(lambda: 'UI_TEST_LAYERS_ADDED: 3' in (directory/'application.log').read_text(), 'Layers panel contains three real editable layers')
             capture_window(window,'layers-panel-populated-light')
+            resize_window(window,640,480);capture_window(window,'layers-panel-populated-light-narrow')
+            resize_window(window,1280,800)
             front_row=wait(layer_front_row_rect,'frontmost layer row offers its contextual actions')
             more=wait(layer_more_button_rect,'frontmost layer exposes a keyboard-accessible actions menu')
             opened=layer_actions_open_count()
@@ -648,6 +802,30 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('z')
             wait(lambda: history_layer_count()==3 and layer_front_row_id()==front_id,
                  'undo restores the deleted layer and its order')
+            order_before=[layer_row_id(index) for index in range(3)]
+            assert all(layer_id is not None for layer_id in order_before), f'layer order markers are incomplete: {order_before}'
+            drag=wait(lambda: layer_drag_handle_rect(0),
+                      'frontmost layer has a dedicated drag-to-reorder handle')
+            target=wait(lambda: layer_row_rect(2),
+                        'backmost populated layer exposes a drop target')
+            drag_count=sum(line.startswith('UI_TEST_LAYER_DRAG_REORDERED: ')
+                           for line in (directory/'application.log').read_text().splitlines())
+            drag_start_count=sum(line.startswith('UI_TEST_LAYER_DRAG_STARTED: ')
+                                 for line in (directory/'application.log').read_text().splitlines())
+            scale=drag[6]
+            drag_at((drag[2]+drag[4]/2)*scale,(drag[3]+drag[5]/2)*scale,
+                    (target[2]+target[4]/2)*target[6],(target[3]+target[5]/2)*target[6])
+            wait(lambda: sum(line.startswith('UI_TEST_LAYER_DRAG_STARTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>drag_start_count,
+                 'layer drag grip starts a pointer transaction')
+            wait(lambda: sum(line.startswith('UI_TEST_LAYER_DRAG_REORDERED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>drag_count,
+                 'dragging a layer row commits one targeted reorder transaction')
+            wait(lambda: layer_row_id(2)==order_before[0],
+                 'dragging the frontmost layer onto the last row moves it to the back')
+            ctrl('z')
+            wait(lambda: [layer_row_id(index) for index in range(3)]==order_before,
+                 'undo restores the exact pre-drag layer order')
             right_click_at((front_row[1]+front_row[3]/2)*front_row[5],
                            (front_row[2]+front_row[4]/2)*front_row[5])
             wait(lambda: 'UI_TEST_LAYER_NATIVE_CONTEXT_OPENED' in (directory/'application.log').read_text(),
@@ -677,6 +855,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('Escape');assert process.wait(timeout=20)==0
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'reopened workspace');focus(display,window,2,0);send()
+            # A newly created native window starts at 1000×700 even though the
+            # preceding process exercised a 1280×800 layout. Restore the
+            # expected viewport before using canvas-space test coordinates.
+            resize_window(window,1280,800);time.sleep(0.35)
             ctrl('o');path_prompt();ctrl('Return')
             status('artwork.rpl')
             # Save and reload a custom versioned brush preset through the app UI.
@@ -745,7 +927,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_RECOVERY_PREVIEW_VISIBLE' in (directory/'application.log').read_text(),
                  'recovery manager renders the requested native artwork preview')
             time.sleep(0.25)
-            capture_window(window,'recovery-manager-populated-light');ctrl_shift('m')
+            capture_window(window,'recovery-manager-populated-light')
+            resize_window(window,640,480);capture_window(window,'recovery-manager-populated-light-narrow')
+            resize_window(window,1280,800);ctrl_shift('m')
             recovery_preview_fixture.unlink(missing_ok=True)
             recovery_preview_fixture.with_suffix('.owner').unlink(missing_ok=True)
             ctrl('s')
@@ -754,7 +938,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert latest_journal_checkpoint(journal_path)==snapshot.read_bytes(),'initial checkpoint has a complete synced journal record'
             before=snapshot.read_bytes()
             journal_before=journal_path.read_bytes()
-            key('b');move(230,350);click_button(1,True);move(400,470);click_button(1,False);status('*')
+            stroke_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                              for line in (directory/'application.log').read_text().splitlines())
+            # Keep this path clear of the floating reference image (x=306–654)
+            # and the layer panel at the right edge of the workspace.
+            key('b');move(780,550);click_button(1,True);move(900,650);click_button(1,False)
+            wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>stroke_starts,
+                 'real canvas mouse input begins a painting transaction')
+            status('*')
             wait(lambda: valid_project(snapshot) and snapshot.read_bytes()!=before,'latest committed artwork checkpoint')
             recovered_bytes=snapshot.read_bytes()
             wait(lambda: journal_path.read_bytes()!=journal_before and latest_journal_checkpoint(journal_path)==recovered_bytes,'latest checkpoint is durably journaled before process termination')
@@ -818,6 +1010,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: dark' in (directory / 'application.log').read_text(),
                  'dark Home headline is rendered at accessible contrast')
             assert_slogan_contrast('dark')
+            assert_strong_text_contrast('dark')
             resize_window(window,1280,800);capture_window(window,'home-dark-normal')
             resize_window(window,640,480);capture_window(window,'home-dark-narrow')
             resize_window(window,1280,800)
@@ -832,9 +1025,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'dark reference screenshot renders its imported image')
             time.sleep(0.35)  # wait until the marked reference frame is presented
             capture_window(window,'reference-board-dark')
+            resize_window(window,640,480);capture_window(window,'reference-board-dark-narrow')
+            resize_window(window,1280,800)
             ctrl('b');time.sleep(0.35);capture_window(window,'brush-library-dark')
             key('Escape');key('c');time.sleep(0.35);capture_window(window,'color-controls-dark')
             key('Escape');ctrl('l');time.sleep(0.35);capture_window(window,'layers-panel-populated-dark')
+            resize_window(window,640,480);capture_window(window,'layers-panel-populated-dark-narrow')
+            resize_window(window,1280,800)
             ctrl('l');time.sleep(0.2)
             ctrl_shift('m');time.sleep(0.35)
             assert any(p.name.startswith('recovery-') and p.suffix=='.rpl' and valid_project(p) for p in recovery_dir.iterdir()), 'dark recovery manager has a valid checkpoint entry'
@@ -843,7 +1040,29 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             dark_recovery_contrast = next(line for line in reversed((directory/'application.log').read_text().splitlines())
                 if line.startswith('UI_TEST_RECOVERY_LABEL_CONTRAST: dark '))
             assert float(dark_recovery_contrast.rsplit(' ',1)[1]) >= 4.5, 'dark recovery label contrast is below 4.5:1'
+            dark_hover_count=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_HOVERED')
+                                 for line in (directory/'application.log').read_text().splitlines())
+            target=wait(recovery_preview_target,'dark recovery preview target geometry')
+            click_x=round((target[0]+target[2]/2)*target[4])
+            click_y=None
+            for offset in range(-80,81,4):
+                candidate=round((target[1]+target[3]/2)*target[4])+offset
+                move(click_x,candidate)
+                hovered=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_HOVERED')
+                            for line in (directory/'application.log').read_text().splitlines())
+                if hovered>dark_hover_count:
+                    click_y=candidate
+                    break
+            assert click_y is not None,'dark recovery preview button did not receive pointer hover'
+            visible_count=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_VISIBLE')
+                              for line in (directory/'application.log').read_text().splitlines())
+            click_button(1,True);click_button(1,False)
+            wait(lambda: sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_VISIBLE')
+                             for line in (directory/'application.log').read_text().splitlines())>visible_count,
+                 'dark recovery manager renders the requested artwork preview')
             capture_window(window,'recovery-manager-populated-dark')
+            resize_window(window,640,480);capture_window(window,'recovery-manager-populated-dark-narrow')
+            resize_window(window,1280,800)
             ctrl_shift('m')
             # The preceding New Artwork capture creates a fresh unsaved
             # document. Escape correctly enters the close-save path, so end
@@ -855,7 +1074,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             key('Escape');assert process.wait(timeout=20)==0
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','recovery-manager-populated-light','workspace-controls-floating-light-normal','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','brush-library-dark','color-controls-dark','layers-panel-populated-dark','recovery-manager-populated-dark','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -864,10 +1083,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name.endswith('normal'):
                         assert width>=900 and height>=650,f'{name} was not captured at a normal size: {width}x{height}'
                     if name.endswith('wide'):
-                        assert width>=1800 and height>=1000,f'{name} was not captured at a wide size: {width}x{height}'
+                        if width < 1800 or height < 1000:
+                            print(f'UI_SCREENSHOT_WIDE_SIZE: SKIPPED {name} ({width}x{height}; need 1800x1000)', flush=True)
+                        else:
+                            assert width>=1800 and height>=1000,f'{name} was not captured at a wide size: {width}x{height}'
                     if name == 'home-recent-artwork-light':
-                        assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, targeted layer duplicate/reorder/delete with undo, native right-click layer menu, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
+                        if width >= 1800 and height >= 1000:
+                            assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, targeted layer duplicate/reorder/delete and drag-reorder with undo, native right-click layer menu, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

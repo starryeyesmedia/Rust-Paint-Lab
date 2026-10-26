@@ -45,6 +45,14 @@ async fn run() -> Result<(), Failure> {
     };
     println!("GPU smoke adapter: {:?}", adapter.get_info());
     let renderer = Renderer::new(&adapter, wgpu::TextureFormat::Rgba8UnormSrgb).await?;
+    let home_clear = render_clear_pixels(&renderer, [0.82, 0.24, 0.72, 1.0])?;
+    let home_background = pixel(&home_clear, 4, 4);
+    assert!(
+        home_background[0] > 100
+            && home_background[2] > 90
+            && home_background[1] < home_background[0],
+        "theme surface clear was not applied: {home_background:?}"
+    );
     let mut completed = Playback::from_fixture(
         "paint-input-replay 1\nsample 0 1 pen down 100 250 0 - - 1 1 1\nsample 1 1 pen move 400 250 0.5 - - 1 1 1\nsample 2 1 pen up 700 250 0 - - 0 0 1\n",
     )?;
@@ -299,6 +307,73 @@ fn render_pixels(
     renderer.draw(&texture.create_view(&Default::default()), scene, [256, 256])?;
     let buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("smoke readback"),
+        size: 256 * 256 * 4,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = renderer.device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(1024),
+                rows_per_image: Some(256),
+            },
+        },
+        wgpu::Extent3d {
+            width: 256,
+            height: 256,
+            depth_or_array_layers: 1,
+        },
+    );
+    renderer.queue.submit([encoder.finish()]);
+    let (tx, rx) = std::sync::mpsc::channel();
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+    renderer.device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(Duration::from_secs(30)),
+    })?;
+    rx.recv_timeout(Duration::from_secs(30))??;
+    let pixels = buffer.slice(..).get_mapped_range().to_vec();
+    buffer.unmap();
+    renderer.check_error()?;
+    Ok(pixels)
+}
+
+fn render_clear_pixels(renderer: &Renderer, color: [f32; 4]) -> Result<Vec<u8>, Failure> {
+    let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("home background smoke target"),
+        size: wgpu::Extent3d {
+            width: 256,
+            height: 256,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&Default::default());
+    assert!(
+        renderer.clear(&view, [f32::NAN, 0.0, 0.0, 1.0]).is_err(),
+        "nonfinite clear color should be rejected"
+    );
+    renderer.clear(&view, color)?;
+    let buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("home background smoke readback"),
         size: 256 * 256 * 4,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,

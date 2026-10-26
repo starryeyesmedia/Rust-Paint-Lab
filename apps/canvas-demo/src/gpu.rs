@@ -102,6 +102,45 @@ impl Renderer {
         }
         Ok(())
     }
+    /// Clear a surface without drawing the document artboard. The studio uses
+    /// this while Home is active so unused viewport space inherits the current
+    /// application theme instead of revealing the canvas surround.
+    pub fn clear(&self, view: &wgpu::TextureView, color: [f32; 4]) -> Result<(), Failure> {
+        self.check_error()?;
+        if color
+            .iter()
+            .any(|component| !component.is_finite() || !(0.0..=1.0).contains(component))
+        {
+            return Err("invalid GPU clear color".into());
+        }
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("clear studio surface"),
+            });
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("clear studio surface"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: f64::from(color[0]),
+                            g: f64::from(color[1]),
+                            b: f64::from(color[2]),
+                            a: f64::from(color[3]),
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+        }
+        self.queue.submit([encoder.finish()]);
+        self.check_error()
+    }
     pub fn draw(
         &self,
         view: &wgpu::TextureView,

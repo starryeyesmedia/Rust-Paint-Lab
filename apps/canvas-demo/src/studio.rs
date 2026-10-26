@@ -51,6 +51,21 @@ type AppearanceKey = (
     u32,
 );
 
+fn client_point_to_egui(client_px: [f64; 2], pixels_per_point: f32) -> Option<egui::Pos2> {
+    if !pixels_per_point.is_finite()
+        || pixels_per_point <= 0.0
+        || !client_px[0].is_finite()
+        || !client_px[1].is_finite()
+    {
+        return None;
+    }
+    let point = egui::pos2(
+        (client_px[0] / f64::from(pixels_per_point)) as f32,
+        (client_px[1] / f64::from(pixels_per_point)) as f32,
+    );
+    (point.x.is_finite() && point.y.is_finite()).then_some(point)
+}
+
 fn recent_project_cards(
     recent: &paint_document::recent::Recent,
     context: &egui::Context,
@@ -145,6 +160,49 @@ pub(crate) fn quick_document_card_layout(available_width: f32) -> (usize, f32) {
     (columns, card_width)
 }
 
+/// A small, decorative illustration inside a paper silhouette. It communicates
+/// the chosen page shape without pretending to be saved user artwork.
+fn paint_format_illustration(painter: &egui::Painter, paper: egui::Rect, visuals: &egui::Visuals) {
+    let paper_fill = if visuals.dark_mode {
+        egui::Color32::from_rgb(0x22, 0x1B, 0x2C)
+    } else {
+        egui::Color32::WHITE
+    };
+    painter.rect_filled(paper, 3.0, paper_fill);
+    painter.rect_stroke(
+        paper,
+        3.0,
+        egui::Stroke::new(1.0, visuals.window_stroke.color),
+        egui::StrokeKind::Inside,
+    );
+    let point = |x: f32, y: f32| {
+        egui::pos2(
+            paper.left() + paper.width() * x,
+            paper.top() + paper.height() * y,
+        )
+    };
+    let scale = paper.width().min(paper.height()).max(1.0);
+    let violet = visuals.hyperlink_color;
+    let pink = egui::Color32::from_rgb(0xE8, 0x59, 0xC8);
+    let teal = egui::Color32::from_rgb(0x48, 0xC7, 0xBE);
+    painter.circle_filled(point(0.72, 0.28), scale * 0.12, pink);
+    for (points, color, width) in [
+        (
+            [point(0.08, 0.75), point(0.30, 0.48), point(0.47, 0.62)],
+            violet,
+            2.2,
+        ),
+        (
+            [point(0.38, 0.72), point(0.62, 0.47), point(0.91, 0.66)],
+            teal,
+            2.0,
+        ),
+    ] {
+        painter.line_segment([points[0], points[1]], egui::Stroke::new(width, color));
+        painter.line_segment([points[1], points[2]], egui::Stroke::new(width, color));
+    }
+}
+
 pub(crate) fn home_document_card(
     ui: &mut egui::Ui,
     name: &str,
@@ -152,7 +210,7 @@ pub(crate) fn home_document_card(
     card_width: f32,
 ) -> bool {
     let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(card_width, 124.0), egui::Sense::click());
+        ui.allocate_exact_size(egui::vec2(card_width, 132.0), egui::Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
             egui::WidgetType::Button,
@@ -192,37 +250,18 @@ pub(crate) fn home_document_card(
         egui::vec2(max_paper.y * aspect, max_paper.y)
     };
     let paper =
-        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 37.0), paper_size);
-    ui.painter()
-        .rect_filled(paper, 3.0, visuals.extreme_bg_color);
-    ui.painter().rect_stroke(
-        paper,
-        3.0,
-        egui::Stroke::new(1.5, visuals.text_color()),
-        egui::StrokeKind::Inside,
-    );
-    for row in 0..3 {
-        let y = paper.top() + 9.0 + row as f32 * 7.0;
-        if y < paper.bottom() - 4.0 {
-            ui.painter().line_segment(
-                [
-                    egui::pos2(paper.left() + 5.0, y),
-                    egui::pos2(paper.right() - 5.0, y),
-                ],
-                egui::Stroke::new(1.0, visuals.window_stroke.color),
-            );
-        }
-    }
+        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 39.0), paper_size);
+    paint_format_illustration(ui.painter(), paper, visuals);
     let fg = crate::appearance::readable_text_color(visuals.text_color(), fill);
     ui.painter().text(
-        egui::pos2(rect.center().x, rect.bottom() - 26.0),
+        egui::pos2(rect.center().x, rect.bottom() - 28.0),
         egui::Align2::CENTER_CENTER,
         name,
         egui::FontId::proportional(15.0),
         fg,
     );
     ui.painter().text(
-        egui::pos2(rect.center().x, rect.bottom() - 10.0),
+        egui::pos2(rect.center().x, rect.bottom() - 11.0),
         egui::Align2::CENTER_CENTER,
         format!("{} × {} px", dimensions[0], dimensions[1]),
         egui::FontId::proportional(11.0),
@@ -237,7 +276,7 @@ pub(crate) fn home_document_card(
 
 pub(crate) fn home_custom_document_card(ui: &mut egui::Ui, card_width: f32) -> bool {
     let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(card_width, 124.0), egui::Sense::click());
+        ui.allocate_exact_size(egui::vec2(card_width, 132.0), egui::Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
             egui::WidgetType::Button,
@@ -461,7 +500,7 @@ pub(crate) fn document_format_card(
     selected: bool,
     card_width: f32,
 ) -> bool {
-    let size = egui::vec2(card_width, 116.0);
+    let size = egui::vec2(card_width, 136.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     let accessible_name = format!("{label}, {width:.0} by {height:.0} pixels at {dpi} DPI");
     response.widget_info(|| {
@@ -512,21 +551,15 @@ pub(crate) fn document_format_card(
     // A paper silhouette makes format choice legible at a glance even when
     // the label is translated or the dialog is narrow.
     let ratio = width / height;
-    let paper_max = egui::vec2((card_width - 24.0).min(64.0), 58.0);
+    let paper_max = egui::vec2((card_width - 24.0).min(72.0), 62.0);
     let paper_size = if ratio >= 1.0 {
         egui::vec2(paper_max.x, paper_max.x / ratio)
     } else {
         egui::vec2(paper_max.y * ratio, paper_max.y)
     };
     let paper =
-        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 34.0), paper_size);
-    painter.rect_filled(paper, 3.0, visuals.extreme_bg_color);
-    painter.rect_stroke(
-        paper,
-        3.0,
-        egui::Stroke::new(1.5, visuals.text_color()),
-        egui::StrokeKind::Inside,
-    );
+        egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 38.0), paper_size);
+    paint_format_illustration(painter, paper, visuals);
     painter.text(
         egui::pos2(rect.center().x, rect.bottom() - 35.0),
         egui::Align2::CENTER_CENTER,
@@ -557,11 +590,12 @@ pub(crate) fn brush_preset_card_with_preview(
     selected: bool,
     color: [u8; 3],
     card_width: f32,
+    card_height: f32,
     preview: Option<egui::TextureId>,
-) -> bool {
+) -> (bool, egui::Rect) {
     let name = brush_display_name(kind);
     let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(card_width.max(120.0), 82.0),
+        egui::vec2(card_width.max(120.0), card_height.clamp(60.0, 82.0)),
         egui::Sense::click(),
     );
     response.widget_info(|| {
@@ -695,7 +729,32 @@ pub(crate) fn brush_preset_card_with_preview(
             visuals.text_color(),
         );
     }
-    activate_focusable_card(ui, &response)
+    (activate_focusable_card(ui, &response), rect)
+}
+
+fn active_brush_preview(
+    ui: &mut egui::Ui,
+    brush: &Brush,
+    texture: &egui::TextureHandle,
+    compact: bool,
+) -> egui::Response {
+    ui.horizontal(|ui| {
+        ui.strong("Current brush");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.weak(format!(
+                "{:.0} px · {:.0}% opacity",
+                brush.size,
+                brush.opacity * 100.0,
+            ));
+        });
+    });
+    let response = if compact {
+        crate::brush_preview::show_compact(ui, texture, brush)
+    } else {
+        crate::brush_preview::show(ui, texture, brush)
+    };
+    ui.add_space(6.0);
+    response
 }
 
 fn color_swatch(ui: &mut egui::Ui, color: [u8; 3], label: &str, selected: bool, size: f32) -> bool {
@@ -1370,6 +1429,7 @@ pub(crate) enum Action {
     Select(u64),
     Move(i32),
     MoveLayer(u64, i32),
+    MoveLayerTo(u64, usize),
     Layer(u64, String, bool, bool, u8, Blend),
 }
 
@@ -1379,6 +1439,13 @@ struct LayerMenuTarget {
     layer_count: usize,
     layer_index: usize,
     emit_test_markers: bool,
+}
+
+pub(crate) struct LayerDragUi<'a> {
+    pub handles: &'a mut Vec<(u64, egui::Rect)>,
+    pub drop_targets: &'a mut Vec<(u64, egui::Rect)>,
+    pub source: Option<u64>,
+    pub target: Option<u64>,
 }
 
 fn layer_actions_menu(
@@ -1496,7 +1563,10 @@ pub(crate) fn layer_flyout_contents(
     project: &mut Engine,
     actions: &mut Vec<Action>,
     test_mode: bool,
+    drag_ui: &mut LayerDragUi<'_>,
 ) {
+    drag_ui.handles.clear();
+    drag_ui.drop_targets.clear();
     let selected = project.state().selected;
     let selected_index = project
         .state()
@@ -1557,13 +1627,7 @@ pub(crate) fn layer_flyout_contents(
     for (row_index, (id, mut name, mut visible, mut locked, thumbnail)) in
         layers.into_iter().enumerate()
     {
-        egui::Frame::new()
-            .fill(if id == selected {
-                ui.visuals().selection.bg_fill
-            } else {
-                ui.visuals().faint_bg_color
-            })
-            .corner_radius(8.0)
+        crate::ui_tokens::card_frame(ui.visuals(), id == selected)
             .inner_margin(egui::Margin::same(6))
             .show(ui, |ui| {
                 let layer_index = project
@@ -1575,6 +1639,21 @@ pub(crate) fn layer_flyout_contents(
                 let rename_id = egui::Id::new(("layer-flyout-name", id));
                 let mut focus_rename = false;
                 let row = ui.horizontal(|ui| {
+                    let drag_handle =
+                        crate::studio_icons::layer_drag_handle(ui, &name, [36.0, 44.0]);
+                    drag_ui.handles.push((id, drag_handle.rect));
+                    if test_mode {
+                        eprintln!(
+                            "UI_TEST_LAYER_DRAG_HANDLE_RECT: {} {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            row_index,
+                            id,
+                            drag_handle.rect.left(),
+                            drag_handle.rect.top(),
+                            drag_handle.rect.width(),
+                            drag_handle.rect.height(),
+                            ui.ctx().pixels_per_point(),
+                        );
+                    }
                     layer_thumbnail(ui, &thumbnail, id == selected);
                     let label = ui.selectable_label(id == selected, &name);
                     if label.clicked() {
@@ -1611,6 +1690,18 @@ pub(crate) fn layer_flyout_contents(
                     }
                     label
                 });
+                if test_mode {
+                    eprintln!(
+                        "UI_TEST_LAYER_ROW_RECT: {} {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        row_index,
+                        id,
+                        row.response.rect.left(),
+                        row.response.rect.top(),
+                        row.response.rect.width(),
+                        row.response.rect.height(),
+                        ui.ctx().pixels_per_point(),
+                    );
+                }
                 if test_mode && row_index == 0 {
                     eprintln!(
                         "UI_TEST_LAYER_FRONT_ROW_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
@@ -1620,6 +1711,21 @@ pub(crate) fn layer_flyout_contents(
                         row.response.rect.width(),
                         row.response.rect.height(),
                         ui.ctx().pixels_per_point(),
+                    );
+                }
+                drag_ui.drop_targets.push((id, row.response.rect));
+                if drag_ui.source.is_some()
+                    && drag_ui.target == Some(id)
+                    && ui
+                        .ctx()
+                        .pointer_interact_pos()
+                        .is_some_and(|pointer| row.response.rect.contains(pointer))
+                {
+                    ui.painter().rect_stroke(
+                        row.response.rect.shrink(1.0),
+                        7.0,
+                        ui.visuals().selection.stroke,
+                        egui::StrokeKind::Inside,
                     );
                 }
                 let context_menu = row.inner.context_menu(|ui| {
@@ -1672,10 +1778,7 @@ pub(crate) fn layer_flyout_contents(
                 });
                 if id == selected {
                     let selected_layer = project.state().layers.iter().find(|layer| layer.id == id);
-                    let (mut opacity, mut blend) = selected_layer
-                        .map(|layer| (layer.opacity, layer.blend))
-                        .unwrap_or((255, Blend::Normal));
-                    let mut changed = ui
+                    let changed = ui
                         .add(
                             egui::TextEdit::singleline(&mut name)
                                 .id(rename_id)
@@ -1683,44 +1786,69 @@ pub(crate) fn layer_flyout_contents(
                                 .hint_text("Layer name"),
                         )
                         .changed();
-                    let mut percent = f32::from(opacity) * (100.0 / 255.0);
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut percent, 0.0..=100.0)
-                                .suffix("%")
-                                .text("Opacity"),
-                        )
-                        .changed()
-                    {
-                        opacity = (percent * 2.55).round() as u8;
-                        changed = true;
-                    }
-                    let previous_blend = blend;
-                    egui::ComboBox::from_id_salt(("flyout-blend", id))
-                        .selected_text(format!("{blend:?}"))
-                        .show_ui(ui, |ui| {
-                            for mode in [
-                                Blend::Normal,
-                                Blend::Multiply,
-                                Blend::Screen,
-                                Blend::Overlay,
-                            ] {
-                                ui.selectable_value(&mut blend, mode, format!("{mode:?}"));
-                            }
-                        });
-                    changed |= blend != previous_blend;
-                    if changed {
+                    if changed && let Some(layer) = selected_layer {
                         actions.push(Action::Layer(
                             id,
                             name.clone(),
                             visible,
                             locked,
-                            opacity,
-                            blend,
+                            layer.opacity,
+                            layer.blend,
                         ));
                     }
                 }
             });
+    }
+    if let Some(layer) = project
+        .state()
+        .layers
+        .iter()
+        .find(|layer| layer.id == selected)
+    {
+        let id = layer.id;
+        let mut percent = f32::from(layer.opacity) * (100.0 / 255.0);
+        let mut opacity = layer.opacity;
+        let mut blend = layer.blend;
+        let mut changed = false;
+        egui::CollapsingHeader::new("Selected layer settings")
+            .id_salt(("layer-settings", id))
+            .default_open(false)
+            .show(ui, |ui| {
+                if ui
+                    .add(
+                        egui::Slider::new(&mut percent, 0.0..=100.0)
+                            .suffix("%")
+                            .text("Opacity"),
+                    )
+                    .changed()
+                {
+                    opacity = (percent * 2.55).round() as u8;
+                    changed = true;
+                }
+                egui::ComboBox::from_id_salt(("flyout-blend", id))
+                    .selected_text(format!("{blend:?}"))
+                    .show_ui(ui, |ui| {
+                        for mode in [
+                            Blend::Normal,
+                            Blend::Multiply,
+                            Blend::Screen,
+                            Blend::Overlay,
+                        ] {
+                            ui.selectable_value(&mut blend, mode, format!("{mode:?}"));
+                        }
+                    });
+                changed |= blend != layer.blend;
+            });
+        if changed {
+            actions.push(Action::Layer(
+                id,
+                layer.name.clone(),
+                layer.visible,
+                layer.locked,
+                opacity,
+                blend,
+            ));
+        }
     }
 }
 
@@ -1857,7 +1985,11 @@ pub struct Studio {
     test_brush_rect_logged: bool,
     test_brush_layout_logged: bool,
     test_brush_preview_logged: bool,
+    test_brush_window_logged: bool,
     test_brush_preset_previews_logged: bool,
+    test_brush_narrow_card_logged: bool,
+    test_brush_narrow_layout_logged: bool,
+    test_brush_narrow_visible_card_count: Option<usize>,
     test_color_palette_logged: bool,
     test_palette_clearance_logged: bool,
     test_home_preview_logged: bool,
@@ -1867,9 +1999,11 @@ pub struct Studio {
     test_recovery_preview_target_logged: bool,
     test_recovery_preview_logged: bool,
     test_reference_preview_logged: bool,
+    test_reference_window_logged: bool,
     test_new_artwork_logged: bool,
     test_home_dark_contrast_logged: bool,
     test_home_light_contrast_logged: bool,
+    test_strong_text_contrast_logged: bool,
     confirm: Option<Action>,
     pub close_requested: bool,
     pub close_ready: bool,
@@ -1911,6 +2045,13 @@ pub struct Studio {
     workspace_controls_size: [f32; 2],
     brush_flyout_open: bool,
     layers_flyout_open: bool,
+    layer_drag_source: Option<u64>,
+    layer_drag_origin: Option<[f64; 2]>,
+    layer_drag_moved: bool,
+    layer_drag_target: Option<u64>,
+    layer_drag_handles: Vec<(u64, egui::Rect)>,
+    layer_drop_targets: Vec<(u64, egui::Rect)>,
+    pending_layer_move: Option<(u64, usize)>,
     color_flyout_open: bool,
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
@@ -2047,7 +2188,11 @@ impl Studio {
             test_brush_rect_logged: false,
             test_brush_layout_logged: false,
             test_brush_preview_logged: false,
+            test_brush_window_logged: false,
             test_brush_preset_previews_logged: false,
+            test_brush_narrow_card_logged: false,
+            test_brush_narrow_layout_logged: false,
+            test_brush_narrow_visible_card_count: None,
             test_color_palette_logged: false,
             test_palette_clearance_logged: false,
             test_home_preview_logged: false,
@@ -2057,9 +2202,11 @@ impl Studio {
             test_recovery_preview_target_logged: false,
             test_recovery_preview_logged: false,
             test_reference_preview_logged: false,
+            test_reference_window_logged: false,
             test_new_artwork_logged: false,
             test_home_dark_contrast_logged: false,
             test_home_light_contrast_logged: false,
+            test_strong_text_contrast_logged: false,
             confirm: None,
             close_requested: false,
             close_ready: false,
@@ -2104,6 +2251,13 @@ impl Studio {
             workspace_controls_size: preferences.workspace_controls_size,
             brush_flyout_open: false,
             layers_flyout_open: false,
+            layer_drag_source: None,
+            layer_drag_origin: None,
+            layer_drag_moved: false,
+            layer_drag_target: None,
+            layer_drag_handles: Vec::new(),
+            layer_drop_targets: Vec::new(),
+            pending_layer_move: None,
             color_flyout_open: false,
             navigation: crate::navigation::Navigation {
                 zoom: preferences.canvas_zoom,
@@ -2331,8 +2485,96 @@ impl Studio {
             event,
             E::Focused(false) | E::CursorLeft { .. } | E::Resized(_) | E::ScaleFactorChanged { .. }
         ) {
+            self.layer_drag_source = None;
+            self.layer_drag_origin = None;
+            self.layer_drag_moved = false;
+            self.layer_drag_target = None;
             self.clear_touch_routes();
             self.pan_cursor = None;
+        }
+        if self.layer_drag_source.is_some() && !self.layers_flyout_open {
+            self.layer_drag_source = None;
+            self.layer_drag_origin = None;
+            self.layer_drag_moved = false;
+            self.layer_drag_target = None;
+        }
+        if self.layers_flyout_open
+            && matches!(
+                event,
+                E::MouseInput {
+                    state: ElementState::Pressed,
+                    button: winit::event::MouseButton::Left,
+                    ..
+                }
+            )
+            && let Some(position) = self.mouse_position
+            && let Some(point) = client_point_to_egui(position, self.context.pixels_per_point())
+            && let Some((id, _)) = self
+                .layer_drag_handles
+                .iter()
+                .find(|(_, rect)| rect.contains(point))
+        {
+            self.layer_drag_source = Some(*id);
+            self.layer_drag_origin = Some(position);
+            self.layer_drag_moved = false;
+            self.layer_drag_target = None;
+            if self.test_path_dialog {
+                eprintln!("UI_TEST_LAYER_DRAG_STARTED: {id}");
+            }
+            window.request_redraw();
+            return (true, true);
+        }
+        if let Some(source) = self.layer_drag_source {
+            if let E::CursorMoved { position, .. } = event {
+                let origin = self.layer_drag_origin.unwrap_or([position.x, position.y]);
+                let dx = position.x - origin[0];
+                let dy = position.y - origin[1];
+                self.layer_drag_moved |= dx.mul_add(dx, dy * dy) >= 36.0;
+                let point =
+                    client_point_to_egui([position.x, position.y], self.context.pixels_per_point());
+                self.layer_drag_target = if self.layer_drag_moved {
+                    point.and_then(|point| {
+                        self.layer_drop_targets
+                            .iter()
+                            .find_map(|(id, rect)| rect.contains(point).then_some(*id))
+                    })
+                } else {
+                    None
+                };
+                window.request_redraw();
+                return (true, true);
+            }
+            if matches!(
+                event,
+                E::MouseInput {
+                    state: ElementState::Released,
+                    button: winit::event::MouseButton::Left,
+                    ..
+                }
+            ) {
+                if self.layer_drag_moved
+                    && let Some(target) = self.layer_drag_target
+                    && target != source
+                    && let Some(target_index) = session
+                        .live()
+                        .project()
+                        .state()
+                        .layers
+                        .iter()
+                        .position(|layer| layer.id == target)
+                {
+                    self.pending_layer_move = Some((source, target_index));
+                    if self.test_path_dialog {
+                        eprintln!("UI_TEST_LAYER_DRAG_DROP: {source} {target_index} {target}");
+                    }
+                }
+                self.layer_drag_source = None;
+                self.layer_drag_origin = None;
+                self.layer_drag_moved = false;
+                self.layer_drag_target = None;
+                window.request_redraw();
+                return (true, true);
+            }
         }
         if let E::Touch(touch) = event {
             if session.live().active() {
@@ -3810,6 +4052,7 @@ impl Studio {
                                         self.show_controls = false;
                                         self.color_flyout_open = false;
                                         self.brush_flyout_open = true;
+                                        ctx.request_repaint();
                                         if self.test_path_dialog {
                                             eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: palette");
                                         }
@@ -3829,6 +4072,7 @@ impl Studio {
                             {
                                 self.brush_flyout_open = false;
                                 self.color_flyout_open = !self.color_flyout_open;
+                                ctx.request_repaint();
                             }
                             if !compact_palette {
                                 let layers = ui
@@ -3836,6 +4080,7 @@ impl Studio {
                                     .on_hover_text("Open floating layer panel");
                                 if layers.clicked() {
                                     self.layers_flyout_open = !self.layers_flyout_open;
+                                    ctx.request_repaint();
                                 }
                             } else if crate::studio_icons::button(
                                 ui,
@@ -4010,6 +4255,7 @@ impl Studio {
                             .any(|obstacle| current.intersects(*obstacle))
                 });
                 let controls_window = egui::Window::new("Workspace controls")
+                    .order(egui::Order::Foreground)
                     .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut controls_open)
                     .resizable(true)
@@ -4540,6 +4786,7 @@ impl Studio {
                             .any(|obstacle| current.intersects(*obstacle))
                 });
                 let panel = egui::Window::new("Layers")
+                    .order(egui::Order::Foreground)
                     .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
                     .resizable(true)
@@ -4559,11 +4806,18 @@ impl Studio {
                     panel
                 }
                 .show(ctx, |ui| {
+                    let mut drag_ui = LayerDragUi {
+                        handles: &mut self.layer_drag_handles,
+                        drop_targets: &mut self.layer_drop_targets,
+                        source: self.layer_drag_source,
+                        target: self.layer_drag_target,
+                    };
                     layer_flyout_contents(
                         ui,
                         session.live_mut().project_mut(),
                         actions,
                         self.test_path_dialog,
+                        &mut drag_ui,
                     );
                 });
                 if let Some(panel) = panel {
@@ -4582,10 +4836,13 @@ impl Studio {
             if self.brush_flyout_open {
                 let mut open = self.brush_flyout_open;
                 let obstacles = self.visible_workspace_obstacles(ctx, "Brush library");
+                // Keep a useful side column open for the reference board on
+                // desktops. Small windows get a narrower temporary gallery;
+                // persisted desktop dimensions are left untouched.
                 let brush_size = crate::studio_layout::flyout_size(
                     screen,
                     palette_response.response.rect,
-                    egui::vec2(620.0, 560.0),
+                    crate::studio_layout::brush_flyout_preferred_size(screen.width()),
                 );
                 let brush_position = crate::studio_layout::flyout_position_avoiding(
                     screen,
@@ -4596,15 +4853,20 @@ impl Studio {
                 );
                 let brush_area = egui::AreaState::load(ctx, egui::Id::new("Brush library"));
                 let brush_previous_rect = brush_area.map(|state| state.rect());
-                let brush_needs_reanchor = brush_area.is_some_and(|state| {
+                let brush_needs_reanchor = brush_area.is_none_or(|state| {
                     let current_rect = state.rect();
                     !screen.contains_rect(current_rect)
+                        || crate::studio_layout::flyout_size_exceeds(
+                            current_rect.size(),
+                            brush_size,
+                        )
                         || current_rect.intersects(palette_response.response.rect)
                         || obstacles
                             .iter()
                             .any(|obstacle| current_rect.intersects(*obstacle))
                 });
                 let panel = egui::Window::new("Brush library")
+                    .order(egui::Order::Foreground)
                     .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
                     .resizable(screen.width() >= 760.0)
@@ -4617,28 +4879,37 @@ impl Studio {
                     panel
                 };
                 let panel = if brush_needs_reanchor {
-                    panel.current_pos(brush_position)
+                    // `Window::default_size` does not shrink a previously
+                    // persisted AreaState. When an old or colliding rectangle
+                    // needs reanchoring, apply one bounded size reset, then
+                    // restore the user's normal resize behavior next frame.
+                    panel.current_pos(brush_position).fixed_size(brush_size)
                 } else {
                     panel
                 }
                     .constrain_to(screen.shrink(8.0))
                     .show(ctx, |ui| {
-                        ui.set_width((brush_size.x - 24.0).max(160.0));
+                        let compact_brush_panel = screen.width() < 760.0;
                         egui::ScrollArea::vertical()
-                            .auto_shrink([true, false])
+                            .auto_shrink([false, false])
+                            .max_width((brush_size.x - 24.0).max(160.0))
                             // Account for the floating window title and frame;
                             // an unconstrained content viewport can make egui
                             // exceed max_size and slide the panel over the tools.
-                            .max_height((brush_size.y - 112.0).max(80.0))
+                            .max_height((brush_size.y - 100.0).max(80.0))
                             .show(ui, |ui| {
+                        ui.set_width((brush_size.x - 24.0).max(160.0));
+                        ui.set_max_width((brush_size.x - 24.0).max(160.0));
                         let project = session.live_mut().project_mut();
-                        ui.horizontal(|ui| {
-                            ui.heading("Brushes");
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.weak(format!("{} presets", 10));
+                        if !compact_brush_panel {
+                            ui.horizontal(|ui| {
+                                ui.heading("Brushes");
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.weak(format!("{} presets", 10));
+                                });
                             });
-                        });
-                        ui.weak("Choose a tool. Pressure is preserved; previews show each preset’s character.");
+                            ui.weak("Choose a tool. Pressure is preserved; previews show each preset’s character.");
+                        }
                         if self
                             .brush_preview
                             .as_ref()
@@ -4670,22 +4941,15 @@ impl Studio {
                                 Err(_) => self.brush_preview = None,
                             }
                         }
-                        if let Some(preview) = self.brush_preview.as_ref() {
-                            ui.horizontal(|ui| {
-                                ui.strong("Current brush");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.weak(format!(
-                                            "{:.0} px · {:.0}% opacity",
-                                            project.brush.size,
-                                            project.brush.opacity * 100.0,
-                                        ));
-                                    },
-                                );
-                            });
-                            let response =
-                                crate::brush_preview::show(ui, &preview.texture, &project.brush);
+                        if !compact_brush_panel
+                            && let Some(preview) = self.brush_preview.as_ref()
+                        {
+                            let response = active_brush_preview(
+                                ui,
+                                &project.brush,
+                                &preview.texture,
+                                false,
+                            );
                             if self.test_path_dialog && !self.test_brush_preview_logged {
                                 self.test_brush_preview_logged = true;
                                 eprintln!(
@@ -4697,7 +4961,6 @@ impl Studio {
                                     ui.ctx().pixels_per_point(),
                                 );
                             }
-                            ui.add_space(6.0);
                         }
                         ui.horizontal(|ui| {
                             if ui.selectable_label(!self.favorites_only, "All brushes").clicked() {
@@ -4715,6 +4978,7 @@ impl Studio {
                         ui.add_space(4.0);
                         let query = self.brush_search.trim().to_lowercase();
                         let mut visible_count = 0;
+                        let mut fully_visible_narrow_cards = 0;
                         for (group, kinds) in [
                             ("Ink and drawing", &[BrushKind::Ink, BrushKind::Pencil, BrushKind::Calligraphy][..]),
                             ("Paint and air", &[BrushKind::Round, BrushKind::Soft, BrushKind::Marker, BrushKind::Airbrush][..]),
@@ -4726,28 +4990,51 @@ impl Studio {
                             }).collect();
                             if filtered.is_empty() { continue; }
                             visible_count += filtered.len();
-                            ui.horizontal(|ui| {
-                                let color = crate::appearance::readable_text_color(
-                                    ui.visuals().text_color(),
-                                    ui.visuals().window_fill(),
-                                );
-                                ui.colored_label(color, egui::RichText::new(group).strong());
-                                ui.separator();
-                            });
+                            if !compact_brush_panel {
+                                ui.horizontal(|ui| {
+                                    let color = crate::appearance::readable_text_color(
+                                        ui.visuals().text_color(),
+                                        ui.visuals().window_fill(),
+                                    );
+                                    ui.colored_label(color, egui::RichText::new(group).strong());
+                                    ui.separator();
+                                });
+                            }
                             if screen.width() < 760.0 {
                                 for kind in filtered {
                                     ui.horizontal(|ui| {
                                         let selected = project.brush.kind == kind;
                                         let card_width = (ui.available_width() - 44.0).clamp(120.0, 440.0);
                                         let texture = self.brush_preset_texture(ui.ctx(), kind);
-                                        if brush_preset_card_with_preview(
+                                        let (activated, card_rect) = brush_preset_card_with_preview(
                                             ui,
                                             kind,
                                             selected,
                                             project.brush.color,
                                             card_width,
+                                            64.0,
                                             texture,
-                                        ) {
+                                        );
+                                        let visible_card = card_rect.intersect(ui.clip_rect());
+                                        if visible_card.height() >= 64.0 {
+                                            fully_visible_narrow_cards += 1;
+                                        }
+                                        if self.test_path_dialog
+                                            && compact_brush_panel
+                                            && !self.test_brush_narrow_card_logged
+                                            && visible_card.height() >= 60.0
+                                        {
+                                            self.test_brush_narrow_card_logged = true;
+                                            eprintln!(
+                                                "UI_TEST_BRUSH_NARROW_CARD_VISIBLE: {:.1} {:.1} {:.1} {:.1} {:.1}",
+                                                card_rect.left(),
+                                                card_rect.top(),
+                                                visible_card.width(),
+                                                visible_card.height(),
+                                                ui.ctx().pixels_per_point(),
+                                            );
+                                        }
+                                        if activated {
                                             let color = project.brush.color;
                                             project.brush = Brush::preset(kind);
                                             project.brush.color = color;
@@ -4775,12 +5062,19 @@ impl Studio {
                                     });
                                 }
                             } else {
-                                ui.horizontal_wrapped(|ui| {
-                                    for kind in filtered {
+                                // Keep four presets from forcing the entire
+                                // flyout wider than its viewport. Horizontal
+                                // wrapping in a vertically scrolling area can
+                                // inherit an unbounded content width, so form
+                                // explicit three-card rows instead.
+                                for row in filtered.chunks(3) {
+                                    ui.horizontal(|ui| {
+                                    for kind in row.iter().copied() {
                                         ui.vertical(|ui| {
                                             let selected = project.brush.kind == kind;
                                             let texture = self.brush_preset_texture(ui.ctx(), kind);
-                                            if brush_preset_card_with_preview(ui, kind, selected, project.brush.color, 148.0, texture) {
+                                            let (activated, _) = brush_preset_card_with_preview(ui, kind, selected, project.brush.color, 148.0, 82.0, texture);
+                                            if activated {
                                                 let color = project.brush.color;
                                                 project.brush = Brush::preset(kind);
                                                 project.brush.color = color;
@@ -4805,8 +5099,20 @@ impl Studio {
                                             }
                                         });
                                     }
-                                });
+                                    });
+                                }
                             }
+                        }
+                        if self.test_path_dialog
+                            && compact_brush_panel
+                            && self.test_brush_narrow_visible_card_count
+                                != Some(fully_visible_narrow_cards)
+                        {
+                            self.test_brush_narrow_visible_card_count =
+                                Some(fully_visible_narrow_cards);
+                            eprintln!(
+                                "UI_TEST_BRUSH_NARROW_VISIBLE_CARDS: {fully_visible_narrow_cards}"
+                            );
                         }
                         if visible_count == 0 {
                             ui.add_space(8.0);
@@ -4815,6 +5121,31 @@ impl Studio {
                             } else {
                                 "No brushes match this search."
                             });
+                        }
+                        // On narrow windows the searchable preset gallery is
+                        // the first thing an artist sees. Keep the large active
+                        // sample below it, where it remains available by scroll.
+                        if compact_brush_panel
+                            && let Some(preview) = self.brush_preview.as_ref()
+                        {
+                            ui.separator();
+                            let response = active_brush_preview(
+                                ui,
+                                &project.brush,
+                                &preview.texture,
+                                true,
+                            );
+                            if self.test_path_dialog && !self.test_brush_preview_logged {
+                                self.test_brush_preview_logged = true;
+                                eprintln!(
+                                    "UI_TEST_BRUSH_PREVIEW_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    response.rect.left(),
+                                    response.rect.top(),
+                                    response.rect.width(),
+                                    response.rect.height(),
+                                    ui.ctx().pixels_per_point(),
+                                );
+                            }
                         }
                         if self.test_path_dialog && !self.test_brush_preset_previews_logged {
                             self.test_brush_preset_previews_logged = true;
@@ -4862,9 +5193,38 @@ impl Studio {
                     });
                 if let Some(panel) = panel {
                     if self.test_path_dialog
-                        && screen.width() < 700.0
-                        && !self.test_brush_layout_logged
+                        && screen.width() < 760.0
+                        && !self.test_brush_narrow_layout_logged
                     {
+                        self.test_brush_narrow_layout_logged = true;
+                        let panel_rect = panel.response.rect;
+                        let palette_rect = palette_response.response.rect;
+                        eprintln!(
+                            "UI_TEST_BRUSH_NARROW_LAYOUT: {:.1} {:.1} {:.1} {:.1} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            panel_rect.left(),
+                            panel_rect.top(),
+                            panel_rect.width(),
+                            panel_rect.height(),
+                            palette_rect.left(),
+                            palette_rect.top(),
+                            palette_rect.width(),
+                            palette_rect.height(),
+                            ctx.pixels_per_point(),
+                        );
+                    }
+                    if self.test_path_dialog && !self.test_brush_window_logged {
+                        self.test_brush_window_logged = true;
+                        eprintln!(
+                            "UI_TEST_BRUSH_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2} open={}",
+                            panel.response.rect.left(),
+                            panel.response.rect.top(),
+                            panel.response.rect.width(),
+                            panel.response.rect.height(),
+                            ctx.pixels_per_point(),
+                            open,
+                        );
+                    }
+                    if self.test_path_dialog && !self.test_brush_layout_logged {
                         self.test_brush_layout_logged = true;
                         eprintln!(
                             "UI_TEST_BRUSH_PANEL: screen={:.0}x{:.0} palette={:?} previous={:?} size={:?} desired={:?} actual={:?} reanchor={}",
@@ -4910,6 +5270,7 @@ impl Studio {
                             .any(|obstacle| current.intersects(*obstacle))
                 });
                 let panel = egui::Window::new("Color controls")
+                    .order(egui::Order::Foreground)
                     .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
                     .resizable(true)
@@ -5119,6 +5480,7 @@ impl Studio {
                     (current.distance(target) > 1.0).then_some(target)
                 });
                 let mut window = egui::Window::new(title)
+                    .order(egui::Order::Foreground)
                     .id(id)
                     .open(&mut open)
                     .movable(!before.position_locked)
@@ -5130,6 +5492,8 @@ impl Studio {
                 } else {
                     window = window.default_pos(desired_pos);
                 }
+                let reference_visible_workspace =
+                    !self.welcome && !self.new_dialog && !self.recovery_manager;
                 let response = window.show(ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         let zoom_out = ui
@@ -5223,8 +5587,6 @@ impl Studio {
                         reference.source_size[0], reference.source_size[1]
                     ));
                     reference.viewport = Some(viewport);
-                    let reference_visible_workspace =
-                        !self.welcome && !self.new_dialog && !self.recovery_manager;
                     if self.test_path_dialog
                         && reference_visible_workspace
                         && !self.test_reference_preview_logged
@@ -5289,6 +5651,20 @@ impl Studio {
                 });
                 if let Some(response) = response {
                     let rect = response.response.rect;
+                    if self.test_path_dialog
+                        && reference_visible_workspace
+                        && !self.test_reference_window_logged
+                    {
+                        self.test_reference_window_logged = true;
+                        eprintln!(
+                            "UI_TEST_REFERENCE_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            rect.left(),
+                            rect.top(),
+                            rect.width(),
+                            rect.height(),
+                            ctx.pixels_per_point(),
+                        );
+                    }
                     let next_position = if center_requested {
                         centered_reference_position([rect.width(), rect.height()], screen_viewport)
                     } else if reset_position_requested {
@@ -5400,32 +5776,34 @@ impl Studio {
                 .show(ctx, |ui| {
                     ui.set_min_size(screen.size());
                     ui.set_max_size(screen.size());
-                    // Home is a full-workspace destination. Paint the complete
-                    // viewport so the GPU canvas cannot show through beneath a
-                    // short or scrolled Home layout after a large resize.
-                    ui.painter().rect_filled(
-                        screen,
-                        0.0,
-                        ctx.style().visuals.panel_fill,
-                    );
                     egui::Frame::new()
-                        .fill(ctx.style().visuals.panel_fill)
+                        .fill(ui.visuals().panel_fill)
                         .show(ui, |ui| {
                             egui::ScrollArea::vertical().show(ui, |ui| {
                                 ui.add_space(if screen.height() < 620.0 { 10.0 } else { 18.0 });
-                                let hero_margin = if screen.width() < 720.0 { 14 } else { 30 };
-                                egui::Frame::new()
-                                    .fill(ui.visuals().window_fill)
-                                    .stroke(ui.visuals().window_stroke)
-                                    .corner_radius(22.0)
+                                let hero_margin = if screen.width() < 720.0 { 16 } else { 28 };
+                                crate::ui_tokens::hero_frame(ui.visuals())
                                     .inner_margin(egui::Margin::same(hero_margin))
                                     .show(ui, |ui| {
                                         ui.set_max_height(home_hero_height(screen.width()));
                                         ui.set_min_width((screen.width() - side_pad * 2.0).max(240.0));
+                                        if !self.high_contrast {
+                                            let bounds = ui.available_rect_before_wrap();
+                                            let accent = ui.visuals().hyperlink_color;
+                                            let radius = (bounds.width() * 0.17).clamp(80.0, 230.0);
+                                            // A low-contrast violet halo gives the hero depth
+                                            // without introducing fake artwork or competing
+                                            // with an actual recent-project thumbnail.
+                                            ui.painter().circle_filled(
+                                                egui::pos2(bounds.right() - radius * 0.34, bounds.top() + radius * 0.24),
+                                                radius,
+                                                accent.gamma_multiply(if ui.visuals().dark_mode { 0.08 } else { 0.045 }),
+                                            );
+                                        }
                                         ui.horizontal(|ui| {
-                                            crate::ui_tokens::brand_wordmark(ui, 31.0);
+                                            crate::ui_tokens::brand_wordmark(ui, 40.0);
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                ui.weak("PAINT  ·  DRAW  ·  MAKE IT YOURS");
+                                                ui.weak("PAINT  ·  ILLUSTRATE  ·  EXPLORE");
                                             });
                                         });
                                         ui.add_space(if screen.width() < 760.0 { 8.0 } else { 18.0 });
@@ -5458,11 +5836,13 @@ impl Studio {
                                                         }
                                                     }
                                                     ui.label(egui::RichText::new("No limits. No bullshit.")
-                                                        .size(16.0).strong().color(accent));
+                                                        .size(18.0).strong().color(accent));
                                                     ui.add_space(4.0);
-                                                    ui.label(egui::RichText::new("Create without permission.")
-                                                        .size((screen.width() * 0.042).clamp(32.0, 64.0))
-                                                        .strong().color(foreground));
+                                                    ui.label(crate::ui_tokens::display_text(
+                                                        "Create without permission.",
+                                                        (screen.width() * 0.04).clamp(42.0, 64.0),
+                                                        foreground,
+                                                    ));
                                                     ui.add_space(5.0);
                                                     ui.label(egui::RichText::new("A painting studio for ideas that do not fit inside the lines.")
                                                         .size(16.0).color(muted));
@@ -5470,12 +5850,12 @@ impl Studio {
                                                     ui.horizontal_wrapped(|ui| {
                                                         let action_width = (screen.width() * 0.42).clamp(168.0, 232.0);
                                                         let action_height = if compact { 48.0 } else { 54.0 };
-                                                        let accent_fill = ui.visuals().selection.bg_fill;
+                                                        let accent_fill = ui.visuals().hyperlink_color;
                                                         let action_text = crate::appearance::readable_text_color(
                                                             ui.visuals().text_color(),
                                                             accent_fill,
                                                         );
-                                                        let primary = egui::Button::new(egui::RichText::new("New artwork").size(16.0).strong().color(action_text))
+                                                        let primary = egui::Button::new(crate::ui_tokens::display_text("New artwork", 15.0, action_text))
                                                             .fill(accent_fill)
                                                             .min_size(egui::vec2(action_width, action_height));
                                                         if ui.add(primary).clicked() {
@@ -5485,7 +5865,7 @@ impl Studio {
                                                             self.new_dialog = true;
                                                             self.welcome = false;
                                                         }
-                                                        if ui.add_sized([action_width, action_height], egui::Button::new("Open a project…")).clicked() {
+                                                        if ui.add_sized([action_width, action_height], egui::Button::new("Open project…")).clicked() {
                                                             self.picker_from_welcome = true;
                                                             self.picker = Some(FileRequest::OpenProject);
                                                             self.welcome = false;
@@ -5493,7 +5873,7 @@ impl Studio {
                                                     });
                                                     if !compact {
                                                         ui.add_space(5.0);
-                                                        ui.label(egui::RichText::new("Your work stays on this device.")
+                                                        ui.label(egui::RichText::new("Offline by default · Your work stays on this device.")
                                                             .size(13.0).color(muted));
                                                     }
                                                 });
@@ -5647,12 +6027,26 @@ impl Studio {
                                                                 let preview_height = recent_artwork_preview_height(card_width);
                                                                 let scale = ((card_width - 30.0) / source_size[0] as f32).min(preview_height / source_size[1] as f32);
                                                                 let image_size = egui::vec2(source_size[0] as f32 * scale, source_size[1] as f32 * scale);
-                                                                egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(8.0).inner_margin(4.0).show(ui, |ui| {
+                                                                let image_frame = egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(8.0).inner_margin(4.0).show(ui, |ui| {
                                                                     ui.set_min_size(egui::vec2(card_width - 36.0, preview_height));
                                                                     ui.centered_and_justified(|ui| {
                                                                         ui.add(egui::Image::new((texture.id(), image_size)).fit_to_exact_size(image_size));
                                                                     });
                                                                 });
+                                                                if self.test_path_dialog
+                                                                    && screen.width() >= 1800.0
+                                                                    && index == 0
+                                                                {
+                                                                    let rect = image_frame.response.rect;
+                                                                    eprintln!(
+                                                                        "UI_TEST_HOME_RECENT_THUMBNAIL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                                        rect.left(),
+                                                                        rect.top(),
+                                                                        rect.width(),
+                                                                        rect.height(),
+                                                                        ui.ctx().pixels_per_point(),
+                                                                    );
+                                                                }
                                                             } else {
                                                                 egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(6.0).show(ui, |ui| {
                                                                     ui.set_min_size(egui::vec2(card_width - 30.0, (card_width * 0.62).clamp(140.0, 220.0)));
@@ -6343,9 +6737,21 @@ impl Studio {
             crate::ui_tokens::install_motion_preference(&self.context, self.reduced_motion);
             self.appearance_cache = Some(appearance_key);
         }
+        if self.test_path_dialog && !self.test_strong_text_contrast_logged {
+            self.test_strong_text_contrast_logged = true;
+            let visuals = self.context.style().visuals.clone();
+            eprintln!(
+                "UI_TEST_STRONG_TEXT_CONTRAST: {} {:.2}",
+                if visuals.dark_mode { "dark" } else { "light" },
+                crate::appearance::contrast_ratio(visuals.strong_text_color(), visuals.panel_fill,)
+            );
+        }
         let raw = self.input.take_egui_input(window);
         let ctx = self.context.clone();
         let mut actions = Vec::new();
+        if let Some((id, target_index)) = self.pending_layer_move.take() {
+            actions.push(Action::MoveLayerTo(id, target_index));
+        }
         if self.test_path_dialog && self.manual_file_dialog && self.manual_file_submit {
             self.manual_file_submit = false;
             self.manual_file_dialog = false;
@@ -6654,6 +7060,14 @@ impl Studio {
             .handle_platform_output(window, output.platform_output.clone());
         output
     }
+
+    /// Theme surface for the viewport while Home is active. The GPU shell
+    /// clears to this color before egui controls so empty space stays cohesive.
+    pub fn home_surface_color(&self) -> Option<egui::Color32> {
+        self.welcome
+            .then(|| self.context.style().visuals.panel_fill)
+    }
+
     fn execute(&mut self, a: Action, session: &mut CanvasSession) -> Result<(), Failure> {
         let project = session.live_mut().project_mut();
         match a {
@@ -6761,6 +7175,29 @@ impl Studio {
                         .position(|layer| layer.id == id)
                         .unwrap_or(usize::MAX);
                     eprintln!("UI_TEST_LAYER_CONTEXT_MOVED: {id} {index}");
+                }
+            }
+            Action::MoveLayerTo(id, target_index) => {
+                project.edit(|state| {
+                    let source_index = state
+                        .layers
+                        .iter()
+                        .position(|layer| layer.id == id)
+                        .ok_or(paint_document::PaintError::Invalid)?;
+                    let layer = state.layers.remove(source_index);
+                    let target_index = target_index.min(state.layers.len());
+                    state.layers.insert(target_index, layer);
+                    state.selected = id;
+                    Ok(())
+                })?;
+                if self.test_path_dialog {
+                    let final_index = project
+                        .state()
+                        .layers
+                        .iter()
+                        .position(|layer| layer.id == id)
+                        .unwrap_or(usize::MAX);
+                    eprintln!("UI_TEST_LAYER_DRAG_REORDERED: {id} {target_index} {final_index}");
                 }
             }
             Action::Layer(id, name, visible, locked, opacity, blend) => project.edit(|s| {

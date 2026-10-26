@@ -260,6 +260,30 @@ pub fn palette_drag_handle(ui: &mut egui::Ui) -> egui::Response {
     response.on_hover_text("Drag this palette to move it; release near an edge to dock")
 }
 
+/// Draw a pointer drag grip without exposing a keyboard no-op as a button.
+/// Layer reorder also remains available through the row's keyboard-accessible
+/// Actions menu.
+pub fn layer_drag_handle(ui: &mut egui::Ui, name: &str, size: [f32; 2]) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(size[0], size[1]), egui::Sense::hover());
+    paint(
+        ui.painter(),
+        rect.shrink(9.0),
+        Icon::DragHandle,
+        ui.visuals().text_color(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Label,
+            true,
+            format!("Drag {name} with a pointer to reorder; use Actions for keyboard reordering"),
+        )
+    });
+    response.on_hover_text(format!(
+        "Drag {name} to reorder. Keyboard: use the Actions menu."
+    ))
+}
+
 /// Add a vector mark to a normal text button. The text remains the accessible
 /// button label and the complete row remains clickable.
 pub fn menu_button(ui: &mut egui::Ui, icon: Icon, label: &str) -> egui::Response {

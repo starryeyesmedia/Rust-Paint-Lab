@@ -68,6 +68,25 @@ fn ensure_control_contrast(accent: egui::Color32, surface: egui::Color32) -> egu
         .unwrap_or(target)
 }
 
+/// Keep active control text accessible while preserving the chosen purple hue.
+/// egui also uses the active widget foreground for `RichText::strong`; setting
+/// a black foreground on a bright violet accent would otherwise turn every
+/// strong label black on the dark studio surface. Move only the selected fill
+/// toward the application surface until its foreground is readable.
+fn active_fill_for_text(
+    accent: egui::Color32,
+    surface: egui::Color32,
+    foreground: egui::Color32,
+) -> egui::Color32 {
+    if contrast_ratio(foreground, accent) >= 4.5 {
+        return accent;
+    }
+    (1..=100)
+        .map(|step| mix(accent, surface, step as f32 / 100.0))
+        .find(|candidate| contrast_ratio(foreground, *candidate) >= 4.5)
+        .unwrap_or(surface)
+}
+
 fn readable_foreground(background: egui::Color32) -> egui::Color32 {
     let black = egui::Color32::BLACK;
     let white = egui::Color32::WHITE;
@@ -107,27 +126,28 @@ pub fn visuals(
     let dark = mode.is_dark(system_dark);
     let (background, surface, elevated, border, text, weak_text) = if dark {
         (
-            rgb([0x12, 0x10, 0x19]), // Deep violet charcoal around artwork
-            rgb([0x1B, 0x18, 0x24]),
-            rgb([0x27, 0x22, 0x31]),
-            rgb([0x43, 0x37, 0x52]),
+            rgb([0x10, 0x0D, 0x17]), // Midnight violet around artwork
+            rgb([0x1A, 0x15, 0x22]),
+            rgb([0x28, 0x20, 0x34]),
+            rgb([0x4D, 0x3A, 0x60]),
             rgb([0xFB, 0xF8, 0xFF]),
             rgb([0xD1, 0xC8, 0xDC]),
         )
     } else {
         (
             rgb([0xF8, 0xF5, 0xFB]),
-            egui::Color32::WHITE,
-            rgb([0xF0, 0xEA, 0xF5]),
-            rgb([0xD9, 0xCF, 0xE3]),
-            rgb([0x28, 0x21, 0x31]),
-            rgb([0x5B, 0x4F, 0x65]),
+            rgb([0xFF, 0xFC, 0xFF]),
+            rgb([0xF0, 0xE9, 0xF6]),
+            rgb([0xD5, 0xC5, 0xE0]),
+            rgb([0x27, 0x20, 0x30]),
+            rgb([0x58, 0x4D, 0x62]),
         )
     };
     let accent = ensure_control_contrast(color(scheme, custom_accent, dark), background);
-    let text_on_accent = readable_foreground(accent);
-    let hover = mix(surface, accent, 0.18);
-    let selected = mix(surface, accent, 0.28);
+    let active_fill = active_fill_for_text(accent, background, text);
+    let text_on_active = readable_foreground(active_fill);
+    let hover = mix(elevated, accent, 0.14);
+    let selected = mix(elevated, accent, 0.28);
 
     let mut visuals = if dark {
         egui::Visuals::dark()
@@ -140,7 +160,9 @@ pub fn visuals(
     visuals.panel_fill = background;
     visuals.window_fill = surface;
     visuals.window_stroke = egui::Stroke::new(1.0, border);
-    visuals.faint_bg_color = surface;
+    // Cards and inactive controls sit one step above the app background, so
+    // the workspace reads as a coordinated surface system in both themes.
+    visuals.faint_bg_color = elevated;
     visuals.extreme_bg_color = if dark {
         background
     } else {
@@ -181,24 +203,24 @@ pub fn visuals(
     set_widget(
         &mut visuals.widgets.noninteractive,
         surface,
-        surface,
+        elevated,
         border,
         text,
     );
     set_widget(
         &mut visuals.widgets.inactive,
         surface,
-        surface,
+        elevated,
         border,
         text,
     );
     set_widget(&mut visuals.widgets.hovered, hover, hover, accent, text);
     set_widget(
         &mut visuals.widgets.active,
+        active_fill,
+        active_fill,
         accent,
-        accent,
-        accent,
-        text_on_accent,
+        text_on_active,
     );
     set_widget(&mut visuals.widgets.open, selected, selected, accent, text);
     visuals
@@ -240,9 +262,7 @@ pub fn high_contrast(mut visuals: egui::Visuals, dark: bool) -> egui::Visuals {
         widget.fg_stroke = egui::Stroke::new(2.0, foreground);
         widget.bg_stroke = egui::Stroke::new(2.0, edge);
         widget.weak_bg_fill = background;
-        if widget.bg_fill == egui::Color32::TRANSPARENT {
-            widget.bg_fill = background;
-        }
+        widget.bg_fill = background;
     }
     visuals
 }
@@ -280,6 +300,14 @@ mod tests {
                         visuals.widgets.active.fg_stroke.color,
                         visuals.widgets.active.bg_fill
                     ) >= 4.5
+                );
+                assert!(
+                    contrast_ratio(visuals.strong_text_color(), visuals.panel_fill) >= 4.5,
+                    "strong labels must remain readable on {mode:?} surfaces with {scheme:?}"
+                );
+                assert!(
+                    contrast_ratio(visuals.widgets.active.bg_fill, visuals.panel_fill) >= 3.0,
+                    "active state must stay distinct from the surface on {mode:?} with {scheme:?}"
                 );
             }
         }

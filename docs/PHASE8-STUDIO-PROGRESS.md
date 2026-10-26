@@ -1310,3 +1310,96 @@ Automation and advanced physical S Pen behavior remain unverified here. Phase
    available. Until then, report visual acceptance as pending even if screenshot
    generation and automated pixel assertions pass.
 4. Keep Phase 8.3 active; no merge, release, or consolidated evaluation build.
+
+### Direct layer drag-reordering — local functional checkpoint
+
+Building on `11fc732`, layer rows now have a dedicated 36 × 44 pointer grip and
+each row is a drop target. A drop reorders the stable layer ID through a normal
+document history edit; it does not mutate render-only order. The row's accessible
+Actions menu retains Bring forward/Send backward as the keyboard path. The grip
+is described as pointer-driven and directs keyboard users to Actions, rather
+than exposing an inert button.
+
+The X11/XTest artwork workflow now presses the grip, drags the top layer onto
+the backmost row, asserts the full visible layer-ID order changes, and verifies
+Ctrl+Z restores the exact original order. It continues through the existing
+duplicate/delete undo, paint, save/export/reopen, and process-kill recovery
+checks. The AccessKit test checks the grip's instruction and accessible menu.
+Formatting, strict Clippy, **236 workspace tests**, software GPU smoke, workspace
+build, Windows GNU target check/Clippy, Python syntax and the full X11 artwork
+workflow passed locally.
+
+Actions run [`40256352269`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40256352269)
+for `11fc732` has passed macOS but failed the Linux alpha artwork step; Windows
+was still running at the time of this checkpoint. Its failed log receiver also
+returns HTTP 403, so I cannot attribute the cause. The run predates direct drag
+reordering, and a new three-platform run is required for the current work. Local
+screenshot inspection remains unavailable (`xwd` is absent and this X server's
+FFmpeg image readback cannot access its shared-memory window); keep visual
+acceptance pending and do not promote a Windows evaluation artifact.
+
+### Visual review and responsive Brush pass — active local checkpoint
+
+The earlier note that screenshots could not be inspected is superseded for this
+local checkpoint. The Linux capture path now copies the composed egui/wgpu frame
+to a bounded offscreen readback target only when both UI-test environment
+variables are set. On 2026-10-26, the full real-X11/XTest alpha workflow passed
+with 29 required UI states (30 PNGs captured): Home at narrow/normal/wide
+sizes, a populated recent-artwork grid, New Artwork, dark and light canvas,
+Brush, Color, populated Layers and Recovery, Reference, and high contrast. The
+reference, raster-engine brush sample, populated layer rows and recovery preview
+were checked in their rendered image regions. I visually inspected representative
+light/dark/narrow captures through the image viewer rather than inferring layout
+from dimensions alone.
+
+That review found a real narrow Brush usability defect: at 640 × 480 its large
+active sample pushed all preset cards below the initial viewport. The flyout now
+uses a 416-point preferred width in narrow windows, removes the redundant inner
+heading and category labels there, shows the search/favorites and preset gallery
+first, and leaves the settings-aware active sample below the scrollable gallery.
+The X11 workflow asserts the flyout remains in the viewport, does not cover the
+tool palette, and presents at least two complete preset cards without scrolling.
+Desktop sizing and saved panel state remain unchanged. The final inspected narrow
+capture shows three full artist-named preview cards; the Brush window and its
+controls remain independently scrollable.
+
+The same visual pass identified the recurring dark strong-text defect. egui's
+strong labels use the active-widget foreground, which had been black to contrast
+with the bright violet button fill. Active fills now darken toward the panel
+surface until they meet 4.5:1 against the active foreground, while the selected
+state maintains at least 3:1 edge contrast. High-contrast mode uses surface
+fills. Unit and rendered-window assertions cover these rules. The current
+capture reports 19.45:1 light strong-text, 21:1 dark strong-text, 4.52:1 light
+official slogan, and 6.35:1 dark official slogan; the official lines remain
+“No limits. No bullshit.” and “Create without permission.”
+
+Local verification for the current working tree: `cargo fmt --all -- --check`,
+strict workspace Clippy, `cargo test --workspace --locked` (**239 passed, 0
+failed**), workspace build, Windows GNU target check and strict Clippy, llvmpipe
+offscreen GPU smoke, Python syntax check, and the complete real-X11/XTest alpha
+workflow all pass. The Linux software adapter was llvmpipe; this does not measure
+integrated-GPU performance. The earlier Actions run [`40256352269`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40256352269)
+passed Windows and macOS but failed the Linux alpha-artwork step on commit
+`11fc732`; GitHub's results/artifact host returns HTTP 403 for its failure log.
+A fresh Actions run for these uncommitted changes is required before reporting
+three-platform CI success. Narrator/NVDA and advanced native S Pen behavior have
+not been retested here. The owner previously confirmed basic S Pen drawing and
+pressure/tilt detection. Phase 8.3 is still active; no evaluation package,
+release, or merge is authorized by this checkpoint.
+
+### Exact continuation
+
+1. Finish full regression checks after the final documentation edits, commit and
+   push this visual/accessibility slice on `feature/studio-overdrive-phase-8`,
+   and inspect the fresh Windows/Linux/macOS Actions result. Record actual CI
+   outcomes and artifact links without claiming access to the blocked 403 log
+   endpoint.
+2. Continue substantial design and workflow work: improve the artwork-centered
+   canvas composition and reference-board placement on narrow windows, continue
+   the Home/New Artwork hierarchy against the approved concept, and complete the
+   keyboard/focus/AccessKit review. Preserve current layer history, save/recovery,
+   reference isolation, export, and mouse/S Pen routing.
+3. Keep Phase 8.3 active; do not publish the consolidated Windows evaluation
+   build until the larger visual/functional overhaul and fresh cross-platform CI
+   justify it. Native screen-reader validation and advanced Windows pen behaviors
+   still require appropriate Windows testing.

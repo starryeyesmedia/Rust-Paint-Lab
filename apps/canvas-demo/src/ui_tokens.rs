@@ -9,6 +9,14 @@ pub const PANEL_RADIUS: f32 = 12.0;
 const UI_FONT: &str = "BitchPixel Manrope";
 const DISPLAY_FONT: &str = "BitchPixel Syne";
 
+fn mix_color(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 {
+    let amount = amount.clamp(0.0, 1.0);
+    let mix = |left: u8, right: u8| {
+        (f32::from(left) + (f32::from(right) - f32::from(left)) * amount).round() as u8
+    };
+    egui::Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
+}
+
 /// Install the locally bundled OFL type system before creating any widgets.
 /// The normal proportional family keeps broad glyph fallbacks; a named Syne
 /// family is reserved for display headings and the product wordmark.
@@ -63,6 +71,33 @@ pub fn brand_wordmark(ui: &mut egui::Ui, size: f32) {
                 .color(accent),
         );
     });
+}
+
+/// A display face for the brand headline and intentionally prominent actions.
+/// The bundled family is followed by the UI family for broad glyph coverage.
+pub fn display_text(text: &str, size: f32, color: egui::Color32) -> egui::RichText {
+    egui::RichText::new(text)
+        .font(egui::FontId::new(
+            size,
+            egui::FontFamily::Name(DISPLAY_FONT.into()),
+        ))
+        .strong()
+        .color(color)
+}
+
+/// Theme-aware Home surface with a restrained brand wash. The wash is a
+/// surface choice, not artwork, and the high-contrast mode can opt out.
+pub fn hero_frame(visuals: &egui::Visuals) -> egui::Frame {
+    let fill = mix_color(
+        visuals.window_fill,
+        visuals.hyperlink_color,
+        if visuals.dark_mode { 0.075 } else { 0.035 },
+    );
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(visuals.window_stroke)
+        .corner_radius(22.0)
+        .inner_margin(egui::Margin::same(24))
 }
 
 /// Consistent raised surface for floating creative panels.

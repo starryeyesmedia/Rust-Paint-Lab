@@ -46,6 +46,9 @@ struct Graphics {
     recoveries: u8,
     studio: Option<canvas_demo::studio::Studio>,
     raster: Option<canvas_demo::raster_gpu::RasterGpu>,
+    home_clear_logged: bool,
+    screenshot_capture_enabled: bool,
+    screenshot_capture: Option<egui_wgpu::capture::CaptureState>,
 }
 impl Graphics {
     async fn new(
@@ -77,14 +80,12 @@ impl Graphics {
         let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
             .ok_or("No compatible surface format")?;
-        if let Some(format) = surface
-            .get_capabilities(&adapter)
-            .formats
-            .into_iter()
-            .find(|f| f.is_srgb())
-        {
+        let capabilities = surface.get_capabilities(&adapter);
+        if let Some(format) = capabilities.formats.into_iter().find(|f| f.is_srgb()) {
             config.format = format;
         }
+        let screenshot_test = std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
+            && std::env::var_os("RPL_UI_SCREENSHOT_DIR").is_some();
         let renderer = Renderer::new(&adapter, config.format).await?;
         let max = renderer.device.limits().max_texture_dimension_2d.min(4096);
         window.set_max_inner_size(Some(winit::dpi::PhysicalSize::new(max, max)));
@@ -105,6 +106,9 @@ impl Graphics {
             recoveries: 0,
             studio,
             raster: None,
+            home_clear_logged: false,
+            screenshot_capture_enabled: screenshot_test,
+            screenshot_capture: None,
         };
         this.resize([size.width, size.height])?;
         Ok(this)
@@ -133,6 +137,7 @@ impl Graphics {
         if self.size.contains(&0) {
             return Ok(false);
         }
+        let screenshot_name = self.take_screenshot_request()?;
         let (frame, suboptimal) = match self.surface.get_current_texture() {
             Ok(frame) => {
                 let suboptimal = frame.suboptimal;
@@ -150,13 +155,42 @@ impl Graphics {
             }
             Err(error) => return Err(format!("Surface error: {error}").into()),
         };
-        let view = frame
+        // Most backends do not allow readback from their swapchain texture.
+        // For explicit UI-test captures, egui-wgpu's capture helper provides
+        // an offscreen render target and copies the composed frame both to the
+        // swapchain and a bounded readback buffer. Normal application frames
+        // continue to render directly to the surface.
+        let capture_view = if screenshot_name.is_some() {
+            let capture = self.screenshot_capture.get_or_insert_with(|| {
+                egui_wgpu::capture::CaptureState::new(&self.renderer.device, &frame.texture)
+            });
+            capture.update(&self.renderer.device, &frame.texture);
+            Some(capture.texture.create_view(&Default::default()))
+        } else {
+            None
+        };
+        let surface_view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = capture_view.as_ref().unwrap_or(&surface_view);
         if let Some(studio) = &mut self.studio {
             let start = Instant::now();
             let output = studio.frame(&self.window, session, self.size);
-            if session.mode() == Mode::Live {
+            let home_surface = studio.home_surface_color();
+            if home_surface.is_some()
+                && std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
+                && !self.home_clear_logged
+            {
+                self.home_clear_logged = true;
+                eprintln!("UI_TEST_HOME_SURFACE_CLEAR: enabled");
+            }
+            if let Some(color) = home_surface {
+                let [red, green, blue, alpha] = color.to_array();
+                self.renderer.clear(
+                    view,
+                    [red, green, blue, alpha].map(|component| f32::from(component) / 255.0),
+                )?;
+            } else if session.mode() == Mode::Live {
                 let dimensions = [
                     session.live().project().state().width,
                     session.live().project().state().height,
@@ -173,22 +207,37 @@ impl Graphics {
                     let upload = Instant::now();
                     self.raster.as_ref().unwrap().draw(
                         &self.renderer,
-                        &view,
+                        view,
                         session.live_mut().project_mut(),
                         mapping,
                     )?;
                     studio.last_upload_us = upload.elapsed().as_micros();
                 } else {
                     self.renderer
-                        .draw(&view, &canvas_demo::scene::Scene::default(), self.size)?;
+                        .draw(view, &canvas_demo::scene::Scene::default(), self.size)?;
                 }
             } else {
-                self.renderer.draw(&view, session.scene(), self.size)?;
+                self.renderer.draw(view, session.scene(), self.size)?;
             }
-            studio.paint(&self.renderer, &view, output, self.size);
+            studio.paint(&self.renderer, view, output, self.size);
             studio.last_frame_us = start.elapsed().as_micros();
         } else {
-            self.renderer.draw(&view, session.scene(), self.size)?;
+            self.renderer.draw(view, session.scene(), self.size)?;
+        }
+        if let Some(name) = screenshot_name {
+            let mut encoder =
+                self.renderer
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("UI test screenshot copy"),
+                    });
+            let buffer = self
+                .screenshot_capture
+                .as_mut()
+                .expect("capture target is initialized for an active request")
+                .copy_textures(&self.renderer.device, &frame, &mut encoder);
+            self.renderer.queue.submit([encoder.finish()]);
+            self.write_test_screenshot(&name, buffer)?;
         }
         self.window.pre_present_notify();
         frame.present();
@@ -197,6 +246,108 @@ impl Graphics {
             self.resize(self.size)?;
         }
         Ok(true)
+    }
+
+    /// Consume one request from the Linux UI screenshot harness. This is only
+    /// enabled when both test-only environment variables are present.
+    fn take_screenshot_request(&self) -> Result<Option<String>, Failure> {
+        if !self.screenshot_capture_enabled {
+            return Ok(None);
+        }
+        let Some(directory) =
+            std::env::var_os("RPL_UI_SCREENSHOT_DIR").map(std::path::PathBuf::from)
+        else {
+            return Ok(None);
+        };
+        let request = directory.join("capture.request");
+        let name = match std::fs::read_to_string(&request) {
+            Ok(name) => name.trim().to_owned(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        std::fs::remove_file(&request)?;
+        if name.is_empty()
+            || name.len() > 80
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err("invalid screenshot request name".into());
+        }
+        Ok(Some(name))
+    }
+
+    /// Read the rendered test target only after an explicit request. The
+    /// capture target and transfer buffer are bounded by the existing 4096 px
+    /// window limit; no capture allocations occur during normal launches.
+    fn write_test_screenshot(&self, name: &str, buffer: wgpu::Buffer) -> Result<(), Failure> {
+        let [width, height] = self.size;
+        let bgra = matches!(
+            self.config.format,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+        );
+        let row_bytes = width.checked_mul(4).ok_or("screenshot row overflow")?;
+        let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_row_bytes = row_bytes
+            .checked_add(alignment - 1)
+            .ok_or("screenshot row overflow")?
+            / alignment
+            * alignment;
+        let buffer_size = u64::from(padded_row_bytes)
+            .checked_mul(u64::from(height))
+            .ok_or("screenshot buffer overflow")?;
+        if buffer_size > 128 * 1024 * 1024 {
+            return Err("screenshot exceeds the 128 MiB readback bound".into());
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+        self.renderer.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(15)),
+        })?;
+        receiver.recv_timeout(Duration::from_secs(15))??;
+        let mapped = buffer.slice(..).get_mapped_range();
+        let output_size = usize::try_from(width)
+            .ok()
+            .and_then(|w| usize::try_from(height).ok().and_then(|h| w.checked_mul(h)))
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or("screenshot output size overflow")?;
+        let mut pixels = Vec::with_capacity(output_size);
+        for row in mapped
+            .chunks_exact(padded_row_bytes as usize)
+            .take(height as usize)
+        {
+            for pixel in row[..row_bytes as usize].chunks_exact(4) {
+                if bgra {
+                    pixels.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+                } else {
+                    pixels.extend_from_slice(pixel);
+                }
+            }
+        }
+        drop(mapped);
+        buffer.unmap();
+        if pixels.len() != output_size {
+            return Err("screenshot readback returned an incomplete pixel buffer".into());
+        }
+        let mut capture = Vec::with_capacity(16 + pixels.len());
+        capture.extend_from_slice(b"RPLCAP01");
+        capture.extend_from_slice(&width.to_le_bytes());
+        capture.extend_from_slice(&height.to_le_bytes());
+        capture.extend_from_slice(&pixels);
+        let directory = std::env::var_os("RPL_UI_SCREENSHOT_DIR")
+            .map(std::path::PathBuf::from)
+            .ok_or("screenshot directory disappeared during capture")?;
+        let temporary = directory.join(format!(".{name}.rplcap.tmp"));
+        let destination = directory.join(format!("{name}.rplcap"));
+        std::fs::write(&temporary, capture)?;
+        std::fs::rename(temporary, destination)?;
+        eprintln!("UI_SCREENSHOT_GPU_CAPTURED: {name} {width}x{height}");
+        Ok(())
     }
 }
 
@@ -233,6 +384,12 @@ impl App {
         let notice = live.notice();
         self.session.mouse(event, self.time_ms());
         let live = self.session.live();
+        if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some() && !active && live.active() {
+            eprintln!(
+                "UI_TEST_MOUSE_STROKE_STARTED: {}",
+                live.scene().sample_count()
+            );
+        }
         if active
             || live.active()
             || samples != live.scene().sample_count()
@@ -615,6 +772,11 @@ impl ApplicationHandler<AppEvent> for App {
                             .and_then(|studio| studio.test_prompt_label())
                         {
                             format!("{title} | {prompt}")
+                        } else {
+                            title
+                        };
+                        let title = if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some() {
+                            format!("{title} | RPL_UI_TEST_WINDOW")
                         } else {
                             title
                         };

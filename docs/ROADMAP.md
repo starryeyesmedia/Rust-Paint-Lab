@@ -214,6 +214,20 @@ local screenshot capture returned black pixels and the Actions artifact host is
 blocked with HTTP 403. Phase 8.3 remains active; no Windows evaluation build is
 being promoted from this checkpoint.
 
+The follow-up `11fc732` makes per-row duplicate/reorder/delete undoable and
+three-platform verification is running. The current local continuation adds a
+dedicated pointer drag grip/drop row; XTest verifies moving the front layer to
+the back and restoring the exact layer-ID sequence with Undo. An AccessKit test
+checks that keyboard users are directed to the row Actions menu. Local formatting,
+strict Clippy, 236 workspace tests, GPU smoke, workspace build, Windows GNU
+check/Clippy and full X11 artwork workflow pass. Actions
+[`40256352269`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40256352269)
+passed macOS but its Linux alpha workflow failed before this drag change; the
+Windows job was still in progress when recorded. Failed logs are unavailable via
+the artifact receiver's HTTP 403 response. Re-run/inspect current CI results and
+keep Phase 8.3 active. Screenshot pixels still lack human review here, and the
+consolidated Windows evaluation artifact remains withheld.
+
 The latest local continuation gives each Layers row an accessible **Actions**
 menu while keeping right-click context menus. Duplicate, reorder and delete target
 the clicked layer ID and use the document history transaction path. X11/XTest
@@ -229,3 +243,31 @@ human screenshot inspection remains pending because `xwd` is unavailable and an
 FFmpeg/XCB experiment cannot read this X server's shared-memory window pixels;
 the experiment was discarded. Keep Phase 8.3 active and withhold the consolidated
 Windows evaluation artifact until the broader redesign is materially complete.
+
+## Latest local visual/accessibility iteration — 2026-10-26 (Phase 8.3 active)
+
+The current working tree extends `11fc732` with a corrected active-widget
+foreground contrast rule and a narrow-window Brush Library layout. At 640 × 480,
+the panel places search and favorites before its real preset previews, displays
+at least two complete cards without scrolling, stays inside the viewport and
+clears the primary palette. The live raster-engine sample remains available
+below the gallery. Desktop layout and stored panel preferences remain intact.
+
+The screenshot path now uses an explicit, bounded wgpu offscreen copy for test
+captures. The full Linux/XTest artwork workflow passes with 29 required UI states
+and 30 rendered captures. Representative light/dark/narrow canvas, Brush, Color,
+Layers, Reference, Recovery, Home, populated-artwork and high-contrast images
+were visually inspected locally. Pixel assertions also check real cached artwork,
+reference, brush and recovery content. Local checks pass: formatting, strict
+workspace Clippy, 239 workspace tests, software GPU smoke, workspace build,
+Windows GNU target check/Clippy, and full mouse/save/export/recovery smoke.
+
+Actions run [`40256352269`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40256352269)
+is for base commit `11fc732`: Windows and macOS passed, while Linux failed the
+alpha-artwork step. Its artifact/results log host responds HTTP 403. A fresh
+three-platform run remains pending for the current uncommitted changes. This
+local visual review does not complete the broader redesign: canvas/reference
+placement at narrow sizes, Home/New Artwork hierarchy, and keyboard/focus and
+native accessibility review remain active. Narrator/NVDA and advanced Windows
+S Pen behaviors are not newly tested. Keep the Phase 8.3 program active and
+withhold the consolidated Windows evaluation build, merge, and release.

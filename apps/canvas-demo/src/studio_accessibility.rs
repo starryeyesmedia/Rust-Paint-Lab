@@ -42,9 +42,23 @@ mod tests {
         project.add_layer().unwrap();
         project.add_layer().unwrap();
         let mut actions = Vec::new();
+        let mut drag_handles = Vec::new();
+        let mut drop_targets = Vec::new();
+        let mut drag_ui = crate::studio::LayerDragUi {
+            handles: &mut drag_handles,
+            drop_targets: &mut drop_targets,
+            source: None,
+            target: None,
+        };
         let output = context.run(Default::default(), |ctx| {
             egui::Window::new("Layers").show(ctx, |ui| {
-                crate::studio::layer_flyout_contents(ui, &mut project, &mut actions, false);
+                crate::studio::layer_flyout_contents(
+                    ui,
+                    &mut project,
+                    &mut actions,
+                    false,
+                    &mut drag_ui,
+                );
             });
         });
         let tree = output
@@ -65,6 +79,7 @@ mod tests {
             "Raise",
             "Lower",
             "Actions",
+            "Drag Paint 3 with a pointer to reorder; use Actions for keyboard reordering",
             "Visible",
             "Locked",
         ] {
@@ -244,6 +259,7 @@ mod tests {
                     true,
                     [100, 40, 190],
                     148.0,
+                    82.0,
                     None,
                 );
                 crate::studio::brush_preset_card_with_preview(
@@ -252,6 +268,7 @@ mod tests {
                     false,
                     [100, 40, 190],
                     148.0,
+                    82.0,
                     None,
                 );
             });

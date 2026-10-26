@@ -114,8 +114,14 @@ phase's historical checkpoint and remains available for context.
 - Layer rows expose a primary, accessible Actions menu and retain secondary-click
   context menus. Target each duplicate/delete/reorder operation by stable layer ID;
   all edits must pass through document transactions so Undo restores pixels and
-  ordering. Exercise those controls with real X11/XTest clicks, including a
-  populated stack, right-click opening, and Undo after each targeted mutation.
+  ordering. A dedicated pointer drag grip may reorder rows directly; keep the
+  row Actions menu's one-step ordering actions as its keyboard-accessible path.
+  Exercise both routes with real X11/XTest input, including right-click opening
+  and Undo after each targeted mutation.
+- The Linux alpha screenshot runner launches `target/debug/canvas-demo` directly.
+  Rebuild `canvas-demo` after source changes before running it; `cargo test` alone
+  may leave that executable stale. Verify every required screenshot state, and
+  inspect captured pixels through the supported image viewer when available.
 
 ## Development conventions
 Use the pinned Rust toolchain and Cargo workspace. Prefer safe Rust, small

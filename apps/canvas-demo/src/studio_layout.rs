@@ -190,6 +190,28 @@ pub fn flyout_size(viewport: egui::Rect, palette: egui::Rect, preferred: egui::V
     egui::vec2(preferred.x.min(free_width), preferred.y.min(free_height))
 }
 
+/// Choose a useful brush-library width before the general viewport clamp.
+/// Narrow windows prioritize keeping the palette and canvas discoverable; the
+/// preset list remains scrollable inside that compact width.
+pub fn brush_flyout_preferred_size(viewport_width: f32) -> egui::Vec2 {
+    let width = if viewport_width < 760.0 {
+        416.0
+    } else if viewport_width >= 1600.0 {
+        560.0
+    } else {
+        520.0
+    };
+    egui::vec2(width, 640.0)
+}
+
+/// Detect a saved flyout rectangle that exceeds its current viewport-derived
+/// size. Egui retains window geometry for the life of a context, so changing
+/// the desired size alone does not shrink an already-open panel.
+pub fn flyout_size_exceeds(current: egui::Vec2, desired: egui::Vec2) -> bool {
+    const FRAME_ALLOWANCE: f32 = 24.0;
+    current.x > desired.x + FRAME_ALLOWANCE || current.y > desired.y + FRAME_ALLOWANCE
+}
+
 fn clamp_position(
     viewport: egui::Rect,
     size: egui::Vec2,
@@ -238,6 +260,50 @@ mod tests {
             palette,
             size,
             egui::pos2(104.0, 300.0),
+            &[reference],
+        );
+        let panel = rect(position.x, position.y, size.x, size.y);
+        assert!(viewport.contains_rect(panel));
+        assert!(!panel.intersects(palette));
+        assert!(!panel.intersects(reference));
+    }
+
+    #[test]
+    fn oversized_saved_flyout_is_reset_but_small_manual_size_is_preserved() {
+        assert!(flyout_size_exceeds(
+            egui::vec2(646.0, 560.0),
+            egui::vec2(520.0, 560.0)
+        ));
+        assert!(!flyout_size_exceeds(
+            egui::vec2(500.0, 550.0),
+            egui::vec2(520.0, 560.0)
+        ));
+    }
+
+    #[test]
+    fn brush_library_uses_compact_width_only_for_narrow_viewports() {
+        assert_eq!(brush_flyout_preferred_size(640.0), egui::vec2(416.0, 640.0));
+        assert_eq!(
+            brush_flyout_preferred_size(1280.0),
+            egui::vec2(520.0, 640.0)
+        );
+        assert_eq!(
+            brush_flyout_preferred_size(1920.0),
+            egui::vec2(560.0, 640.0)
+        );
+    }
+
+    #[test]
+    fn brush_flyout_keeps_a_reference_board_visible_when_both_fit() {
+        let viewport = rect(0.0, 0.0, 1280.0, 800.0);
+        let palette = rect(8.0, 132.0, 72.0, 500.0);
+        let reference = rect(306.0, 100.0, 333.0, 330.0);
+        let size = egui::vec2(520.0, 560.0);
+        let position = flyout_position_avoiding(
+            viewport,
+            palette,
+            size,
+            egui::pos2(752.0, 12.0),
             &[reference],
         );
         let panel = rect(position.x, position.y, size.x, size.y);
