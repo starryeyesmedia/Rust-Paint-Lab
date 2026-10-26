@@ -1531,3 +1531,79 @@ Windows GNU target check/Clippy, llvmpipe GPU smoke, Python syntax, and `git dif
 3. Keep Phase 8.3 active. Do not merge, release, or publish the consolidated
    Windows evaluation build until the larger overhaul and cross-platform run
    justify it.
+
+## Home and New Artwork integration — 2026-10-26
+
+Commit `f79c02d` continues the approved visual overhaul on
+`feature/studio-overdrive-phase-8`.
+
+### Implemented
+
+- Replaced the same generic paper sketch in every format card with seven distinct
+  vector illustrations for Portrait, Landscape, Square, A4 Print, Comic Page,
+  Full HD, and Custom. Paper shapes use the actual preset aspect ratio. Larger
+  cards make the category image primary while preserving the selected outline,
+  check indicator, dimensions, resolution, keyboard activation, and AccessKit
+  radio semantics.
+- Enlarged the live New Artwork preview and placed it on a consistent preview
+  mat. The artboard keeps the selected document ratio and previews either the
+  configured solid background color or a clipped transparency checkerboard;
+  dimensions, DPI, and the current sRGB RGBA8 workflow are readable beside it.
+- Fixed recent-artwork grid sizing: its content width now reserves the shared
+  card's 24-point frame inset, so responsive columns stay inside the viewport.
+  Column count also reflects the number of visible projects and actions. A
+  partially filled, unfiltered row receives a real **Open another project** tile
+  that invokes the normal file-picker request; filtered results do not gain an
+  unrelated tile. AccessKit exposes it as a named button.
+- Extended the X11/XTest application workflow to click that tile, verify the
+  deterministic Open Project picker opens, and activate Cancel back to Home.
+  Format screenshot assertions now read each actual egui paper rectangle at the
+  active UI scale instead of depending on fixed approximate screenshot boxes.
+- Moved the reference test fixture's unique green marker into the center of the
+  image. Its screenshot assertion now remains valid when the saved view pans and
+  crops the image's corners, while the sentinel pixel used for export-isolation
+  testing remains at its original location.
+
+### Validation and limits
+
+The complete local Xorg/XTEST run passed all **31 screenshot states** and the
+full application workflow, including mouse painting, layer transactions and
+Undo, save/reopen, PNG/OpenRaster export, reference isolation, and journal-only
+process-kill recovery. Xvfb is not installed in this execution environment; a
+dedicated dummy Xorg server with XTEST and llvmpipe provided the real application
+window and pointer/key events. I visually inspected the Home, populated Home,
+Light/Dark New Artwork, and dark multi-reference captures. Format-art pixels in
+the New Artwork screenshot produced color counts from 174 (A4 Print) to 318
+(Portrait). The centered green reference marker produced 915/913 matching
+pixels in dark normal/narrow captures. These images show meaningful progress,
+not final design acceptance.
+
+Local checks pass: `cargo fmt --all -- --check`, strict workspace Clippy,
+**245 workspace tests**, workspace build, Windows GNU target check and strict
+Clippy, the offscreen GPU smoke on llvmpipe/GL, Python syntax/diff checks, and the
+31-state Xorg/XTEST artwork workflow. The GPU test is a software-adapter pixel
+smoke, not Iris Xe or RTX hardware performance validation.
+
+At the time this entry was written, the latest pushed commit `76a77b0` had a
+failed Linux alpha step in Actions run
+[`40270241090`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40270241090);
+its Windows and macOS jobs passed. The marker was absent because the old fixture
+placed it at the cropped top-left image pixel. The center-marker correction now
+passes the exact local workflow; commit `f79c02d` still needs a fresh
+Windows/Linux/macOS Actions run. The run-log and screenshot-artifact receiver
+returns HTTP 403 here, so this pass was inspected through the local supported
+capture path.
+
+### Exact continuation
+
+1. Verify the new three-platform Actions run for `f79c02d` and record each job's
+   actual result; keep the downloadable Windows evaluation build withheld until
+   broader Phase 8.3 visual and functional acceptance.
+2. Continue the canvas workspace and contextual Brush, Color, Layers, and
+   Reference visual integration. Keep the movable palette as the single primary
+   toolbar; avoid replacing it with a fixed inspector stack.
+3. Expand the populated Home capture to show a balanced first-viewport layout,
+   then continue keyboard/focus and AccessKit review across Light, Dark, and
+   High Contrast. Preserve artwork, recovery, input-routing, and cross-platform
+   regressions. Narrator/NVDA, Windows DPI, and advanced physical S Pen behavior
+   remain separate manual validation items.

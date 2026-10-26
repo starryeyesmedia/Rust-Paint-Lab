@@ -306,3 +306,21 @@ no Xvfb/XTest. The latest local run passes formatting, strict Clippy, **242
 workspace tests**, workspace build, Windows GNU target checks/Clippy, and the
 llvmpipe GPU smoke. Overall Phase 8.3 visual acceptance, Windows evaluation,
 advanced pen verification, and native screen-reader validation remain pending.
+
+## Latest Phase 8.3 continuation — commit `f79c02d`
+
+The Home/New Artwork checkpoint adds individual vector format illustrations,
+larger ratio/background-aware canvas preview, inset-safe recent-project layout,
+and a functional Open another project gallery tile with AccessKit semantics.
+The local Xorg/XTEST run captured all 31 requested UI states and passed the full
+painting/save/export/recovery workflow. Screenshots were inspected locally;
+they demonstrate visible progress without completing design acceptance.
+
+Local formatting, strict Clippy, 245 workspace tests, workspace build, Windows
+GNU check/Clippy, and llvmpipe GPU smoke pass. Xvfb is absent in this container,
+so the application window ran on a dedicated dummy Xorg server with XTEST. The
+latest pushed run (40270241090, commit 76a77b0) passed Windows/macOS but failed
+the Linux alpha workflow; the center-marker fix has passed locally and awaits a
+new cross-platform Actions result. See [Phase 8 Studio progress](PHASE8-STUDIO-PROGRESS.md).
+Phase 8.3 remains active; no merge, release, or consolidated evaluation build is
+approved by this checkpoint.
