@@ -111,6 +111,11 @@ phase's historical checkpoint and remains available for context.
 - Persist movable/resizable workspace panel geometry in workspace preferences,
   never in the artwork document. Keep hit-testing, placement, and persisted
   dimensions bounded and finite across resize and display-scale changes.
+- Layer rows expose a primary, accessible Actions menu and retain secondary-click
+  context menus. Target each duplicate/delete/reorder operation by stable layer ID;
+  all edits must pass through document transactions so Undo restores pixels and
+  ordering. Exercise those controls with real X11/XTest clicks, including a
+  populated stack, right-click opening, and Undo after each targeted mutation.
 
 ## Development conventions
 Use the pinned Rust toolchain and Cargo workspace. Prefer safe Rust, small

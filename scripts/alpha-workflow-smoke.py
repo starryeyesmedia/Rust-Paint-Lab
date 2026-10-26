@@ -108,6 +108,11 @@ def stable_marker(name):
         return None
     return lines[-1].partition(': ')[2]
 
+def event_marker(name):
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(name + ': ')]
+    return lines[-1].partition(': ')[2] if lines else None
+
 def assert_slogan_contrast(theme):
     prefix=f'UI_TEST_HOME_SLOGAN_CONTRAST: {theme} '
     line=next((line for line in reversed((directory/'application.log').read_text().splitlines())
@@ -119,6 +124,48 @@ def assert_slogan_contrast(theme):
 def workspace_brush_tab_rect():
     marker=stable_marker('UI_TEST_WORKSPACE_BRUSH_TAB_RECT')
     return tuple(map(float,marker.split())) if marker else None
+
+def layer_front_row_rect():
+    marker=stable_marker('UI_TEST_LAYER_FRONT_ROW_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_front_row_id():
+    marker=stable_marker('UI_TEST_LAYER_FRONT_ROW_RECT')
+    return int(marker.split()[0]) if marker else None
+
+def layer_actions_open_count():
+    return sum(line.startswith('UI_TEST_LAYER_ACTIONS_OPENED: ')
+               for line in (directory/'application.log').read_text().splitlines())
+
+def layer_menu_action_rect(action):
+    lines=(directory/'application.log').read_text().splitlines()
+    start=max((i for i,line in enumerate(lines)
+               if line.startswith('UI_TEST_LAYER_ACTIONS_OPENED: ')),default=-1)
+    prefix=f'UI_TEST_LAYER_{action}_MENU_RECT: '
+    markers=[line.partition(': ')[2] for line in lines[start+1:]
+             if line.startswith(prefix)]
+    if len(markers)<2 or markers[-1]!=markers[-2]:
+        return None
+    return tuple(map(float,markers[-1].split()))
+
+def layer_duplicate_menu_rect():
+    return layer_menu_action_rect('DUPLICATE')
+
+def layer_more_button_rect():
+    marker=stable_marker('UI_TEST_LAYER_MORE_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_context_duplicate_count():
+    marker=event_marker('UI_TEST_LAYER_CONTEXT_DUPLICATED')
+    return int(marker.split()[0]) if marker else None
+
+def history_layer_count():
+    marker=event_marker('UI_TEST_HISTORY_LAYER_COUNT')
+    return int(marker) if marker else None
+
+def layer_context_delete_count():
+    marker=event_marker('UI_TEST_LAYER_CONTEXT_DELETED')
+    return int(marker.split()[0]) if marker else None
 
 def recovery_preview_target():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
@@ -177,6 +224,11 @@ def click_at(px, py):
     move(round(px),round(py))
     click_button(1,True)
     click_button(1,False)
+
+def right_click_at(px, py):
+    move(round(px),round(py))
+    click_button(3,True)
+    click_button(3,False)
 
 def key(name):
     trace('key',name)
@@ -552,7 +604,55 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
             wait(lambda: 'UI_TEST_LAYERS_ADDED: 3' in (directory/'application.log').read_text(), 'Layers panel contains three real editable layers')
             capture_window(window,'layers-panel-populated-light')
-            ctrl('l')
+            front_row=wait(layer_front_row_rect,'frontmost layer row offers its contextual actions')
+            more=wait(layer_more_button_rect,'frontmost layer exposes a keyboard-accessible actions menu')
+            opened=layer_actions_open_count()
+            click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
+            wait(lambda: layer_actions_open_count()>opened,
+                 'the frontmost layer Actions menu opens')
+            duplicate_menu=wait(layer_duplicate_menu_rect,'layer context menu exposes Duplicate layer')
+            click_at((duplicate_menu[0]+duplicate_menu[2]/2)*duplicate_menu[4],
+                     (duplicate_menu[1]+duplicate_menu[3]/2)*duplicate_menu[4])
+            wait(lambda: layer_context_duplicate_count()==4,
+                 'layer context Duplicate targets the clicked layer and creates an editable copy')
+            ctrl('z')
+            wait(lambda: history_layer_count()==3,
+                 'undo removes the context-menu duplicate without changing the other layers')
+            front_id=layer_front_row_id()
+            more=wait(layer_more_button_rect,'frontmost layer action button remains available after undo')
+            opened=layer_actions_open_count()
+            click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
+            wait(lambda: layer_actions_open_count()>opened,
+                 'the frontmost layer Actions menu reopens for reordering')
+            send_backward=wait(lambda: layer_menu_action_rect('SEND_BACKWARD'),
+                               'Send backward is available for a non-bottom layer')
+            click_at((send_backward[0]+send_backward[2]/2)*send_backward[4],
+                     (send_backward[1]+send_backward[3]/2)*send_backward[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_CONTEXT_MOVED') is not None,
+                 'Send backward records a targeted layer-order transaction')
+            wait(lambda: layer_front_row_id()!=front_id,
+                 'targeted Send backward changes the frontmost layer')
+            ctrl('z')
+            wait(lambda: layer_front_row_id()==front_id,
+                 'undo restores the previous layer order')
+            more=wait(layer_more_button_rect,'frontmost layer action button remains available after reorder undo')
+            opened=layer_actions_open_count()
+            click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
+            wait(lambda: layer_actions_open_count()>opened,
+                 'the frontmost layer Actions menu reopens for deletion')
+            delete=wait(lambda: layer_menu_action_rect('DELETE'),
+                        'layer actions expose deletion for a non-empty stack')
+            click_at((delete[0]+delete[2]/2)*delete[4],(delete[1]+delete[3]/2)*delete[4])
+            wait(lambda: layer_context_delete_count()==2,
+                 'targeted Delete removes the layer whose actions menu was opened')
+            ctrl('z')
+            wait(lambda: history_layer_count()==3 and layer_front_row_id()==front_id,
+                 'undo restores the deleted layer and its order')
+            right_click_at((front_row[1]+front_row[3]/2)*front_row[5],
+                           (front_row[2]+front_row[4]/2)*front_row[5])
+            wait(lambda: 'UI_TEST_LAYER_NATIVE_CONTEXT_OPENED' in (directory/'application.log').read_text(),
+                 'right-clicking a layer name opens its native context menu')
+            key('Escape')
             move(180,250);click_button(1,True);move(400,400);click_button(1,False)
             status('*')
             ctrl('s');project=directory/'artwork.rpl'
@@ -767,7 +867,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                         assert width>=1800 and height>=1000,f'{name} was not captured at a wide size: {width}x{height}'
                     if name == 'home-recent-artwork-light':
                         assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, targeted layer duplicate/reorder/delete with undo, native right-click layer menu, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

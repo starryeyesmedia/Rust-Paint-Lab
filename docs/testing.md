@@ -366,6 +366,13 @@ is checked for at least 4.5:1 contrast in both light and dark themes. Workspace
 control geometry and size use bounded, DPI-aware workspace state; this test does
 not replace native screen-reader verification.
 
+For the populated Layers state, X11/XTest opens the per-row **Actions** menu and
+checks layer-targeted Duplicate, Send backward, and Delete operations against
+the actual document state. Ctrl+Z must restore each layer count/order. A separate
+secondary-click on the row name must open the native context menu. The semantic
+AccessKit tree asserts that every populated row exposes the text-labeled
+**Actions** control; this does not stand in for Narrator/NVDA validation.
+
 The Home capture at 1920 × 1080 now also asserts that its full viewport covers the
 GPU canvas beneath it. For the populated recent-artwork capture, the harness reads
 the actual responsive-grid bounds and selects the largest complete project card

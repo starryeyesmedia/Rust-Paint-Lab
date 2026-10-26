@@ -213,3 +213,19 @@ Actions. Its new brush screenshots have not been visually inspected because
 local screenshot capture returned black pixels and the Actions artifact host is
 blocked with HTTP 403. Phase 8.3 remains active; no Windows evaluation build is
 being promoted from this checkpoint.
+
+The latest local continuation gives each Layers row an accessible **Actions**
+menu while keeping right-click context menus. Duplicate, reorder and delete target
+the clicked layer ID and use the document history transaction path. X11/XTest
+checks each operation and its Undo result, then continues through the existing
+artwork/recovery workflow. The semantic-tree test checks the named action button.
+Local strict Clippy, all 236 workspace tests, GPU smoke, workspace build, Windows
+GNU check/Clippy and the full X11 alpha workflow pass. Actions run
+[`40254869930`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40254869930)
+passed Windows/macOS but the earlier Linux alpha artwork step failed; the log
+receiver returned HTTP 403, and this run predates the targeted layer-menu test.
+Fresh three-platform verification is required after the current commit. Local
+human screenshot inspection remains pending because `xwd` is unavailable and an
+FFmpeg/XCB experiment cannot read this X server's shared-memory window pixels;
+the experiment was discarded. Keep Phase 8.3 active and withhold the consolidated
+Windows evaluation artifact until the broader redesign is materially complete.

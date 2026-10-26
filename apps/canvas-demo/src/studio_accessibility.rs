@@ -44,7 +44,7 @@ mod tests {
         let mut actions = Vec::new();
         let output = context.run(Default::default(), |ctx| {
             egui::Window::new("Layers").show(ctx, |ui| {
-                crate::studio::layer_flyout_contents(ui, &mut project, &mut actions);
+                crate::studio::layer_flyout_contents(ui, &mut project, &mut actions, false);
             });
         });
         let tree = output
@@ -64,6 +64,7 @@ mod tests {
             "Delete",
             "Raise",
             "Lower",
+            "Actions",
             "Visible",
             "Locked",
         ] {

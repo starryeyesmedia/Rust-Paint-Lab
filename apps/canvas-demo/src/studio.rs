@@ -1364,11 +1364,105 @@ pub(crate) enum Action {
     Add,
     Duplicate,
     Delete,
+    DuplicateLayer(u64),
+    DeleteLayer(u64),
     Clear,
     Select(u64),
     Move(i32),
+    MoveLayer(u64, i32),
     Layer(u64, String, bool, bool, u8, Blend),
 }
+
+#[derive(Clone, Copy)]
+struct LayerMenuTarget {
+    id: u64,
+    layer_count: usize,
+    layer_index: usize,
+    emit_test_markers: bool,
+}
+
+fn layer_actions_menu(
+    ui: &mut egui::Ui,
+    target: LayerMenuTarget,
+    actions: &mut Vec<Action>,
+    focus_rename: &mut bool,
+) {
+    if ui.button("Select layer").clicked() {
+        actions.push(Action::Select(target.id));
+        ui.close();
+    }
+    if ui.button("Rename layer…").clicked() {
+        actions.push(Action::Select(target.id));
+        *focus_rename = true;
+        ui.close();
+    }
+    ui.separator();
+    let duplicate = ui.button("Duplicate layer");
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_DUPLICATE_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            duplicate.rect.left(),
+            duplicate.rect.top(),
+            duplicate.rect.width(),
+            duplicate.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if duplicate.clicked() {
+        actions.push(Action::DuplicateLayer(target.id));
+        ui.close();
+    }
+    let delete = ui.add_enabled(target.layer_count > 1, egui::Button::new("Delete layer"));
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_DELETE_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            delete.rect.left(),
+            delete.rect.top(),
+            delete.rect.width(),
+            delete.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if delete.clicked() {
+        actions.push(Action::DeleteLayer(target.id));
+        ui.close();
+    }
+    ui.separator();
+    let bring_forward = ui.add_enabled(
+        target.layer_index + 1 < target.layer_count,
+        egui::Button::new("Bring forward"),
+    );
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_BRING_FORWARD_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            bring_forward.rect.left(),
+            bring_forward.rect.top(),
+            bring_forward.rect.width(),
+            bring_forward.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if bring_forward.clicked() {
+        actions.push(Action::MoveLayer(target.id, 1));
+        ui.close();
+    }
+    let send_backward = ui.add_enabled(target.layer_index > 0, egui::Button::new("Send backward"));
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_SEND_BACKWARD_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            send_backward.rect.left(),
+            send_backward.rect.top(),
+            send_backward.rect.width(),
+            send_backward.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if send_backward.clicked() {
+        actions.push(Action::MoveLayer(target.id, -1));
+        ui.close();
+    }
+}
+
 #[derive(Clone, Copy)]
 enum FileRequest {
     OpenProject,
@@ -1401,6 +1495,7 @@ pub(crate) fn layer_flyout_contents(
     ui: &mut egui::Ui,
     project: &mut Engine,
     actions: &mut Vec<Action>,
+    test_mode: bool,
 ) {
     let selected = project.state().selected;
     let selected_index = project
@@ -1459,7 +1554,9 @@ pub(crate) fn layer_flyout_contents(
     });
     ui.separator();
     ui.small("Frontmost layer appears first.");
-    for (id, mut name, mut visible, mut locked, thumbnail) in layers {
+    for (row_index, (id, mut name, mut visible, mut locked, thumbnail)) in
+        layers.into_iter().enumerate()
+    {
         egui::Frame::new()
             .fill(if id == selected {
                 ui.visuals().selection.bg_fill
@@ -1469,12 +1566,82 @@ pub(crate) fn layer_flyout_contents(
             .corner_radius(8.0)
             .inner_margin(egui::Margin::same(6))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                let layer_index = project
+                    .state()
+                    .layers
+                    .iter()
+                    .position(|layer| layer.id == id)
+                    .unwrap_or(0);
+                let rename_id = egui::Id::new(("layer-flyout-name", id));
+                let mut focus_rename = false;
+                let row = ui.horizontal(|ui| {
                     layer_thumbnail(ui, &thumbnail, id == selected);
-                    if ui.selectable_label(id == selected, &name).clicked() {
+                    let label = ui.selectable_label(id == selected, &name);
+                    if label.clicked() {
                         actions.push(Action::Select(id));
                     }
+                    let more = ui
+                        .menu_button("Actions", |ui| {
+                            layer_actions_menu(
+                                ui,
+                                LayerMenuTarget {
+                                    id,
+                                    layer_count,
+                                    layer_index,
+                                    emit_test_markers: test_mode && row_index == 0,
+                                },
+                                actions,
+                                &mut focus_rename,
+                            );
+                        })
+                        .response
+                        .on_hover_text("Layer actions");
+                    if test_mode && row_index == 0 && more.clicked() {
+                        eprintln!("UI_TEST_LAYER_ACTIONS_OPENED: {id}");
+                    }
+                    if test_mode && row_index == 0 {
+                        eprintln!(
+                            "UI_TEST_LAYER_MORE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            more.rect.left(),
+                            more.rect.top(),
+                            more.rect.width(),
+                            more.rect.height(),
+                            ui.ctx().pixels_per_point(),
+                        );
+                    }
+                    label
                 });
+                if test_mode && row_index == 0 {
+                    eprintln!(
+                        "UI_TEST_LAYER_FRONT_ROW_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        id,
+                        row.response.rect.left(),
+                        row.response.rect.top(),
+                        row.response.rect.width(),
+                        row.response.rect.height(),
+                        ui.ctx().pixels_per_point(),
+                    );
+                }
+                let context_menu = row.inner.context_menu(|ui| {
+                    layer_actions_menu(
+                        ui,
+                        LayerMenuTarget {
+                            id,
+                            layer_count,
+                            layer_index,
+                            emit_test_markers: test_mode && row_index == 0,
+                        },
+                        actions,
+                        &mut focus_rename,
+                    );
+                });
+                if test_mode && row_index == 0 && context_menu.is_some() {
+                    eprintln!("UI_TEST_LAYER_NATIVE_CONTEXT_OPENED");
+                }
+                if focus_rename {
+                    ui.ctx()
+                        .memory_mut(|memory| memory.request_focus(rename_id));
+                }
                 ui.horizontal(|ui| {
                     if ui.checkbox(&mut visible, "Visible").changed()
                         && let Some(layer) =
@@ -1509,7 +1676,12 @@ pub(crate) fn layer_flyout_contents(
                         .map(|layer| (layer.opacity, layer.blend))
                         .unwrap_or((255, Blend::Normal));
                     let mut changed = ui
-                        .add(egui::TextEdit::singleline(&mut name).hint_text("Layer name"))
+                        .add(
+                            egui::TextEdit::singleline(&mut name)
+                                .id(rename_id)
+                                .char_limit(64)
+                                .hint_text("Layer name"),
+                        )
                         .changed();
                     let mut percent = f32::from(opacity) * (100.0 / 255.0);
                     if ui
@@ -4387,7 +4559,12 @@ impl Studio {
                     panel
                 }
                 .show(ctx, |ui| {
-                    layer_flyout_contents(ui, session.live_mut().project_mut(), actions);
+                    layer_flyout_contents(
+                        ui,
+                        session.live_mut().project_mut(),
+                        actions,
+                        self.test_path_dialog,
+                    );
                 });
                 if let Some(panel) = panel {
                     let rect = panel.response.rect;
@@ -6517,6 +6694,12 @@ impl Studio {
             Action::Crop => project.crop_selection()?,
             Action::Undo => {
                 project.undo();
+                if self.test_path_dialog {
+                    eprintln!(
+                        "UI_TEST_HISTORY_LAYER_COUNT: {}",
+                        project.state().layers.len()
+                    );
+                }
             }
             Action::Redo => {
                 project.redo();
@@ -6524,6 +6707,28 @@ impl Studio {
             Action::Add => project.add_layer()?,
             Action::Duplicate => project.duplicate_layer()?,
             Action::Delete => project.delete_layer()?,
+            Action::DuplicateLayer(id) => {
+                project.select(id);
+                project.duplicate_layer()?;
+                if self.test_path_dialog {
+                    eprintln!(
+                        "UI_TEST_LAYER_CONTEXT_DUPLICATED: {} {}",
+                        project.state().layers.len(),
+                        project.state().selected,
+                    );
+                }
+            }
+            Action::DeleteLayer(id) => {
+                project.select(id);
+                project.delete_layer()?;
+                if self.test_path_dialog {
+                    eprintln!(
+                        "UI_TEST_LAYER_CONTEXT_DELETED: {} {}",
+                        project.state().layers.len(),
+                        project.state().selected,
+                    );
+                }
+            }
             Action::Clear => project.clear_layer()?,
             Action::Select(id) => project.select(id),
             Action::Move(delta) => project.edit(|s| {
@@ -6536,6 +6741,28 @@ impl Studio {
                 s.layers.swap(i, j);
                 Ok(())
             })?,
+            Action::MoveLayer(id, delta) => {
+                project.edit(|s| {
+                    let i = s
+                        .layers
+                        .iter()
+                        .position(|layer| layer.id == id)
+                        .ok_or(paint_document::PaintError::Invalid)?;
+                    let j = (i as i32 + delta).clamp(0, s.layers.len() as i32 - 1) as usize;
+                    s.selected = id;
+                    s.layers.swap(i, j);
+                    Ok(())
+                })?;
+                if self.test_path_dialog {
+                    let index = project
+                        .state()
+                        .layers
+                        .iter()
+                        .position(|layer| layer.id == id)
+                        .unwrap_or(usize::MAX);
+                    eprintln!("UI_TEST_LAYER_CONTEXT_MOVED: {id} {index}");
+                }
+            }
             Action::Layer(id, name, visible, locked, opacity, blend) => project.edit(|s| {
                 let l = s
                     .layers

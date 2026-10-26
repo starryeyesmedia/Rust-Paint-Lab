@@ -1266,3 +1266,47 @@ separate Windows canvas/diagnostic packaging.
 4. Continue to keep Phase 8.3 active. Do not merge, release, or publish the
    consolidated Windows evaluation build until the broader visual/accessibility
    pass and three-platform validation justify it.
+
+### Layer row actions and undoable targeted editing — local checkpoint
+
+The current continuation adds a visible, keyboard-focusable **Actions** menu to
+each layer row while retaining secondary-click context menus on the layer name.
+Duplicate, delete, bring-forward and send-backward commands target the layer ID
+whose menu was opened; they enter the existing document edit/history path, so
+Undo restores layer count, pixels and ordering. Rename focuses the matching
+editable name field. The AccessKit tree test now checks that populated rows expose
+the named Actions control.
+
+The X11/XTest artwork workflow exercises the actual Actions button and verifies
+duplicate/undo, send-backward/undo, delete/undo, and right-click context opening
+against the changing frontmost layer ID before continuing through painting,
+save/export/reopen and process-kill recovery. Local validation on this working
+tree passed formatting, strict Clippy, **236 workspace tests**, the software GPU
+smoke, workspace build, Windows GNU target check and Clippy, Python syntax, and
+the full X11 alpha artwork workflow. The earlier pushed Actions run
+[`40254869930`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40254869930)
+passed Windows and macOS but failed the Linux alpha artwork workflow; GitHub's
+log receiver returned HTTP 403 when queried, so its precise cause is unavailable.
+That run predates this layer workflow and its expanded test. The new code still
+needs a fresh Actions run after commit.
+
+Visual review remains blocked locally: `xwd` is not installed in this shell, and
+an FFmpeg/XCB readback experiment failed on X11 shared-memory image access. The
+experiment was removed rather than weakening screenshot assertions. The
+supported Actions artifact download has also returned HTTP 403. Thus the X11
+workflow proves interaction and pixel-region assertions on CI but does not let
+this environment claim human visual inspection. Narrator/NVDA, Windows UI
+Automation and advanced physical S Pen behavior remain unverified here. Phase
+8.3 remains active; do not promote a Windows evaluation package.
+
+### Exact continuation
+
+1. Commit and push the layer-row Actions workflow and tests; confirm current
+   Windows/Linux/macOS Actions, especially the expanded Linux alpha smoke.
+2. Continue functional workspace work across brush, color, layer and reference
+   workflows, then revisit the Home/New Artwork composition and overall visual
+   hierarchy against the approved concept.
+3. Review populated screenshots through an authorized image path if one becomes
+   available. Until then, report visual acceptance as pending even if screenshot
+   generation and automated pixel assertions pass.
+4. Keep Phase 8.3 active; no merge, release, or consolidated evaluation build.
