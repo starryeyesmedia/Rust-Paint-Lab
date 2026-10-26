@@ -1607,3 +1607,69 @@ capture path.
    High Contrast. Preserve artwork, recovery, input-routing, and cross-platform
    regressions. Narrator/NVDA, Windows DPI, and advanced physical S Pen behavior
    remain separate manual validation items.
+
+## Palette viewport and wide Home checkpoint — 2026-10-26
+
+This working checkpoint continues Phase 8.3 after `ff75acd`; it is not a phase
+completion or a Windows evaluation build.
+
+### Implemented and visually reviewed
+
+- Corrected the movable tool palette's actual viewport placement. The tall
+  vertical rail had been constrained upward by egui and overlapped the document
+  options row even though its saved position was below that row. Its available
+  height now ends above the status/zoom area and begins below contextual tool
+  options. The rail scrolls when the window cannot fit every tool, and its
+  placement updates when the viewport shape changes. Floating placement clamps
+  against the usable viewport.
+- Made the palette compact and collapsed by default, with legacy preference
+  deserialization retaining that default. A dedicated grip handles movement;
+  clicking tools no longer moves or redocks the panel. XTest checks expansion,
+  tool clicks, dragging, edge snapping to both sides, and the required spacing
+  from both the options row and bottom status region.
+- Improved Home's large-window balance. The central content is capped and
+  centered on ultra-wide screens, with room for all three format cards on a
+  single row. XTest verifies centering and the three-card geometry in both
+  themes at 1920px width. A theme-aware hero surface and contrast regression
+  cover the light and dark slogan treatment.
+- Expanded the Linux application screenshot/workflow automation to 32 required
+  states, including wide dark/light Home, normal and narrow layouts, and a
+  populated dark Layers panel with three real layer entries. The suite also
+  exercises palette expansion/drag/docking and existing Home/New Artwork,
+  Brush, Color, Reference, Recovery, document, export, and journal-recovery
+  flows.
+
+I visually inspected the generated dark and light wide Home, populated Home,
+dark three-layer panel, and light canvas/palette captures. The palette is fully
+visible in its rail viewport without obscuring the document controls or status
+region. Home is centered at wide sizes and its format options fit together.
+Recent artwork still uses explicitly marked development fixtures; its artwork
+preview and card composition remain a visual refinement item. This work does
+not yet satisfy Phase 8.3's complete visual redesign.
+
+### Validation and continuation
+
+Local verification passes: `cargo fmt --all -- --check`, strict workspace
+Clippy, all workspace tests, workspace build, Windows GNU target check and
+Clippy, the llvmpipe offscreen GPU smoke, and the complete 32-state Xorg/XTEST
+application workflow. The software GPU result validates pixel output on this
+runner, not performance on Iris Xe or RTX hardware. Physical advanced pen
+behaviors and native Narrator/NVDA semantics remain separate validation items;
+basic S Pen drawing was previously observed by the owner.
+
+The latest Actions result available before this working checkpoint is run
+[`40273523046`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40273523046),
+which passed Windows, Linux, and macOS for its predecessor commit. The changes
+in this entry need a new pushed run before CI can be called verified.
+
+### Exact continuation
+
+1. Push this verified checkpoint and record the actual Windows/Linux/macOS
+   Actions result before claiming CI validation.
+2. Continue the Home and canvas visual integration, especially the recent-work
+   preview prominence and compact/narrow workspace balance. Preserve the
+   responsive palette fixes and populated-state screenshot coverage.
+3. Continue keyboard/focus and AccessKit review across themes; document actual
+   Narrator/NVDA limits. Keep Phase 8.3 active, preserve the Windows diagnostic,
+   and withhold the consolidated Windows evaluation build, merge, and release
+   until the broader overhaul is materially implemented and validated.

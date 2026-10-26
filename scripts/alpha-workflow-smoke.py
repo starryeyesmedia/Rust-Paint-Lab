@@ -155,6 +155,19 @@ def event_marker(name):
            if line.startswith(name + ': ')]
     return lines[-1].partition(': ')[2] if lines else None
 
+def palette_bounds():
+    return window_rect_marker('UI_TEST_PALETTE_RECT')
+
+def palette_chrome_clearance():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_PALETTE_CHROME_CLEARANCE: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
+def home_content_bounds():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_HOME_CONTENT_BOUNDS: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
 def window_rect_marker(name):
     prefix=name + ': '
     lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
@@ -757,6 +770,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-light-normal')
             resize_window(window,1920,1080)
             capture_window(window,'home-light-wide')
+            home_bounds=wait(home_content_bounds,'wide Home content is measured inside its centered layout')
+            assert abs(home_bounds[0]+home_bounds[2]/2-960.0)<=4.0 and home_bounds[2]<=1600.0, \
+                f'wide Home should remain centered and readable instead of stretching edge to edge: {home_bounds}'
             resize_window(window,640,480)
             capture_window(window,'home-light-narrow')
             resize_window(window,1280,800)
@@ -769,6 +785,51 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,1280,800)
             key('Return');time.sleep(0.5)
             capture_window(window,'canvas-workspace-light')
+            palette=wait(palette_bounds,'default compact palette reports its bounds')
+            clearance=wait(palette_chrome_clearance,'tool rail reports spacing below the application chrome')
+            print(f'UI_PALETTE_CHROME_CLEARANCE: {clearance}', flush=True)
+            assert clearance[0] >= clearance[1] + 4.0, \
+                f'docked toolbar overlaps the contextual controls: top={clearance[0]:.1f}, chrome_bottom={clearance[1]:.1f}'
+            assert palette[2] <= 90.0, f'default artist toolbar should be a compact rail: {palette}'
+            assert palette[3] >= 440.0, f'normal-height tool rail should show more than a clipped handful of tools: {palette}'
+            assert palette[1] + palette[3] <= 800/palette[4] - 40.0, \
+                f'tool rail must leave the bottom status area accessible: {palette}'
+            toggle=wait(lambda: window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
+                        'compact palette exposes a keyboard-labeled expand control')
+            click_at((toggle[0]+toggle[2]/2)*toggle[4],
+                     (toggle[1]+toggle[3]/2)*toggle[4])
+            wait(lambda: event_marker('UI_TEST_PALETTE_STATE') == 'collapsed=false',
+                 'the toolbar can expand from its compact default')
+            wait(lambda: json.loads(prefs.read_text()).get('palette_collapsed') is False,
+                 'expanded toolbar preference is persisted')
+            expanded=wait(lambda: (lambda bounds: bounds if bounds and bounds[2]>100 else None)(palette_bounds()),
+                          'expanded toolbar exposes labeled tools')
+            assert expanded[2] > palette[2], \
+                f'expanded toolbar should provide more room for tool names: compact={palette}, expanded={expanded}'
+            toggle=wait(lambda: window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
+                        'expanded toolbar exposes its updated collapse control')
+            click_at((toggle[0]+toggle[2]/2)*toggle[4],
+                     (toggle[1]+toggle[3]/2)*toggle[4])
+            wait(lambda: event_marker('UI_TEST_PALETTE_STATE') == 'collapsed=true',
+                 'the expanded toolbar collapses back to its compact rail')
+            wait(lambda: json.loads(prefs.read_text()).get('palette_collapsed') is True,
+                 'compact toolbar preference is persisted')
+            palette=wait(lambda: (lambda bounds: bounds if bounds and bounds[2]<=90 else None)(palette_bounds()),
+                         'compact toolbar width returns after collapse')
+            assert json.loads(prefs.read_text()).get('palette_dock') == 'Left', \
+                'clicking toolbar controls must not move or redock the palette'
+            grip=wait(lambda: window_rect_marker('UI_TEST_PALETTE_GRIP_RECT'),
+                      'the toolbar exposes a distinct drag grip')
+            drag_at((grip[0]+grip[2]/2)*grip[4], (grip[1]+grip[3]/2)*grip[4],
+                    1270, 250)
+            wait(lambda: json.loads(prefs.read_text()).get('palette_dock') == 'Right',
+                 'dragging the grip to the opposite edge snaps and saves the dock side')
+            grip=wait(lambda: window_rect_marker('UI_TEST_PALETTE_GRIP_RECT'),
+                      'the repositioned toolbar reports its new grip')
+            drag_at((grip[0]+grip[2]/2)*grip[4], (grip[1]+grip[3]/2)*grip[4],
+                    10, 250)
+            wait(lambda: json.loads(prefs.read_text()).get('palette_dock') == 'Left',
+                 'the grip can return the toolbar to its default edge')
             wait(lambda: 'UI_TEST_REFERENCE_IMAGE_VISIBLE:' in (directory / 'application.log').read_text(),
                  'reference screenshot uses a rendered image texture')
             time.sleep(0.35)  # the marker is emitted before egui submits this frame
@@ -1217,6 +1278,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert_slogan_contrast('dark')
             assert_strong_text_contrast('dark')
             resize_window(window,1280,800);capture_window(window,'home-dark-normal')
+            resize_window(window,1920,1080);capture_window(window,'home-dark-wide')
+            home_dark_bounds=wait(home_content_bounds,'wide dark Home content is measured inside its centered layout')
+            assert abs(home_dark_bounds[0]+home_dark_bounds[2]/2-960.0)<=4.0 and home_dark_bounds[2]<=1600.0, \
+                f'wide dark Home should stay centered with the light layout: {home_dark_bounds}'
             resize_window(window,640,480);capture_window(window,'home-dark-narrow')
             resize_window(window,1280,800)
             ctrl('n');new_document_prompt()
@@ -1234,7 +1299,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,1280,800)
             ctrl('b');time.sleep(0.35);capture_window(window,'brush-library-dark')
             key('Escape');key('c');time.sleep(0.35);capture_window(window,'color-controls-dark')
-            key('Escape');ctrl('l');time.sleep(0.35);capture_window(window,'layers-panel-populated-dark')
+            key('Escape');ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
+            wait(lambda: layer_row_rect(2),'dark Layers screenshot includes three actual editable layer entries')
+            capture_window(window,'layers-panel-populated-dark')
             resize_window(window,640,480);capture_window(window,'layers-panel-populated-dark-narrow')
             resize_window(window,1280,800)
             ctrl('l');time.sleep(0.2)
@@ -1279,7 +1346,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             key('Escape');assert process.wait(timeout=20)==0
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','reference-board-multi-light','reference-board-multi-light-narrow','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','reference-board-multi-light','reference-board-multi-light-narrow','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

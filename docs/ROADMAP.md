@@ -324,3 +324,17 @@ the Linux alpha workflow; the center-marker fix has passed locally and awaits a
 new cross-platform Actions result. See [Phase 8 Studio progress](PHASE8-STUDIO-PROGRESS.md).
 Phase 8.3 remains active; no merge, release, or consolidated evaluation build is
 approved by this checkpoint.
+
+## Latest local Phase 8.3 checkpoint — palette and Home layout
+
+The current working changes correct palette viewport placement/overlap,
+scrolling, compact defaults, drag grip and edge docking; they also center Home
+content at wide sizes and put its format cards on one row. The 32-state local
+Xorg/XTEST workflow checks populated layers, themes, window sizes, palette
+movement and the existing artwork workflows. Dark/light Home, populated Layers,
+and canvas/palette screenshots were visually inspected. Local formatting,
+strict Clippy, workspace tests/build, Windows GNU target checks, and software
+GPU smoke passed. These changes still need to be committed, pushed, and verified
+by a new Windows/Linux/macOS Actions run. Phase 8.3 remains active; recent Home
+artwork presentation and the broader workspace/accessibility overhaul remain
+unfinished. See [the detailed progress log](PHASE8-STUDIO-PROGRESS.md).

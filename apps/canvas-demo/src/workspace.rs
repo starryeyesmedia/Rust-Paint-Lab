@@ -61,6 +61,10 @@ fn default_workspace_controls_size() -> [f32; 2] {
     [360.0, 620.0]
 }
 
+fn default_palette_collapsed() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InspectorTab {
     #[default]
@@ -214,7 +218,7 @@ pub struct WorkspacePreferences {
     pub ui_scale: f32,
     #[serde(default)]
     pub palette_dock: PaletteDock,
-    #[serde(default)]
+    #[serde(default = "default_palette_collapsed")]
     pub palette_collapsed: bool,
     #[serde(default)]
     pub handedness: Handedness,
@@ -303,7 +307,7 @@ impl Default for WorkspacePreferences {
             reduced_motion: false,
             ui_scale: 1.0,
             palette_dock: PaletteDock::Left,
-            palette_collapsed: false,
+            palette_collapsed: true,
             handedness: Handedness::Right,
             palette_position: [72.0, 54.0],
             layers_flyout_position: default_layers_flyout_position(),
@@ -624,7 +628,7 @@ mod tests {
         assert!(!preferences.reduced_motion);
         assert_eq!(preferences.ui_scale, 1.0);
         assert_eq!(preferences.palette_dock, PaletteDock::Left);
-        assert!(!preferences.palette_collapsed);
+        assert!(preferences.palette_collapsed);
         assert_eq!(preferences.handedness, Handedness::Right);
         assert_eq!(preferences.palette_position, [72.0, 54.0]);
         assert_eq!(preferences.accent_scheme, AccentScheme::Violet);

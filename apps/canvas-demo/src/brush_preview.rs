@@ -12,7 +12,7 @@ pub const PRESET_COLOR: [u8; 3] = [197, 92, 255];
 /// Show a cached raster-engine preview and expose its active settings as an
 /// accessible image label.
 pub fn show(ui: &mut egui::Ui, texture: &egui::TextureHandle, brush: &Brush) -> egui::Response {
-    show_with_max_width(ui, texture, brush, 440.0)
+    show_with_max_width(ui, texture, brush, 300.0)
 }
 
 /// Smaller live sample for narrow floating panels, leaving the preset list in

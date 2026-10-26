@@ -20,6 +20,8 @@ pub enum Icon {
     Settings,
     Reference,
     DragHandle,
+    ChevronLeft,
+    ChevronRight,
 }
 
 fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::Color32) {
@@ -214,6 +216,8 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
                 }
             }
         }
+        Icon::ChevronLeft => path(&[(2.0, -6.0), (-3.0, 0.0), (2.0, 6.0)]),
+        Icon::ChevronRight => path(&[(-2.0, -6.0), (3.0, 0.0), (-2.0, 6.0)]),
     }
 }
 
@@ -247,7 +251,7 @@ pub fn button(
 /// to the containing movable Area. The semantic label gives screen readers a
 /// named point to locate the moveable tool palette.
 pub fn palette_drag_handle(ui: &mut egui::Ui) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::drag());
     paint(
         ui.painter(),
         rect.shrink(3.0),
@@ -364,6 +368,8 @@ mod tests {
             Icon::Settings,
             Icon::Reference,
             Icon::DragHandle,
+            Icon::ChevronLeft,
+            Icon::ChevronRight,
         ];
         let context = egui::Context::default();
         let output = context.run(egui::RawInput::default(), |context| {
