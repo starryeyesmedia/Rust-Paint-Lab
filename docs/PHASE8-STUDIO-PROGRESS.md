@@ -1403,3 +1403,62 @@ release, or merge is authorized by this checkpoint.
    build until the larger visual/functional overhaul and fresh cross-platform CI
    justify it. Native screen-reader validation and advanced Windows pen behaviors
    still require appropriate Windows testing.
+
+### Artist color picker hue wheel — functional and visually inspected checkpoint
+
+The Color flyout now pairs the existing saturation/brightness field and precise
+keyboard-operable Hue slider with a visible 96-segment hue ring. The ring shows a
+position marker and a center sample at the current saturation/brightness. Pointer
+input maps top to red and proceeds clockwise; the center sample and positions
+outside the annulus are ignored. The slider remains available for precise numeric
+and keyboard adjustment. The wheel is represented in the AccessKit tree as a
+named slider control, and the adjacent saturation/value field keeps its semantic
+name.
+
+The real X11/XTest artwork workflow clicks the wheel through winit/egui, asserts
+that changing hue preserves the active saved color's saturation and brightness,
+then selects the saved original swatch to restore the starting blue. The rendered
+light-theme Color screenshot checks the wheel region contains more than 32 distinct
+chromatic colors; the latest run measured 2,204. All 30 screenshots in the
+expanded Linux matrix were captured and reviewed locally, including light/dark
+Color, Brush, populated Layers and Recovery, New Artwork and Home at narrow and
+normal sizes. The full artwork workflow also passed live raster drawing, layer
+transactions/undo, reference isolation, file round trips, PNG/OpenRaster exports,
+and journal-only process-kill recovery.
+
+The same review tightened reference-board screenshot evidence: each reference
+state now captures the actual image rectangle after resize, counts colors only
+inside that image, and requires the fixture's distinctive green marker as well as
+at least 12 scene colors. The real image region passed in all four light/dark,
+normal/narrow captures (light normal/narrow: 379 marker pixels and 151 colors;
+dark normal: 575 marker pixels and 285 colors). I visually inspected those
+rendered captures, confirming the reference picture itself is visible rather than
+merely inferring it from app state or full-window pixel diversity. To make it
+more image-first, the reference window uses a smaller title and compact zoom
+buttons plus a readable Settings menu instead of a wide text control; the capture
+asserts the image occupies at least 85% of the reference window's width (89.4% in
+light normal/narrow and 95.9% in dark normal/narrow).
+
+Local validation after this addition: formatting, strict workspace Clippy, all
+**240 workspace tests**, workspace build, Windows GNU target check and strict
+Clippy, llvmpipe offscreen GPU pixel smoke, and full X11/XTest artwork workflow
+passed. Basic S Pen drawing remains owner-observed; advanced capture, pressure/
+tilt edge cases, Windows display scaling, and native Narrator/NVDA behavior were
+not tested in this Linux session. Actions run
+[`40265944815`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40265944815)
+passed for Windows, Linux and macOS on preceding commit `2b615f9`; the wheel
+changes still require a fresh Actions result after push. Phase 8.3 remains active,
+and no consolidated evaluation package, merge, or release was produced.
+
+### Exact continuation from the hue-wheel checkpoint
+
+1. Push the verified hue-picker change on `feature/studio-overdrive-phase-8` and
+   check the fresh Windows/Linux/macOS Actions run; update this record with its
+   actual result.
+2. Continue the approved visual overhaul beyond Color: improve canvas/reference
+   composition and reference placement at narrow sizes, keep refining the
+   Home/New Artwork hierarchy, and continue keyboard/focus/AccessKit review.
+   Preserve layer history, save/recovery, reference isolation, export, and pen
+   routing.
+3. Keep Phase 8.3 active and withhold the consolidated Windows evaluation build
+   until the broader visual/functional work and current CI are complete.

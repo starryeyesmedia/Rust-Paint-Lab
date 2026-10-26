@@ -392,6 +392,17 @@ numeric snapshot names, identify snapshot/journal/backup sources and pass a rend
 4.5:1 text-contrast assertion in both Light and Dark themes. These are Linux/Xvfb
 interaction checks, not manual Windows assistive-technology validation.
 
+Reference-board captures report the current image rectangle after each resize.
+Pixel checks are restricted to that rectangle and require both the fixture's
+unique green marker and varied scene colors (at least 12). This prevents toolbar,
+canvas, or unrelated UI colors from satisfying the reference-image assertion.
+On the latest local run the light normal/narrow captures each showed 379 marker
+pixels and 151 image colors; dark normal showed 575 marker pixels and 285 image
+colors. The compact reference header/Settings row leaves at least 85% of its
+window width for artwork (89.4% light and 95.9% dark in normal and narrow states).
+Representative normal and narrow captures were opened and visually reviewed
+locally.
+
 The Brush Library also generates deterministic preset samples by running each
 built-in brush through the raster engine on a bounded temporary document. The
 active sample reflects the current brush settings; preset cards use a stable
@@ -418,9 +429,19 @@ copy, so it does not depend on reading the X11 window surface with ImageMagick.
 This is actual local visual review, while overall visual acceptance remains
 pending for the broader Phase 8.3 redesign and Windows-specific layout behavior.
 
-The latest available Actions run [`40256352269`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40256352269)
-is for base commit `11fc732`: Windows and macOS passed, but Linux failed the
-alpha artwork step. GitHub returns HTTP 403 from the results/artifact log host,
-so the failure cannot be diagnosed from that run. Fresh CI for the current
-working changes must be recorded after push. Captures and pixel-region checks
-do not replace Windows DPI, Narrator/NVDA, touch or physical device testing.
+Actions run [`40265944815`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40265944815)
+passed Windows, Linux, and macOS for commit `2b615f9`. The hue-wheel change below
+is a later local commit and must receive a fresh Actions result after push.
+Captures and pixel-region checks do not replace Windows DPI, Narrator/NVDA, touch,
+or physical-device testing.
+
+The Color flyout's hue ring uses normalized hue with red at the top and clockwise
+progression. A center sample displays the current color; clicks/drags are accepted
+on the annulus, while its center and exterior are ignored. The numeric Hue slider
+remains available for keyboard and precise adjustment. The AccessKit tree names
+the wheel and saturation/brightness field. The Linux integration test clicks the
+actual ring, verifies that hue changes while saturation and brightness stay fixed,
+and restores the previous color from the saved palette. The Color screenshot test
+checks that the rendered ring region contains at least 32 distinct chromatic
+colors. After editing this UI, rebuild `canvas-demo`, run the full workspace
+checks, and repeat the X11/XTest workflow above; current test count is 240.

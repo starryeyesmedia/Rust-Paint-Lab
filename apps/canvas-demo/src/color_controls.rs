@@ -81,6 +81,35 @@ pub fn saturation_value_at(bounds: egui::Rect, position: egui::Pos2) -> Option<[
     ])
 }
 
+/// Map a pointer near the annular hue control to normalized hue. Hue starts at
+/// the top (red) and proceeds clockwise. Positions inside the color sample or
+/// outside the wheel are ignored so the adjoining saturation/value field does
+/// not accidentally change hue.
+pub fn hue_wheel_value_at(bounds: egui::Rect, position: egui::Pos2) -> Option<f32> {
+    if !bounds.is_positive()
+        || !position.x.is_finite()
+        || !position.y.is_finite()
+        || !bounds.width().is_finite()
+        || !bounds.height().is_finite()
+    {
+        return None;
+    }
+    let center = bounds.center();
+    let radius = bounds.width().min(bounds.height()) * 0.5 - 5.0;
+    if !radius.is_finite() || radius <= 0.0 {
+        return None;
+    }
+    let offset = position - center;
+    let distance = offset.length();
+    let inner = radius * 0.72;
+    if !distance.is_finite() || distance < inner * 0.78 || distance > radius + 2.0 {
+        return None;
+    }
+    let angle =
+        (offset.y.atan2(offset.x) + std::f32::consts::FRAC_PI_2).rem_euclid(std::f32::consts::TAU);
+    Some(angle / std::f32::consts::TAU)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,6 +173,35 @@ mod tests {
         );
         assert_eq!(
             saturation_value_at(bounds, egui::pos2(f32::NAN, 30.0)),
+            None
+        );
+    }
+
+    #[test]
+    fn hue_wheel_maps_clockwise_primary_angles_and_ignores_the_center() {
+        let bounds = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(170.0, 180.0));
+        let center = bounds.center();
+        let radius = 60.0;
+        for (offset, expected) in [
+            (egui::vec2(0.0, -radius), 0.0),
+            (egui::vec2(radius, 0.0), 0.25),
+            (egui::vec2(0.0, radius), 0.5),
+            (egui::vec2(-radius, 0.0), 0.75),
+        ] {
+            let hue = hue_wheel_value_at(bounds, center + offset).unwrap();
+            assert!((hue - expected).abs() < 0.001, "{offset:?} produced {hue}");
+        }
+        assert_eq!(hue_wheel_value_at(bounds, center), None);
+        assert_eq!(
+            hue_wheel_value_at(bounds, egui::pos2(center.x, center.y - 78.0)),
+            None
+        );
+        assert_eq!(
+            hue_wheel_value_at(egui::Rect::NOTHING, egui::Pos2::ZERO),
+            None
+        );
+        assert_eq!(
+            hue_wheel_value_at(bounds, egui::pos2(f32::NAN, center.y)),
             None
         );
     }

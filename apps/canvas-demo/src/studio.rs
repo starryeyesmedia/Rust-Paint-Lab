@@ -878,6 +878,16 @@ fn saved_color_palette_contents(
                         color[2],
                     );
                 }
+                if test_mode && color == [35, 65, 180] {
+                    eprintln!(
+                        "UI_TEST_COLOR_ORIGINAL_SWATCH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        swatch.rect.left(),
+                        swatch.rect.top(),
+                        swatch.rect.width(),
+                        swatch.rect.height(),
+                        ui.ctx().pixels_per_point(),
+                    );
+                }
                 if swatch.clicked() {
                     *current_color = color;
                     if test_mode {
@@ -977,6 +987,101 @@ pub(crate) fn saturation_value_field(
         return crate::color_controls::saturation_value_at(rect, position);
     }
     None
+}
+
+pub(crate) fn hue_selection_wheel(
+    ui: &mut egui::Ui,
+    hue: f32,
+    saturation: f32,
+    value: f32,
+) -> (Option<f32>, egui::Response) {
+    const SEGMENTS: usize = 96;
+    let diameter = ui.available_width().clamp(120.0, 152.0);
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(diameter, diameter),
+        egui::Sense::click_and_drag(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Slider,
+            ui.is_enabled(),
+            format!(
+                "Hue selection wheel, {:.0} degrees",
+                hue.rem_euclid(1.0) * 360.0
+            ),
+        )
+    });
+
+    let center = rect.center();
+    let radius = rect.width().min(rect.height()) * 0.5 - 5.0;
+    let inner_radius = radius * 0.72;
+    let painter = ui.painter_at(rect);
+    for index in 0..SEGMENTS {
+        let start =
+            index as f32 / SEGMENTS as f32 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+        let end = (index + 1) as f32 / SEGMENTS as f32 * std::f32::consts::TAU
+            - std::f32::consts::FRAC_PI_2;
+        let point = |distance: f32, angle: f32| {
+            center + egui::vec2(angle.cos() * distance, angle.sin() * distance)
+        };
+        let rgb =
+            crate::color_controls::hsv_to_rgb([(index as f32 + 0.5) / SEGMENTS as f32, 1.0, 1.0]);
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                point(inner_radius, start),
+                point(radius, start),
+                point(radius, end),
+                point(inner_radius, end),
+            ],
+            egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]),
+            egui::Stroke::NONE,
+        ));
+    }
+
+    let clean_hue = if hue.is_finite() {
+        hue.rem_euclid(1.0)
+    } else {
+        0.0
+    };
+    let selected_color = crate::color_controls::hsv_to_rgb([
+        clean_hue,
+        saturation.clamp(0.0, 1.0),
+        value.clamp(0.0, 1.0),
+    ]);
+    let sample_fill =
+        egui::Color32::from_rgb(selected_color[0], selected_color[1], selected_color[2]);
+    painter.circle_filled(center, inner_radius - 2.0, sample_fill);
+    painter.circle_stroke(center, inner_radius - 2.0, ui.visuals().window_stroke);
+    let sample_text =
+        crate::appearance::readable_text_color(ui.visuals().text_color(), sample_fill);
+    painter.text(
+        center,
+        egui::Align2::CENTER_CENTER,
+        format!("{:.0}°", clean_hue * 360.0),
+        egui::FontId::proportional(13.0),
+        sample_text,
+    );
+
+    let marker_angle = clean_hue * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+    let marker = center
+        + egui::vec2(
+            marker_angle.cos() * (radius + inner_radius) * 0.5,
+            marker_angle.sin() * (radius + inner_radius) * 0.5,
+        );
+    painter.circle_filled(marker, 6.5, egui::Color32::WHITE);
+    painter.circle_stroke(marker, 6.5, egui::Stroke::new(1.5, egui::Color32::BLACK));
+    let response = response.on_hover_text(
+        "Choose a hue by clicking or dragging around the ring; use the Hue slider for precise keyboard adjustment.",
+    );
+
+    let selected = if response.clicked() || response.dragged() {
+        response
+            .interact_pointer_pos()
+            .and_then(|position| crate::color_controls::hue_wheel_value_at(rect, position))
+    } else {
+        None
+    };
+    (selected, response)
 }
 
 const MAX_REFERENCE_FILE_BYTES: u64 = 32 * 1024 * 1024;
@@ -1999,7 +2104,6 @@ pub struct Studio {
     test_recovery_preview_target_logged: bool,
     test_recovery_preview_logged: bool,
     test_reference_preview_logged: bool,
-    test_reference_window_logged: bool,
     test_new_artwork_logged: bool,
     test_home_dark_contrast_logged: bool,
     test_home_light_contrast_logged: bool,
@@ -2202,7 +2306,6 @@ impl Studio {
             test_recovery_preview_target_logged: false,
             test_recovery_preview_logged: false,
             test_reference_preview_logged: false,
-            test_reference_window_logged: false,
             test_new_artwork_logged: false,
             test_home_dark_contrast_logged: false,
             test_home_light_contrast_logged: false,
@@ -5331,22 +5434,55 @@ impl Studio {
                                 self.color_hue = hsv[0];
                             }
                             let mut hue_degrees = self.color_hue * 360.0;
-                            ui.label("Pick a shade");
-                            let hue_changed = ui
-                                .add(
-                                    egui::Slider::new(&mut hue_degrees, 0.0..=360.0)
-                                        .suffix("°")
-                                        .text("Hue"),
-                                )
-                                .changed();
-                            let hue = (hue_degrees / 360.0).rem_euclid(1.0);
-                            if let Some([saturation, value]) =
-                                saturation_value_field(ui, hue, hsv[1], hsv[2])
-                            {
+                            let mut wheel_hue = None;
+                            let mut hue_changed = false;
+                            let mut selected_sv = None;
+                            ui.label("Choose a shade");
+                            ui.horizontal(|ui| {
+                                let (selected_hue, wheel_response) =
+                                    hue_selection_wheel(ui, self.color_hue, hsv[1], hsv[2]);
+                                wheel_hue = selected_hue;
+                                if self.test_path_dialog {
+                                    let rect = wheel_response.rect;
+                                    eprintln!(
+                                        "UI_TEST_HUE_WHEEL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                        rect.left(),
+                                        rect.top(),
+                                        rect.width(),
+                                        rect.height(),
+                                        ui.ctx().pixels_per_point(),
+                                    );
+                                }
+                                ui.vertical(|ui| {
+                                    ui.label("Hue");
+                                    let hue_response = ui.add_sized(
+                                        [ui.available_width().clamp(110.0, 200.0), 26.0],
+                                        egui::Slider::new(&mut hue_degrees, 0.0..=360.0)
+                                            .suffix("°"),
+                                    );
+                                    hue_response.widget_info(|| {
+                                        egui::WidgetInfo::labeled(
+                                            egui::WidgetType::Slider,
+                                            ui.is_enabled(),
+                                            "Hue",
+                                        )
+                                    });
+                                    hue_changed = hue_response.changed();
+                                    let hue = wheel_hue
+                                        .unwrap_or_else(|| (hue_degrees / 360.0).rem_euclid(1.0));
+                                    selected_sv = saturation_value_field(ui, hue, hsv[1], hsv[2]);
+                                });
+                            });
+                            let hue =
+                                wheel_hue.unwrap_or_else(|| (hue_degrees / 360.0).rem_euclid(1.0));
+                            if let Some([saturation, value]) = selected_sv {
                                 hsv[1] = saturation;
                                 hsv[2] = value;
+                            }
+                            if wheel_hue.is_some() || hue_changed || selected_sv.is_some() {
                                 self.color_hue = hue;
-                                project.brush.color = crate::color_controls::hsv_to_rgb(hsv);
+                                project.brush.color =
+                                    crate::color_controls::hsv_to_rgb([hue, hsv[1], hsv[2]]);
                             }
                             let saturation_changed = ui
                                 .add(egui::Slider::new(&mut hsv[1], 0.0..=1.0).text("Saturation"))
@@ -5479,7 +5615,7 @@ impl Studio {
                     };
                     (current.distance(target) > 1.0).then_some(target)
                 });
-                let mut window = egui::Window::new(title)
+                let mut window = egui::Window::new(egui::RichText::new(title).size(18.0).strong())
                     .order(egui::Order::Foreground)
                     .id(id)
                     .open(&mut open)
@@ -5497,7 +5633,7 @@ impl Studio {
                 let response = window.show(ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         let zoom_out = ui
-                            .add_sized([44.0, 40.0], egui::Button::new("−"))
+                            .add_sized([36.0, 32.0], egui::Button::new("−"))
                             .on_hover_text("Zoom out reference image");
                         zoom_out.widget_info(|| {
                             egui::WidgetInfo::labeled(
@@ -5521,7 +5657,7 @@ impl Studio {
                             }
                         }
                         let zoom_in = ui
-                            .add_sized([44.0, 40.0], egui::Button::new("+"))
+                            .add_sized([36.0, 32.0], egui::Button::new("+"))
                             .on_hover_text("Zoom in reference image");
                         zoom_in.widget_info(|| {
                             egui::WidgetInfo::labeled(
@@ -5545,7 +5681,7 @@ impl Studio {
                             }
                         }
                         ui.weak(format!("{:.0}%", reference.layout.view_zoom * 100.0));
-                        ui.menu_button("Reference controls", |ui| {
+                        let settings = ui.menu_button("Settings", |ui| {
                             if ui.button("Fit image to window").clicked() {
                                 reference.layout.view_zoom = 1.0;
                                 reference.layout.view_pan = [0.0, 0.0];
@@ -5577,6 +5713,14 @@ impl Studio {
                                 ui.close();
                             }
                         });
+                        settings.response.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Button,
+                                ui.is_enabled(),
+                                "Reference settings",
+                            )
+                        });
+                        settings.response.on_hover_text("Reference settings");
                     });
                     let available = ui.available_size().max(egui::vec2(48.0, 48.0));
                     let source_size = reference.texture.size_vec2();
@@ -5587,16 +5731,6 @@ impl Studio {
                         reference.source_size[0], reference.source_size[1]
                     ));
                     reference.viewport = Some(viewport);
-                    if self.test_path_dialog
-                        && reference_visible_workspace
-                        && !self.test_reference_preview_logged
-                    {
-                        eprintln!(
-                            "UI_TEST_REFERENCE_IMAGE_VIEWPORT: {:.1},{:.1} {:.1}x{:.1} screen {:.1}x{:.1}",
-                            viewport.left(), viewport.top(), viewport.width(), viewport.height(),
-                            screen_viewport.width(), screen_viewport.height()
-                        );
-                    }
                     if image_response.hovered() {
                         let scroll_y = ui.input(|input| input.smooth_scroll_delta.y);
                         if scroll_y != 0.0
@@ -5618,12 +5752,23 @@ impl Studio {
                         reference.layout.view_pan[1] =
                             (reference.layout.view_pan[1] + delta.y).clamp(-10000.0, 10000.0);
                     }
-                    if let Some(image_rect) = reference_image_rect(
+                    let image_rect = reference_image_rect(
                         viewport,
                         source_size,
                         reference.layout.view_zoom,
                         reference.layout.view_pan,
-                    ) {
+                    );
+                    if let Some(image_rect) = image_rect {
+                        if self.test_path_dialog && reference_visible_workspace {
+                            eprintln!(
+                                "UI_TEST_REFERENCE_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                image_rect.left(),
+                                image_rect.top(),
+                                image_rect.width(),
+                                image_rect.height(),
+                                ctx.pixels_per_point(),
+                            );
+                        }
                         ui.painter().with_clip_rect(viewport).image(
                             reference.texture.id(),
                             image_rect,
@@ -5651,11 +5796,7 @@ impl Studio {
                 });
                 if let Some(response) = response {
                     let rect = response.response.rect;
-                    if self.test_path_dialog
-                        && reference_visible_workspace
-                        && !self.test_reference_window_logged
-                    {
-                        self.test_reference_window_logged = true;
+                    if self.test_path_dialog && reference_visible_workspace {
                         eprintln!(
                             "UI_TEST_REFERENCE_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             rect.left(),
@@ -6892,6 +7033,12 @@ impl Studio {
         if let Some(previous) = self.observed_brush_color
             && previous != brush_color
         {
+            if self.test_path_dialog {
+                eprintln!(
+                    "UI_TEST_COLOR_CURRENT_RGB: {} {} {}",
+                    brush_color[0], brush_color[1], brush_color[2]
+                );
+            }
             crate::workspace::remember_brush_color(&mut self.recent_brush_colors, brush_color);
             if let Err(error) = self.persist_workspace() {
                 self.status = format!("Could not save recent brush colors: {error}");

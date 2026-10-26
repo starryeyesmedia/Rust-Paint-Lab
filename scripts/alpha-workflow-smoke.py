@@ -6,7 +6,7 @@ path, screenshots, user input recording, or additional Python packages.
 """
 import ctypes as c
 from pathlib import Path
-import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii, shutil
+import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii, shutil, math
 import subprocess
 import time
 
@@ -121,6 +121,28 @@ def color_palette_marker(name):
         return None
     return tuple(map(float,lines[-1].partition(': ')[2].split()))
 
+def hue_wheel_rect():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_HUE_WHEEL_RECT: ')]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].partition(': ')[2].split()))
+
+def original_saved_color_rect():
+    return color_palette_marker('UI_TEST_COLOR_ORIGINAL_SWATCH_RECT')
+
+def current_brush_rgb():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_COLOR_CURRENT_RGB: ')]
+    return tuple(map(int,lines[-1].partition(': ')[2].split())) if lines else None
+
+def wheel_point(hue, bounds):
+    x,y,width,height,scale=bounds
+    radius=(min(width,height)*0.5-5.0)*0.84
+    angle=hue*math.tau-math.pi/2
+    return ((x+width/2+radius*math.cos(angle))*scale,
+            (y+height/2+radius*math.sin(angle))*scale)
+
 def stable_marker(name):
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith(name + ': ')]
@@ -138,6 +160,17 @@ def window_rect_marker(name):
     lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
            if line.startswith(prefix)]
     return tuple(map(float,lines[-1].split()[:5])) if lines else None
+
+def stable_window_rect_marker(name):
+    prefix=name + ': '
+    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()[:5]))
+
+def reference_image_rect():
+    return stable_window_rect_marker('UI_TEST_REFERENCE_IMAGE_RECT')
 
 def rects_overlap(left, right):
     return left[0] < right[0] + right[2] and right[0] < left[0] + left[2] \
@@ -416,6 +449,11 @@ def capture_window(window, name):
     brush_preview_bounds=None
     saved_swatch_bounds=None
     saved_swatch_color=None
+    hue_wheel_bounds=None
+    hue_wheel_colors=set()
+    reference_image_bounds=None
+    reference_image_colors=set()
+    reference_image_share=None
     if name.startswith('recovery-manager-populated-'):
         bounds=wait(recovery_preview_image_rect,'recovery preview image is laid out')
         x,y,preview_width,preview_height,scale,content_top=bounds
@@ -432,6 +470,16 @@ def capture_window(window, name):
         x,y,swatch_width,swatch_height,scale,red,green,blue=marker
         saved_swatch_bounds=(x*scale,y*scale,(x+swatch_width)*scale,(y+swatch_height)*scale)
         saved_swatch_color=(int(red),int(green),int(blue))
+        x,y,wheel_width,wheel_height,scale=wait(hue_wheel_rect,'accessible hue wheel is laid out')
+        hue_wheel_bounds=(x*scale,y*scale,(x+wheel_width)*scale,(y+wheel_height)*scale)
+    if name.startswith('reference-board-'):
+        x,y,image_width,image_height,scale=wait(reference_image_rect,'reference screenshot reports its actual image bounds')
+        reference_image_bounds=(x*scale,y*scale,(x+image_width)*scale,(y+image_height)*scale)
+        reference_window=wait(
+            lambda: stable_window_rect_marker('UI_TEST_REFERENCE_WINDOW_RECT'),
+            'reference screenshot reports stable outer-window bounds',
+        )
+        reference_image_share=image_width/reference_window[2]
     bytes_per_pixel=(bits_per_pixel+7)//8
     byte_order_name='little' if byte_order==0 else 'big'
     for y in range(height):
@@ -441,11 +489,14 @@ def capture_window(window, name):
             start=x_pixel*bytes_per_pixel
             pixel=int.from_bytes(row[start:start+bytes_per_pixel],byte_order_name)
             red=component(pixel,masks[0]);green=component(pixel,masks[1]);blue=component(pixel,masks[2])
-            if name.startswith('reference-board-') and (
-                (red<80 and green>150 and blue<80)
-                or (green>210 and green-red>50 and green-blue>50)
-            ):
-                reference_marker_pixels+=1
+            if reference_image_bounds is not None:
+                left,top,right,bottom=reference_image_bounds
+                if left<=x_pixel<right and top<=y<bottom:
+                    reference_image_colors.add((red,green,blue))
+                    if (red<80 and green>150 and blue<80) or (
+                        green>210 and green-red>50 and green-blue>50
+                    ):
+                        reference_marker_pixels+=1
             if name == 'home-recent-artwork-light' and blue > 100 and blue-red > 45 and blue-green > 20:
                 recent_artwork_pixels+=1
             if recent_thumbnail_bounds is not None:
@@ -467,6 +518,10 @@ def capture_window(window, name):
                 left,top,right,bottom=saved_swatch_bounds
                 if left<=x_pixel<right and top<=y<bottom and (red,green,blue)==saved_swatch_color:
                     saved_swatch_pixels+=1
+            if hue_wheel_bounds is not None:
+                left,top,right,bottom=hue_wheel_bounds
+                if left<=x_pixel<right and top<=y<bottom and max(red,green,blue)-min(red,green,blue)>55:
+                    hue_wheel_colors.add((red,green,blue))
             rows.extend((red,green,blue,255))
     raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
     destination=Path(folder) if folder else None
@@ -494,6 +549,12 @@ def capture_window(window, name):
     if name.startswith('reference-board-'):
         assert reference_marker_pixels>=40, f'{name} did not visibly render the unique reference-image marker ({reference_marker_pixels} matching pixels)'
         print(f'UI_SCREENSHOT_REFERENCE_PIXELS: {name} {reference_marker_pixels}', flush=True)
+        assert len(reference_image_colors)>=12, \
+            f'{name} image bounds contain too few colors to prove the reference is visible ({len(reference_image_colors)})'
+        print(f'UI_SCREENSHOT_REFERENCE_COLORS: {name} {len(reference_image_colors)}', flush=True)
+        assert reference_image_share>=0.85, \
+            f'{name} gives too much horizontal space to reference-window chrome ({reference_image_share:.1%} image width)'
+        print(f'UI_SCREENSHOT_REFERENCE_IMAGE_WIDTH_SHARE: {name} {reference_image_share:.1%}', flush=True)
     if name == 'home-recent-artwork-light':
         card_bounds=wait(home_recent_card_rect,'recent-artwork card geometry is available')
         _left,_top,_width,visible_height,total_height=card_bounds
@@ -524,6 +585,8 @@ def capture_window(window, name):
     if name == 'color-controls-light':
         assert saved_swatch_pixels>=8, f'{name} does not visibly render the populated saved color palette ({saved_swatch_pixels} matching pixels)'
         print(f'UI_SCREENSHOT_SAVED_SWATCH_PIXELS: {name} {saved_swatch_pixels}', flush=True)
+        assert len(hue_wheel_colors)>=32, f'{name} does not visibly render the hue wheel ({len(hue_wheel_colors)} chromatic colors)'
+        print(f'UI_SCREENSHOT_HUE_WHEEL_COLORS: {name} {len(hue_wheel_colors)}', flush=True)
     captured_screenshots[name] = (width, height)
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 
@@ -655,7 +718,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             print('UI_SCREENSHOT_BRUSH_LAYOUT: ' + str(event_marker('UI_TEST_BRUSH_PANEL')), flush=True)
             brush_bounds=wait(lambda: window_rect_marker('UI_TEST_BRUSH_WINDOW_RECT'),
                               'brush window reports its final bounds')
-            reference_bounds=wait(lambda: window_rect_marker('UI_TEST_REFERENCE_WINDOW_RECT'),
+            reference_bounds=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCE_WINDOW_RECT'),
                                   'reference board reports its final bounds')
             brush_rect=tuple(value*brush_bounds[4] for value in brush_bounds[:4])
             reference_rect=tuple(value*reference_bounds[4] for value in reference_bounds[:4])
@@ -748,6 +811,18 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Remove saved color updates workspace preferences')
             saved_after_remove=json.loads(prefs.read_text())['saved_color_swatches']
             assert saved_after_remove==initial_swatches[1:]+[[35,65,180]], f'palette removal changed unrelated colors: {saved_after_remove}'
+            assert current_brush_rgb()==(245,88,206), f'hue test expects the selected magenta swatch, got {current_brush_rgb()}'
+            wheel_bounds=wait(hue_wheel_rect,'hue wheel is available for direct pointer testing')
+            top_hue_point=wheel_point(0.0,wheel_bounds)
+            print(f'UI_TEST_HUE_WHEEL_POINTER_TARGET: {wheel_bounds} {top_hue_point}',flush=True)
+            click_at(*top_hue_point)
+            wait(lambda: current_brush_rgb()==(245,88,88),
+                 'clicking the hue wheel updates brush color while preserving saturation and brightness')
+            original_swatch=wait(original_saved_color_rect,'the original brush color remains restorable from Saved palette')
+            click_at((original_swatch[0]+original_swatch[2]/2)*original_swatch[4],
+                     (original_swatch[1]+original_swatch[3]/2)*original_swatch[4])
+            wait(lambda: current_brush_rgb()==(35,65,180),
+                 'the saved original brush color restores the active color after hue-wheel testing')
             key('Escape')
             wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: color' in (directory/'application.log').read_text(),
                  'Escape dismisses Color controls')

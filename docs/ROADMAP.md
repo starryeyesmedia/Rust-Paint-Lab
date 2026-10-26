@@ -271,3 +271,27 @@ placement at narrow sizes, Home/New Artwork hierarchy, and keyboard/focus and
 native accessibility review remain active. Narrator/NVDA and advanced Windows
 S Pen behaviors are not newly tested. Keep the Phase 8.3 program active and
 withhold the consolidated Windows evaluation build, merge, and release.
+
+## Hue and reference presentation follow-up — Phase 8.3 remains active
+
+The next local iteration adds a pointer-driven HSV hue ring alongside the
+existing saturation/brightness field and keyboard-operable Hue slider. It keeps
+saturation and brightness unchanged when selecting hue, and the X11/XTest path
+checks both the color result and restoration from a saved swatch. The reference
+board now has a smaller filename header, compact zoom actions and an accessible
+Settings menu. Screenshot assertions measure pixels inside its actual image
+bounds and require the unique fixture marker, scene-color variety, and at least
+85% image width. Local captures show 89.4% width in light mode and 95.9% in dark
+mode at normal and narrow sizes.
+
+The 30-image matrix and full X11 artwork workflow pass after this work, including
+real live mouse strokes, layer transactions and Undo, exports, reference-image
+isolation, reopen, and process-kill journal recovery. The Color screenshot
+contains 2,204 distinct chromatic wheel colors. Local formatting, strict Clippy,
+all 240 workspace tests, workspace build, Windows GNU target checks/Clippy, and
+llvmpipe offscreen GPU smoke pass. Images were visually reviewed through the
+local viewer. Actions run [`40265944815`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40265944815)
+passed all desktop platforms on predecessor `2b615f9`; this change requires a
+new run after push. Continue the Phase 8.3 workspace redesign after CI; Windows
+evaluation, advanced pen verification and native screen-reader validation remain
+pending.

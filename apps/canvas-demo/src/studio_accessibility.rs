@@ -103,6 +103,7 @@ mod tests {
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 crate::studio::saturation_value_field(ui, 0.78, 0.5, 0.75);
+                crate::studio::hue_selection_wheel(ui, 0.78, 0.5, 0.75);
                 let mut hue = 0.78;
                 let mut saturation = 0.5;
                 let mut brightness = 0.75;
@@ -123,6 +124,7 @@ mod tests {
             .join("\n");
         for name in [
             "Saturation and brightness color field",
+            "Hue selection wheel",
             "Hue",
             "Saturation",
             "Brightness",
