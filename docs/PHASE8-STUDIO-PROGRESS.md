@@ -1210,3 +1210,59 @@ separate Windows canvas/diagnostic packaging.
 4. Keep Home/New Artwork and workspace changes aimed at the supplied concept,
    and do not promote the consolidated Windows evaluation build until the
    broader visual and functional pass and CI justify it.
+
+### Floating workspace and saved color — local checkpoint `5200f21`
+
+- The current branch started from remote HEAD `c0e5ace`; its Actions run
+  [`40251981336`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40251981336)
+  passed Windows, Linux, and macOS before this continuation. Commit `5200f21`
+  adds a workspace-only saved-color palette (24-color bound, duplicate
+  rejection, apply, and removal), and persists its state separately from artwork.
+- A real X11 interaction exposed a Canvas/egui ownership bug: clicks over
+  floating controls that overlapped the artboard were treated as paint input.
+  Mouse, selection edits, native pen UI capture, and touch-navigation routing now
+  check active panel/reference `AreaState` bounds in egui points after converting
+  the physical client position with the current display scale. A pure test covers
+  scaled, invalid, nonfinite and out-of-range input. The live X11 test clicks a
+  Color swatch and a Workspace tab over the canvas and confirms the interaction
+  changes UI state without disrupting artwork workflows.
+- The old optional fixed right inspector is now a movable, resizable floating
+  Workspace controls window. F6 opens/closes it; Escape dismisses it without
+  closing the application. Its open state, position and bounded dimensions live
+  in workspace preferences with defaults for existing preference files. The X11
+  test reads the saved preferences after closing it.
+- Home tests now separately verify “No limits. No bullshit.” and “Create without
+  permission.” at 4.5:1 or better in both light and dark appearances. The
+  screenshot matrix now names 23 states, including the floating workspace panel.
+- Local validation on `5200f21`: `cargo fmt --all -- --check`, strict workspace
+  Clippy, **232 workspace tests**, full workspace build, Windows GNU target
+  workspace check and Clippy, llvmpipe/OpenGL GPU smoke, Python syntax, and the
+  full real-X11 alpha workflow all passed. That workflow included mouse painting,
+  undo/redo, PNG/OpenRaster import/export, journal-durable forced-process-kill
+  recovery, reference isolation, saved-color actions and Workspace tab actions.
+- Visual approval is still pending. The Linux screenshot workflow exercised all
+  23 names, but this shell's ImageMagick readback captured black pixels; the
+  supported `gh run download` for the preceding screenshot artifact was rejected
+  with HTTP 403 by the artifact blob host. The screenshot set is not treated as
+  reviewed evidence. Windows S Pen drawing was observed by the owner in earlier
+  builds; this new overlaid-panel input routing and Windows UI Automation,
+  Narrator/NVDA have not been physically tested here. The c0e5ace Actions result
+  is not CI validation for `5200f21`.
+
+### Exact continuation from `5200f21`
+
+1. Push `5200f21` to the existing Phase 8 branch and verify its Windows, Linux,
+   and macOS jobs; retain the previous diagnostic/canvas artifact split and do
+   not promote a consolidated Windows evaluation build yet.
+2. Continue the approved purple-first design/workflow work across Home, New
+   Artwork, Brush, Color, Layers, Reference, and Recovery. Prefer functional
+   improvements such as improved layer organization and direct brush/color
+   workflows, and keep the optional workspace panel movable rather than restoring
+   a fixed inspector column.
+3. Inspect the next CI screenshot archive through an allowed image path. If the
+   artifact host still returns 403 and local captures remain black, explicitly
+   keep visual acceptance pending; do not infer it from dimensions, marker counts
+   or successful UI tests.
+4. Continue to keep Phase 8.3 active. Do not merge, release, or publish the
+   consolidated Windows evaluation build until the broader visual/accessibility
+   pass and three-platform validation justify it.
