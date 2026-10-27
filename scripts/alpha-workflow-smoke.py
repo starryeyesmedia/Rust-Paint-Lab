@@ -10,6 +10,14 @@ import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii, shutil, mat
 import subprocess
 import time
 
+if os.environ.get('RPL_KEEP_ALPHA_TEMP'):
+    _TemporaryDirectory=tempfile.TemporaryDirectory
+    class PreserveAlphaDirectory(_TemporaryDirectory):
+        def cleanup(self):
+            if self._finalizer.detach():
+                print(f'ALPHA_WORKFLOW_TEMP_PRESERVED: {self.name}', flush=True)
+    tempfile.TemporaryDirectory=PreserveAlphaDirectory
+
 x = c.CDLL('libX11.so.6')
 t = c.CDLL('libXtst.so.6')
 D, W, I, U = c.c_void_p, c.c_ulong, c.c_int, c.c_uint
@@ -328,6 +336,18 @@ def reference_layout_rects():
         return None
     return [by_index[index][-1] for index in sorted(by_index)]
 
+def reference_panel_count():
+    marker=event_marker('UI_TEST_REFERENCE_PANEL_COUNT')
+    return int(marker) if marker is not None else None
+
+def reference_last_window_rect():
+    marker=stable_marker('UI_TEST_REFERENCE_LAST_WINDOW_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layers_panel_open():
+    marker=event_marker('UI_TEST_LAYERS_PANEL_STATE')
+    return marker=='true' if marker is not None else None
+
 def compact_reference_active():
     prefix='UI_TEST_COMPACT_REFERENCE_ACTIVE: '
     lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
@@ -398,6 +418,29 @@ def layer_menu_action_rect(action):
     if len(markers)<2 or markers[-1]!=markers[-2]:
         return None
     return tuple(map(float,markers[-1].split()))
+
+def layer_copy_selection_menu_rect():
+    return layer_menu_action_rect('COPY_SELECTION')
+
+def layer_settings_header():
+    marker=stable_marker('UI_TEST_LAYER_SETTINGS_HEADER_RECT')
+    return tuple(marker.split()) if marker else None
+
+def layer_opacity_slider_rect():
+    marker=stable_marker('UI_TEST_LAYER_OPACITY_SLIDER_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_blend_combo_rect():
+    marker=stable_marker('UI_TEST_LAYER_BLEND_COMBO_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_blend_option_rect(mode):
+    prefix=f'UI_TEST_LAYER_BLEND_OPTION_RECT: {mode} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()))
 
 def layer_duplicate_menu_rect():
     return layer_menu_action_rect('DUPLICATE')
@@ -491,6 +534,34 @@ def click_at(px, py):
     click_button(1,True)
     click_button(1,False)
 
+def wheel_at(px, py, notches=1, down=True):
+    move(round(px),round(py))
+    button_number=5 if down else 4
+    for _ in range(notches):
+        assert button(display,button_number,1,0)
+        assert button(display,button_number,0,0)
+    send()
+
+def scroll_layers_marker_into_view(marker_fn, description):
+    marker=wait(marker_fn,description)
+    for _ in range(20):
+        bounds=wait(layers_window_rect,'Layers reports its scroll viewport')
+        panel_left,panel_top,panel_width,panel_height,scale=bounds
+        if len(marker)==6:  # settings-header marker includes an open/closed flag
+            _,x,y,width,height,_=marker
+            x,y,width,height=map(float,(x,y,width,height))
+        else:
+            x,y,width,height,_=marker
+        visible_top=panel_top+72
+        visible_bottom=panel_top+panel_height-12
+        if y>=visible_top and y+height<=visible_bottom:
+            return marker
+        wheel_at(panel_left+panel_width*0.72,
+                 visible_bottom-20 if visible_bottom>panel_top else panel_top+100,
+                 1,down=y+height>visible_bottom)
+        marker=wait(marker_fn,description)
+    raise AssertionError(f'{description}: control did not scroll into the Layers viewport ({marker})')
+
 def drag_at(start_x, start_y, end_x, end_y):
     move(round(start_x),round(start_y))
     click_button(1,True)
@@ -567,22 +638,41 @@ def latest_journal_checkpoint(path):
     return latest
 def native_state(path):
     return native_state_bytes(path.read_bytes())
+
+def latest_recovery_project(directory):
+    candidates=[path for path in directory.glob('recovery-[0-9]*.rpl')
+                if valid_project(path)]
+    return max(candidates,key=lambda path:path.stat().st_mtime_ns,default=None)
+
 def native_state_bytes(data):
     n=struct.unpack('<I',data[8:12])[0]
     return json.loads(data[12:12+n])
 def native_layer_pixel(path, x, y):
     return native_layer_pixel_bytes(path.read_bytes(),x,y)
 def native_layer_pixel_bytes(data, x, y):
-    state=native_state_bytes(data);metadata=struct.unpack('<I',data[8:12])[0]
+    state=native_state_bytes(data)
+    return native_layer_pixel_by_id_bytes(data,state['selected'],x,y)
+def native_layer_pixel_by_id_bytes(data, layer_id, x, y):
+    metadata=struct.unpack('<I',data[8:12])[0]
     count_offset=12+metadata;count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
     offset=count_offset+4
     for _ in range(count):
-        layer_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
+        actual_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
         tile=data[offset:offset+16384];offset+=16384
-        if layer_id==state['selected'] and (tile_x,tile_y)==(x//64,y//64):
+        if actual_id==layer_id and (tile_x,tile_y)==(x//64,y//64):
             pixel=((y%64)*64+x%64)*4
             return tile[pixel:pixel+4]
     return b'\0\0\0\0'
+def native_layer_tiles_bytes(data):
+    metadata=struct.unpack('<I',data[8:12])[0]
+    count_offset=12+metadata;count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
+    offset=count_offset+4;layers={}
+    for _ in range(count):
+        layer_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
+        tile=data[offset:offset+16384];offset+=16384
+        layers.setdefault(layer_id,{})[(tile_x,tile_y)]=tile
+    assert offset==len(data)-32, 'native layer tile table does not match the document length'
+    return layers
 
 def png_chunk(kind, data):
     body=kind+data
@@ -936,6 +1026,8 @@ def decode_rgba_png(data):
     return width,height,pixels
 with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     directory=Path(folder)
+    if os.environ.get('RPL_KEEP_ALPHA_TEMP'):
+        print(f'ALPHA_WORKFLOW_TEMP: {directory}', flush=True)
     executable=Path(__file__).resolve().parent.parent/'target/debug/canvas-demo'
     env={**os.environ,'XDG_STATE_HOME':str(directory/'state'),'RPL_TEST_PATH_DIALOG':'1','RPL_TEST_DOCUMENT_NAME':'artwork'}
     # Load a persisted, colorful reference-board illustration. The magenta
@@ -1519,8 +1611,18 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 print('UI_TEST_LAYER_REORDER_MENU_DIAGNOSTIC:\n'+'\n'.join(lines[start:][-80:]),
                       flush=True)
                 raise
-            click_at((send_backward[0]+send_backward[2]/2)*send_backward[4],
+            capture_window(window,'layers-reorder-send-backward-menu')
+            move_click_count=sum(
+                line.startswith('UI_TEST_LAYER_MOVE_MENU_CLICKED: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )
+            click_at((send_backward[0]+16)*send_backward[4],
                      (send_backward[1]+send_backward[3]/2)*send_backward[4])
+            wait(lambda: sum(
+                line.startswith('UI_TEST_LAYER_MOVE_MENU_CLICKED: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )>move_click_count,
+                 'Send backward receives the real pointer click in the Layers menu')
             wait(lambda: event_marker('UI_TEST_LAYER_CONTEXT_MOVED') is not None,
                  'Send backward records a targeted layer-order transaction')
             wait(lambda: layer_front_row_id()!=front_id,
@@ -1655,11 +1757,182 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert preset_data['version']==1 and preset_data['brush']['kind']=='Round'
             ctrl_alt('b');path_prompt();ctrl('Return');ctrl('s')
             wait(lambda: native_state(project)['brush']==preset_data['brush'],'brush preset load and project save')
+            layer_window_count=sum(
+                line.startswith('UI_TEST_LAYERS_WINDOW_RECT: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )
+            ctrl('l')
+            wait(lambda: sum(
+                line.startswith('UI_TEST_LAYERS_WINDOW_RECT: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )>layer_window_count,
+                 'the reopened project exposes Layers before testing layer actions')
+            reopened_layers=wait(layers_window_rect,'the reopened Layers panel reports its viewport bounds')
+            assert reopened_layers[1]>=0 and reopened_layers[1]+reopened_layers[3]<=800, \
+                f'Layers must remain within the 1280×800 application viewport: {reopened_layers}'
             # Exercise actual selection-tool ownership and transactional fill.
             time.sleep(0.5)
             saved=project.read_bytes()
-            key('m');move(200,260);click_button(1,True);move(360,370);click_button(1,False)
+            # Keep the captured selection gesture on exposed canvas pixels;
+            # the docked Layers window starts at x=252 in this workspace.
+            key('m');move(200,260);click_button(1,True);move(240,330);click_button(1,False)
+            wait(lambda: (lambda marker: marker if marker and marker.startswith('true ') else None)(
+                event_marker('UI_TEST_SELECTION_COMMITTED')),
+                 'the real mouse drag commits a document-space selection before layer editing')
             assert '*' not in title(window), 'selection alone changed artwork'
+            source_id=native_state(project)['selected']
+            assert layer_front_row_id()==source_id, 'the selected layer row and document active layer must agree'
+            before_copy=saved
+            more=wait(layer_more_button_rect,'selected layer exposes its contextual editing actions')
+            opened=layer_actions_open_count()
+            click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
+            wait(lambda: layer_actions_open_count()>opened,
+                 'the selected source layer Actions button receives the real click')
+            opened_layer=event_marker('UI_TEST_LAYER_ACTIONS_OPENED')
+            assert opened_layer==str(source_id), \
+                f'layer Actions opened for {opened_layer}, while active selected layer is {source_id}'
+            copy_action=wait(layer_copy_selection_menu_rect,
+                             'layer Actions exposes Copy selected pixels to new layer')
+            click_at((copy_action[0]+copy_action[2]/2)*copy_action[4],
+                     (copy_action[1]+copy_action[3]/2)*copy_action[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_COPY_SELECTION_CLICKED')==str(source_id),
+                 'the real layer menu accepts the selection-copy command')
+            wait(lambda: event_marker('UI_TEST_LAYER_SELECTION_COPIED') is not None,
+                 'the document engine creates a new layer from the selected source pixels')
+            wait(lambda: '*' in title(window),
+                 'selection copying marks the native document as unsaved')
+            ctrl('s')
+            wait(lambda: valid_project(project) and project.read_bytes()!=before_copy
+                 and '*' not in title(window),
+                 'the copied selection is saved to the native project')
+            copy_bytes=project.read_bytes()
+            copy_state=native_state_bytes(copy_bytes)
+            copied_id=copy_state['selected']
+            copied_layer=next(layer for layer in copy_state['layers']
+                              if layer['id']==copied_id)
+            before_copy_state=native_state_bytes(before_copy)
+            print(f'UI_TEST_LAYER_COPY_STATE: before={[layer["id"] for layer in before_copy_state["layers"]]} '
+                  f'after={[layer["id"] for layer in copy_state["layers"]]} selected={copied_id}', flush=True)
+            assert len(copy_state['layers'])==len(before_copy_state['layers'])+1, \
+                f'copy selected pixels must add exactly one editable layer: before={len(before_copy_state["layers"])} after={len(copy_state["layers"])}'
+            assert copied_id!=source_id and copy_state['layers'][-1]['id']==copied_id, \
+                'the new copied layer is inserted above its source and selected'
+            before_tiles=native_layer_tiles_bytes(before_copy)
+            after_tiles=native_layer_tiles_bytes(copy_bytes)
+            assert after_tiles.get(source_id,{})==before_tiles.get(source_id,{}), \
+                'copying selected artwork must preserve every source-layer tile byte'
+            copied_tiles=after_tiles.get(copied_id,{})
+            copied_pixel_count=0
+            for tile_key,copied_tile in copied_tiles.items():
+                source_tile=before_tiles.get(source_id,{}).get(tile_key,bytes(16384))
+                for pixel_offset in range(0,len(copied_tile),4):
+                    copied_pixel=copied_tile[pixel_offset:pixel_offset+4]
+                    if copied_pixel[3]:
+                        assert copied_pixel==source_tile[pixel_offset:pixel_offset+4], \
+                            'the copied layer must preserve source premultiplied RGBA exactly'
+                        copied_pixel_count+=1
+            assert copied_pixel_count>0, 'the XTest selection must intersect existing artwork'
+            capture_window(window,'layers-panel-copy-selection')
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==before_copy,
+                 'Undo removes the copied layer and preserves its source artwork exactly')
+            ctrl('y');ctrl('s')
+            wait(lambda: project.read_bytes()==copy_bytes,
+                 'Redo restores the copied layer and its selected pixels exactly')
+
+            header=scroll_layers_marker_into_view(
+                layer_settings_header,
+                'selected layer settings remain reachable in Layers',
+            )
+            if header[0]!='true':
+                click_at((float(header[1])+float(header[3])/2)*float(header[5]),
+                         (float(header[2])+float(header[4])/2)*float(header[5]))
+            wait(lambda: (lambda value: value if value and value[0]=='true' else None)(layer_settings_header()),
+                 'the selected layer opacity and blend controls expand on demand')
+            blend_control=scroll_layers_marker_into_view(
+                layer_blend_combo_rect,
+                'scrolling Layers brings the blend-mode control into view',
+            )
+            opacity_control=wait(layer_opacity_slider_rect,
+                                 'the selected layer exposes its real opacity slider')
+            property_before=event_marker('UI_TEST_LAYER_COMPOSITING_APPLIED')
+            capture_window(window,'layers-panel-settings-expanded')
+            opacity_target=(opacity_control[0]+opacity_control[2]*0.68,
+                            opacity_control[1]+opacity_control[3]/2)
+            click_at(opacity_target[0]*opacity_control[4],
+                     opacity_target[1]*opacity_control[4])
+            wait(lambda: (lambda marker: marker if marker and marker!=property_before
+                          and marker.startswith(f'{copied_id} opacity=') else None)(
+                              event_marker('UI_TEST_LAYER_COMPOSITING_APPLIED')),
+                 'moving the layer opacity slider changes actual document compositing state')
+            wait(lambda: '*' in title(window),
+                 'changing layer opacity marks the native document as unsaved')
+            ctrl('s')
+            wait(lambda: valid_project(project) and project.read_bytes()!=copy_bytes
+                 and '*' not in title(window),
+                 'the adjusted layer opacity is saved to the native project')
+            opacity_bytes=project.read_bytes()
+            opacity_layer=next(layer for layer in native_state_bytes(opacity_bytes)['layers']
+                               if layer['id']==copied_id)
+            assert 0<opacity_layer['opacity']<255, \
+                f'the opacity control did not set a partial layer opacity: {opacity_layer["opacity"]}'
+            undo_before=event_marker('UI_TEST_HISTORY_UNDO')
+            ctrl('z')
+            wait(lambda: (lambda marker: marker if marker and marker!=undo_before else None)(
+                    event_marker('UI_TEST_HISTORY_UNDO')),
+                 'Ctrl+Z remains available after adjusting the layer-opacity slider')
+            undo_state=event_marker('UI_TEST_HISTORY_UNDO')
+            assert undo_state.split()[-1]==str(copied_layer['opacity']), \
+                f'Undo should restore the copied layer opacity to {copied_layer["opacity"]}, got {undo_state}'
+            ctrl('s')
+            wait(lambda: project.read_bytes()==copy_bytes,
+                 'Undo restores the prior layer opacity and exact copied document')
+            redo_before=event_marker('UI_TEST_HISTORY_REDO')
+            ctrl('y')
+            wait(lambda: (lambda marker: marker if marker and marker!=redo_before else None)(
+                    event_marker('UI_TEST_HISTORY_REDO')),
+                 'Ctrl+Y remains available after adjusting the layer-opacity slider')
+            redo_state=event_marker('UI_TEST_HISTORY_REDO')
+            assert redo_state.split()[-1]==str(opacity_layer['opacity']), \
+                f'Redo should restore the edited opacity, got {redo_state}'
+            ctrl('s')
+            wait(lambda: project.read_bytes()==opacity_bytes,
+                 'Redo restores the saved layer opacity exactly')
+
+            blend_control=scroll_layers_marker_into_view(
+                layer_blend_combo_rect,
+                'the selected layer exposes its blend-mode selector',
+            )
+            click_at((blend_control[0]+blend_control[2]/2)*blend_control[4],
+                     (blend_control[1]+blend_control[3]/2)*blend_control[4])
+            multiply=wait(lambda: layer_blend_option_rect('Multiply'),
+                          'Multiply is available in the actual blend-mode menu')
+            click_at((multiply[0]+multiply[2]/2)*multiply[4],
+                     (multiply[1]+multiply[3]/2)*multiply[4])
+            wait(lambda: (lambda marker: marker if marker and
+                          marker.endswith(f'opacity={opacity_layer["opacity"]} blend=Multiply') else None)(
+                              event_marker('UI_TEST_LAYER_COMPOSITING_APPLIED')),
+                 'choosing Multiply changes the selected layer compositing mode')
+            wait(lambda: '*' in title(window),
+                 'changing layer blend mode marks the native document as unsaved')
+            ctrl('s')
+            wait(lambda: valid_project(project) and project.read_bytes()!=opacity_bytes
+                 and '*' not in title(window),
+                 'the selected layer blend mode is saved to the native project')
+            blend_bytes=project.read_bytes()
+            blend_layer=next(layer for layer in native_state_bytes(blend_bytes)['layers']
+                             if layer['id']==copied_id)
+            assert blend_layer['blend']=='Multiply' and blend_layer['opacity']==opacity_layer['opacity'], \
+                f'blend settings did not persist together: {blend_layer}'
+            capture_window(window,'layers-panel-compositing-settings')
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==opacity_bytes,
+                 'Undo restores the prior blend mode without losing layer opacity')
+            ctrl('y');ctrl('s')
+            wait(lambda: project.read_bytes()==blend_bytes,
+                 'Redo restores the saved blend mode and opacity exactly')
+            saved=blend_bytes
+
             ctrl('f');status('*');ctrl('s')
             wait(lambda: project.read_bytes()!=saved and '*' not in title(window),'selected fill saved')
             ctrl('z');ctrl('s')
@@ -1725,6 +1998,26 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             recovery_preview_fixture.with_suffix('.owner').unlink(missing_ok=True)
             ctrl('s')
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
+            # Remove utility panels before the canvas-only shape and gradient
+            # gestures. XTest must never rely on drawing through floating UI.
+            reference_layouts_before_canvas=json.loads(prefs.read_text()).get('references',[])
+            if layers_panel_open():
+                layer_window=wait(layers_window_rect,'Layers close control has current geometry')
+                click_at((layer_window[0]+layer_window[2]-28)*layer_window[4],
+                         (layer_window[1]+28)*layer_window[4])
+                wait(lambda: layers_panel_open() is False,
+                     'closing Layers returns its area to the canvas')
+            for _ in range(8):
+                open_references=reference_panel_count() or 0
+                if open_references==0:
+                    break
+                reference_window=wait(reference_last_window_rect,
+                                      'last reference window exposes its close control')
+                click_at((reference_window[0]+reference_window[2]-26)*reference_window[4],
+                         (reference_window[1]+26)*reference_window[4])
+                wait(lambda expected=open_references-1: reference_panel_count()==expected,
+                     'closing a reference window leaves other references independent')
+            assert reference_panel_count()==0, 'canvas-only regression phase must close every reference window'
             # Shape tools use the actual pointer canvas and document raster
             # engine. Escape drops a live preview without mutating native data;
             # each committed primitive survives save/reopen and has one undo.
@@ -1875,6 +2168,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda: imported.read_bytes()==radial_bytes and '*' not in title(window),
                  'radial gradient redo restores the exact saved pixels')
+            snapshot=wait(lambda: latest_recovery_project(recovery_dir),
+                          'latest active document recovery lineage is available')
             journal_path=Path(str(snapshot)+'.journal')
             assert latest_journal_checkpoint(journal_path)==snapshot.read_bytes(),'initial checkpoint has a complete synced journal record'
             before=snapshot.read_bytes()
@@ -1892,6 +2187,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             recovered_bytes=snapshot.read_bytes()
             wait(lambda: journal_path.read_bytes()!=journal_before and latest_journal_checkpoint(journal_path)==recovered_bytes,'latest checkpoint is durably journaled before process termination')
             preserved_artwork=imported.read_bytes()
+            # Reopen the original workspace reference layout in the next
+            # process after the canvas-only gestures exercised clear hit testing.
+            workspace_preferences=json.loads(prefs.read_text())
+            workspace_preferences['references']=reference_layouts_before_canvas
+            prefs.write_text(json.dumps(workspace_preferences))
             process.kill();assert process.wait(timeout=10)!=0
             # Exercise recovery from the durable journal without its paired snapshot.
             snapshot.unlink()
@@ -2092,7 +2392,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, live linear/radial gradient preview and Escape cancellation, selection-clipped gradient commits, native gradient save/reopen pixels and exact undo/redo, Home thumbnail after restart, persistent theme/reference board, multi-reference placement, floating workspace panels, saved colors and hue wheel, layer duplicate/reorder/delete/undo, reference isolation from artwork exports, save checksum and backup, PNG/OpenRaster export/import, brush preset save/load, rectangle selection/fill/undo, zoom/fit, journal-durable process-kill recovery without paired snapshot, preserved source artwork, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; native save/reopen pixels and exact undo/redo; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

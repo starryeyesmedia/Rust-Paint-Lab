@@ -606,7 +606,13 @@ impl ApplicationHandler<AppEvent> for App {
                             g.window.request_redraw();
                             return Ok(());
                         }
-                        if studio.context.wants_keyboard_input() {
+                        let focused_text_edit = studio
+                            .context
+                            .memory(|memory| memory.focused())
+                            .is_some_and(|id| {
+                                egui::TextEdit::load_state(&studio.context, id).is_some()
+                            });
+                        if focused_text_edit {
                             return Ok(());
                         }
                         if !studio.blocks_canvas()

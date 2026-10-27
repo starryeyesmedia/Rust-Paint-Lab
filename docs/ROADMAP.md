@@ -480,3 +480,18 @@ Linux uploaded the [`studio screenshot archive`](https://github.com/starryeyesme
 The screenshot review covered populated light Layers at 1280 × 800 and dark
 Layers/Reference at 640 × 480; full phase acceptance and physical Windows
 validation remain open. See [the current Phase 8.3 progress checkpoint](PHASE8-STUDIO-PROGRESS.md).
+
+### Layer copy and compositing integration — current local checkpoint
+
+Selection Copy now creates a real editable `.rpl` layer from rectangle, ellipse,
+or lasso-selected pixels. Source pixels remain unchanged; document and tile
+limits are enforced, and Undo/Redo and save/reopen preserve the transaction.
+The selected-layer opacity and blend controls are exercised through the real UI
+with saved-project and history assertions. Exact-pixel tests cover Normal,
+Multiply, Screen and Overlay. An unchanged COW edit no longer dirties artwork or
+adds a redundant undo entry. Local validation passed all 275 workspace tests,
+strict Clippy, formatting, workspace build, Windows GNU checks, llvmpipe GPU
+smoke, and the complete Linux Xorg/XTest artwork/recovery workflow. CI is pending
+for the new code. See the [Phase 8.3 progress log](PHASE8-STUDIO-PROGRESS.md).
+This does not complete the phase or validate additional physical Windows pen
+behavior.

@@ -693,3 +693,50 @@ the [`UI screenshot archive`](https://github.com/starryeyesmedia/Rust-Paint-Lab/
 macOS passed its first-frame startup smoke and unsigned packaging. These CI
 checks do not constitute physical Windows, display-scaling, advanced pen, or
 native screen-reader validation.
+
+### Layer copy and compositing controls
+
+`Engine::copy_selection_to_new_layer` copies nontransparent premultiplied pixels
+whose centers lie inside the active rectangle, ellipse, or lasso selection. It
+requires the selected source to be visible and unlocked, preserves that source
+and the selection, inserts one normal layer above it, and selects the result.
+Document dimensions, the layer cap, and tile budget bound the operation. It is
+one undoable document transaction and uses the existing `.rpl` representation.
+Tests verify exact tile pixels, selection masks, unchanged source/composite,
+undo/redo, native save/reopen, empty/hidden/locked rejection, and both layer and
+tile limits.
+
+The selected-layer panel now lays out its opacity slider across the available
+settings width and labels the accessible value. Opacity and Normal/Multiply/
+Screen/Overlay controls continue to update the selected document layer. Pixel
+regressions verify each compositing mode through native project and PNG
+roundtrips. A COW-snapshot check in `Engine::edit` skips unchanged transactions,
+so repeated unchanged widget output does not dirty the document or fill undo
+history; changed metadata and pixels still enter bounded history.
+
+The real XTest flow selects existing artwork, invokes Copy selected pixels from
+the actual Layers action menu, saves and decodes the `.rpl`, compares source
+tiles byte-for-byte, confirms the new layer contains exact selected-source
+pixels, then checks exact undo/redo project bytes. It drags the real opacity
+slider, verifies saved partial opacity and Ctrl+Z/Ctrl+Y while that control had
+focus, and chooses Multiply from the actual blend menu with native save and
+history verification. Existing shape, gradient, PNG/OpenRaster, reference
+isolation, and forced-crash journal recovery steps still run in that same
+application workflow.
+
+On 2026-10-27 the local run passed **275 workspace tests**, formatting, strict
+Clippy, workspace build, Windows GNU workspace check/Clippy, the required
+llvmpipe/OpenGL offscreen GPU smoke, and the full Linux/Xorg/XTest artwork flow.
+Screenshots of populated layer copy, light and dark Layers/References, recovery,
+Home, and high contrast were generated; I inspected the layer and high-contrast
+captures. The high-contrast Home capture shows the current scrolled content and
+cropped bottom-row cards, so it is not evidence of a fully fitted Home page.
+The full workflow uses an Xvfb screen at least 1920 × 1080 so pointer events can
+reach controls in wide-window screenshots:
+
+```sh
+xvfb-run -a -s '-screen 0 2200x1400x24' python3 scripts/alpha-workflow-smoke.py
+```
+
+Cross-platform GitHub Actions for this new implementation are pending until
+the checkpoint is pushed. No physical Windows hardware was retested here.

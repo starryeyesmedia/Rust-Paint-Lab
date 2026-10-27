@@ -78,7 +78,7 @@ pub enum Blend {
     Screen,
     Overlay,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Layer {
     pub id: u64,
@@ -90,7 +90,7 @@ pub struct Layer {
     #[serde(skip)]
     pub tiles: TileMap,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct State {
     #[serde(skip)]
@@ -172,6 +172,36 @@ impl State {
     }
     pub fn tile_count(&self) -> usize {
         self.layers.iter().map(|l| l.tiles.len()).sum()
+    }
+
+    /// Compare a candidate edit with its COW snapshot without reading tile
+    /// pixels. Engine edits share unchanged `Arc` tiles, so pointer identity is
+    /// sufficient to identify those allocations and avoids a whole-document
+    /// byte scan on every property action.
+    fn same_snapshot(&self, other: &Self) -> bool {
+        self.selection == other.selection
+            && self.width == other.width
+            && self.height == other.height
+            && self.dpi == other.dpi
+            && self.selected == other.selected
+            && self.background == other.background
+            && self.brush == other.brush
+            && self.layers.len() == other.layers.len()
+            && self.layers.iter().zip(&other.layers).all(|(left, right)| {
+                left.id == right.id
+                    && left.name == right.name
+                    && left.visible == right.visible
+                    && left.locked == right.locked
+                    && left.opacity == right.opacity
+                    && left.blend == right.blend
+                    && left.tiles.len() == right.tiles.len()
+                    && left.tiles.iter().all(|(key, tile)| {
+                        right
+                            .tiles
+                            .get(key)
+                            .is_some_and(|other_tile| Arc::ptr_eq(tile, other_tile))
+                    })
+            })
     }
 }
 struct Transaction {
@@ -304,6 +334,9 @@ impl Engine {
         let mut next = before.clone();
         operation(&mut next)?;
         next.validate()?;
+        if next.same_snapshot(&before) {
+            return Ok(());
+        }
         self.state = next;
         self.changed(before);
         self.damage_all();

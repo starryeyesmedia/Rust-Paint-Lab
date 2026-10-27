@@ -272,6 +272,80 @@ fn mask(s: &State) -> Vec<bool> {
     mask
 }
 impl Engine {
+    /// Copy the selected pixels from the active, visible, unlocked layer into a
+    /// new normal layer immediately above it. The source and selection remain
+    /// unchanged; the new layer becomes active. This is one bounded document
+    /// transaction and never changes the native format.
+    pub fn copy_selection_to_new_layer(&mut self) -> Result<u64, PaintError> {
+        let mut created_id = None;
+        self.edit(|state| {
+            if state.layers.len() >= crate::MAX_LAYERS {
+                return Err(PaintError::Limit);
+            }
+            let selection = state.selection.clone().ok_or(PaintError::Invalid)?;
+            let source_index = state
+                .layers
+                .iter()
+                .position(|layer| layer.id == state.selected)
+                .ok_or(PaintError::Invalid)?;
+            let source = &state.layers[source_index];
+            if source.locked || !source.visible {
+                return Err(PaintError::Locked);
+            }
+            let id = state
+                .layers
+                .iter()
+                .map(|layer| layer.id)
+                .max()
+                .unwrap_or(0)
+                .checked_add(1)
+                .filter(|id| *id <= u64::from(u32::MAX))
+                .ok_or(PaintError::Limit)?;
+            let mut name = format!("{} copy", source.name);
+            while name.len() > 256 {
+                name.pop();
+            }
+
+            let mut tiles = TileMap::new();
+            let mut total_tiles = state.tile_count();
+            let mut copied_pixels = 0usize;
+            let [_, top, _, bottom] = selection.bounds();
+            let first_row = (top - 0.5).ceil().clamp(0.0, f64::from(state.height)) as u32;
+            let end_row = (bottom - 0.5).ceil().clamp(0.0, f64::from(state.height)) as u32;
+            for y in first_row..end_row {
+                for (left, right) in
+                    selection_row_spans(Some(&selection), f64::from(y) + 0.5, state.width)
+                {
+                    for x in left..right {
+                        let pixel = read(&source.tiles, x, y);
+                        if pixel[3] == 0 {
+                            continue;
+                        }
+                        write(&mut tiles, x, y, pixel, &mut total_tiles)?;
+                        copied_pixels += 1;
+                    }
+                }
+            }
+            if copied_pixels == 0 {
+                return Err(PaintError::Invalid);
+            }
+            let copied_layer = crate::Layer {
+                id,
+                name,
+                visible: true,
+                locked: false,
+                opacity: 255,
+                blend: Blend::Normal,
+                tiles,
+            };
+            state.layers.insert(source_index + 1, copied_layer);
+            state.selected = id;
+            created_id = Some(id);
+            Ok(())
+        })?;
+        created_id.ok_or(PaintError::Invalid)
+    }
+
     /// Apply one raster gradient to the active layer as a single undoable edit.
     /// The first stop is the active brush color, the second stop is supplied by
     /// the workspace, and brush opacity composites the gradient over existing

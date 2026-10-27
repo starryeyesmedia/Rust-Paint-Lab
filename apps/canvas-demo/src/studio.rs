@@ -2215,6 +2215,7 @@ pub(crate) enum Action {
     Duplicate,
     Delete,
     DuplicateLayer(u64),
+    CopySelectionToLayer,
     DeleteLayer(u64),
     ClearLayer(u64),
     Clear,
@@ -2234,6 +2235,8 @@ struct LayerMenuTarget {
     name: String,
     visible: bool,
     locked: bool,
+    selected: bool,
+    has_selection: bool,
     opacity: u8,
     blend: Blend,
 }
@@ -2349,6 +2352,37 @@ fn layer_actions_menu(
         actions.push(Action::DuplicateLayer(target.id));
         ui.close();
     }
+    let copy_selection = ui
+        .add_enabled(
+            target.selected && target.has_selection && target.visible && !target.locked,
+            egui::Button::new("Copy selected pixels to new layer"),
+        )
+        .on_hover_text(if !target.has_selection {
+            "Make a rectangle, ellipse, or lasso selection first"
+        } else if !target.selected {
+            "Select this layer before copying selected pixels"
+        } else if !target.visible || target.locked {
+            "The active source layer must be visible and unlocked"
+        } else {
+            "Copy selected pixels above this layer; the source remains unchanged"
+        });
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_COPY_SELECTION_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            copy_selection.rect.left(),
+            copy_selection.rect.top(),
+            copy_selection.rect.width(),
+            copy_selection.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if copy_selection.clicked() {
+        if target.emit_test_markers {
+            eprintln!("UI_TEST_LAYER_COPY_SELECTION_CLICKED: {}", target.id);
+        }
+        actions.push(Action::CopySelectionToLayer);
+        ui.close();
+    }
     let clear = ui.add_enabled(!target.locked, egui::Button::new("Clear layer contents"));
     if target.emit_test_markers {
         eprintln!(
@@ -2398,6 +2432,9 @@ fn layer_actions_menu(
         );
     }
     if bring_forward.clicked() {
+        if target.emit_test_markers {
+            eprintln!("UI_TEST_LAYER_MOVE_MENU_CLICKED: {} 1", target.id);
+        }
         actions.push(Action::MoveLayer(target.id, 1));
         ui.close();
     }
@@ -2413,6 +2450,9 @@ fn layer_actions_menu(
         );
     }
     if send_backward.clicked() {
+        if target.emit_test_markers {
+            eprintln!("UI_TEST_LAYER_MOVE_MENU_CLICKED: {} -1", target.id);
+        }
         actions.push(Action::MoveLayer(target.id, -1));
         ui.close();
     }
@@ -2443,6 +2483,126 @@ impl FileRequest {
             Self::ExportOra => Action::ExportOra,
             Self::AddReferences => return None,
         })
+    }
+}
+
+fn selected_layer_settings(
+    ui: &mut egui::Ui,
+    project: &mut Engine,
+    actions: &mut Vec<Action>,
+    test_mode: bool,
+) {
+    if let Some(layer) = project
+        .state()
+        .layers
+        .iter()
+        .find(|layer| layer.id == project.state().selected)
+    {
+        let id = layer.id;
+        let mut percent = f32::from(layer.opacity) * (100.0 / 255.0);
+        let mut opacity = layer.opacity;
+        let mut blend = layer.blend;
+        let mut changed = false;
+        let settings_width = ui.available_width().clamp(180.0, 260.0);
+        let settings = egui::CollapsingHeader::new("Selected layer settings")
+            .id_salt(("layer-settings", id))
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(settings_width, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Opacity");
+                            ui.label(format!("{percent:.0}%"));
+                        });
+                        ui.spacing_mut().slider_width = settings_width;
+                        let opacity_control = ui.add_sized(
+                            [ui.available_width(), 26.0],
+                            egui::Slider::new(&mut percent, 0.0..=100.0).show_value(false),
+                        );
+                        opacity_control.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Slider,
+                                ui.is_enabled(),
+                                format!("Layer opacity, {percent:.0}%"),
+                            )
+                        });
+                        if test_mode {
+                            eprintln!(
+                                "UI_TEST_LAYER_OPACITY_SLIDER_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                opacity_control.rect.left(),
+                                opacity_control.rect.top(),
+                                opacity_control.rect.width(),
+                                opacity_control.rect.height(),
+                                ui.ctx().pixels_per_point(),
+                            );
+                        }
+                        if opacity_control.changed() {
+                            opacity = (percent * 2.55).round() as u8;
+                            changed = true;
+                        }
+                        let blend_control = egui::ComboBox::from_id_salt(("flyout-blend", id))
+                            .selected_text(format!("{blend:?}"))
+                            .show_ui(ui, |ui| {
+                                for mode in [
+                                    Blend::Normal,
+                                    Blend::Multiply,
+                                    Blend::Screen,
+                                    Blend::Overlay,
+                                ] {
+                                    let option = ui.selectable_value(
+                                        &mut blend,
+                                        mode,
+                                        format!("{mode:?}"),
+                                    );
+                                    if test_mode {
+                                        eprintln!(
+                                            "UI_TEST_LAYER_BLEND_OPTION_RECT: {mode:?} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                            option.rect.left(),
+                                            option.rect.top(),
+                                            option.rect.width(),
+                                            option.rect.height(),
+                                            ui.ctx().pixels_per_point(),
+                                        );
+                                    }
+                                }
+                            });
+                        if test_mode {
+                            eprintln!(
+                                "UI_TEST_LAYER_BLEND_COMBO_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                blend_control.response.rect.left(),
+                                blend_control.response.rect.top(),
+                                blend_control.response.rect.width(),
+                                blend_control.response.rect.height(),
+                                ui.ctx().pixels_per_point(),
+                            );
+                        }
+                        changed |= blend != layer.blend;
+                    },
+                );
+            });
+        if test_mode {
+            eprintln!(
+                "UI_TEST_LAYER_SETTINGS_HEADER_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                settings.body_returned.is_some(),
+                settings.header_response.rect.left(),
+                settings.header_response.rect.top(),
+                settings.header_response.rect.width(),
+                settings.header_response.rect.height(),
+                ui.ctx().pixels_per_point(),
+            );
+        }
+        if changed {
+            actions.push(Action::Layer(
+                id,
+                layer.name.clone(),
+                layer.visible,
+                layer.locked,
+                opacity,
+                blend,
+            ));
+        }
     }
 }
 
@@ -2576,6 +2736,10 @@ pub(crate) fn layer_flyout_contents(
     } else {
         ui.separator();
     }
+    if !compact {
+        selected_layer_settings(ui, project, actions, test_mode);
+        ui.separator();
+    }
     for (row_index, (id, mut name, mut visible, mut locked, thumbnail)) in
         layers.into_iter().enumerate()
     {
@@ -2603,6 +2767,8 @@ pub(crate) fn layer_flyout_contents(
                     name: name.clone(),
                     visible,
                     locked,
+                    selected: id == selected,
+                    has_selection: project.state().selection.is_some(),
                     opacity,
                     blend,
                 };
@@ -2895,56 +3061,8 @@ pub(crate) fn layer_flyout_contents(
                 }
             });
     }
-    if let Some(layer) = project
-        .state()
-        .layers
-        .iter()
-        .find(|layer| layer.id == selected)
-    {
-        let id = layer.id;
-        let mut percent = f32::from(layer.opacity) * (100.0 / 255.0);
-        let mut opacity = layer.opacity;
-        let mut blend = layer.blend;
-        let mut changed = false;
-        egui::CollapsingHeader::new("Selected layer settings")
-            .id_salt(("layer-settings", id))
-            .default_open(false)
-            .show(ui, |ui| {
-                if ui
-                    .add(
-                        egui::Slider::new(&mut percent, 0.0..=100.0)
-                            .suffix("%")
-                            .text("Opacity"),
-                    )
-                    .changed()
-                {
-                    opacity = (percent * 2.55).round() as u8;
-                    changed = true;
-                }
-                egui::ComboBox::from_id_salt(("flyout-blend", id))
-                    .selected_text(format!("{blend:?}"))
-                    .show_ui(ui, |ui| {
-                        for mode in [
-                            Blend::Normal,
-                            Blend::Multiply,
-                            Blend::Screen,
-                            Blend::Overlay,
-                        ] {
-                            ui.selectable_value(&mut blend, mode, format!("{mode:?}"));
-                        }
-                    });
-                changed |= blend != layer.blend;
-            });
-        if changed {
-            actions.push(Action::Layer(
-                id,
-                layer.name.clone(),
-                layer.visible,
-                layer.locked,
-                opacity,
-                blend,
-            ));
-        }
+    if compact {
+        selected_layer_settings(ui, project, actions, test_mode);
     }
 }
 
@@ -3519,6 +3637,21 @@ impl Studio {
     /// that decision or their controls become canvas clicks.
     fn floating_ui_under_client(&self, client_px: [f64; 2]) -> bool {
         let scale = self.context.pixels_per_point();
+        let point = egui::pos2(
+            (client_px[0] / f64::from(scale)) as f32,
+            (client_px[1] / f64::from(scale)) as f32,
+        );
+        // Menus and popovers are independent foreground Areas and can extend
+        // beyond their owning floating window. The window bounds below alone
+        // would route those clicks into the canvas, especially when a bounded
+        // Layers scroll area makes its owner shorter than the action menu.
+        if self
+            .context
+            .layer_id_at(point)
+            .is_some_and(|layer| layer.order == egui::Order::Foreground)
+        {
+            return true;
+        }
         let compact = crate::studio_layout::compact_workspace_mode(self.context.content_rect());
         let layout_key = self.compact_panel_layout_key(&self.context);
         let active_reference = self
@@ -4290,6 +4423,13 @@ impl Studio {
                         Ok(()) => "Selection ready: brush, fill, delete or transform".into(),
                         Err(e) => e.to_string(),
                     };
+                    if self.test_path_dialog {
+                        eprintln!(
+                            "UI_TEST_SELECTION_COMMITTED: {} {}",
+                            session.live().project().state().selection.is_some(),
+                            self.status
+                        );
+                    }
                 }
             }
             _ => {}
@@ -6346,7 +6486,7 @@ impl Studio {
                         cache: &mut self.layer_thumbnail_cache,
                         document_epoch: self.layer_thumbnail_document_epoch,
                     };
-                    let mut contents = |ui: &mut egui::Ui| {
+                    let contents = |ui: &mut egui::Ui| {
                         layer_flyout_contents(
                             ui,
                             session.live_mut().project_mut(),
@@ -6357,15 +6497,19 @@ impl Studio {
                             &mut drag_ui,
                         );
                     };
-                    if compact {
-                        egui::ScrollArea::vertical()
-                            .id_salt("compact-layers-content")
-                            .auto_shrink([false, false])
-                            .max_height((desired_size.y - 128.0).max(96.0))
-                            .show(ui, contents);
-                    } else {
-                        contents(ui);
-                    }
+                    egui::ScrollArea::vertical()
+                        .id_salt(if compact {
+                            "compact-layers-content"
+                        } else {
+                            "layers-content"
+                        })
+                        .auto_shrink([false, false])
+                        .max_height(if compact {
+                            (desired_size.y - 128.0).max(96.0)
+                        } else {
+                            (screen.height() - 112.0).max(96.0)
+                        })
+                        .show(ui, contents);
                 });
                 if let Some(panel) = panel {
                     let rect = panel.response.rect;
@@ -6391,6 +6535,9 @@ impl Studio {
                     }
                 }
                 self.layers_flyout_open = open;
+            }
+            if self.test_path_dialog {
+                eprintln!("UI_TEST_LAYERS_PANEL_STATE: {}", self.layers_flyout_open);
             }
 
             if self.brush_flyout_open && !self.welcome && !self.new_dialog && !self.recovery_manager
@@ -7179,12 +7326,12 @@ impl Studio {
             let screen_viewport = ctx.content_rect();
             let reference_count = self.references.len();
             let last_reference_index = reference_count.saturating_sub(1);
+            let reference_visible_workspace = !(self.welcome
+                || self.new_dialog
+                || self.recovery_manager
+                || compact_workspace && self.brush_flyout_open);
             let mut compact_reference_request = None;
             for (index, reference) in self.references.iter_mut().enumerate() {
-                let reference_visible_workspace = !(self.welcome
-                    || self.new_dialog
-                    || self.recovery_manager
-                    || compact_workspace && self.brush_flyout_open);
                 if !reference_visible_workspace {
                     reference.viewport = None;
                     continue;
@@ -7691,6 +7838,9 @@ impl Studio {
             }
             self.references
                 .retain(|reference| reference.layout.opacity >= 0.05);
+            if self.test_path_dialog && reference_visible_workspace {
+                eprintln!("UI_TEST_REFERENCE_PANEL_COUNT: {}", self.references.len());
+            }
             if workspace_changed
                 && !ctx.input(|input| input.pointer.any_down())
                 && let Err(error) = self.persist_workspace()
@@ -9352,8 +9502,16 @@ impl Studio {
             for result in recovery.poll() {
                 self.recovery_saving = false;
                 match result {
-                    Ok(()) => self.status = "Recovery checkpoint complete".into(),
+                    Ok(()) => {
+                        if self.test_path_dialog {
+                            eprintln!("UI_TEST_RECOVERY_COMPLETE: {}", self.last_submitted);
+                        }
+                        self.status = "Recovery checkpoint complete".into();
+                    }
                     Err(e) => {
+                        if self.test_path_dialog {
+                            eprintln!("UI_TEST_RECOVERY_FAILED: {} {e}", self.last_submitted);
+                        }
                         self.last_submitted = u64::MAX;
                         self.autosave_schedule.retry_later(now);
                         self.status = format!("RECOVERY FAILED: {e}; will retry shortly")
@@ -9370,6 +9528,9 @@ impl Studio {
                     self.last_submitted = project.revision;
                     self.autosave_schedule.submitted();
                     self.recovery_saving = true;
+                    if self.test_path_dialog {
+                        eprintln!("UI_TEST_RECOVERY_SUBMITTED: {}", self.last_submitted);
+                    }
                 } else {
                     self.autosave_schedule.retry_later(now);
                 }
@@ -9429,6 +9590,21 @@ impl Studio {
             Action::Undo => {
                 project.undo();
                 if self.test_path_dialog {
+                    let selected = project.state().selected;
+                    let opacity = project
+                        .state()
+                        .layers
+                        .iter()
+                        .find(|layer| layer.id == selected)
+                        .map(|layer| layer.opacity)
+                        .unwrap_or(0);
+                    eprintln!(
+                        "UI_TEST_HISTORY_UNDO: {} {} {} {}",
+                        project.revision,
+                        selected,
+                        project.state().layers.len(),
+                        opacity
+                    );
                     eprintln!(
                         "UI_TEST_HISTORY_LAYER_COUNT: {}",
                         project.state().layers.len()
@@ -9437,6 +9613,23 @@ impl Studio {
             }
             Action::Redo => {
                 project.redo();
+                if self.test_path_dialog {
+                    let selected = project.state().selected;
+                    let opacity = project
+                        .state()
+                        .layers
+                        .iter()
+                        .find(|layer| layer.id == selected)
+                        .map(|layer| layer.opacity)
+                        .unwrap_or(0);
+                    eprintln!(
+                        "UI_TEST_HISTORY_REDO: {} {} {} {}",
+                        project.revision,
+                        selected,
+                        project.state().layers.len(),
+                        opacity
+                    );
+                }
             }
             Action::Add => project.add_layer()?,
             Action::Duplicate => project.duplicate_layer()?,
@@ -9449,6 +9642,22 @@ impl Studio {
                         "UI_TEST_LAYER_CONTEXT_DUPLICATED: {} {}",
                         project.state().layers.len(),
                         project.state().selected,
+                    );
+                }
+            }
+            Action::CopySelectionToLayer => {
+                let source_id = project.state().selected;
+                let copied_id = project.copy_selection_to_new_layer()?;
+                if self.test_path_dialog {
+                    let layer = project
+                        .state()
+                        .layers
+                        .iter()
+                        .find(|layer| layer.id == copied_id)
+                        .ok_or(paint_document::PaintError::Invalid)?;
+                    eprintln!(
+                        "UI_TEST_LAYER_SELECTION_COPIED: {source_id} {copied_id} {}",
+                        layer.tiles.len()
                     );
                 }
             }
@@ -9546,6 +9755,10 @@ impl Studio {
                     eprintln!(
                         "UI_TEST_LAYER_STATE_APPLIED: {} visible={} locked={}",
                         id, layer.visible, layer.locked
+                    );
+                    eprintln!(
+                        "UI_TEST_LAYER_COMPOSITING_APPLIED: {} opacity={} blend={:?}",
+                        id, layer.opacity, layer.blend
                     );
                 }
             }
@@ -9720,12 +9933,12 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        FormatIllustration, LassoAppend, activate_brush_preset, append_lasso_point,
-        brush_size_after_shortcut, document_format_card_height, document_format_grid,
-        fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
-        home_sections_stacked, native_project_path, quick_document_card_layout,
-        recent_artwork_preview_height, recent_gallery_layout, recent_project_matches,
-        recovery_checkpoint_label, recovery_source_label,
+        FormatIllustration, LassoAppend, LayerMenuTarget, activate_brush_preset,
+        append_lasso_point, brush_size_after_shortcut, document_format_card_height,
+        document_format_grid, fit_paper_to_box, format_illustration, home_hero_height,
+        home_open_card_needed, home_sections_stacked, layer_actions_menu, native_project_path,
+        quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
+        recent_project_matches, recovery_checkpoint_label, recovery_source_label,
     };
     use paint_document::brush::{Brush, BrushKind};
     use std::path::{Path, PathBuf};
@@ -9764,6 +9977,59 @@ mod tests {
         assert_eq!(brush_size_after_shortcut(1.0, false, false), 1.0);
         assert_eq!(brush_size_after_shortcut(f64::NAN, true, false), 1.1);
         assert_eq!(brush_size_after_shortcut(f64::INFINITY, false, false), 1.0);
+    }
+
+    #[test]
+    fn selected_artwork_copy_action_is_named_and_selection_gated_in_accesskit() {
+        let context = egui::Context::default();
+        crate::ui_tokens::install(&context);
+        context.enable_accesskit();
+        let mut actions = Vec::new();
+        let mut focus_rename = false;
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                layer_actions_menu(
+                    ui,
+                    LayerMenuTarget {
+                        id: 7,
+                        layer_count: 2,
+                        layer_index: 1,
+                        emit_test_markers: false,
+                        name: "Ink".into(),
+                        visible: true,
+                        locked: false,
+                        selected: true,
+                        has_selection: true,
+                        opacity: 255,
+                        blend: paint_document::Blend::Normal,
+                    },
+                    &mut actions,
+                    &mut focus_rename,
+                );
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("the layer actions remain exposed to AccessKit");
+        let nodes = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            nodes.contains("Copy selected pixels to new layer"),
+            "selection copy is missing from the keyboard/screen-reader action list: {nodes}"
+        );
+        assert!(
+            nodes.contains("role: Button"),
+            "selection copy must be a semantic button: {nodes}"
+        );
+        assert!(
+            actions.is_empty(),
+            "rendering the menu must not mutate artwork"
+        );
     }
 
     #[test]

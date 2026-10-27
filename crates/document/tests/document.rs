@@ -682,38 +682,75 @@ fn clearing_a_targeted_layer_preserves_selection_and_undo_restores_its_pixels() 
     ));
 }
 #[test]
-fn blend_modes_and_transparent_alpha_preserve_invariants() {
-    for mode in [
-        Blend::Normal,
-        Blend::Multiply,
-        Blend::Screen,
-        Blend::Overlay,
-    ] {
-        let mut e = Engine::new(64, 64, 300).unwrap();
-        e.edit(|s| {
-            s.background = None;
-            Ok(())
-        })
-        .unwrap();
-        begin(&mut e, 0, 32.0, 32.0);
-        end(&mut e, 0, 32.0, 32.0);
-        e.add_layer().unwrap();
-        e.brush.color = [240, 50, 20];
-        e.brush.opacity = 0.5;
-        begin(&mut e, 1, 32.0, 32.0);
-        end(&mut e, 1, 32.0, 32.0);
-        e.edit(|s| {
-            s.layers[1].blend = mode;
-            Ok(())
-        })
-        .unwrap();
-        e.state().validate().unwrap();
-        let tile = e.composite_tile((0, 0));
-        assert!(
-            tile.chunks_exact(4)
-                .all(|p| p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3])
-        );
+fn layer_opacity_and_blend_modes_have_expected_pixels_through_native_and_png_roundtrips() {
+    use std::{collections::BTreeMap, sync::Arc};
+
+    fn fixture(mode: Blend, opacity: u8) -> Engine {
+        let mut state = State::new(64, 64, 300).unwrap();
+        state.background = None;
+        let pixel_index = ((19 * 64 + 17) * 4) as usize;
+        let mut bottom = vec![0; paint_document::TILE_BYTES];
+        bottom[pixel_index..pixel_index + 4].copy_from_slice(&[80, 120, 180, 255]);
+        state.layers[0].tiles.insert((0, 0), Arc::new(bottom));
+
+        let mut top = state.layers[0].clone();
+        top.id = 2;
+        top.name = "Blend sample".into();
+        let mut pixels = vec![0; paint_document::TILE_BYTES];
+        pixels[pixel_index..pixel_index + 4].copy_from_slice(&[100, 50, 25, 128]);
+        top.tiles = BTreeMap::from([((0, 0), Arc::new(pixels))]);
+        top.opacity = opacity;
+        top.blend = mode;
+        state.layers.push(top);
+        state.selected = 2;
+        Engine::from_state(state).unwrap()
     }
+
+    let samples = [
+        (Blend::Normal, [108, 113, 145, 255]),
+        (Blend::Multiply, [74, 100, 142, 255]),
+        (Blend::Screen, [113, 132, 182, 255]),
+        (Blend::Overlay, [90, 112, 167, 255]),
+    ];
+    let mut actual = Vec::new();
+    for (mode, expected) in samples {
+        let engine = fixture(mode, 128);
+        let offset = (19 * 64 + 17) * 4;
+        let sample: [u8; 4] = engine.rgba()[offset..offset + 4].try_into().unwrap();
+        assert_eq!(sample, expected, "{mode:?} layer output");
+        actual.push(sample);
+        engine.state().validate().unwrap();
+
+        let native = path(&format!("blend-roundtrip-{mode:?}"));
+        let mut store = Store::new(native.clone());
+        store.save(engine.state()).unwrap();
+        let (_store, state) = Store::open(native.clone()).unwrap();
+        let reopened = Engine::from_state(state).unwrap();
+        assert_eq!(&reopened.rgba()[offset..offset + 4], &expected);
+
+        let png = native.with_extension("png");
+        storage::export_png(&png, &reopened).unwrap();
+        let mut imported = Engine::new(64, 64, 300).unwrap();
+        imported
+            .edit(|state| {
+                state.background = None;
+                Ok(())
+            })
+            .unwrap();
+        storage::import_png(&png, &mut imported).unwrap();
+        assert_eq!(&imported.rgba()[offset..offset + 4], &expected);
+    }
+    actual.sort_unstable();
+    actual.dedup();
+    assert_eq!(actual.len(), 4, "each blend mode must visibly differ");
+
+    let transparent = fixture(Blend::Overlay, 0);
+    let offset = (19 * 64 + 17) * 4;
+    assert_eq!(
+        &transparent.rgba()[offset..offset + 4],
+        &[80, 120, 180, 255],
+        "zero layer opacity leaves the underlying layer unchanged"
+    );
 }
 #[test]
 fn sparse_4096_document_is_not_allocated_until_painted_and_dirty_tiles_are_local() {
@@ -886,9 +923,9 @@ fn history_accounts_shared_tile_allocations_once() {
     let mut e = Engine::new(128, 128, 300).unwrap();
     begin(&mut e, 1, 32.0, 32.0);
     end(&mut e, 1, 32.0, 32.0);
-    for _ in 0..40 {
+    for opacity in 0..40 {
         e.edit(|s| {
-            s.layers[0].opacity = 128;
+            s.layers[0].opacity = opacity + 1;
             Ok(())
         })
         .unwrap();
@@ -1026,6 +1063,21 @@ fn brush_setting_changes_become_dirty_revisioned_document_metadata_once() {
     engine.sync_brush_settings();
     assert_eq!(engine.revision, 1);
     engine.saved_revision = engine.revision;
+    assert!(!engine.dirty());
+}
+
+#[test]
+fn no_op_document_edit_does_not_pollute_history_or_mark_artwork_dirty() {
+    let mut engine = Engine::new(64, 64, 300).unwrap();
+    let revision = engine.revision;
+    let undo_count = engine.undo_count();
+    let saved = engine.state().clone();
+
+    engine.edit(|_| Ok(())).unwrap();
+
+    assert_eq!(engine.state(), &saved);
+    assert_eq!(engine.revision, revision);
+    assert_eq!(engine.undo_count(), undo_count);
     assert!(!engine.dirty());
 }
 

@@ -2157,3 +2157,59 @@ follow-up work.
 1. Continue the coordinated panel system and canvas-first hierarchy, then expand
    the XTest/accessibility workflow to exercise opacity and blend mode with
    saved pixel assertions. Keep Phase 8.3 active.
+
+## Layer editing and native compositing — local verification passed, CI pending
+
+This checkpoint extends the workspace/layer integration with one complete
+selection workflow and verified layer-property behavior. It does not complete
+Phase 8.3.
+
+- `paint-document` adds `Engine::copy_selection_to_new_layer`. The operation
+  copies nontransparent premultiplied source pixels selected by a rectangle,
+  ellipse, or lasso at pixel centers, inserts and selects a normal layer above
+  the visible unlocked source, and retains both the source and selection. It
+  respects the existing 4096 × 4096 dimension, layer-count, tile-count, and
+  undo-history bounds, and saves through the existing `.rpl` format. No document
+  schema or migration change was needed.
+- Tests assert exact masks and source pixels, unchanged composite for the normal
+  fixture, one-step undo/redo, native save/reopen, empty/hidden/locked rejection,
+  and atomic rejection at layer/tile capacity. Blend-mode coverage now asserts
+  exact output pixels for Normal, Multiply, Screen, and Overlay at partial and
+  zero opacity, including native and PNG roundtrips.
+- The Layers UI exposes the operation from the selected row's contextual
+  Actions menu. Opacity has a full-width interaction rail and an explicit
+  accessible label/value; opacity and blend mode still modify the active native
+  layer. The XTest workflow invokes the actual controls, decodes saved project
+  bytes, confirms copied source tiles are unchanged and copied pixels match,
+  then verifies exact undo/redo. It verifies the real opacity slider updates
+  saved state, Ctrl+Z/Ctrl+Y remain usable after slider focus, and Multiply
+  persists with opacity through native save and history.
+- `Engine::edit` now detects unchanged candidate snapshots using layer metadata
+  and copy-on-write tile identity. Identical property events do not increment the
+  revision or add undo entries. The pixel comparison is avoided, so this does
+  not scan or copy entire artwork buffers.
+- The full Linux Xorg/XTest workflow passed with a 2200 × 1400 virtual root. It
+  includes mouse painting, shape and gradient preview/commit/cancel, selection
+  copy, layer properties, PNG/OpenRaster import/export, `.rpl` save/reopen, and
+  forced process termination followed by exact journal recovery without its
+  paired snapshot. The screenshot set includes populated Layers/References at
+  640 × 480, 1280 × 800, and 1920 × 1080 plus populated recovery, dark mode, and
+  high contrast. I inspected the layer-copy, narrow dark Layers/Reference,
+  Home/recent-project, and high-contrast captures. One high-contrast Home image
+  was intentionally captured at a scrolled position and crops lower format
+  cards; this remains a visual-review limitation, not a claim that all Home
+  layouts are fully polished.
+- Local validation passes **275 workspace tests**, `cargo fmt --all -- --check`,
+  strict workspace Clippy, workspace build, Windows GNU workspace check/Clippy,
+  and required llvmpipe/OpenGL offscreen GPU smoke. Cross-platform Actions is
+  pending until this implementation is pushed. The owner-confirmed `b50e7ec`
+  Windows launch and basic S Pen drawing remain the physical baseline; no new
+  Windows pen, display-scaling, or native screen-reader validation occurred.
+
+### Immediate continuation
+
+1. Confirm the pushed Windows, Linux, and macOS Actions results and retain the
+   ordinary canvas/stylus artifacts.
+2. Keep Phase 8.3 active: continue broader workspace/focus work and complete a
+   dedicated, accurate Home/accessibility screenshot review. Merge Down and
+   broader layer semantics remain out of this slice.
