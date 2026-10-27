@@ -1813,7 +1813,7 @@ earlier build; advanced pen behavior is outside this startup correction.
 3. Resume the incomplete Phase 8.3 Home/workspace/accessibility program. Do not
    merge or release.
 
-## Phase 8.3 typography and brush workflow checkpoint — local validation
+## Phase 8.3 typography and brush workflow checkpoint — validated
 
 Continued from `f932827`. Replaced the previously mis-instantiated Manrope
 extra-light asset and mislabeled Syne Regular asset with locally embedded static
@@ -1851,11 +1851,19 @@ the updated typography and responsive hint. The workflow also covers real mouse
 painting, brush shortcuts, native project save/reopen, PNG/OpenRaster, undo/redo,
 reference exclusion from export, and journal-durable process-kill recovery.
 
+Latest tested commit: `d142e69`. GitHub Actions run
+[`40423165359`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40423165359)
+passed Windows, Linux, and macOS. Windows passed its visible-window/first-frame
+startup smoke and uploaded `rust-paint-lab-canvas-demo` and the separate
+`rust-paint-lab-windows-diagnostic`. Linux passed the real window/artwork path
+and uploaded `rust-paint-lab-studio-ui-smoke`, `rust-paint-lab-linux-ui-diagnostics`,
+and `rust-paint-lab-Linux-X64-alpha`. macOS passed its startup smoke and uploaded
+`rust-paint-lab-macOS-ARM64-alpha`.
+
 No new physical-device, Narrator, NVDA, or macOS VoiceOver testing occurred.
 The owner's successful `b50e7ec` launch remains the Windows device baseline;
-this local Linux UI run is software rendering and not hardware performance
-validation. Cross-platform Actions for this checkpoint are pending until its
-commit is pushed. Phase 8.3 remains active and is not accepted as complete.
+hosted and local software-rendered results do not establish Iris Xe or physical
+high-DPI performance. Phase 8.3 remains active and is not accepted as complete.
 
 ### Exact continuation
 

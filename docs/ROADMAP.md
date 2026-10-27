@@ -391,6 +391,8 @@ now stay inside their allocated space. The live canvas also supports bounded
 `[` / `]` brush-size changes, with finer Shift-modified steps, covered by a
 document-level test and XTest. Local formatting, strict Clippy, 249 Rust tests,
 workspace and Windows GNU checks, llvmpipe GPU smoke, and the 34-state Linux UI
-and artwork workflow pass. Cross-platform Actions for this checkpoint are
-pending. See [Phase 8.3 progress](PHASE8-STUDIO-PROGRESS.md); the studio overhaul
-remains in progress and is not accepted as complete.
+and artwork workflow pass. Actions run `40423165359` passed Windows, Linux, and
+macOS; Windows startup and macOS first-frame checks passed, and separate canvas
+and stylus Windows artifacts were uploaded. See
+[Phase 8.3 progress](PHASE8-STUDIO-PROGRESS.md); the studio overhaul remains in
+progress and is not accepted as complete.
