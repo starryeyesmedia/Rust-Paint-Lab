@@ -716,8 +716,14 @@ fn layer_opacity_and_blend_modes_have_expected_pixels_through_native_and_png_rou
     for (mode, expected) in samples {
         let engine = fixture(mode, 128);
         let offset = (19 * 64 + 17) * 4;
-        let sample: [u8; 4] = engine.rgba()[offset..offset + 4].try_into().unwrap();
+        let pixels = engine.rgba();
+        let sample: [u8; 4] = pixels[offset..offset + 4].try_into().unwrap();
         assert_eq!(sample, expected, "{mode:?} layer output");
+        assert!(
+            pixels.chunks_exact(4).all(|pixel| {
+                pixel[0] <= pixel[3] && pixel[1] <= pixel[3] && pixel[2] <= pixel[3]
+            })
+        );
         actual.push(sample);
         engine.state().validate().unwrap();
 
