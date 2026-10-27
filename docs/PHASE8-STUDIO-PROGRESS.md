@@ -1954,15 +1954,25 @@ successful `b50e7ec` Windows launch remains the hardware baseline. No Windows
 10 device, Narrator/NVDA, physical high-DPI or advanced S Pen tests were
 performed during this checkpoint. Hosted CI and this software-rendered Linux
 run do not establish those hardware behaviors. Phase 8.3 remains active and
-incomplete; GitHub Actions verification for this pending push will be recorded
-after it finishes.
+incomplete.
+
+Code checkpoint `9c227bc` was pushed to
+[`feature/studio-overdrive-phase-8`](https://github.com/starryeyesmedia/Rust-Paint-Lab/tree/feature/studio-overdrive-phase-8).
+GitHub Actions run
+[`40452947352`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40452947352)
+passed Windows, Linux, and macOS. Windows passed the visible-window startup
+smoke and uploaded the separate [`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40452947352/artifacts/12711700927)
+and [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40452947352/artifacts/12710679967)
+artifacts. Linux passed the screenshot/artwork workflow and uploaded
+[`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40452947352/artifacts/12711466098)
+plus its Linux alpha package; macOS passed first-frame startup and packaged its
+unsigned alpha. These are ordinary workflow artifacts, not a release. The
+owner's tested `b50e7ec` Windows launch remains the physical-device baseline.
 
 ### Continuation
 
-1. Push the validated source checkpoint and verify Windows, Linux and macOS
-   Actions plus the existing separate Windows canvas and stylus artifacts.
-2. Continue the remaining Phase 8.3 visual and functional work, especially
+1. Continue the remaining Phase 8.3 visual and functional work, especially
    compact tool hierarchy, workspace navigation, and full keyboard/focus review.
-3. Keep Windows pen pressure/tilt edge cases, physical DPI, and native
+2. Keep Windows pen pressure/tilt edge cases, physical DPI, and native
    screen-reader behavior labeled pending until validated on those systems.
    Do not merge or publish a release.

@@ -416,6 +416,9 @@ Local validation now passes 255 workspace tests, strict Clippy, formatting,
 workspace build, Windows GNU target checks, and the llvmpipe GPU smoke. The
 Linux/Xorg/XTest artwork workflow passed with 37 captures at 640 × 480, 1280 ×
 800 and 1920 × 1080; populated Recovery dialogs are measured and remain within
-the narrow viewport. Actions verification for the pending push is still
-required. See [the detailed progress log](PHASE8-STUDIO-PROGRESS.md). Phase 8.3
-remains active and is not accepted as complete.
+the narrow viewport. Actions run
+[`40452947352`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40452947352)
+passed Windows, Linux and macOS on code checkpoint `9c227bc`; Windows startup
+and both separate Windows application artifacts passed, as did macOS startup
+and the Linux UI/artwork run. See [the detailed progress log](PHASE8-STUDIO-PROGRESS.md).
+Phase 8.3 remains active and is not accepted as complete.

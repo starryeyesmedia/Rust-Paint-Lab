@@ -556,6 +556,12 @@ workflow asserts those bounds stay inside the window after resizing to 640 ×
 480, checks the preview button with a fresh pointer hover, and captures the
 visible title, entries, actions and footer in both themes.
 
+The 2026-10-27 code checkpoint `9c227bc` passed
+[GitHub Actions run `40452947352`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40452947352)
+on Windows, Linux and macOS. Windows visible-window startup and macOS first-frame
+startup passed; Linux passed the real UI/artwork workflow. Windows uploaded
+`rust-paint-lab-canvas-demo` and `rust-paint-lab-windows-diagnostic` separately.
+
 Run against the local Xorg display (or a suitable Xvfb desktop) with a software
 wgpu backend:
 
