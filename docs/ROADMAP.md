@@ -461,7 +461,7 @@ Gradients are raster pixels with solid RGB stops and global brush opacity; they
 are not editable objects and full ICC color management is not implemented. See
 [the Phase 8.3 progress log](PHASE8-STUDIO-PROGRESS.md).
 
-### Workspace launcher and Layers integration — local validation, CI pending
+### Workspace launcher and Layers integration — `8985754`, CI passed
 
 F6 Workspace controls now route to the actual floating Layers/Brush panels
 instead of duplicating their full controls. Layer thumbnails use a bounded,
@@ -469,9 +469,14 @@ per-layer 96 × 64 cache backed by document tile identity and opacity; targeted
 clear stays in the document undo transaction and retains selection. The compact
 640 × 480 layout now keeps populated Layers and Reference panels inside the
 window without overlapping, while preserving saved desktop panel dimensions.
-Local formatting, strict Clippy, 270 workspace tests, build, Windows GNU checks,
-required llvmpipe/OpenGL GPU smoke, and the full Linux Xorg/XTest artwork flow
-pass. Actions for this uncommitted change are pending. The screenshot review
-covered populated light Layers at 1280 × 800 and dark Layers/Reference at
-640 × 480; full phase acceptance and physical Windows validation remain open.
-See [the current Phase 8.3 progress checkpoint](PHASE8-STUDIO-PROGRESS.md).
+Local formatting, strict Clippy, all 270 workspace tests, build, Windows GNU
+checks, required llvmpipe/OpenGL GPU smoke, and the full Linux Xorg/XTest artwork
+flow pass. GitHub Actions run
+[`40574152036`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036)
+passed on Windows, Linux, and macOS. Windows visible startup passed and uploaded
+the [`canvas demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12767816064)
+and retained [`stylus diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12766097424);
+Linux uploaded the [`studio screenshot archive`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12767007921).
+The screenshot review covered populated light Layers at 1280 × 800 and dark
+Layers/Reference at 640 × 480; full phase acceptance and physical Windows
+validation remain open. See [the current Phase 8.3 progress checkpoint](PHASE8-STUDIO-PROGRESS.md).

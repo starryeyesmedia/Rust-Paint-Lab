@@ -2083,7 +2083,7 @@ document engine and studio; it does not complete Phase 8.3.
    and a useful end-to-end editing feature; preserve undo, selection, save and
    recovery boundaries. Keep Phase 8.3 active and do not merge or release.
 
-## Workspace launcher and raster-layer integration — local checkpoint on `f812666`
+## Workspace launcher and raster-layer integration — `8985754`, CI passed
 
 The compact workspace and Layers pass now connects the F6 Workspace controls to
 the real floating Layers and Brush Library panels. The old Inspector Brush and
@@ -2133,17 +2133,27 @@ regressions. I inspected the populated light Layers and dark compact
 Layers/Reference screenshots. The compact Layer list is scrollable; only its
 front rows fit at once in a 640 × 480 window.
 
-This is a local implementation checkpoint based on `f812666`, not yet a pushed
-commit or a Phase 8.3 completion claim. Three-platform Actions results for this
-change are pending. No physical Windows device, high-DPI or advanced pen
-validation was run; the previously owner-confirmed basic S Pen behavior remains
-the hardware baseline. Broader workspace design, layer presentation and
-keyboard/focus workflows remain active follow-up work.
+Commit [`8985754`](https://github.com/starryeyesmedia/Rust-Paint-Lab/commit/8985754f78723fed3722bf69860e463be5fe10e1)
+was recovered from the interrupted working tree, validated, committed and
+pushed on `feature/studio-overdrive-phase-8`. GitHub Actions run
+[`40574152036`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036)
+passed on Ubuntu, Windows and macOS. The Windows job passed its visible-window
+startup smoke and uploaded the [`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12767816064)
+and retained [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12766097424)
+artifacts. Linux passed its software-GPU, live-window, mouse and complete
+artwork/XTest workflow, uploaded the [`studio screenshot archive`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12767007921)
+and [`Linux x64 alpha`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12767816310).
+macOS passed first-frame startup and uploaded its unsigned
+[`ARM64 alpha`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12765709849).
+
+No physical Windows device, high-DPI or advanced pen validation was run in this
+checkpoint; the previously owner-confirmed basic S Pen behavior remains the
+hardware baseline. This verified slice does not complete Phase 8.3. Broader
+workspace design, layer presentation and keyboard/focus workflows remain active
+follow-up work.
 
 ### Next implementation steps
 
-1. Commit and push this verified workspace/layer slice and inspect its Windows,
-   Linux and macOS Actions run; retain the ordinary Windows canvas artifact.
-2. Continue the coordinated panel system and canvas-first hierarchy, then expand
+1. Continue the coordinated panel system and canvas-first hierarchy, then expand
    the XTest/accessibility workflow to exercise opacity and blend mode with
    saved pixel assertions. Keep Phase 8.3 active.

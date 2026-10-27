@@ -680,3 +680,16 @@ Layers/References at 640 × 480, 1280 × 800, and 1920 × 1080, and fails if the
 actual window rectangles overlap or leave the viewport. The latest local run
 passed this workflow and all 270 workspace tests. Screenshot PNGs are written to
 the configured `RPL_UI_SCREENSHOT_DIR`; generated files are not committed.
+
+The recovered workspace/layer implementation was committed as
+[`8985754`](https://github.com/starryeyesmedia/Rust-Paint-Lab/commit/8985754f78723fed3722bf69860e463be5fe10e1)
+and passed GitHub Actions run
+[`40574152036`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036)
+on Windows, Linux and macOS. Windows passed the visible-window startup smoke and
+uploaded the separate [`canvas demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12767816064)
+and [`stylus diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12766097424)
+artifacts. Linux passed the complete Xorg/XTest artwork workflow and uploaded
+the [`UI screenshot archive`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40574152036/artifacts/12767007921).
+macOS passed its first-frame startup smoke and unsigned packaging. These CI
+checks do not constitute physical Windows, display-scaling, advanced pen, or
+native screen-reader validation.
