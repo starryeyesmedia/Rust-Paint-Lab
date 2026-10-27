@@ -738,5 +738,14 @@ reach controls in wide-window screenshots:
 xvfb-run -a -s '-screen 0 2200x1400x24' python3 scripts/alpha-workflow-smoke.py
 ```
 
-Cross-platform GitHub Actions for this new implementation are pending until
-the checkpoint is pushed. No physical Windows hardware was retested here.
+GitHub Actions run
+[`40590882859`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859)
+passed on Windows, Linux, and macOS for commit `87588a4`. The hosted Windows
+visible-window startup smoke and macOS first-frame smoke passed; Linux passed
+the full Xorg/XTest artwork workflow and screenshot capture. The run published
+the separate Windows
+[`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859/artifacts/12774436753)
+and [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859/artifacts/12774361545)
+artifacts and Linux
+[`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859/artifacts/12775130275)
+archive. No physical Windows hardware was retested here.

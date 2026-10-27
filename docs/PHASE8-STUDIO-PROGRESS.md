@@ -2201,15 +2201,23 @@ Phase 8.3.
   layouts are fully polished.
 - Local validation passes **275 workspace tests**, `cargo fmt --all -- --check`,
   strict workspace Clippy, workspace build, Windows GNU workspace check/Clippy,
-  and required llvmpipe/OpenGL offscreen GPU smoke. Cross-platform Actions is
-  pending until this implementation is pushed. The owner-confirmed `b50e7ec`
-  Windows launch and basic S Pen drawing remain the physical baseline; no new
-  Windows pen, display-scaling, or native screen-reader validation occurred.
+  required llvmpipe/OpenGL offscreen GPU smoke, and the complete Linux/Xorg/XTest
+  application workflow. GitHub Actions run
+  [`40590882859`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859)
+  passed on Windows, Linux, and macOS for final tested code commit `87588a4`.
+  Windows visible-window startup passed; Linux passed software-GPU, mouse,
+  populated UI/artwork, save/reopen, export, and journal-recovery workflows; and
+  macOS first-frame startup passed. The run published the Windows
+  [`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859/artifacts/12774436753),
+  retained [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859/artifacts/12774361545),
+  Linux [`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859/artifacts/12775130275),
+  and unsigned Linux and macOS alpha artifacts. They are ordinary Actions
+  artifacts, not a release. The owner-confirmed `b50e7ec` Windows launch and
+  basic S Pen drawing remain the physical baseline; no new Windows pen,
+  display-scaling, or native screen-reader validation occurred.
 
 ### Immediate continuation
 
-1. Confirm the pushed Windows, Linux, and macOS Actions results and retain the
-   ordinary canvas/stylus artifacts.
-2. Keep Phase 8.3 active: continue broader workspace/focus work and complete a
+1. Keep Phase 8.3 active: continue broader workspace/focus work and complete a
    dedicated, accurate Home/accessibility screenshot review. Merge Down and
    broader layer semantics remain out of this slice.

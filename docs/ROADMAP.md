@@ -491,7 +491,10 @@ with saved-project and history assertions. Exact-pixel tests cover Normal,
 Multiply, Screen and Overlay. An unchanged COW edit no longer dirties artwork or
 adds a redundant undo entry. Local validation passed all 275 workspace tests,
 strict Clippy, formatting, workspace build, Windows GNU checks, llvmpipe GPU
-smoke, and the complete Linux Xorg/XTest artwork/recovery workflow. CI is pending
-for the new code. See the [Phase 8.3 progress log](PHASE8-STUDIO-PROGRESS.md).
-This does not complete the phase or validate additional physical Windows pen
-behavior.
+smoke, and the complete Linux Xorg/XTest artwork/recovery workflow. GitHub
+Actions run [`40590882859`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859)
+passed Windows, Linux and macOS for commit `87588a4`; Windows startup and the
+Linux application/recovery workflow passed, and the ordinary canvas, stylus,
+and UI screenshot artifacts were published. See the [Phase 8.3 progress
+log](PHASE8-STUDIO-PROGRESS.md). This does not complete the phase or validate
+additional physical Windows pen behavior.
