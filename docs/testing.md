@@ -597,7 +597,7 @@ painting, layer, native project, PNG/OpenRaster and journal-recovery paths.
 
 At this code checkpoint, local validation passed: **262 workspace tests**,
 `cargo fmt --all -- --check`, strict workspace Clippy, workspace build, Windows
-GNU target check/Clippy, llvmpipe Vulkan GPU smoke, and the full Xorg/XTest
+GNU target check/Clippy, llvmpipe OpenGL offscreen GPU smoke, and the full Xorg/XTest
 workflow. The exact Xvfb invocation used was:
 
 ```sh
@@ -614,3 +614,14 @@ This verifies a software-rendered Linux window and real application input under
 XTest, not physical pen latency or Windows/macOS GUI behavior. Basic S Pen
 drawing was physically observed on the owner’s device in an earlier build;
 advanced pen behavior and native Windows accessibility testing remain pending.
+
+The pushed implementation commit `6d85c36` passed all three desktop jobs in
+[GitHub Actions run `40529268958`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958).
+Windows visible-window startup and both portable Windows application artifacts
+passed; Linux's GPU/window, mouse, and full artwork/XTest workflow passed; macOS
+first-frame startup and unsigned alpha packaging passed. The run provides the
+[`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12744953710),
+retained [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12746885390),
+and Linux screenshot archive
+[`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12745936098).
+These are workflow artifacts, not a release or physical-hardware validation.

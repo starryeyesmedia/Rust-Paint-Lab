@@ -426,3 +426,18 @@ passed Windows, Linux and macOS on code checkpoint `9c227bc`; Windows startup
 and both separate Windows application artifacts passed, as did macOS startup
 and the Linux UI/artwork run. See [the detailed progress log](PHASE8-STUDIO-PROGRESS.md).
 Phase 8.3 remains active and is not accepted as complete.
+
+### Engine-first painting checkpoint — `6d85c36`
+
+The deterministic time-aware stabilizer and persistent raster line, rectangle
+and ellipse workflow are implemented in `paint-document` and the live canvas.
+All 262 local workspace tests, strict Clippy, formatting, workspace build,
+Windows GNU target checks, offscreen llvmpipe smoke and Linux Xorg/XTest artwork
+automation passed. Actions run
+[`40529268958`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958)
+passed Windows, Linux and macOS; it published the ordinary
+[`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12744953710)
+and retained [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12746885390)
+artifacts. The Phase 8.3 program remains active. Continue the brush and editing
+engine with persistent, undoable end-to-end workflows before expanding into
+vector or animation scope.

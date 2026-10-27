@@ -2004,24 +2004,30 @@ functional slice, not Phase 8.3 completion.
   byte-identical artwork after Escape, actual selected-layer pixels after each
   commit/save, and exact native-project bytes across undo and redo.
 - Local verification: 262 workspace tests, formatting, strict Clippy, workspace
-  build, Windows GNU target check/Clippy, llvmpipe Vulkan GPU smoke and the full
+  build, Windows GNU target check/Clippy, llvmpipe offscreen GPU smoke and the full
   Linux/Xorg/XTest artwork workflow passed. The workflow also retains existing
   create/paint/layer/save/reopen/PNG/OpenRaster/recovery checks. See
   `docs/testing.md` for the exact command and validation limits.
-- No Windows/macOS CI result or new platform artifact is claimed until the
-  Actions run for this implementation finishes. This environment did not run a
-  Windows device or macOS desktop. Basic S Pen drawing had been physically
-  observed on the owner’s Galaxy Book2 Pro 360 in an earlier build; advanced
-  shape capture, pressure/tilt dynamics, high-DPI, Narrator and NVDA behavior
-  remain unverified on hardware.
+- GitHub Actions run [`40529268958`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958)
+  passed Windows, Linux and macOS. Windows passed pinned-toolchain checks,
+  workspace build, portable packaging/runtime inspection, and visible-window
+  startup smoke; it uploaded the separate
+  [`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12744953710)
+  and [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12746885390)
+  artifacts. Linux passed the GPU/window, mouse and full XTest artwork workflow
+  and uploaded
+  [`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12745936098).
+  macOS passed the first-frame startup smoke and packaged its unsigned alpha.
+  This environment did not run a Windows device or macOS desktop. Basic S Pen
+  drawing had been physically observed on the owner’s Galaxy Book2 Pro 360 in an
+  earlier build; advanced shape capture, pressure/tilt dynamics, high-DPI,
+  Narrator and NVDA behavior remain unverified on hardware.
 
 ### Next implementation steps
 
-1. Inspect the pushed cross-platform CI and Linux screenshots/artifacts for this
-   checkpoint; fix any platform or workflow regressions before proceeding.
-2. Measure stabilization latency/quality on representative recorded samples and
+1. Measure stabilization latency/quality on representative recorded samples and
    add a replay-based adjustable stabilization comparison without changing the
    WM_POINTER architecture.
-3. Continue engine workflows with useful shape properties and selection-aware
+2. Continue engine workflows with useful shape properties and selection-aware
    fill/gradient work only where each operation can be persisted, undone and
    validated end to end. Keep Phase 8.3 active; do not merge or release.
