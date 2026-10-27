@@ -1851,6 +1851,13 @@ the updated typography and responsive hint. The workflow also covers real mouse
 painting, brush shortcuts, native project save/reopen, PNG/OpenRaster, undo/redo,
 reference exclusion from export, and journal-durable process-kill recovery.
 
+Visual review also exposed a remaining compact-workspace issue: when a populated
+Layers flyout and a previously sized Reference board are both open at 640 × 480,
+their saved floating rectangles can overlap. Each panel remains reachable and
+movable, but the narrow-window collision policy does not yet compact both panels
+together while preserving their larger saved sizes. This is recorded for the
+next workspace slice; the Phase 8.3 work remains open.
+
 Latest tested commit: `d142e69`. GitHub Actions run
 [`40423165359`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40423165359)
 passed Windows, Linux, and macOS. Windows passed its visible-window/first-frame

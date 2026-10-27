@@ -396,3 +396,6 @@ macOS; Windows startup and macOS first-frame checks passed, and separate canvas
 and stylus Windows artifacts were uploaded. See
 [Phase 8.3 progress](PHASE8-STUDIO-PROGRESS.md); the studio overhaul remains in
 progress and is not accepted as complete.
+The narrow populated Layers/Reference screenshot still shows both saved floating
+panels overlapping at 640 × 480; their responsive sizes need a coordinated
+compact-mode follow-up.
