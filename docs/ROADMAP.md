@@ -396,6 +396,26 @@ macOS; Windows startup and macOS first-frame checks passed, and separate canvas
 and stylus Windows artifacts were uploaded. See
 [Phase 8.3 progress](PHASE8-STUDIO-PROGRESS.md); the studio overhaul remains in
 progress and is not accepted as complete.
-The narrow populated Layers/Reference screenshot still shows both saved floating
-panels overlapping at 640 × 480; their responsive sizes need a coordinated
-compact-mode follow-up.
+That earlier checkpoint exposed a narrow populated Layers/Reference collision;
+the current continuation adds temporary coordinated compact geometry and
+preserves the larger saved sizes for normal windows.
+
+### Outfit typography and responsive workspace follow-up
+
+The current local continuation adopts the firm Outfit display direction with
+local static 700/800/900 faces and keeps Manrope for interface text, including
+tabular numeric controls. It applies the shared 17-role hierarchy across Home,
+New Artwork and floating panels, with both OFL notices in desktop packages.
+Narrow-window panels now use transient coordinated geometry, compact Reference
+image navigation and a one-line status bar; saved large-screen panel dimensions
+remain intact. The compact layer menu supports repeated real visibility/lock
+changes and Escape popup dismissal. The canvas preset picker updates the actual
+brush engine, and Brush Library avoids a duplicate settings form.
+
+Local validation now passes 255 workspace tests, strict Clippy, formatting,
+workspace build, Windows GNU target checks, and the llvmpipe GPU smoke. The
+Linux/Xorg/XTest artwork workflow passed with 37 captures at 640 × 480, 1280 ×
+800 and 1920 × 1080; populated Recovery dialogs are measured and remain within
+the narrow viewport. Actions verification for the pending push is still
+required. See [the detailed progress log](PHASE8-STUDIO-PROGRESS.md). Phase 8.3
+remains active and is not accepted as complete.

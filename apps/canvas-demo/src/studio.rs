@@ -51,6 +51,28 @@ type AppearanceKey = (
     u32,
 );
 
+fn compact_floating_panel_id(name: &str, compact: bool, layout_key: usize) -> egui::Id {
+    if compact {
+        egui::Id::new((name, "compact", layout_key))
+    } else {
+        egui::Id::new(name)
+    }
+}
+
+fn reference_panel_id(path: &std::path::Path, compact: bool, layout_key: usize) -> egui::Id {
+    if compact {
+        egui::Id::new(("reference-board-compact", path.to_owned(), layout_key))
+    } else {
+        egui::Id::new(("reference-board", path.to_owned()))
+    }
+}
+
+fn activate_brush_preset(brush: &mut Brush, kind: BrushKind) {
+    let color = brush.color;
+    *brush = Brush::preset(kind);
+    brush.color = color;
+}
+
 fn client_point_to_egui(client_px: [f64; 2], pixels_per_point: f32) -> Option<egui::Pos2> {
     if !pixels_per_point.is_finite()
         || pixels_per_point <= 0.0
@@ -2112,12 +2134,17 @@ pub(crate) enum Action {
     Layer(u64, String, bool, bool, u8, Blend),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct LayerMenuTarget {
     id: u64,
     layer_count: usize,
     layer_index: usize,
     emit_test_markers: bool,
+    name: String,
+    visible: bool,
+    locked: bool,
+    opacity: u8,
+    blend: Blend,
 }
 
 pub(crate) struct LayerDragUi<'a> {
@@ -2133,7 +2160,24 @@ fn layer_actions_menu(
     actions: &mut Vec<Action>,
     focus_rename: &mut bool,
 ) {
-    if ui.button("Select layer").clicked() {
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_MENU_STATE: {} visible={} locked={}",
+            target.id, target.visible, target.locked
+        );
+    }
+    let select = ui.button("Select layer");
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_SELECT_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            select.rect.left(),
+            select.rect.top(),
+            select.rect.width(),
+            select.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if select.clicked() {
         actions.push(Action::Select(target.id));
         ui.close();
     }
@@ -2141,6 +2185,59 @@ fn layer_actions_menu(
         actions.push(Action::Select(target.id));
         *focus_rename = true;
         ui.close();
+    }
+    let mut visible = target.visible;
+    let visibility = ui.checkbox(&mut visible, "Visible");
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_VISIBLE_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            visibility.rect.left(),
+            visibility.rect.top(),
+            visibility.rect.width(),
+            visibility.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if visibility.changed() {
+        if target.emit_test_markers {
+            eprintln!(
+                "UI_TEST_LAYER_VISIBILITY_CHANGED: {} {}",
+                target.id, visible
+            );
+        }
+        actions.push(Action::Layer(
+            target.id,
+            target.name.clone(),
+            visible,
+            target.locked,
+            target.opacity,
+            target.blend,
+        ));
+    }
+    let mut locked = target.locked;
+    let locking = ui.checkbox(&mut locked, "Locked");
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_LOCKED_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            locking.rect.left(),
+            locking.rect.top(),
+            locking.rect.width(),
+            locking.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if locking.changed() {
+        if target.emit_test_markers {
+            eprintln!("UI_TEST_LAYER_LOCK_CHANGED: {} {}", target.id, locked);
+        }
+        actions.push(Action::Layer(
+            target.id,
+            target.name.clone(),
+            target.visible,
+            locked,
+            target.opacity,
+            target.blend,
+        ));
     }
     ui.separator();
     let duplicate = ui.button("Duplicate layer");
@@ -2155,6 +2252,9 @@ fn layer_actions_menu(
         );
     }
     if duplicate.clicked() {
+        if target.emit_test_markers {
+            eprintln!("UI_TEST_LAYER_DUPLICATE_CLICKED: {}", target.id);
+        }
         actions.push(Action::DuplicateLayer(target.id));
         ui.close();
     }
@@ -2242,6 +2342,7 @@ pub(crate) fn layer_flyout_contents(
     project: &mut Engine,
     actions: &mut Vec<Action>,
     test_mode: bool,
+    compact: bool,
     drag_ui: &mut LayerDragUi<'_>,
 ) {
     drag_ui.handles.clear();
@@ -2284,25 +2385,29 @@ pub(crate) fn layer_flyout_contents(
             actions.push(Action::Delete);
         }
     });
-    ui.horizontal(|ui| {
-        ui.label("Order");
-        if ui
-            .add_enabled(selected_index + 1 < layer_count, egui::Button::new("Raise"))
-            .on_hover_text("Move the selected layer toward the front")
-            .clicked()
-        {
-            actions.push(Action::Move(1));
-        }
-        if ui
-            .add_enabled(selected_index > 0, egui::Button::new("Lower"))
-            .on_hover_text("Move the selected layer toward the back")
-            .clicked()
-        {
-            actions.push(Action::Move(-1));
-        }
-    });
-    ui.separator();
-    ui.small("Frontmost layer appears first.");
+    if !compact {
+        ui.horizontal(|ui| {
+            ui.label("Order");
+            if ui
+                .add_enabled(selected_index + 1 < layer_count, egui::Button::new("Raise"))
+                .on_hover_text("Move the selected layer toward the front")
+                .clicked()
+            {
+                actions.push(Action::Move(1));
+            }
+            if ui
+                .add_enabled(selected_index > 0, egui::Button::new("Lower"))
+                .on_hover_text("Move the selected layer toward the back")
+                .clicked()
+            {
+                actions.push(Action::Move(-1));
+            }
+        });
+        ui.separator();
+        ui.small("Frontmost layer appears first.");
+    } else {
+        ui.separator();
+    }
     for (row_index, (id, mut name, mut visible, mut locked, thumbnail)) in
         layers.into_iter().enumerate()
     {
@@ -2315,6 +2420,24 @@ pub(crate) fn layer_flyout_contents(
                     .iter()
                     .position(|layer| layer.id == id)
                     .unwrap_or(0);
+                let (opacity, blend) = project
+                    .state()
+                    .layers
+                    .iter()
+                    .find(|layer| layer.id == id)
+                    .map(|layer| (layer.opacity, layer.blend))
+                    .unwrap_or((255, Blend::Normal));
+                let menu_target = LayerMenuTarget {
+                    id,
+                    layer_count,
+                    layer_index,
+                    emit_test_markers: test_mode && row_index == 0,
+                    name: name.clone(),
+                    visible,
+                    locked,
+                    opacity,
+                    blend,
+                };
                 let rename_id = egui::Id::new(("layer-flyout-name", id));
                 let mut focus_rename = false;
                 let row = ui.horizontal(|ui| {
@@ -2334,33 +2457,35 @@ pub(crate) fn layer_flyout_contents(
                         );
                     }
                     layer_thumbnail(ui, &thumbnail, id == selected);
-                    let label = ui.selectable_label(
-                        id == selected,
-                        crate::ui_tokens::type_text(
-                            name.clone(),
-                            crate::ui_tokens::TypeRole::LayerName,
-                            ui.visuals().text_color(),
-                        ),
-                    );
-                    if label.clicked() {
-                        actions.push(Action::Select(id));
-                    }
-                    let more = ui
-                        .menu_button("Actions", |ui| {
-                            layer_actions_menu(
-                                ui,
-                                LayerMenuTarget {
-                                    id,
-                                    layer_count,
-                                    layer_index,
-                                    emit_test_markers: test_mode && row_index == 0,
-                                },
-                                actions,
-                                &mut focus_rename,
-                            );
+                    let more = if compact {
+                        egui::containers::menu::MenuButton::new("⋯")
+                            .config(
+                                egui::containers::menu::MenuConfig::new()
+                                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+                            )
+                            .ui(ui, |ui| {
+                                layer_actions_menu(
+                                    ui,
+                                    menu_target.clone(),
+                                    actions,
+                                    &mut focus_rename,
+                                );
+                            })
+                            .0
+                    } else {
+                        ui.menu_button("Actions", |ui| {
+                            layer_actions_menu(ui, menu_target.clone(), actions, &mut focus_rename);
                         })
                         .response
-                        .on_hover_text("Layer actions");
+                    };
+                    let more = more.on_hover_text("Layer actions");
+                    more.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::Button,
+                            ui.is_enabled(),
+                            "Layer actions",
+                        )
+                    });
                     if test_mode && row_index == 0 && more.clicked() {
                         eprintln!("UI_TEST_LAYER_ACTIONS_OPENED: {id}");
                     }
@@ -2373,6 +2498,27 @@ pub(crate) fn layer_flyout_contents(
                             more.rect.height(),
                             ui.ctx().pixels_per_point(),
                         );
+                    }
+                    let label = ui.selectable_label(
+                        id == selected,
+                        crate::ui_tokens::type_text(
+                            name.clone(),
+                            crate::ui_tokens::TypeRole::LayerName,
+                            ui.visuals().text_color(),
+                        ),
+                    );
+                    if test_mode && row_index == 0 {
+                        eprintln!(
+                            "UI_TEST_LAYER_NAME_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            label.rect.left(),
+                            label.rect.top(),
+                            label.rect.width(),
+                            label.rect.height(),
+                            ui.ctx().pixels_per_point(),
+                        );
+                    }
+                    if label.clicked() {
+                        actions.push(Action::Select(id));
                     }
                     label
                 });
@@ -2415,17 +2561,7 @@ pub(crate) fn layer_flyout_contents(
                     );
                 }
                 let context_menu = row.inner.context_menu(|ui| {
-                    layer_actions_menu(
-                        ui,
-                        LayerMenuTarget {
-                            id,
-                            layer_count,
-                            layer_index,
-                            emit_test_markers: test_mode && row_index == 0,
-                        },
-                        actions,
-                        &mut focus_rename,
-                    );
+                    layer_actions_menu(ui, menu_target.clone(), actions, &mut focus_rename);
                 });
                 if test_mode && row_index == 0 && context_menu.is_some() {
                     eprintln!("UI_TEST_LAYER_NATIVE_CONTEXT_OPENED");
@@ -2434,35 +2570,37 @@ pub(crate) fn layer_flyout_contents(
                     ui.ctx()
                         .memory_mut(|memory| memory.request_focus(rename_id));
                 }
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut visible, "Visible").changed()
-                        && let Some(layer) =
-                            project.state().layers.iter().find(|layer| layer.id == id)
-                    {
-                        actions.push(Action::Layer(
-                            id,
-                            layer.name.clone(),
-                            visible,
-                            layer.locked,
-                            layer.opacity,
-                            layer.blend,
-                        ));
-                    }
-                    if ui.checkbox(&mut locked, "Locked").changed()
-                        && let Some(layer) =
-                            project.state().layers.iter().find(|layer| layer.id == id)
-                    {
-                        actions.push(Action::Layer(
-                            id,
-                            layer.name.clone(),
-                            layer.visible,
-                            locked,
-                            layer.opacity,
-                            layer.blend,
-                        ));
-                    }
-                });
-                if id == selected {
+                if !compact {
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut visible, "Visible").changed()
+                            && let Some(layer) =
+                                project.state().layers.iter().find(|layer| layer.id == id)
+                        {
+                            actions.push(Action::Layer(
+                                id,
+                                layer.name.clone(),
+                                visible,
+                                layer.locked,
+                                layer.opacity,
+                                layer.blend,
+                            ));
+                        }
+                        if ui.checkbox(&mut locked, "Locked").changed()
+                            && let Some(layer) =
+                                project.state().layers.iter().find(|layer| layer.id == id)
+                        {
+                            actions.push(Action::Layer(
+                                id,
+                                layer.name.clone(),
+                                layer.visible,
+                                locked,
+                                layer.opacity,
+                                layer.blend,
+                            ));
+                        }
+                    });
+                }
+                if id == selected && !compact {
                     let selected_layer = project.state().layers.iter().find(|layer| layer.id == id);
                     let changed = ui
                         .add(
@@ -2687,7 +2825,6 @@ pub struct Studio {
     test_home_quick_start_logged: bool,
     test_recovery_label_logged: bool,
     test_recovery_preview_hover_logged: bool,
-    test_recovery_preview_target_logged: bool,
     test_recovery_preview_logged: bool,
     test_reference_preview_logged: bool,
     test_new_artwork_logged: bool,
@@ -2768,6 +2905,7 @@ pub struct Studio {
     pub last_frame_us: u128,
     preferences_path: Option<PathBuf>,
     references: Vec<ReferenceImage>,
+    compact_reference_index: usize,
     brush_panel_width: f32,
     show_controls: bool,
     inspector_tab: crate::workspace::InspectorTab,
@@ -2903,7 +3041,6 @@ impl Studio {
             test_home_quick_start_logged: false,
             test_recovery_label_logged: false,
             test_recovery_preview_hover_logged: false,
-            test_recovery_preview_target_logged: false,
             test_recovery_preview_logged: false,
             test_reference_preview_logged: false,
             test_new_artwork_logged: false,
@@ -2989,6 +3126,7 @@ impl Studio {
             last_upload_us: 0,
             last_frame_us: 0,
             preferences_path,
+            compact_reference_index: 0,
             brush_panel_width: preferences.brush_panel_width,
             show_controls: preferences.show_controls,
             inspector_tab: preferences.inspector_tab,
@@ -3046,17 +3184,38 @@ impl Studio {
             .push(BrushPresetPreviewCache { kind, texture });
         Some(id)
     }
+
+    fn compact_panel_layout_key(&self, context: &egui::Context) -> usize {
+        if crate::studio_layout::compact_workspace_mode(context.content_rect()) {
+            if self.brush_flyout_open {
+                return 0;
+            }
+            usize::from(self.layers_flyout_open) + usize::from(!self.references.is_empty())
+        } else {
+            usize::from(self.layers_flyout_open) + self.references.len()
+        }
+    }
+
     fn visible_workspace_obstacles(
         &self,
         context: &egui::Context,
         except: &str,
         include_references: bool,
     ) -> Vec<egui::Rect> {
+        let compact = crate::studio_layout::compact_workspace_mode(context.content_rect());
+        let layout_key = self.compact_panel_layout_key(context);
+        let active_reference = self
+            .compact_reference_index
+            .min(self.references.len().saturating_sub(1));
         let mut obstacles: Vec<_> = if include_references {
             self.references
                 .iter()
-                .filter_map(|reference| {
-                    let id = egui::Id::new(("reference-board", reference.layout.path.clone()));
+                .enumerate()
+                .filter(|(index, _)| {
+                    !compact || (!self.brush_flyout_open && *index == active_reference)
+                })
+                .filter_map(|(_, reference)| {
+                    let id = reference_panel_id(&reference.layout.path, compact, layout_key);
                     egui::AreaState::load(context, id).map(|state| state.rect())
                 })
                 .collect()
@@ -3071,7 +3230,14 @@ impl Studio {
         ] {
             if name != except
                 && open
-                && let Some(state) = egui::AreaState::load(context, egui::Id::new(name))
+                && let Some(state) = egui::AreaState::load(
+                    context,
+                    if name == "Layers" {
+                        compact_floating_panel_id(name, compact, layout_key)
+                    } else {
+                        egui::Id::new(name)
+                    },
+                )
             {
                 obstacles.push(state.rect());
             }
@@ -3087,17 +3253,31 @@ impl Studio {
     /// that decision or their controls become canvas clicks.
     fn floating_ui_under_client(&self, client_px: [f64; 2]) -> bool {
         let scale = self.context.pixels_per_point();
+        let compact = crate::studio_layout::compact_workspace_mode(self.context.content_rect());
+        let layout_key = self.compact_panel_layout_key(&self.context);
+        let active_reference = self
+            .compact_reference_index
+            .min(self.references.len().saturating_sub(1));
         let mut ids = vec![egui::Id::new("tool palette")];
         ids.extend(
             [
-                ("Layers", self.layers_flyout_open),
+                (
+                    "Layers",
+                    self.layers_flyout_open && !(compact && self.brush_flyout_open),
+                ),
                 ("Brush library", self.brush_flyout_open),
                 ("Color controls", self.color_flyout_open),
                 ("Workspace controls", self.show_controls),
             ]
             .into_iter()
             .filter(|(_, open)| *open)
-            .map(|(name, _)| egui::Id::new(name)),
+            .map(|(name, _)| {
+                if name == "Layers" {
+                    compact_floating_panel_id(name, compact, layout_key)
+                } else {
+                    egui::Id::new(name)
+                }
+            }),
         );
         if ids.into_iter().any(|id| {
             egui::AreaState::load(&self.context, id).is_some_and(|state| {
@@ -3106,22 +3286,45 @@ impl Studio {
         }) {
             return true;
         }
-        self.references.iter().any(|reference| {
-            let id = egui::Id::new(("reference-board", reference.layout.path.clone()));
-            egui::AreaState::load(&self.context, id).is_some_and(|state| {
-                crate::studio_layout::client_point_in_rect(state.rect(), client_px, scale)
-            })
-        })
-    }
-    fn reference_index_under_client(&self, client_px: [f64; 2]) -> Option<usize> {
-        let pixels_per_point = self.context.pixels_per_point();
         self.references
             .iter()
             .enumerate()
+            .filter(|(index, _)| {
+                !compact || (!self.brush_flyout_open && *index == active_reference)
+            })
+            .any(|(_, reference)| {
+                let id = reference_panel_id(&reference.layout.path, compact, layout_key);
+                egui::AreaState::load(&self.context, id).is_some_and(|state| {
+                    crate::studio_layout::client_point_in_rect(state.rect(), client_px, scale)
+                })
+            })
+    }
+    fn reference_index_under_client(&self, client_px: [f64; 2]) -> Option<usize> {
+        let pixels_per_point = self.context.pixels_per_point();
+        let compact = crate::studio_layout::compact_workspace_mode(self.context.content_rect());
+        let layout_key = self.compact_panel_layout_key(&self.context);
+        let active_reference = self
+            .compact_reference_index
+            .min(self.references.len().saturating_sub(1));
+        self.references
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                !compact || (!self.brush_flyout_open && *index == active_reference)
+            })
             .rev()
             .find_map(|(index, reference)| {
-                reference_contains_client(&reference.layout, client_px, pixels_per_point)
-                    .then_some(index)
+                let id = reference_panel_id(&reference.layout.path, compact, layout_key);
+                let inside = if let Some(state) = egui::AreaState::load(&self.context, id) {
+                    crate::studio_layout::client_point_in_rect(
+                        state.rect(),
+                        client_px,
+                        pixels_per_point,
+                    )
+                } else {
+                    reference_contains_client(&reference.layout, client_px, pixels_per_point)
+                };
+                inside.then_some(index)
             })
     }
     fn reference_viewport_under_client(&self, client_px: [f64; 2]) -> Option<usize> {
@@ -3945,6 +4148,13 @@ impl Studio {
 
     /// Dismiss the top contextual panel before Escape can close the application.
     pub fn dismiss_flyout(&mut self) -> bool {
+        if egui::Popup::is_any_open(&self.context) {
+            egui::Popup::close_all(&self.context);
+            if self.test_path_dialog {
+                eprintln!("UI_TEST_ESCAPE_DISMISSED: menu");
+            }
+            return true;
+        }
         let dismissed = if self.brush_flyout_open {
             self.brush_flyout_open = false;
             "brush"
@@ -4545,7 +4755,55 @@ impl Studio {
                             ui.horizontal(|ui| {
                                 if self.tool == EditTool::Brush {
                                     let project = session.live_mut().project_mut();
-                                    ui.strong(brush_display_name(project.brush.kind));
+                                    let preset_picker = ui.menu_button(
+                                        brush_display_name(project.brush.kind),
+                                        |ui| {
+                                        for kind in [
+                                            BrushKind::Round,
+                                            BrushKind::Ink,
+                                            BrushKind::Pencil,
+                                            BrushKind::Marker,
+                                            BrushKind::Airbrush,
+                                            BrushKind::Soft,
+                                            BrushKind::Textured,
+                                            BrushKind::Calligraphy,
+                                            BrushKind::Eraser,
+                                            BrushKind::Wash,
+                                        ] {
+                                            let preset = ui.selectable_label(
+                                                project.brush.kind == kind,
+                                                brush_display_name(kind),
+                                            );
+                                            if self.test_path_dialog {
+                                                eprintln!(
+                                                    "UI_TEST_QUICK_PRESET_RECT: {kind:?} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                    preset.rect.left(),
+                                                    preset.rect.top(),
+                                                    preset.rect.width(),
+                                                    preset.rect.height(),
+                                                    ui.ctx().pixels_per_point(),
+                                                );
+                                            }
+                                            if preset.clicked() {
+                                                activate_brush_preset(&mut project.brush, kind);
+                                                if self.test_path_dialog {
+                                                    eprintln!("UI_TEST_QUICK_BRUSH_SELECTED: {kind:?}");
+                                                }
+                                                ui.close();
+                                            }
+                                        }
+                                    },
+                                    );
+                                    if self.test_path_dialog {
+                                        eprintln!(
+                                            "UI_TEST_QUICK_BRUSH_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                            preset_picker.response.rect.left(),
+                                            preset_picker.response.rect.top(),
+                                            preset_picker.response.rect.width(),
+                                            preset_picker.response.rect.height(),
+                                            ctx.pixels_per_point(),
+                                        );
+                                    }
                                     ui.add_sized(
                                         [176.0, 34.0],
                                         egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
@@ -4647,17 +4905,22 @@ impl Studio {
             palette_viewport.max.y =
                 (palette_viewport.bottom() - 72.0).max(palette_viewport.min.y + 120.0);
             let floating_position = egui::pos2(self.palette_position[0], self.palette_position[1]);
+            let effective_palette_dock = crate::studio_layout::effective_palette_dock(
+                self.palette_dock,
+                screen,
+                self.palette_dragging,
+            );
             let dock_position = if self.palette_dragging {
                 floating_position
             } else {
                 crate::studio_layout::palette_anchor(
                     palette_viewport,
-                    self.palette_dock,
+                    effective_palette_dock,
                     floating_position,
                 )
             };
             let horizontal_palette = matches!(
-                self.palette_dock,
+                effective_palette_dock,
                 crate::workspace::PaletteDock::Top | crate::workspace::PaletteDock::Bottom
             );
             let palette_area_height = (palette_viewport.height() - 16.0).max(120.0);
@@ -4959,6 +5222,58 @@ impl Studio {
             });
             let rect = palette_response.response.rect;
             self.palette_rect = Some(rect);
+            let compact_workspace = crate::studio_layout::compact_workspace_mode(screen);
+            let active_compact_reference = self
+                .compact_reference_index
+                .min(self.references.len().saturating_sub(1));
+            let compact_companions_visible = !(compact_workspace && self.brush_flyout_open);
+            let compact_layout_key = if compact_companions_visible {
+                usize::from(self.layers_flyout_open) + usize::from(!self.references.is_empty())
+            } else {
+                0
+            };
+            let mut compact_panel_sizes =
+                Vec::with_capacity(self.references.len() + usize::from(self.layers_flyout_open));
+            if self.layers_flyout_open && compact_companions_visible {
+                compact_panel_sizes.push(egui::vec2(
+                    self.layers_flyout_size[0],
+                    self.layers_flyout_size[1],
+                ));
+            }
+            compact_panel_sizes.extend(self.references.iter().enumerate().filter_map(
+                |(index, reference)| {
+                    ((!compact_workspace || index == active_compact_reference)
+                        && compact_companions_visible)
+                        .then_some(egui::vec2(
+                            reference.layout.size[0],
+                            reference.layout.size[1],
+                        ))
+                },
+            ));
+            let compact_companion_panels = crate::studio_layout::compact_workspace_panel_rects(
+                screen,
+                rect,
+                &compact_panel_sizes,
+            );
+            if self.test_path_dialog && compact_workspace {
+                eprintln!(
+                    "UI_TEST_COMPACT_PLAN: viewport={:.1}x{:.1} palette={:.1},{:.1},{:.1},{:.1} panels={:?}",
+                    screen.width(),
+                    screen.height(),
+                    rect.left(),
+                    rect.top(),
+                    rect.width(),
+                    rect.height(),
+                    compact_companion_panels,
+                );
+            }
+            if self.test_path_dialog && compact_workspace && self.brush_flyout_open {
+                eprintln!(
+                    "UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden={} references_hidden={}",
+                    self.layers_flyout_open,
+                    self.references.len(),
+                );
+            }
             if self.test_path_dialog {
                 let scale = ctx.pixels_per_point();
                 let marker = [
@@ -5057,24 +5372,43 @@ impl Studio {
                 } else {
                     "Untitled document"
                 };
-                ui.horizontal(|ui| {
-                    ui.strong(save_status);
-                    ui.separator();
-                    if let Some(error) = session.live().document_error() {
-                        ui.colored_label(egui::Color32::LIGHT_RED, error);
-                    } else {
-                        ui.label(&self.status);
-                    }
-                });
-                ui.small(format!(
-                    "{} × {} px · {} dpi",
-                    session.live().project().state().width,
-                    session.live().project().state().height,
-                    session.live().project().state().dpi
-                ));
+                if compact_workspace {
+                    ui.horizontal(|ui| {
+                        ui.strong(save_status);
+                        ui.separator();
+                        if let Some(error) = session.live().document_error() {
+                            ui.colored_label(egui::Color32::LIGHT_RED, error);
+                        } else {
+                            ui.small(format!(
+                                "{} × {} px · {} dpi",
+                                project.state().width,
+                                project.state().height,
+                                project.state().dpi
+                            ));
+                        }
+                    })
+                    .response
+                    .on_hover_text(&self.status);
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.strong(save_status);
+                        ui.separator();
+                        if let Some(error) = session.live().document_error() {
+                            ui.colored_label(egui::Color32::LIGHT_RED, error);
+                        } else {
+                            ui.label(&self.status);
+                        }
+                    });
+                    ui.small(format!(
+                        "{} × {} px · {} dpi",
+                        session.live().project().state().width,
+                        session.live().project().state().height,
+                        session.live().project().state().dpi
+                    ));
+                }
             });
 
-            if self.show_controls {
+            if self.show_controls && !self.welcome && !self.new_dialog && !self.recovery_manager {
                 let mut controls_open = true;
                 let controls_size = egui::vec2(
                     self.workspace_controls_size[0].min((screen.width() - 16.0).max(1.0)),
@@ -5177,9 +5511,7 @@ impl Studio {
                                             )
                                             .clicked()
                                         {
-                                            let color = project.brush.color;
-                                            project.brush = Brush::preset(k);
-                                            project.brush.color = color;
+                                            activate_brush_preset(&mut project.brush, k);
                                         }
                                     }
                                 });
@@ -5614,44 +5946,80 @@ impl Studio {
                 }
             }
 
-            if self.layers_flyout_open {
+            if self.layers_flyout_open
+                && !(self.welcome
+                    || self.new_dialog
+                    || self.recovery_manager
+                    || compact_workspace && self.brush_flyout_open)
+            {
                 let mut open = self.layers_flyout_open;
-                let obstacles = self.visible_workspace_obstacles(ctx, "Layers", true);
-                let layers_position = crate::studio_layout::flyout_position_avoiding(
-                    screen,
-                    palette_response.response.rect,
-                    egui::vec2(self.layers_flyout_size[0], self.layers_flyout_size[1]),
-                    egui::pos2(
-                        self.layers_flyout_position[0],
-                        self.layers_flyout_position[1],
-                    ),
-                    &obstacles,
+                let compact_rect = compact_companion_panels
+                    .as_ref()
+                    .and_then(|rects| rects.first().copied());
+                let compact = compact_rect.is_some();
+                let layers_id = compact_floating_panel_id("Layers", compact, compact_layout_key);
+                let desired_size = compact_rect.map_or_else(
+                    || egui::vec2(self.layers_flyout_size[0], self.layers_flyout_size[1]),
+                    |rect| rect.size(),
                 );
-                let layers_area = egui::AreaState::load(ctx, egui::Id::new("Layers"));
+                let obstacles = self.visible_workspace_obstacles(ctx, "Layers", true);
+                let layers_position = compact_rect.map_or_else(
+                    || {
+                        crate::studio_layout::flyout_position_avoiding(
+                            screen,
+                            palette_response.response.rect,
+                            desired_size,
+                            egui::pos2(
+                                self.layers_flyout_position[0],
+                                self.layers_flyout_position[1],
+                            ),
+                            &obstacles,
+                        )
+                    },
+                    |rect| rect.min,
+                );
+                let layers_area = egui::AreaState::load(ctx, layers_id);
                 let layers_needs_reanchor = layers_area.is_some_and(|state| {
                     let current = state.rect();
                     !screen.contains_rect(current)
                         || current.intersects(palette_response.response.rect)
+                        || compact_rect.is_some_and(|target| {
+                            current.width() > target.width() + 24.0
+                                || current.height() > target.height() + 24.0
+                        })
                         || obstacles
                             .iter()
                             .any(|obstacle| current.intersects(*obstacle))
                 });
                 let panel = egui::Window::new("Layers")
+                    .id(layers_id)
                     .order(egui::Order::Foreground)
                     .frame(crate::ui_tokens::floating_panel_frame(&ctx.style().visuals))
                     .open(&mut open)
-                    .resizable(true)
-                    .default_size(egui::vec2(
-                        self.layers_flyout_size[0],
-                        self.layers_flyout_size[1],
-                    ))
+                    .resizable(!compact)
+                    .default_size(desired_size)
                     .max_size(egui::vec2(
-                        (screen.width() - 16.0).max(1.0),
-                        (screen.height() - 16.0).max(1.0),
+                        if compact {
+                            desired_size.x
+                        } else {
+                            (screen.width() - 16.0).max(1.0)
+                        },
+                        if compact {
+                            desired_size.y
+                        } else {
+                            (screen.height() - 16.0).max(1.0)
+                        },
                     ))
                     .default_pos(layers_position)
                     .constrain_to(screen.shrink(8.0));
-                let panel = if layers_needs_reanchor {
+                let panel = if compact {
+                    let panel = panel.fixed_size(desired_size);
+                    if layers_needs_reanchor {
+                        panel.current_pos(layers_position)
+                    } else {
+                        panel
+                    }
+                } else if layers_needs_reanchor {
                     panel.current_pos(layers_position)
                 } else {
                     panel
@@ -5663,19 +6031,44 @@ impl Studio {
                         source: self.layer_drag_source,
                         target: self.layer_drag_target,
                     };
-                    layer_flyout_contents(
-                        ui,
-                        session.live_mut().project_mut(),
-                        actions,
-                        self.test_path_dialog,
-                        &mut drag_ui,
-                    );
+                    let mut contents = |ui: &mut egui::Ui| {
+                        layer_flyout_contents(
+                            ui,
+                            session.live_mut().project_mut(),
+                            actions,
+                            self.test_path_dialog,
+                            compact,
+                            &mut drag_ui,
+                        );
+                    };
+                    if compact {
+                        egui::ScrollArea::vertical()
+                            .id_salt("compact-layers-content")
+                            .auto_shrink([false, false])
+                            .max_height((desired_size.y - 128.0).max(96.0))
+                            .show(ui, contents);
+                    } else {
+                        contents(ui);
+                    }
                 });
                 if let Some(panel) = panel {
                     let rect = panel.response.rect;
                     let position = [rect.left(), rect.top()];
                     let size = [rect.width(), rect.height()];
-                    if position != self.layers_flyout_position || size != self.layers_flyout_size {
+                    if self.test_path_dialog {
+                        eprintln!(
+                            "UI_TEST_LAYERS_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            rect.left(),
+                            rect.top(),
+                            rect.width(),
+                            rect.height(),
+                            ctx.pixels_per_point(),
+                        );
+                    }
+                    if !compact
+                        && (position != self.layers_flyout_position
+                            || size != self.layers_flyout_size)
+                    {
                         self.layers_flyout_position = position;
                         self.layers_flyout_size = size;
                         workspace_changed = true;
@@ -5684,7 +6077,8 @@ impl Studio {
                 self.layers_flyout_open = open;
             }
 
-            if self.brush_flyout_open {
+            if self.brush_flyout_open && !self.welcome && !self.new_dialog && !self.recovery_manager
+            {
                 let mut open = self.brush_flyout_open;
                 let obstacles =
                     self.visible_workspace_obstacles(ctx, "Brush library", screen.width() >= 760.0);
@@ -5879,9 +6273,7 @@ impl Studio {
                                             );
                                         }
                                         if activated {
-                                            let color = project.brush.color;
-                                            project.brush = Brush::preset(kind);
-                                            project.brush.color = color;
+                                            activate_brush_preset(&mut project.brush, kind);
                                         }
                                         let favorite = self.favorite_brushes.contains(&kind);
                                         let response = ui.add_sized(
@@ -5919,9 +6311,7 @@ impl Studio {
                                             let texture = self.brush_preset_texture(ui.ctx(), kind);
                                             let (activated, _) = brush_preset_card_with_preview(ui, kind, selected, project.brush.color, 148.0, 82.0, texture);
                                             if activated {
-                                                let color = project.brush.color;
-                                                project.brush = Brush::preset(kind);
-                                                project.brush.color = color;
+                                                activate_brush_preset(&mut project.brush, kind);
                                             }
                                             let favorite = self.favorite_brushes.contains(&kind);
                                             let label = if favorite { "★" } else { "☆" };
@@ -6010,8 +6400,7 @@ impl Studio {
                             ui.strong(brush_display_name(project.brush.kind));
                             ui.weak("Active");
                         });
-                        ui.add(egui::Slider::new(&mut project.brush.size, 1.0..=256.0).text("Size"));
-                        ui.add(egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0).text("Opacity"));
+                        ui.weak("Size and opacity are available in the canvas options row.");
                         egui::CollapsingHeader::new("Flow and dynamics").show(ui, |ui| {
                             ui.add(egui::Slider::new(&mut project.brush.flow, 0.01..=1.0).text("Flow"));
                             ui.add(egui::Slider::new(&mut project.brush.hardness, 0.0..=1.0).text("Hardness"));
@@ -6090,7 +6479,8 @@ impl Studio {
                 }
                 self.brush_flyout_open = open;
             }
-            if self.color_flyout_open {
+            if self.color_flyout_open && !self.welcome && !self.new_dialog && !self.recovery_manager
+            {
                 let mut open = self.color_flyout_open;
                 let obstacles = self.visible_workspace_obstacles(ctx, "Color controls", true);
                 // Reserve the window frame and any minimum-width controls when
@@ -6323,63 +6713,204 @@ impl Studio {
                 });
 
             let screen_viewport = ctx.content_rect();
-            let last_reference_index = self.references.len().saturating_sub(1);
+            let reference_count = self.references.len();
+            let last_reference_index = reference_count.saturating_sub(1);
+            let mut compact_reference_request = None;
             for (index, reference) in self.references.iter_mut().enumerate() {
-                let title = reference
+                let reference_visible_workspace = !(self.welcome
+                    || self.new_dialog
+                    || self.recovery_manager
+                    || compact_workspace && self.brush_flyout_open);
+                if !reference_visible_workspace {
+                    reference.viewport = None;
+                    continue;
+                }
+                if compact_workspace && index != active_compact_reference {
+                    reference.viewport = None;
+                    continue;
+                }
+                let file_name = reference
                     .layout
                     .path
                     .file_name()
                     .and_then(|name| name.to_str())
-                    .unwrap_or("Reference");
+                    .unwrap_or("Reference image")
+                    .to_owned();
+                // Use a stable, compact panel title instead of letting a long
+                // source filename force the floating window wider than its
+                // compact viewport slot. Keep the original filename available
+                // in the settings menu and image tooltip.
+                let title = if compact_workspace && reference_count > 1 {
+                    format!("Reference {}/{}", index + 1, reference_count)
+                } else {
+                    format!("Reference {}", index + 1)
+                };
                 let reference_id = reference.layout.path.clone();
-                let id = egui::Id::new(("reference-board", reference_id));
+                let compact_index = usize::from(self.layers_flyout_open)
+                    + if compact_workspace { 0 } else { index };
+                let compact_rect = compact_companion_panels
+                    .as_ref()
+                    .and_then(|rects| rects.get(compact_index).copied());
+                let compact = compact_rect.is_some();
+                if self.test_path_dialog && compact_workspace {
+                    eprintln!(
+                        "UI_TEST_COMPACT_REFERENCE_ACTIVE: {} {}",
+                        index, reference_count
+                    );
+                }
+                if self.test_path_dialog && screen_viewport.width() < 760.0 {
+                    eprintln!(
+                        "UI_TEST_REFERENCE_COMPACT_TARGET: {} compact={} target={:?} current={:?}",
+                        index,
+                        compact,
+                        compact_rect,
+                        compact_rect
+                            .and_then(|_| egui::AreaState::load(
+                                ctx,
+                                reference_panel_id(&reference_id, true, compact_layout_key)
+                            ))
+                            .map(|state| state.rect()),
+                    );
+                }
+                let id = reference_panel_id(&reference_id, compact, compact_layout_key);
                 let mut open = true;
                 let mut remove_requested = false;
                 let mut center_requested = false;
                 let mut reset_position_requested = false;
                 let before = reference.layout.clone();
-                let window_size = [
-                    before.size[0].min(screen_viewport.width().max(1.0)),
-                    before.size[1].min(screen_viewport.height().max(1.0)),
-                ];
-                let desired_pos =
-                    clamp_reference_position(before.position, window_size, screen_viewport);
+                let window_size = compact_rect.map_or_else(
+                    || {
+                        [
+                            before.size[0].min(screen_viewport.width().max(1.0)),
+                            before.size[1].min(screen_viewport.height().max(1.0)),
+                        ]
+                    },
+                    |rect| [(rect.width() - 14.0).max(180.0), rect.height()],
+                );
+                let desired_pos = compact_rect.map_or_else(
+                    || clamp_reference_position(before.position, window_size, screen_viewport),
+                    |rect| rect.min,
+                );
                 let area = egui::AreaState::load(ctx, id);
-                let current_pos = area.map(|state| state.left_top_pos());
+                let current_rect = area.map(|state| state.rect());
+                let current_pos = current_rect.map(|rect| rect.min);
                 let correction = current_pos.and_then(|current| {
-                    let safe_current = clamp_reference_position(
-                        [current.x, current.y],
-                        window_size,
-                        screen_viewport,
-                    );
-                    let persisted_differs = current.distance(desired_pos) > 1.0
-                        && before.position != [current.x, current.y];
-                    let target = if persisted_differs {
-                        desired_pos
+                    if compact {
+                        let current_rect = current_rect.unwrap_or_else(|| {
+                            egui::Rect::from_min_size(
+                                current,
+                                egui::vec2(window_size[0], window_size[1]),
+                            )
+                        });
+                        let overlaps_other_panel = compact_companion_panels
+                            .as_ref()
+                            .into_iter()
+                            .flatten()
+                            .enumerate()
+                            .any(|(other_index, other)| {
+                                other_index != compact_index && current_rect.intersects(*other)
+                            });
+                        let overlaps_palette = self
+                            .palette_rect
+                            .is_some_and(|palette| current_rect.intersects(palette));
+                        let invalid = !screen_viewport.contains_rect(current_rect)
+                            || overlaps_palette
+                            || overlaps_other_panel;
+                        invalid.then_some(desired_pos)
                     } else {
-                        safe_current
-                    };
-                    (current.distance(target) > 1.0).then_some(target)
+                        let safe_current = clamp_reference_position(
+                            [current.x, current.y],
+                            window_size,
+                            screen_viewport,
+                        );
+                        let persisted_differs = current.distance(desired_pos) > 1.0
+                            && before.position != [current.x, current.y];
+                        let target = if persisted_differs {
+                            desired_pos
+                        } else {
+                            safe_current
+                        };
+                        (current.distance(target) > 1.0).then_some(target)
+                    }
                 });
                 let mut window = egui::Window::new(egui::RichText::new(title).size(18.0).strong())
                     .order(egui::Order::Foreground)
                     .id(id)
                     .open(&mut open)
                     .movable(!before.position_locked)
-                    .resizable(true)
-                    .max_size(screen_viewport.size())
+                    .resizable(!compact)
+                    .max_size(if compact {
+                        egui::vec2(window_size[0], window_size[1])
+                    } else {
+                        screen_viewport.size()
+                    })
                     .default_size(egui::vec2(window_size[0], window_size[1]));
                 if let Some(pos) = correction {
                     window = window.current_pos(pos);
                 } else {
                     window = window.default_pos(desired_pos);
                 }
-                let reference_visible_workspace =
-                    !self.welcome && !self.new_dialog && !self.recovery_manager;
+                if compact {
+                    window = window.fixed_size(egui::vec2(window_size[0], window_size[1]));
+                }
                 let response = window.show(ctx, |ui| {
-                    ui.horizontal_wrapped(|ui| {
+                    ui.horizontal(|ui| {
+                        if compact {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                        }
+                        if compact && reference_count > 1 {
+                            let previous = ui
+                                .add_sized(
+                                    [if compact { 24.0 } else { 28.0 }, 32.0],
+                                    egui::Button::new("‹"),
+                                )
+                                .on_hover_text("Show previous reference image");
+                            previous.widget_info(|| {
+                                egui::WidgetInfo::labeled(
+                                    egui::WidgetType::Button,
+                                    ui.is_enabled(),
+                                    "Show previous reference image",
+                                )
+                            });
+                            if previous.clicked() {
+                                compact_reference_request =
+                                    Some((index + reference_count - 1) % reference_count);
+                            }
+                            ui.small(format!("{}/{}", index + 1, reference_count));
+                            let next = ui
+                                .add_sized(
+                                    [if compact { 24.0 } else { 28.0 }, 32.0],
+                                    egui::Button::new("›"),
+                                )
+                                .on_hover_text("Show next reference image");
+                            next.widget_info(|| {
+                                egui::WidgetInfo::labeled(
+                                    egui::WidgetType::Button,
+                                    ui.is_enabled(),
+                                    "Show next reference image",
+                                )
+                            });
+                            if next.clicked() {
+                                compact_reference_request = Some((index + 1) % reference_count);
+                            }
+                            if self.test_path_dialog {
+                                eprintln!(
+                                    "UI_TEST_REFERENCE_COMPACT_NAV: {} {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    index,
+                                    reference_count,
+                                    next.rect.left(),
+                                    next.rect.top(),
+                                    next.rect.width(),
+                                    next.rect.height(),
+                                    ctx.pixels_per_point(),
+                                );
+                            }
+                        }
                         let zoom_out = ui
-                            .add_sized([36.0, 32.0], egui::Button::new("−"))
+                            .add_sized(
+                                [if compact { 24.0 } else { 36.0 }, 32.0],
+                                egui::Button::new("−"),
+                            )
                             .on_hover_text("Zoom out reference image");
                         zoom_out.widget_info(|| {
                             egui::WidgetInfo::labeled(
@@ -6403,7 +6934,10 @@ impl Studio {
                             }
                         }
                         let zoom_in = ui
-                            .add_sized([36.0, 32.0], egui::Button::new("+"))
+                            .add_sized(
+                                [if compact { 24.0 } else { 36.0 }, 32.0],
+                                egui::Button::new("+"),
+                            )
                             .on_hover_text("Zoom in reference image");
                         zoom_in.widget_info(|| {
                             egui::WidgetInfo::labeled(
@@ -6427,7 +6961,9 @@ impl Studio {
                             }
                         }
                         ui.weak(format!("{:.0}%", reference.layout.view_zoom * 100.0));
-                        let settings = ui.menu_button("Settings", |ui| {
+                        let settings = ui.menu_button(if compact { "⋯" } else { "Settings" }, |ui| {
+                            ui.weak(file_name);
+                            ui.separator();
                             let center_image = ui.button("Center image");
                             if self.test_path_dialog {
                                 eprintln!(
@@ -6492,7 +7028,28 @@ impl Studio {
                             );
                         }
                     });
-                    let available = ui.available_size().max(egui::vec2(48.0, 48.0));
+                    let mut available = ui.available_size().max(egui::vec2(48.0, 48.0));
+                    if compact {
+                        // A reference board can have a fixed minimum body height
+                        // for its image viewport. Cap that viewport temporarily
+                        // so the decorated window stays above the app status
+                        // strip at 640 × 480; larger layouts retain the natural
+                        // image area and the saved panel size is untouched.
+                        let source_size = reference.texture.size_vec2();
+                        let fit_height = if source_size.x > 0.0 {
+                            available.x * source_size.y / source_size.x
+                        } else {
+                            132.0
+                        };
+                        let panel_content_height = compact_rect
+                            .map(|rect| (rect.height() - 132.0).max(48.0))
+                            .unwrap_or(132.0);
+                        available.y = available
+                            .y
+                            .min(fit_height)
+                            .min(panel_content_height)
+                            .max(48.0);
+                    }
                     let source_size = reference.texture.size_vec2();
                     let (viewport, image_response) =
                         ui.allocate_exact_size(available, egui::Sense::drag());
@@ -6534,6 +7091,17 @@ impl Studio {
                             && reference_visible_workspace
                             && visible_image_rect.is_positive()
                         {
+                            if compact_workspace {
+                                eprintln!(
+                                    "UI_TEST_REFERENCE_COMPACT_IMAGE_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    index,
+                                    visible_image_rect.left(),
+                                    visible_image_rect.top(),
+                                    visible_image_rect.width(),
+                                    visible_image_rect.height(),
+                                    ctx.pixels_per_point(),
+                                );
+                            }
                             eprintln!(
                                 "UI_TEST_REFERENCE_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                 visible_image_rect.left(),
@@ -6589,6 +7157,15 @@ impl Studio {
                             rect.height(),
                             ctx.pixels_per_point(),
                         );
+                        eprintln!(
+                            "UI_TEST_REFERENCE_LAYOUT_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            index,
+                            rect.left(),
+                            rect.top(),
+                            rect.width(),
+                            rect.height(),
+                            ctx.pixels_per_point(),
+                        );
                         if index == last_reference_index {
                             eprintln!(
                                 "UI_TEST_REFERENCE_LAST_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
@@ -6615,8 +7192,12 @@ impl Studio {
                             screen_viewport,
                         )
                     };
-                    reference.layout.position = [next_position.x, next_position.y];
-                    reference.layout.size = [rect.width(), rect.height()];
+                    if !compact || center_requested || reset_position_requested {
+                        reference.layout.position = [next_position.x, next_position.y];
+                    }
+                    if !compact {
+                        reference.layout.size = [rect.width(), rect.height()];
+                    }
                     if center_requested || reset_position_requested {
                         workspace_changed = true;
                     }
@@ -6626,6 +7207,15 @@ impl Studio {
                     workspace_changed = true;
                     reference.layout.opacity = 0.0;
                 }
+            }
+            if let Some(next_reference) = compact_reference_request
+                && next_reference < self.references.len()
+            {
+                self.compact_reference_index = next_reference;
+                if self.test_path_dialog {
+                    eprintln!("UI_TEST_REFERENCE_COMPACT_ACTIVE: {next_reference}");
+                }
+                ctx.request_repaint();
             }
             if self
                 .references
@@ -7219,14 +7809,18 @@ impl Studio {
                 self.draft_cleanup = Some(path);
             }
         } else if self.recovery_manager && self.cleanup.is_none() {
+            let viewport = ctx.content_rect();
+            let limits = crate::studio_layout::recovery_modal_limits(viewport);
+            let mut modal_content_rect = egui::Rect::NOTHING;
             egui::Modal::new(egui::Id::new("recovery manager")).show(ctx, |ui| {
-                ui.set_min_width(520.0);
+                ui.set_max_size(limits.max_size);
+                ui.set_width_range(limits.min_width..=limits.max_size.x);
                 ui.heading("Artwork recovery manager");
                 ui.label("These local checkpoints are separate from saved projects. Recover opens a copy as a new unsaved document.");
                 if self.recovery_files.is_empty() {
                     ui.label("No inactive recovery checkpoints are available.");
                 } else {
-                    egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(limits.list_height).show(ui, |ui| {
                         for (index, path) in self.recovery_files.clone().into_iter().enumerate() {
                             let name = recovery_checkpoint_label(&path, index);
                             let recovery_surface = ui.visuals().faint_bg_color;
@@ -7323,11 +7917,7 @@ impl Studio {
                                             ui.label("Preview unavailable");
                                         } else {
                                             let response = ui.button("Preview");
-                                            if self.test_path_dialog
-                                                && index == 0
-                                                && !self.test_recovery_preview_target_logged
-                                            {
-                                                self.test_recovery_preview_target_logged = true;
+                                            if self.test_path_dialog && index == 0 {
                                                 eprintln!(
                                                     "UI_TEST_RECOVERY_PREVIEW_TARGET: {:.1} {:.1} {:.1} {:.1} {:.2} {:.1}",
                                                     response.rect.left(),
@@ -7338,13 +7928,15 @@ impl Studio {
                                                     ctx.content_rect().min.y,
                                                 );
                                             }
-                                            if self.test_path_dialog
-                                                && index == 0
-                                                && response.hovered()
-                                                && !self.test_recovery_preview_hover_logged
-                                            {
-                                                self.test_recovery_preview_hover_logged = true;
-                                                eprintln!("UI_TEST_RECOVERY_PREVIEW_HOVERED");
+                                            if self.test_path_dialog && index == 0 {
+                                                if response.hovered()
+                                                    && !self.test_recovery_preview_hover_logged
+                                                {
+                                                    self.test_recovery_preview_hover_logged = true;
+                                                    eprintln!("UI_TEST_RECOVERY_PREVIEW_HOVERED");
+                                                } else if !response.hovered() {
+                                                    self.test_recovery_preview_hover_logged = false;
+                                                }
                                             }
                                             if response.clicked() {
                                                 let texture =
@@ -7405,7 +7997,20 @@ impl Studio {
                     }
                     self.recovery_manager_from_home = false;
                 }
+                modal_content_rect = ui.min_rect();
             });
+            if self.test_path_dialog {
+                let rect = modal_content_rect;
+                eprintln!(
+                    "UI_TEST_RECOVERY_MODAL_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.1} {:.1}",
+                    rect.left(),
+                    rect.top(),
+                    rect.right(),
+                    rect.bottom(),
+                    viewport.width(),
+                    viewport.height(),
+                );
+            }
         } else if let Some(path) = self.cleanup.clone() {
             egui::Modal::new(egui::Id::new("delete recovery checkpoint")).show(ctx, |ui| {
                 ui.heading("Delete recovery checkpoint?");
@@ -8357,19 +8962,29 @@ impl Studio {
                     eprintln!("UI_TEST_LAYER_DRAG_REORDERED: {id} {target_index} {final_index}");
                 }
             }
-            Action::Layer(id, name, visible, locked, opacity, blend) => project.edit(|s| {
-                let l = s
-                    .layers
-                    .iter_mut()
-                    .find(|l| l.id == id)
-                    .ok_or(paint_document::PaintError::Invalid)?;
-                l.name = name;
-                l.visible = visible;
-                l.locked = locked;
-                l.opacity = opacity;
-                l.blend = blend;
-                Ok(())
-            })?,
+            Action::Layer(id, name, visible, locked, opacity, blend) => {
+                project.edit(|s| {
+                    let l = s
+                        .layers
+                        .iter_mut()
+                        .find(|l| l.id == id)
+                        .ok_or(paint_document::PaintError::Invalid)?;
+                    l.name = name;
+                    l.visible = visible;
+                    l.locked = locked;
+                    l.opacity = opacity;
+                    l.blend = blend;
+                    Ok(())
+                })?;
+                if self.test_path_dialog
+                    && let Some(layer) = project.state().layers.iter().find(|layer| layer.id == id)
+                {
+                    eprintln!(
+                        "UI_TEST_LAYER_STATE_APPLIED: {} visible={} locked={}",
+                        id, layer.visible, layer.locked
+                    );
+                }
+            }
             Action::New => {
                 // Each document keeps its own recovery lineage. Never replace the
                 // previous document checkpoint with the next document snapshot.
@@ -8538,13 +9153,14 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        FormatIllustration, LassoAppend, append_lasso_point, brush_size_after_shortcut,
-        document_format_card_height, document_format_grid, fit_paper_to_box, format_illustration,
-        home_hero_height, home_open_card_needed, home_sections_stacked, layer_thumbnail_samples,
-        native_project_path, quick_document_card_layout, recent_artwork_preview_height,
-        recent_gallery_layout, recent_project_matches, recovery_checkpoint_label,
-        recovery_source_label,
+        FormatIllustration, LassoAppend, activate_brush_preset, append_lasso_point,
+        brush_size_after_shortcut, document_format_card_height, document_format_grid,
+        fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
+        home_sections_stacked, layer_thumbnail_samples, native_project_path,
+        quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
+        recent_project_matches, recovery_checkpoint_label, recovery_source_label,
     };
+    use paint_document::brush::{Brush, BrushKind};
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -8581,6 +9197,23 @@ mod tests {
         assert_eq!(brush_size_after_shortcut(1.0, false, false), 1.0);
         assert_eq!(brush_size_after_shortcut(f64::NAN, true, false), 1.1);
         assert_eq!(brush_size_after_shortcut(f64::INFINITY, false, false), 1.0);
+    }
+
+    #[test]
+    fn quick_brush_preset_switch_updates_real_settings_and_keeps_the_color() {
+        let mut brush = Brush::preset(BrushKind::Round);
+        brush.color = [102, 44, 212];
+        activate_brush_preset(&mut brush, BrushKind::Ink);
+        assert_eq!(brush.kind, BrushKind::Ink);
+        assert_eq!(brush.size, 8.0);
+        assert_eq!(brush.hardness, 1.0);
+        assert_eq!(brush.color, [102, 44, 212]);
+        assert!(brush.validate());
+
+        activate_brush_preset(&mut brush, BrushKind::Eraser);
+        assert_eq!(brush.kind, BrushKind::Eraser);
+        assert_eq!(brush.color, [102, 44, 212]);
+        assert!(brush.validate());
     }
 
     #[test]

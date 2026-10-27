@@ -90,6 +90,24 @@ def brush_preview_rect():
            if line.startswith('UI_TEST_BRUSH_PREVIEW_BOUNDS: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
+def quick_brush_preset_rect(kind):
+    prefix=f'UI_TEST_QUICK_PRESET_RECT: {kind} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()[:5]))
+
+def select_quick_brush(kind):
+    menu=wait(lambda: stable_window_rect_marker('UI_TEST_QUICK_BRUSH_MENU_RECT'),
+              'canvas options expose the current brush preset picker')
+    click_at((menu[0]+menu[2]/2)*menu[4],(menu[1]+menu[3]/2)*menu[4])
+    preset=wait(lambda: quick_brush_preset_rect(kind),
+                f'quick preset menu exposes {kind}')
+    click_at((preset[0]+preset[2]/2)*preset[4],(preset[1]+preset[3]/2)*preset[4])
+    wait(lambda: event_marker('UI_TEST_QUICK_BRUSH_SELECTED')==kind,
+         f'{kind} preset applies its real brush settings')
+
 def brush_narrow_layout():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_BRUSH_NARROW_LAYOUT: ')]
@@ -258,6 +276,63 @@ def layer_row_rect(row_index):
         return None
     return tuple(map(float,rows[-1].split()))
 
+def reference_layout_rects():
+    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_REFERENCE_LAYOUT_RECT: ')]
+    by_index={}
+    for line in lines:
+        parts=line.split()
+        index=int(parts[0])
+        by_index.setdefault(index,[]).append(tuple(map(float,parts[1:6])))
+    if not by_index or any(len(values)<2 or values[-1]!=values[-2]
+                           for values in by_index.values()):
+        return None
+    return [by_index[index][-1] for index in sorted(by_index)]
+
+def compact_reference_active():
+    prefix='UI_TEST_COMPACT_REFERENCE_ACTIVE: '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(int,lines[-1].split()))
+
+def compact_reference_navigation():
+    prefix='UI_TEST_REFERENCE_COMPACT_NAV: '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    values=lines[-1].split()
+    return int(values[0]),int(values[1]),*map(float,values[2:])
+
+def compact_reference_window_rect():
+    active=compact_reference_active()
+    if not active:
+        return None
+    index=active[0]
+    prefix=f'UI_TEST_REFERENCE_LAYOUT_RECT: {index} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()))
+
+def compact_reference_image_rect():
+    active=compact_reference_active()
+    if not active:
+        return None
+    index=active[0]
+    prefix=f'UI_TEST_REFERENCE_COMPACT_IMAGE_RECT: {index} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()))
+
+def layers_window_rect():
+    return stable_window_rect_marker('UI_TEST_LAYERS_WINDOW_RECT')
+
 def layer_row_id(row_index):
     marker=layer_row_rect(row_index)
     return int(marker[1]) if marker else None
@@ -292,6 +367,10 @@ def layer_more_button_rect():
     marker=stable_marker('UI_TEST_LAYER_MORE_RECT')
     return tuple(map(float,marker.split())) if marker else None
 
+def layer_front_name_rect():
+    marker=stable_marker('UI_TEST_LAYER_NAME_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
 def layer_context_duplicate_count():
     marker=event_marker('UI_TEST_LAYER_CONTEXT_DUPLICATED')
     return int(marker.split()[0]) if marker else None
@@ -307,11 +386,18 @@ def layer_context_delete_count():
 def recovery_preview_target():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_RECOVERY_PREVIEW_TARGET: ')]
-    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].partition(': ')[2].split()))
 
 def recovery_preview_image_rect():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_RECOVERY_PREVIEW_IMAGE_RECT: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
+def recovery_modal_bounds():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_RECOVERY_MODAL_BOUNDS: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def home_recent_card_rect():
@@ -385,6 +471,15 @@ def key(name):
     code = keycode(display, keysym(name.encode()))
     assert code and key_event(display, code, 1, 0) and key_event(display, code, 0, 0)
     send()
+
+def close_application(process):
+    key('Escape')
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        # Escape closes the topmost egui popup first, then the application.
+        key('Escape')
+    assert process.wait(timeout=20)==0
 
 def status(text):
     try:
@@ -555,12 +650,20 @@ def capture_window(window, name):
         x,y,wheel_width,wheel_height,scale=wait(hue_wheel_rect,'accessible hue wheel is laid out')
         hue_wheel_bounds=(x*scale,y*scale,(x+wheel_width)*scale,(y+wheel_height)*scale)
     if name.startswith('reference-board-'):
-        x,y,image_width,image_height,scale=wait(reference_image_rect,'reference screenshot reports its actual image bounds')
+        if width < 760:
+            image_marker=wait(compact_reference_image_rect,
+                              'compact reference screenshot reports the selected image bounds')
+            x,y,image_width,image_height,scale=image_marker
+            reference_window=wait(compact_reference_window_rect,
+                                  'compact reference screenshot reports stable window bounds')
+        else:
+            x,y,image_width,image_height,scale=wait(reference_image_rect,
+                                                     'reference screenshot reports its actual image bounds')
+            reference_window=wait(
+                lambda: stable_window_rect_marker('UI_TEST_REFERENCE_LAST_WINDOW_RECT'),
+                'reference screenshot reports stable outer-window bounds',
+            )
         reference_image_bounds=(x*scale,y*scale,(x+image_width)*scale,(y+image_height)*scale)
-        reference_window=wait(
-            lambda: stable_window_rect_marker('UI_TEST_REFERENCE_LAST_WINDOW_RECT'),
-            'reference screenshot reports stable outer-window bounds',
-        )
         reference_image_share=image_width/reference_window[2]
     bytes_per_pixel=(bits_per_pixel+7)//8
     byte_order_name='little' if byte_order==0 else 'big'
@@ -648,7 +751,11 @@ def capture_window(window, name):
         assert len(reference_image_colors)>=12, \
             f'{name} image bounds contain too few colors to prove the reference is visible ({len(reference_image_colors)})'
         print(f'UI_SCREENSHOT_REFERENCE_COLORS: {name} {len(reference_image_colors)}', flush=True)
-        assert 0.85<=reference_image_share<=1.0, \
+        # The dark 640 × 480 multi-reference state includes Previous/Next,
+        # counter, zoom and Settings targets in the compact panel. It retains
+        # a useful 75% image share while keeping those controls accessible.
+        minimum_reference_share = 0.75 if name == 'reference-board-dark-narrow' else 0.85
+        assert minimum_reference_share<=reference_image_share<=1.0, \
             f'{name} has an invalid reference image/window width ratio ({reference_image_share:.1%})'
         print(f'UI_SCREENSHOT_REFERENCE_IMAGE_WIDTH_SHARE: {name} {reference_image_share:.1%}', flush=True)
     if name == 'home-recent-artwork-light':
@@ -691,6 +798,14 @@ def capture_window(window, name):
     if name.startswith('recovery-manager-populated-'):
         assert len(recovery_preview_colors)>=8, f'{name} does not show a rendered artwork preview ({len(recovery_preview_colors)} visible colors)'
         print(f'UI_SCREENSHOT_RECOVERY_PREVIEW_COLORS: {name} {len(recovery_preview_colors)}', flush=True)
+        modal=recovery_modal_bounds()
+        assert modal is not None, f'{name} did not report the recovery manager bounds'
+        left,top,right,bottom,viewport_width,viewport_height=modal
+        assert left>=-0.5 and top>=-0.5 and right<=viewport_width+0.5 and bottom<=viewport_height+0.5, \
+            f'{name} recovery dialog extends beyond {viewport_width:.0f}x{viewport_height:.0f}: {modal}'
+        if name.endswith('-narrow'):
+            assert viewport_width<=640 and viewport_height<=480, f'{name} is not a narrow recovery capture: {modal}'
+        print(f'UI_SCREENSHOT_RECOVERY_MODAL_BOUNDS: {name} {left:.1f},{top:.1f}–{right:.1f},{bottom:.1f} inside {viewport_width:.0f}x{viewport_height:.0f}', flush=True)
     if name == 'brush-library-light-normal':
         assert len(brush_preview_colors)>=6, f'{name} does not visibly render the active raster brush sample ({len(brush_preview_colors)} visible colors)'
         print(f'UI_SCREENSHOT_BRUSH_SAMPLE_COLORS: {name} {len(brush_preview_colors)}', flush=True)
@@ -904,19 +1019,51 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 f'new reference is outside the normal viewport: {second_rect}'
             time.sleep(0.3)
             capture_window(window,'reference-board-multi-light')
+            saved_multi_reference_geometry=[
+                (entry['position'][:],entry['size'][:])
+                for entry in json.loads(prefs.read_text()).get('references',[])
+            ]
             resize_window(window,640,480)
             time.sleep(0.3)
             narrow_palette=wait(lambda: window_rect_marker('UI_TEST_PALETTE_RECT'),
                                 'the palette reports current bounds in a narrow window')
-            narrow_layout=json.loads(prefs.read_text())['references'][1]
-            narrow_rect=tuple(narrow_layout['position']+narrow_layout['size'])
-            assert not rects_overlap(narrow_rect,narrow_palette[:4]), \
-                f'narrow reference overlaps the tool palette: reference={narrow_rect}, palette={narrow_palette[:4]}'
-            assert narrow_rect[0]>=0 and narrow_rect[1]>=0 \
-                and narrow_rect[0]+narrow_rect[2]<=640/narrow_palette[4] \
-                and narrow_rect[1]+narrow_rect[3]<=480/narrow_palette[4], \
-                f'narrow reference is outside the viewport: {narrow_rect}'
-            capture_window(window,'reference-board-multi-light-narrow')
+            assert wait(compact_reference_active,'compact reference board selects one active image safely') == (0,2)
+            narrow_reference=wait(compact_reference_window_rect,
+                                  'the active reference window reports its compact bounds')
+            assert not rects_overlap(narrow_reference[:4],narrow_palette[:4]), \
+                f'narrow reference overlaps the tool palette: reference={narrow_reference[:4]}, palette={narrow_palette[:4]}'
+            assert narrow_reference[0]>=0 and narrow_reference[1]>=0 \
+                and narrow_reference[0]+narrow_reference[2]<=640/narrow_palette[4] \
+                and narrow_reference[1]+narrow_reference[3]<=480/narrow_palette[4], \
+                f'narrow reference is outside the viewport: {narrow_reference}'
+            nav=wait(compact_reference_navigation,
+                     'the compact board exposes keyboard/touch-sized reference navigation')
+            click_at((nav[2]+nav[4]/2)*nav[6],(nav[3]+nav[5]/2)*nav[6])
+            assert wait(compact_reference_active,'Next changes the compact reference selection') == (1,2)
+            second_narrow_reference=wait(compact_reference_window_rect,
+                                         'the second reference image receives a reachable compact window')
+            assert second_narrow_reference[0]>=0 and second_narrow_reference[1]>=0 \
+                and second_narrow_reference[0]+second_narrow_reference[2]<=640/narrow_palette[4] \
+                and second_narrow_reference[1]+second_narrow_reference[3]<=480/narrow_palette[4], \
+                f'the second reference is outside the viewport: {second_narrow_reference}'
+            second_image=wait(reference_image_rect,'the selected second reference has a visible image viewport')
+            assert second_image[2]>=48 and second_image[3]>=48, \
+                f'the selected second reference image is too small: {second_image}'
+            capture_window(window,'compact-reference-second')
+            nav=wait(compact_reference_navigation,'the compact board still exposes Previous')
+            click_at((nav[2]+nav[4]/2)*nav[6],(nav[3]+nav[5]/2)*nav[6])
+            assert wait(compact_reference_active,'Previous restores the first compact reference') == (0,2)
+            first_image=wait(compact_reference_image_rect,
+                             'the first reference remains visible after compact navigation')
+            assert first_image[2]>=48 and first_image[3]>=48, \
+                f'the first compact reference image is too small: {first_image}'
+            compact_reference_geometry=[
+                (entry['position'][:],entry['size'][:])
+                for entry in json.loads(prefs.read_text()).get('references',[])
+            ]
+            assert compact_reference_geometry==saved_multi_reference_geometry, \
+                'a temporary compact reference layout must preserve roomy saved geometry'
+            capture_window(window,'compact-reference-first')
             resize_window(window,1280,800)
             left, top, width, height, scale = wait(brush_rect, 'Brush control geometry')
             move(round((left + width / 2) * scale), round((top + height / 2) * scale))
@@ -931,6 +1078,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert preset_preview_count==10, f'expected ten rendered brush samples, got {preset_preview_count}'
             time.sleep(0.8)  # allow egui to finish its newly opened Window sizing pass
             capture_window(window,'brush-library-light-normal')
+            select_quick_brush('Ink')
+            select_quick_brush('Round')
             print('UI_SCREENSHOT_BRUSH_LAYOUT: ' + str(event_marker('UI_TEST_BRUSH_PANEL')), flush=True)
             brush_bounds=wait(lambda: window_rect_marker('UI_TEST_BRUSH_WINDOW_RECT'),
                               'brush window reports its final bounds')
@@ -960,6 +1109,12 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                                'narrow brush gallery shows at least two fully visible presets')
             assert visible_count>=2, \
                 f'narrow Brush gallery should expose at least two presets before scrolling, got {visible_count}'
+            wait(lambda: 'UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden=' in (directory/'application.log').read_text()
+                 and 'UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden=false references_hidden=2' in
+                     (directory/'application.log').read_text(),
+                 'compact Brush focus keeps the two saved references available without overlapping the gallery')
+            assert len(json.loads(prefs.read_text()).get('references',[]))==2, \
+                'compact Brush focus must preserve the hidden reference layouts'
             capture_window(window,'brush-library-light-narrow')
             resize_window(window,1280,800)
             key('Escape')
@@ -1052,6 +1207,75 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_LAYERS_ADDED: 3' in (directory/'application.log').read_text(), 'Layers panel contains three real editable layers')
             capture_window(window,'layers-panel-populated-light')
             resize_window(window,640,480);capture_window(window,'layers-panel-populated-light-narrow')
+            compact_more=wait(layer_more_button_rect,
+                              'compact layer rows keep their contextual visibility controls reachable')
+            compact_open_count=layer_actions_open_count()
+            click_at((compact_more[0]+compact_more[2]/2)*compact_more[4],
+                     (compact_more[1]+compact_more[3]/2)*compact_more[4])
+            wait(lambda: layer_actions_open_count()>compact_open_count,
+                 'compact layer actions open without growing the panel stack')
+            compact_visible=wait(lambda: layer_menu_action_rect('VISIBLE'),
+                                 'compact layer menu exposes the real visibility toggle')
+            compact_layer_id=layer_front_row_id()
+            click_at((compact_visible[0]+compact_visible[2]/2)*compact_visible[4],
+                     (compact_visible[1]+compact_visible[3]/2)*compact_visible[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_VISIBILITY_CHANGED') ==
+                 f'{compact_layer_id} false',
+                 'the compact visibility checkbox applies a real layer-state change')
+            wait(lambda: event_marker('UI_TEST_LAYER_STATE_APPLIED') ==
+                 f'{compact_layer_id} visible=false locked=false',
+                 'compact visibility action changes the document layer state')
+            wait(lambda: event_marker('UI_TEST_LAYER_MENU_STATE') ==
+                 f'{compact_layer_id} visible=false locked=false',
+                 'the open compact menu reflects the changed visibility state')
+            compact_visible=wait(lambda: layer_menu_action_rect('VISIBLE'),
+                                 'the compact visibility toggle remains available for restoration')
+            click_at((compact_visible[0]+compact_visible[2]/2)*compact_visible[4],
+                     (compact_visible[1]+compact_visible[3]/2)*compact_visible[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_VISIBILITY_CHANGED') ==
+                 f'{compact_layer_id} true',
+                 'the compact visibility toggle restores the original layer state')
+            wait(lambda: event_marker('UI_TEST_LAYER_STATE_APPLIED') ==
+                 f'{compact_layer_id} visible=true locked=false',
+                 'the document layer is restored before continuing regression checks')
+            wait(lambda: event_marker('UI_TEST_LAYER_MENU_STATE') ==
+                 f'{compact_layer_id} visible=true locked=false',
+                 'the open compact menu reflects the restored visibility')
+            compact_locked=wait(lambda: layer_menu_action_rect('LOCKED'),
+                                'compact layer menu exposes the lock toggle')
+            click_at((compact_locked[0]+compact_locked[2]/2)*compact_locked[4],
+                     (compact_locked[1]+compact_locked[3]/2)*compact_locked[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_LOCK_CHANGED') ==
+                 f'{compact_layer_id} true',
+                 'the compact lock checkbox applies a real layer-state change')
+            wait(lambda: event_marker('UI_TEST_LAYER_STATE_APPLIED') ==
+                 f'{compact_layer_id} visible=true locked=true',
+                 'compact locking changes the document layer state')
+            wait(lambda: event_marker('UI_TEST_LAYER_MENU_STATE') ==
+                 f'{compact_layer_id} visible=true locked=true',
+                 'the open compact menu reflects the locked state')
+            compact_locked=wait(lambda: layer_menu_action_rect('LOCKED'),
+                                'compact layer lock toggle remains available for restoration')
+            click_at((compact_locked[0]+compact_locked[2]/2)*compact_locked[4],
+                     (compact_locked[1]+compact_locked[3]/2)*compact_locked[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_LOCK_CHANGED') ==
+                 f'{compact_layer_id} false',
+                 'the compact lock checkbox restores the original layer state')
+            wait(lambda: event_marker('UI_TEST_LAYER_STATE_APPLIED') ==
+                 f'{compact_layer_id} visible=true locked=false',
+                 'the layer is restored before continuing regression checks')
+            wait(lambda: event_marker('UI_TEST_LAYER_MENU_STATE') ==
+                 f'{compact_layer_id} visible=true locked=false',
+                 'the open compact menu reflects the restored unlocked state')
+            key('Escape')
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='menu',
+                 'Escape closes the compact layer menu before the Layers panel')
+            menu_state_count=sum(line.startswith('UI_TEST_LAYER_MENU_STATE: ')
+                                 for line in (directory/'application.log').read_text().splitlines())
+            time.sleep(0.25)
+            assert sum(line.startswith('UI_TEST_LAYER_MENU_STATE: ')
+                       for line in (directory/'application.log').read_text().splitlines()) == menu_state_count, \
+                'Escape must dismiss the compact layer menu before resizing'
             resize_window(window,1280,800)
             front_row=wait(layer_front_row_rect,'frontmost layer row offers its contextual actions')
             more=wait(layer_more_button_rect,'frontmost layer exposes a keyboard-accessible actions menu')
@@ -1062,6 +1286,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             duplicate_menu=wait(layer_duplicate_menu_rect,'layer context menu exposes Duplicate layer')
             click_at((duplicate_menu[0]+duplicate_menu[2]/2)*duplicate_menu[4],
                      (duplicate_menu[1]+duplicate_menu[3]/2)*duplicate_menu[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_DUPLICATE_CLICKED') is not None,
+                 'the Duplicate layer menu item receives the real pointer click')
             wait(lambda: layer_context_duplicate_count()==4,
                  'layer context Duplicate targets the clicked layer and creates an editable copy')
             ctrl('z')
@@ -1121,8 +1347,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('z')
             wait(lambda: [layer_row_id(index) for index in range(3)]==order_before,
                  'undo restores the exact pre-drag layer order')
-            right_click_at((front_row[1]+front_row[3]/2)*front_row[5],
-                           (front_row[2]+front_row[4]/2)*front_row[5])
+            name_rect=wait(layer_front_name_rect,'frontmost layer name remains a native context-menu target')
+            right_click_at((name_rect[0]+name_rect[2]/2)*name_rect[4],
+                           (name_rect[1]+name_rect[3]/2)*name_rect[4])
             wait(lambda: 'UI_TEST_LAYER_NATIVE_CONTEXT_OPENED' in (directory/'application.log').read_text(),
                  'right-clicking a layer name opens its native context menu')
             key('Escape')
@@ -1147,7 +1374,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert not any(pixels[i:i+4]==b'\xff\x00\xff\xff' for i in range(0,len(pixels),4)), 'workspace reference pixels leaked into the exported artwork'
             assert not any(pixels[i] < 80 and pixels[i+1] > 120 and pixels[i+2] < 100 for i in range(0,len(pixels),4)), 'workspace reference marker pixels leaked into the exported artwork'
             assert json.loads(prefs.read_text())['references'][0]['path']==str(reference)
-            key('Escape');assert process.wait(timeout=20)==0
+            close_application(process)
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'reopened workspace');focus(display,window,2,0);send()
             # A newly created native window starts at 1000×700 even though the
@@ -1201,9 +1428,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 if line.startswith('UI_TEST_RECOVERY_LABEL_CONTRAST: light '))
             assert float(light_recovery_contrast.rsplit(' ',1)[1]) >= 4.5, 'light recovery label contrast is below 4.5:1'
             preview_target=wait(recovery_preview_target,'recovery preview button geometry')
+            capture_window(window,'recovery-manager-preview-target')
             left,top,width,height,scale,content_top=preview_target
-            hover_marker='UI_TEST_RECOVERY_PREVIEW_HOVERED'
             application_log=directory/'application.log'
+            hover_count=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_HOVERED')
+                            for line in application_log.read_text().splitlines())
             click_x=round((left+width/2)*scale)
             click_y=None
             # Window-manager client offsets can differ from egui's viewport
@@ -1213,10 +1442,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             for offset in range(-80,81,4):
                 candidate_y=round((top+height/2)*scale)+offset
                 move(click_x,candidate_y)
-                if hover_marker in application_log.read_text():
+                hovered=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_HOVERED')
+                            for line in application_log.read_text().splitlines())
+                if hovered>hover_count:
                     click_y=candidate_y
                     break
-            assert click_y is not None, 'pointer movement did not reach the recovery preview button'
+            assert click_y is not None, \
+                f'pointer movement did not reach the recovery preview button: target={preview_target}, hover markers={hover_count}->{hovered}'
             print(f'UI_TEST_RECOVERY_PREVIEW_HIT: {click_x} {click_y}', flush=True)
             click_button(1,True);click_button(1,False)
             wait(lambda: 'UI_TEST_RECOVERY_PREVIEW_VISIBLE' in (directory/'application.log').read_text(),
@@ -1258,7 +1490,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert imported.read_bytes()==preserved_artwork,'journal recovery leaves existing native artwork unchanged'
 
 
-            key('Escape');assert process.wait(timeout=20)==0
+            close_application(process)
             saved_preferences=json.loads(prefs.read_text())
             assert saved_preferences['dark_theme'] is False
             assert saved_preferences['references'][0]['path']==str(reference)
@@ -1303,7 +1535,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Cancel click reaches the file-picker action')
             wait(lambda: 'TEST FILE PICKER' not in title(window),
                  'Cancel returns to Home from the open-project tile')
-            key('Escape');assert process.wait(timeout=20)==0
+            close_application(process)
             home_preferences=json.loads(prefs.read_text())
             assert any(item['path']==str(reference) for item in home_preferences.get('references',[])), 'reference board path survives an app restart through Home'
             # Exercise the same application windows under dark mode and high
@@ -1356,7 +1588,37 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('Escape');ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
             wait(lambda: layer_row_rect(2),'dark Layers screenshot includes three actual editable layer entries')
             capture_window(window,'layers-panel-populated-dark')
-            resize_window(window,640,480);capture_window(window,'layers-panel-populated-dark-narrow')
+            saved_panel_geometry=json.loads(prefs.read_text())
+            resize_window(window,640,480)
+            narrow_layers=wait(layers_window_rect,'compact Layers window reports stable bounds')
+            narrow_reference=wait(compact_reference_window_rect,'the active compact reference reports stable bounds')
+            narrow_palette=wait(palette_bounds,'compact toolbar reports its bounds beside the panels')
+            assert narrow_layers[0]>=0 and narrow_layers[1]>=0 \
+                and narrow_layers[0]+narrow_layers[2]<=640/narrow_layers[4]+1 \
+                and narrow_layers[1]+narrow_layers[3]<=480/narrow_layers[4]+1, \
+                f'compact Layers panel must remain inside 640x480: {narrow_layers}'
+            assert narrow_layers[1]+narrow_layers[3]<=408/narrow_layers[4]+1, \
+                f'compact Layers panel must not cover the application status bar: {narrow_layers}'
+            assert not rects_overlap(narrow_layers[:4],narrow_palette[:4]), \
+                f'compact Layers panel overlaps the tool palette: layers={narrow_layers}, palette={narrow_palette}'
+            compact_rects=[narrow_layers[:4],narrow_reference[:4]]
+            for left_index,left in enumerate(compact_rects):
+                assert left[0]>=0 and left[1]>=0 \
+                    and left[0]+left[2]<=640/narrow_layers[4]+1 \
+                    and left[1]+left[3]<=480/narrow_layers[4]+1, \
+                    f'compact workspace panel is clipped at 640x480: {left}'
+                for right in compact_rects[left_index+1:]:
+                    assert not rects_overlap(left,right), \
+                        f'compact Layers/Reference windows overlap: {left} vs {right}'
+            wait(lambda: layer_row_rect(2),'compact Layers keeps its populated entries reachable')
+            narrow_panel_geometry=json.loads(prefs.read_text())
+            assert narrow_panel_geometry['layers_flyout_size']==saved_panel_geometry['layers_flyout_size'], \
+                'temporary narrow layout must not replace saved Layers size'
+            assert [entry['size'] for entry in narrow_panel_geometry.get('references',[])] == \
+                [entry['size'] for entry in saved_panel_geometry.get('references',[])], \
+                'temporary narrow layout must not replace saved Reference sizes'
+            capture_window(window,'layers-reference-populated-dark-narrow')
+            capture_window(window,'layers-panel-populated-dark-narrow')
             resize_window(window,1280,800)
             ctrl('l');time.sleep(0.2)
             ctrl_shift('m');time.sleep(0.35)
@@ -1398,9 +1660,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'high-contrast Home');focus(display,window,2,0);send();time.sleep(0.5)
             capture_window(window,'home-dark-high-contrast')
-            key('Escape');assert process.wait(timeout=20)==0
+            close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','reference-board-multi-light','reference-board-multi-light-narrow','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -1429,3 +1691,5 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             lines=(directory/'application.log').read_text().splitlines()
             relevant=[line for line in lines if line.startswith(('UI_TEST_','TEST_PATH_DIALOG:','Canvas adapter:'))]
             print('\n'.join(relevant[-60:]))
+            recovery=[line for line in relevant if line.startswith('UI_TEST_RECOVERY_')]
+            print('\n'.join(recovery[-24:]))

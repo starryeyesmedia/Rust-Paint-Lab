@@ -20,11 +20,12 @@ safe Rust with no GPU or GUI dependency. Cargo.lock pins the complete graph.
 | image | 0.25.10 exact | Bounded PNG/JPEG decoding for external workspace references | MIT OR Apache-2.0 |
 | rfd | 0.15.4 exact | Native project/image/preset selection dialogs; XDG desktop portal on Linux | MIT |
 
-The interface bundles locally embedded Space Grotesk SemiBold/Bold and Manrope
-Regular/SemiBold/Bold static instances derived from their variable families
-under the SIL Open Font License 1.1; no runtime download or Cargo dependency is
-used. Their exact source locations, weight instantiation, hashes, and license
-texts are in
+The interface bundles locally embedded Outfit Bold/ExtraBold/Black and Manrope
+Regular/SemiBold/Tabular-SemiBold/Bold static faces under the SIL Open Font
+License 1.1; no runtime download or Cargo dependency is used. The tabular
+Manrope face uses equal-width digit metrics because egui does not expose
+OpenType numeric features. Exact source revisions, weight instantiation,
+checksums, and license texts are in
 [`assets/fonts/README.md`](../assets/fonts/README.md).
 
 ## Compatibility decision

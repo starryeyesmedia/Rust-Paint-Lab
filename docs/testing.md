@@ -488,12 +488,14 @@ cargo build --locked -p canvas-demo
 xvfb-run -a env PYTHONDONTWRITEBYTECODE=1 python3 scripts/alpha-workflow-smoke.py
 ```
 
-The current checkpoint's Linux Xorg/XTEST run captures 34 populated and empty
-UI states across light, dark and high-contrast themes at 640 × 480, 1280 × 800,
-and 1920 × 1080. It exercises the live bracket brush-size shortcut and checks
-the full mouse-paint/save/export/recovery path. Screenshots are inspected
-manually after capture; automated pixel checks establish content presence and
-layout bounds, not subjective design acceptance.
+The latest local checkpoint's Linux Xorg/XTEST run captures 37 populated and
+empty UI states across light, dark and high-contrast themes at 640 × 480,
+1280 × 800, and 1920 × 1080. It exercises the live bracket brush-size shortcut
+and checks the full mouse-paint/save/export/recovery path. Recovery dialog
+bounds are read from the live egui layout and asserted after narrow resizing;
+the populated light and dark dialogs remain inside 640 × 480. Screenshots are
+inspected manually after capture; automated pixel checks establish content
+presence and layout bounds, not subjective design acceptance.
 
 ### 2026-10-26 Home and New Artwork integration
 
@@ -525,3 +527,45 @@ locally. Screenshots are review evidence, not design acceptance for Phase 8.3.
 The latest pushed commit `76a77b0` still has a Linux alpha workflow failure in
 Actions run `40270241090` (Windows and macOS passed); its run-log/artifact receiver
 returned HTTP 403. The current source has not yet received a fresh Actions run.
+
+### Outfit and compact workspace regression
+
+The current Linux Xorg/XTest continuation adds compact panel checks at 640 ×
+480. The harness opens a real three-layer stack and two imported references,
+verifies both compact windows stay inside the application and above the status
+strip, checks that the large saved panel dimensions survive resizing, navigates
+the compact reference board, and toggles/restores layer visibility and locking
+through the accessible Actions menu. It uses the actual layer-name bounds for
+the native context menu after the row hierarchy changes. Escape closes an open
+egui popup before the panel or application; application shutdown tests allow
+that two-step behavior. Existing workflows continue through targeted layer
+duplicate/reorder/delete and undo, reference-isolated PNG/OpenRaster export,
+save/reopen, and journal-durable process-termination recovery.
+
+The screenshot matrix uses real app captures at 640 × 480, 1280 × 800 and
+1920 × 1080 in light/dark/high-contrast modes; populated layer/reference and
+recovery states are included. It asserts actual Home/New Artwork text and
+format-card regions, reference-image prominence, panel bounds, and screenshot
+coverage, then requires manual inspection of generated captures. Fonts are
+embedded Outfit 700/800/900 and Manrope 400/600/700; `ui_tokens` tests exercise
+the shared roles and fallback shaping. See
+[`assets/fonts/README.md`](../assets/fonts/README.md) for licensing and source.
+
+The populated Recovery modal also reports its current content bounds. The XTest
+workflow asserts those bounds stay inside the window after resizing to 640 ×
+480, checks the preview button with a fresh pointer hover, and captures the
+visible title, entries, actions and footer in both themes.
+
+Run against the local Xorg display (or a suitable Xvfb desktop) with a software
+wgpu backend:
+
+```sh
+DISPLAY=:203 XDG_RUNTIME_DIR=/tmp/bitchpixel-runtime \
+  XDG_CACHE_HOME=/tmp/bitchpixel-cache WGPU_BACKEND=gl \
+  RPL_UI_SCREENSHOT_DIR=/tmp/bitchpixel-ui \
+  python3 scripts/alpha-workflow-smoke.py
+```
+
+This uses Mesa software rendering and Linux XTest, not physical display/GPU
+validation. Windows GUI startup, Windows DPI, screen readers and physical pen
+behavior remain platform-specific checks.

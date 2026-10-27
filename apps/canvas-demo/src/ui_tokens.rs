@@ -8,9 +8,11 @@ pub const PANEL_RADIUS: f32 = 12.0;
 
 const UI_REGULAR: &str = "BitchPixel Manrope 400";
 const UI_SEMIBOLD: &str = "BitchPixel Manrope 600";
+const UI_SEMIBOLD_TABULAR: &str = "BitchPixel Manrope 600 Tabular";
 const UI_BOLD: &str = "BitchPixel Manrope 700";
-const DISPLAY_SEMIBOLD: &str = "BitchPixel Space Grotesk 600";
-const DISPLAY_BOLD: &str = "BitchPixel Space Grotesk 700";
+const DISPLAY_BOLD: &str = "BitchPixel Outfit 700";
+const DISPLAY_EXTRABOLD: &str = "BitchPixel Outfit 800";
+const DISPLAY_BLACK: &str = "BitchPixel Outfit 900";
 
 /// Named roles in the shared typographic hierarchy. Components choose a role
 /// instead of inventing a point size for every label.
@@ -57,13 +59,11 @@ impl TypeRole {
 
     fn family(self) -> egui::FontFamily {
         let name = match self {
-            Self::Brand | Self::Display | Self::PageTitle | Self::Slogan | Self::SectionTitle => {
-                DISPLAY_BOLD
-            }
-            Self::Button | Self::InputLabel | Self::ToolName | Self::LayerName | Self::Numeric => {
-                UI_SEMIBOLD
-            }
-            Self::PanelTitle | Self::CardTitle => UI_BOLD,
+            Self::Brand | Self::Display | Self::Slogan => DISPLAY_BLACK,
+            Self::PageTitle | Self::SectionTitle => DISPLAY_EXTRABOLD,
+            Self::PanelTitle | Self::CardTitle => DISPLAY_BOLD,
+            Self::Button | Self::InputLabel | Self::ToolName | Self::LayerName => UI_SEMIBOLD,
+            Self::Numeric => UI_SEMIBOLD_TABULAR,
             Self::Body | Self::Caption | Self::Metadata | Self::Tooltip | Self::Status => {
                 UI_REGULAR
             }
@@ -107,16 +107,24 @@ fn font_definitions() -> egui::FontDefinitions {
             include_bytes!("../../../assets/fonts/Manrope-SemiBold.ttf").as_slice(),
         ),
         (
+            UI_SEMIBOLD_TABULAR,
+            include_bytes!("../../../assets/fonts/Manrope-SemiBold-Tabular.ttf").as_slice(),
+        ),
+        (
             UI_BOLD,
             include_bytes!("../../../assets/fonts/Manrope-Bold.ttf").as_slice(),
         ),
         (
-            DISPLAY_SEMIBOLD,
-            include_bytes!("../../../assets/fonts/SpaceGrotesk-SemiBold.ttf").as_slice(),
+            DISPLAY_BOLD,
+            include_bytes!("../../../assets/fonts/Outfit-Bold.ttf").as_slice(),
         ),
         (
-            DISPLAY_BOLD,
-            include_bytes!("../../../assets/fonts/SpaceGrotesk-Bold.ttf").as_slice(),
+            DISPLAY_EXTRABOLD,
+            include_bytes!("../../../assets/fonts/Outfit-ExtraBold.ttf").as_slice(),
+        ),
+        (
+            DISPLAY_BLACK,
+            include_bytes!("../../../assets/fonts/Outfit-Black.ttf").as_slice(),
         ),
     ];
     for (name, bytes) in assets {
@@ -134,14 +142,28 @@ fn font_definitions() -> egui::FontDefinitions {
     for (name, weight) in [
         (UI_REGULAR, vec![UI_REGULAR]),
         (UI_SEMIBOLD, vec![UI_SEMIBOLD, UI_REGULAR]),
+        (
+            UI_SEMIBOLD_TABULAR,
+            vec![UI_SEMIBOLD_TABULAR, UI_SEMIBOLD, UI_REGULAR],
+        ),
         (UI_BOLD, vec![UI_BOLD, UI_SEMIBOLD, UI_REGULAR]),
         (
-            DISPLAY_SEMIBOLD,
-            vec![DISPLAY_SEMIBOLD, UI_SEMIBOLD, UI_REGULAR],
+            DISPLAY_BOLD,
+            vec![DISPLAY_BOLD, UI_BOLD, UI_SEMIBOLD, UI_REGULAR],
         ),
         (
-            DISPLAY_BOLD,
-            vec![DISPLAY_BOLD, DISPLAY_SEMIBOLD, UI_BOLD, UI_REGULAR],
+            DISPLAY_EXTRABOLD,
+            vec![DISPLAY_EXTRABOLD, DISPLAY_BOLD, UI_BOLD, UI_REGULAR],
+        ),
+        (
+            DISPLAY_BLACK,
+            vec![
+                DISPLAY_BLACK,
+                DISPLAY_EXTRABOLD,
+                DISPLAY_BOLD,
+                UI_BOLD,
+                UI_REGULAR,
+            ],
         ),
     ] {
         let mut candidates = weight.into_iter().map(str::to_owned).collect::<Vec<_>>();
@@ -367,9 +389,11 @@ mod tests {
         for name in [
             UI_REGULAR,
             UI_SEMIBOLD,
+            UI_SEMIBOLD_TABULAR,
             UI_BOLD,
-            DISPLAY_SEMIBOLD,
             DISPLAY_BOLD,
+            DISPLAY_EXTRABOLD,
+            DISPLAY_BLACK,
         ] {
             assert!(
                 fonts.font_data.contains_key(name),
@@ -407,6 +431,50 @@ mod tests {
             let members = &fonts.families[&family];
             assert!(members.iter().any(|font| fallback.contains(font)));
         }
+        assert_eq!(
+            TypeRole::Brand.family(),
+            egui::FontFamily::Name(DISPLAY_BLACK.into())
+        );
+        assert_eq!(
+            TypeRole::PageTitle.family(),
+            egui::FontFamily::Name(DISPLAY_EXTRABOLD.into())
+        );
+        assert_eq!(
+            TypeRole::PanelTitle.family(),
+            egui::FontFamily::Name(DISPLAY_BOLD.into())
+        );
+        assert_eq!(
+            TypeRole::Numeric.family(),
+            egui::FontFamily::Name(UI_SEMIBOLD_TABULAR.into())
+        );
+    }
+
+    #[test]
+    fn numeric_role_uses_tabular_manrope_figures() {
+        let context = egui::Context::default();
+        install(&context);
+        let mut advances = Vec::new();
+        let _ = context.run(egui::RawInput::default(), |context| {
+            advances = context.fonts_mut(|fonts| {
+                (0..=9)
+                    .map(|digit| {
+                        fonts
+                            .layout_no_wrap(
+                                digit.to_string(),
+                                font_id(TypeRole::Numeric),
+                                egui::Color32::WHITE,
+                            )
+                            .size()
+                            .x
+                    })
+                    .collect::<Vec<_>>()
+            });
+        });
+        assert!(
+            advances
+                .iter()
+                .all(|advance| (*advance - advances[0]).abs() < 0.01)
+        );
     }
 
     #[test]

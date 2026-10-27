@@ -1881,3 +1881,88 @@ high-DPI performance. Phase 8.3 remains active and is not accepted as complete.
    workspace navigation, and full keyboard/accessibility review.
 3. Keep screen-reader and physical high-DPI/pen behavior identified as pending
    until tested on their native systems. Do not merge or publish a release.
+
+## Outfit, compact workspace, and Recovery layout checkpoint — verified locally
+
+Supersedes the earlier Space Grotesk display direction above. The requested
+Outfit typography system is now bundled locally as static Outfit Bold 700,
+ExtraBold 800 and Black 900. Manrope remains the compact interface face at 400,
+600 and 700; numeric controls use a documented equal-width Manrope 600 metrics
+variant. The shared 17-role system maps the wordmark and Home hero to Outfit
+Black, page/section headings to ExtraBold, and panel/card headings to Bold.
+The complete Outfit and Manrope OFL texts accompany all desktop package
+notices. Source revision, weight instantiation, checksums and fallback details
+are documented in [`assets/fonts/README.md`](../assets/fonts/README.md).
+
+The existing interface and illustrated seven-format New Artwork cards now use
+the stronger heading hierarchy. New Artwork keeps its live size/background
+preview and all presets within the 640 × 480 view. Home uses the same visual
+system without inventing user projects; the test fixture stays explicitly
+identified as a development fixture.
+
+The workspace checkpoint adds temporary compact layouts for saved Layers and
+Reference panels, preserving large-window preference sizes during narrow
+resizes. At 640 × 480, populated Layers and a Reference board fit side by side,
+remain inside the application, and leave the one-line status strip visible.
+The reference board displays one image at a time with touch-sized navigation,
+retaining the saved multi-image arrangement for wider windows. Its compact
+toolbar is a single row and the image remains prominent. When the Brush Library
+opens in a narrow window, it receives temporary focus while Layers and
+References remain saved and return when Brush closes. Horizontal toolbar docks
+temporarily adapt to a vertical rail without replacing the saved preference.
+
+Compact layer actions now expose Visible and Locked toggles inside a persistent
+popover; edits update the document model and stay open for repeated toggles.
+Escape closes the topmost popup before a contextual panel or the application.
+Wide layer rows keep their normal click-to-dismiss Actions menu. The real XTest
+workflow verifies visibility/lock changes and restoration, targeted duplicate,
+reorder/delete, undo and native right-click on the rendered layer-name bounds.
+
+The canvas contextual preset picker selects a real built-in raster preset and
+updates the active document brush while retaining its color. The Brush Library
+keeps favorites, search and engine-rendered previews without duplicating its
+interactive size/opacity controls. Pressure and tilt remain available from
+input data where supported; preset selection does not fabricate either value.
+
+Screenshot review found and fixed a narrow Recovery dialog overflow that hid
+the title when several populated checkpoints were present. The dialog now
+derives its maximum size and scroll-list height from the current viewport,
+retaining its header, recovery actions, and Done button. A layout unit test
+covers 640 × 480, wide, and very small viewports; the XTest workflow checks the
+actual rendered bounds after resizing and captures the populated dialog in both
+themes. At 640 × 480 it measured `(24, 26)–(616, 454)` inside the viewport.
+The GUI test also waits for fresh preview-button hover and settled geometry
+before activating the real Preview control.
+
+Local validation passes: **255 workspace tests**, formatting, strict Clippy,
+workspace build, Windows GNU target check/Clippy, and the required offscreen GPU
+smoke using Mesa llvmpipe/OpenGL. The real Linux/Xorg/XTest application workflow
+passes with **37 screenshots** across Home, recent artwork, New Artwork,
+canvas, Brush, Color, populated Layers, multi-image References, populated
+Recovery, and high contrast. Captures include 640 × 480, 1280 × 800 and 1920 ×
+1080 in light/dark themes. I inspected the generated Home, New Artwork, canvas,
+Brush, Color, populated Layers/Reference, Recovery, and high-contrast images;
+the narrow panels stay within the viewport and the Recovery heading and actions
+remain visible. The UI workflow also verifies real painting, preset switching,
+layer operations and undo, save/reopen, PNG/OpenRaster exports, reference
+isolation, and process-kill journal recovery.
+
+The Linux/Xorg/XTest screenshot workflow covers Home, recent artwork, New
+Artwork, canvas toolbar, Brush, Color, populated Layers, multiple References,
+Recovery and high contrast at narrow, standard and wide sizes. The user's known
+successful `b50e7ec` Windows launch remains the hardware baseline. No Windows
+10 device, Narrator/NVDA, physical high-DPI or advanced S Pen tests were
+performed during this checkpoint. Hosted CI and this software-rendered Linux
+run do not establish those hardware behaviors. Phase 8.3 remains active and
+incomplete; GitHub Actions verification for this pending push will be recorded
+after it finishes.
+
+### Continuation
+
+1. Push the validated source checkpoint and verify Windows, Linux and macOS
+   Actions plus the existing separate Windows canvas and stylus artifacts.
+2. Continue the remaining Phase 8.3 visual and functional work, especially
+   compact tool hierarchy, workspace navigation, and full keyboard/focus review.
+3. Keep Windows pen pressure/tilt edge cases, physical DPI, and native
+   screen-reader behavior labeled pending until validated on those systems.
+   Do not merge or publish a release.

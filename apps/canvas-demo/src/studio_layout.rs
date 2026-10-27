@@ -212,6 +212,158 @@ pub fn flyout_size_exceeds(current: egui::Vec2, desired: egui::Vec2) -> bool {
     current.x > desired.x + FRAME_ALLOWANCE || current.y > desired.y + FRAME_ALLOWANCE
 }
 
+/// Constrained windows use a temporary compact layout for the currently open
+/// Layers and Reference surfaces. The returned rectangles are deliberately
+/// transient: callers use separate egui area IDs and never copy these smaller
+/// rectangles into the saved large-window preferences.
+pub fn compact_workspace_panel_rects(
+    viewport: egui::Rect,
+    palette: egui::Rect,
+    preferred_sizes: &[egui::Vec2],
+) -> Option<Vec<egui::Rect>> {
+    let panel_count = preferred_sizes.len();
+    if panel_count == 0 || !compact_workspace_mode(viewport) {
+        return None;
+    }
+
+    const EDGE: f32 = 8.0;
+    const GAP: f32 = 8.0;
+    const RESERVED_BOTTOM: f32 = 40.0;
+    let bounds = viewport.shrink(EDGE);
+    let compact_multi_row = panel_count > 1
+        && palette.left() <= viewport.left() + 120.0
+        && palette.top() <= bounds.top() + 120.0
+        && palette.bottom() <= bounds.top() + 160.0;
+    let (left, top, right, bottom) = if compact_multi_row {
+        // A short, left-docked palette occupies only the top strip in compact
+        // mode. Use the full width beneath it so two useful companion panels
+        // retain their real minimum widths instead of spilling into each
+        // other in the narrow strip beside the toolbar.
+        (
+            bounds.left(),
+            (palette.bottom() + GAP).min(bounds.bottom() - 1.0),
+            bounds.right(),
+            (bounds.bottom() - RESERVED_BOTTOM)
+                .max(palette.bottom() + GAP + 1.0)
+                .min(bounds.bottom()),
+        )
+    } else if palette.left() <= viewport.left() + 120.0 {
+        (
+            (palette.right() + GAP).min(bounds.right() - 1.0),
+            (palette.top() - 8.0).max(bounds.top()),
+            bounds.right(),
+            (bounds.bottom() - RESERVED_BOTTOM).max(palette.top().max(bounds.top()) + 1.0),
+        )
+    } else if palette.right() >= viewport.right() - 120.0 {
+        (
+            bounds.left(),
+            (palette.top() - 8.0).max(bounds.top()),
+            (palette.left() - GAP).max(bounds.left() + 1.0),
+            (bounds.bottom() - RESERVED_BOTTOM).max(palette.top().max(bounds.top()) + 1.0),
+        )
+    } else if palette.top() <= viewport.top() + 160.0 {
+        (
+            bounds.left(),
+            (palette.bottom() + GAP).min(bounds.bottom() - 1.0),
+            bounds.right(),
+            bounds.bottom(),
+        )
+    } else if palette.bottom() >= viewport.bottom() - 120.0 {
+        (
+            bounds.left(),
+            bounds.top(),
+            bounds.right(),
+            (palette.top() - GAP).max(bounds.top() + 1.0),
+        )
+    } else {
+        (bounds.left(), bounds.top(), bounds.right(), bounds.bottom())
+    };
+    let work = egui::Rect::from_min_max(egui::pos2(left, top), egui::pos2(right, bottom));
+    if !work.is_positive() {
+        return None;
+    }
+
+    let columns = panel_count.min(3);
+    let rows = panel_count.div_ceil(columns);
+    let cell_width = ((work.width() - GAP * (columns - 1) as f32) / columns as f32).max(1.0);
+    let cell_height = ((work.height() - GAP * (rows - 1) as f32) / rows as f32).max(1.0);
+    Some(
+        (0..panel_count)
+            .map(|index| {
+                let column = index % columns;
+                let row = index / columns;
+                // Egui adds a frame around fixed content sizes. Leave room for
+                // that outer extent so actual window rectangles do not collide
+                // even when a panel reaches its minimum content width.
+                let width_allowance = if panel_count == 1 {
+                    0.0
+                } else if cell_width >= 240.0 {
+                    32.0
+                } else {
+                    18.0
+                };
+                let position = egui::pos2(
+                    work.left() + column as f32 * (cell_width + GAP) + width_allowance * 0.5,
+                    work.top() + row as f32 * (cell_height + GAP),
+                );
+                let size = if panel_count == 1 {
+                    egui::vec2(
+                        preferred_sizes[index].x.min(cell_width),
+                        preferred_sizes[index].y.min(cell_height),
+                    )
+                } else {
+                    egui::vec2((cell_width - width_allowance).max(1.0), cell_height)
+                };
+                egui::Rect::from_min_size(position, size)
+            })
+            .collect(),
+    )
+}
+
+pub fn compact_workspace_mode(viewport: egui::Rect) -> bool {
+    viewport.width() < 760.0 || viewport.height() < 560.0
+}
+
+/// Bound the recovery manager to the visible viewport and reserve room for
+/// its title, explanation, and footer before sizing the scrollable checkpoint
+/// list. This prevents populated recovery dialogs from extending beyond small
+/// laptop windows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RecoveryModalLimits {
+    pub min_width: f32,
+    pub max_size: egui::Vec2,
+    pub list_height: f32,
+}
+
+pub fn recovery_modal_limits(viewport: egui::Rect) -> RecoveryModalLimits {
+    let available = viewport.shrink(24.0).size();
+    let max_size = egui::vec2(available.x.max(1.0), available.y.max(1.0));
+    RecoveryModalLimits {
+        min_width: max_size.x.min(520.0),
+        max_size: egui::vec2(max_size.x.min(760.0), max_size.y),
+        list_height: (max_size.y - 160.0).clamp(1.0, 360.0),
+    }
+}
+
+/// Keep the saved dock preference intact while changing its temporary
+/// presentation on narrow windows. Horizontal palettes leave too little room
+/// for contextual controls and companion panels at laptop-like 640px widths.
+pub fn effective_palette_dock(
+    preferred: crate::workspace::PaletteDock,
+    viewport: egui::Rect,
+    dragging: bool,
+) -> crate::workspace::PaletteDock {
+    use crate::workspace::PaletteDock;
+    if viewport.width() >= 760.0 || dragging {
+        return preferred;
+    }
+    match preferred {
+        PaletteDock::Right => PaletteDock::Right,
+        PaletteDock::Floating => PaletteDock::Floating,
+        PaletteDock::Left | PaletteDock::Top | PaletteDock::Bottom => PaletteDock::Left,
+    }
+}
+
 fn clamp_position(
     viewport: egui::Rect,
     size: egui::Vec2,
@@ -368,6 +520,102 @@ mod tests {
         assert!(!panel.intersects(palette));
         assert!(position.y >= palette.bottom());
         assert!(size.x >= 580.0);
+    }
+
+    #[test]
+    fn compact_layers_and_reference_tiles_fit_without_destroying_saved_geometry() {
+        let viewport = rect(0.0, 0.0, 640.0, 480.0);
+        let palette = rect(8.0, 128.0, 58.0, 280.0);
+        let panels = compact_workspace_panel_rects(
+            viewport,
+            palette,
+            &[egui::vec2(420.0, 560.0), egui::vec2(360.0, 300.0)],
+        )
+        .unwrap();
+
+        assert_eq!(panels.len(), 2);
+        for panel in &panels {
+            assert!(viewport.shrink(8.0).contains_rect(*panel));
+            assert!(!panel.intersects(palette));
+            assert!(panel.width() >= 240.0);
+            assert!(panel.height() >= 200.0);
+        }
+        assert!(!panels[0].intersects(panels[1]));
+        assert!(
+            compact_workspace_panel_rects(
+                rect(0.0, 0.0, 1280.0, 800.0),
+                palette,
+                &[egui::vec2(420.0, 560.0), egui::vec2(360.0, 300.0)],
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn recovery_modal_limits_keep_the_checkpoint_list_inside_small_viewports() {
+        let narrow = recovery_modal_limits(rect(0.0, 0.0, 640.0, 480.0));
+        assert_eq!(narrow.max_size.x, 592.0);
+        assert_eq!(narrow.max_size.y, 432.0);
+        assert_eq!(narrow.list_height, 272.0);
+        assert!(narrow.min_width <= narrow.max_size.x);
+
+        let wide = recovery_modal_limits(rect(0.0, 0.0, 1920.0, 1080.0));
+        assert_eq!(wide.max_size, egui::vec2(760.0, 1032.0));
+        assert_eq!(wide.list_height, 360.0);
+
+        let tiny = recovery_modal_limits(rect(0.0, 0.0, 320.0, 180.0));
+        assert!(tiny.min_width <= tiny.max_size.x);
+        assert!(tiny.list_height <= tiny.max_size.y);
+    }
+
+    #[test]
+    fn compact_layout_handles_docked_palettes_and_multiple_panels() {
+        let viewport = rect(0.0, 0.0, 640.0, 480.0);
+        let right_palette = rect(574.0, 128.0, 58.0, 280.0);
+        let panels = compact_workspace_panel_rects(
+            viewport,
+            right_palette,
+            &[
+                egui::vec2(420.0, 560.0),
+                egui::vec2(360.0, 300.0),
+                egui::vec2(360.0, 300.0),
+            ],
+        )
+        .unwrap();
+        assert_eq!(panels.len(), 3);
+        assert!(panels.iter().all(|panel| viewport.contains_rect(*panel)));
+        assert!(panels.iter().all(|panel| !panel.intersects(right_palette)));
+        for (index, panel) in panels.iter().enumerate() {
+            for other in panels.iter().skip(index + 1) {
+                assert!(!panel.intersects(*other));
+            }
+        }
+    }
+
+    #[test]
+    fn narrow_viewport_adapts_horizontal_docks_without_rewriting_preferences() {
+        use crate::workspace::PaletteDock;
+        let narrow = rect(0.0, 0.0, 640.0, 480.0);
+        assert_eq!(
+            effective_palette_dock(PaletteDock::Top, narrow, false),
+            PaletteDock::Left
+        );
+        assert_eq!(
+            effective_palette_dock(PaletteDock::Bottom, narrow, false),
+            PaletteDock::Left
+        );
+        assert_eq!(
+            effective_palette_dock(PaletteDock::Right, narrow, false),
+            PaletteDock::Right
+        );
+        assert_eq!(
+            effective_palette_dock(PaletteDock::Top, narrow, true),
+            PaletteDock::Top
+        );
+        assert_eq!(
+            effective_palette_dock(PaletteDock::Top, rect(0.0, 0.0, 1280.0, 800.0), false),
+            PaletteDock::Top
+        );
     }
 
     #[test]

@@ -131,10 +131,10 @@ update Cargo.lock and `docs/dependencies.md` with versions/licenses and notices.
 Do not select a project distribution license without the owner's decision.
 Follow the owner-approved BitchPixel visual direction in the latest concept and
 living progress record: purple-led Midnight Violet surfaces, readable coordinated
-light/high-contrast variants, and the bundled Space Grotesk display / Manrope UI
-type system. Preserve both font OFL texts in every desktop package notice. Keep
-the primary palette movable,
-edge-snapping and accessible; visible creative controls must call the real engine.
+light/high-contrast variants, Outfit 700/800/900 display faces and Manrope UI
+type system. Preserve both Outfit and Manrope OFL texts in every desktop package
+notice. Keep the primary palette movable, edge-snapping and accessible; visible
+creative controls must call the real engine.
 Overdrive authorizes raster brushes, documents/layers/history, safe storage, exports, and usable controls in P0 order; expand only after verified slices. Do not add device identifiers to persistent logs by default.
 
 ## Required validation

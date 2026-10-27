@@ -63,6 +63,7 @@ mod tests {
                     &mut project,
                     &mut actions,
                     false,
+                    false,
                     &mut drag_ui,
                 );
             });
