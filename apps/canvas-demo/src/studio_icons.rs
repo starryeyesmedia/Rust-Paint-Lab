@@ -5,6 +5,7 @@
 pub enum Icon {
     Brush,
     Eraser,
+    Line,
     Rectangle,
     Ellipse,
     Lasso,
@@ -55,6 +56,11 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
                 stroke,
             ));
             line((4.0, -5.0), (6.0, -3.0));
+        }
+        Icon::Line => {
+            line((-7.0, 7.0), (7.0, -7.0));
+            painter.circle_filled(at(-7.0, 7.0), 1.7 * scale, color);
+            painter.circle_filled(at(7.0, -7.0), 1.7 * scale, color);
         }
         Icon::Eraser => {
             let points = [(-7.0, 2.0), (1.0, -7.0), (8.0, -1.0), (0.0, 7.0)];

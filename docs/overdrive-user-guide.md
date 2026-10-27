@@ -30,10 +30,14 @@ in the editable document.
 Brush opens a floating Brush library from the primary tool palette, so preset
 selection does not require a permanent right sidebar. It offers ten working
 presets named Hard round, Ink pen, Soft brush and so on; Wash is marked
-experimental. The flyout provides working size, opacity and color controls. Choose
-Advanced brush settings to reach the detailed inspector, where size and opacity
-accept direct numeric entry and flow, hardness, spacing, tilt, angle, smoothing,
-and pressure responses are grouped under Advanced dynamics. Color controls open
+experimental. The flyout provides working size, opacity and color controls. The
+Brush Library's Flow and dynamics section includes a Stabilization slider: zero
+disables filtering; higher values smooth slow hand movement more strongly, while
+faster movement stays responsive. The filter uses input timestamps and changes
+position only; it does not invent pressure or tilt. The released endpoint is
+always connected. This is adaptive stabilization, not stroke prediction.
+Advanced brush settings in the inspector provide direct size and opacity entry
+plus flow, hardness, spacing, tilt, angle and pressure responses. Color controls open
 their own floating panel with an interactive hue slider and saturation/brightness
 field, keyboard-adjustable saturation/brightness sliders, validated six-digit HEX
 and exact RGB entry, eyedropper, current/previous color, and recent-color swatches.
@@ -41,8 +45,19 @@ Recent colors are newest first and can be selected by mouse or touch.
 The list is capped at twelve unique local workspace colors and is independent of
 the interface accent. Opacity caps the whole stroke while flow accumulates individual dabs. Wash
 is a deterministic visual experiment, not a physical watercolor simulation. Airbrush
-deposits on movement, not continuously while stationary. There is no prediction.
-Smoothing is a simple low-pass filter, not a full stabilizer.
+deposits on movement, not continuously while stationary. There is no prediction or
+coalesced-history rendering.
+
+Use **M** and **E** for rectangle and ellipse selections; they remain selection
+tools. Use **L** for a straight line, **R** for a drawn rectangle and **O** for a
+drawn ellipse. Drag on the paper to preview, then release to commit. **Shift**
+constrains line angles or makes rectangle/ellipse proportions square or circular.
+The contextual options row sets shape stroke width from the active brush size and
+offers a Fill shape toggle for rectangles and ellipses; current brush color and
+opacity apply. **Escape** cancels an in-progress preview. Shape edits respect the
+selected layer's visibility/lock and active selection, are rasterized into that
+layer, and form one Ctrl+Z/Ctrl+Y transaction. Saved projects and PNG exports
+include committed shapes; shape geometry is not separately editable after commit.
 
 Layers support add, duplicate, delete, rename, reorder, visibility, lock, opacity,
 Normal/Multiply/Screen/Overlay, and clear. The frontmost layer appears at the top;
@@ -64,8 +79,9 @@ need advanced brush dynamics or the full layer editor. Use the compact File menu
 recent projects and the artwork recovery manager. Edit contains Undo/Redo and
 selection fill/erase; Image contains Crop; Layer contains the existing layer
 operations; View switches appearance and accessibility preferences; Window offers
-workspace visibility, floating Layers, palette docking and handedness. The five
-primary tools are in the rounded palette, left by default. Drag an empty area
+workspace visibility, floating Layers, palette docking and handedness. Brush,
+selection, shape and utility tools are in the rounded palette, left by default.
+Drag an empty area
 of it to move; it snaps to the nearest window edge on release and uses a
 horizontal wrapped layout on top/bottom docks. Palette positions and dock choice
 are remembered. Each icon has a name and shortcut

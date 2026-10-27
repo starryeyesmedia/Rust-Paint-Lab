@@ -527,8 +527,23 @@ def latest_journal_checkpoint(path):
         latest=payload;last_sequence=sequence;offset=record_end
     return latest
 def native_state(path):
-    data=path.read_bytes();n=struct.unpack('<I',data[8:12])[0]
+    return native_state_bytes(path.read_bytes())
+def native_state_bytes(data):
+    n=struct.unpack('<I',data[8:12])[0]
     return json.loads(data[12:12+n])
+def native_layer_pixel(path, x, y):
+    return native_layer_pixel_bytes(path.read_bytes(),x,y)
+def native_layer_pixel_bytes(data, x, y):
+    state=native_state_bytes(data);metadata=struct.unpack('<I',data[8:12])[0]
+    count_offset=12+metadata;count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
+    offset=count_offset+4
+    for _ in range(count):
+        layer_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
+        tile=data[offset:offset+16384];offset+=16384
+        if layer_id==state['selected'] and (tile_x,tile_y)==(x//64,y//64):
+            pixel=((y%64)*64+x%64)*4
+            return tile[pixel:pixel+4]
+    return b'\0\0\0\0'
 def png_chunk(kind, data):
     body=kind+data
     return struct.pack('>I',len(data))+body+struct.pack('>I',binascii.crc32(body)&0xffffffff)
@@ -1461,6 +1476,67 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             recovery_preview_fixture.with_suffix('.owner').unlink(missing_ok=True)
             ctrl('s')
             wait(lambda: bool(valid_project(imported)) and '*' not in title(window),'OpenRaster reopened and saved as editable native project')
+            # Shape tools use the actual pointer canvas and document raster
+            # engine. Escape drops a live preview without mutating native data;
+            # each committed primitive survives save/reopen and has one undo.
+            shape_markers=lambda: [line.partition(': ')[2].split()
+                                   for line in (directory/'application.log').read_text().splitlines()
+                                   if line.startswith('UI_TEST_SHAPE_COMMITTED: ')]
+            preview_base=imported.read_bytes()
+            shape_before=len(shape_markers())
+            key('r');wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='ShapeRectangle',
+                           'R selects the document-backed rectangle shape tool')
+            move(250,300);click_button(1,True);move(330,380)
+            preview_bounds=tuple(map(float,wait(
+                lambda: stable_marker('UI_TEST_SHAPE_PREVIEW_BOUNDS'),
+                'active shape drag reports its clipped preview geometry').split()))
+            capture_window(window,'shape-preview-rectangle')
+            preview_width,preview_height,preview_pixels=decode_rgba_png(
+                (Path(os.environ['RPL_UI_SCREENSHOT_DIR'])/'shape-preview-rectangle.png').read_bytes())
+            left,top,right,bottom,preview_scale=preview_bounds
+            left=max(0,int(left*preview_scale));top=max(0,int(top*preview_scale))
+            right=min(preview_width,int(right*preview_scale));bottom=min(preview_height,int(bottom*preview_scale))
+            contrasting_preview_pixels=sum(
+                1 for y in range(top,bottom) for x_pixel in range(left,right)
+                if max(preview_pixels[(y*preview_width+x_pixel)*4:(y*preview_width+x_pixel)*4+3])<64)
+            assert contrasting_preview_pixels>=12, \
+                f'live shape preview is not visibly contrasted over artwork: {contrasting_preview_pixels} dark pixels'
+            key('Escape');click_button(1,False)
+            assert imported.read_bytes()==preview_base,'Escape cancellation must discard the preview without changing artwork'
+            assert len(shape_markers())==shape_before,'cancelled shape preview must not create a document command'
+            for shortcut,kind,start,end in [
+                ('r','Rectangle',(250,300),(330,380)),
+                ('o','Ellipse',(250,420),(330,500)),
+                ('l','Line',(250,540),(350,610)),
+            ]:
+                key(shortcut)
+                wait(lambda expected=f'Shape{kind}': event_marker('UI_TEST_ACTIVE_TOOL')==expected,
+                     f'{shortcut.upper()} selects the {kind.lower()} shape tool')
+                before_shape=imported.read_bytes()
+                prior_count=len(shape_markers())
+                drag_at(*start,*end)
+                wait(lambda: len(shape_markers())>prior_count,
+                     f'XTest pointer drag commits a {kind.lower()} into the document engine')
+                marker=shape_markers()[-1]
+                assert marker[0]==kind, f'wrong document operation committed: {marker}'
+                ctrl('s')
+                wait(lambda: imported.read_bytes()!=before_shape and '*' not in title(window),
+                     f'{kind.lower()} raster data is saved to the native project')
+                sx,sy,ex,ey=map(float,marker[1:])
+                if kind=='Line': sample_x,sample_y=(sx+ex)/2,(sy+ey)/2
+                else: sample_x,sample_y=(sx+ex)/2,sy
+                pixel=native_layer_pixel(imported,round(sample_x),round(sample_y))
+                assert pixel[3]>0, f'{kind} outline is missing from the selected native layer at {sample_x:.1f},{sample_y:.1f}'
+                before_pixel=native_layer_pixel_bytes(before_shape,round(sample_x),round(sample_y))
+                assert pixel!=before_pixel, \
+                    f'{kind} did not change the selected-layer pixel at {sample_x:.1f},{sample_y:.1f}'
+                shape_bytes=imported.read_bytes()
+                ctrl('z');ctrl('s')
+                wait(lambda: imported.read_bytes()==before_shape,
+                     f'{kind} is one exact undoable document transaction')
+                ctrl('y');ctrl('s')
+                wait(lambda: imported.read_bytes()==shape_bytes and '*' not in title(window),
+                     f'{kind} redo restores the saved shape pixels exactly')
             journal_path=Path(str(snapshot)+'.journal')
             assert latest_journal_checkpoint(journal_path)==snapshot.read_bytes(),'initial checkpoint has a complete synced journal record'
             before=snapshot.read_bytes()

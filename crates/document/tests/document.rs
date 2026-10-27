@@ -1,6 +1,7 @@
 use paint_document::{
     Blend, Engine, PaintError, State,
     brush::{Brush, BrushKind},
+    editing::{Selection, SelectionKind, ShapeKind},
     storage::{self, Fault, Store},
 };
 use paint_input::{Buttons, Tool};
@@ -20,6 +21,12 @@ fn sample(x: f64, y: f64, p: Option<f32>) -> StrokeSample {
         source_time_ms: 0,
         time_ms: 0,
     }
+}
+fn sample_at(x: f64, y: f64, p: Option<f32>, time_ms: u64) -> StrokeSample {
+    let mut s = sample(x, y, p);
+    s.source_time_ms = time_ms;
+    s.time_ms = time_ms;
+    s
 }
 fn begin(e: &mut Engine, id: u64, x: f64, y: f64) {
     e.apply(&C::BeginStroke {
@@ -85,6 +92,7 @@ fn commit_final_sample_undo_redo_are_transactional() {
 #[test]
 fn disconnected_clipped_segment_does_not_rasterize_across_exited_region() {
     let mut e = Engine::new(128, 128, 300).unwrap();
+    e.brush.smoothing = 1.0;
     e.apply(&C::BeginStroke {
         stroke_id: StrokeId(7),
         sample: sample(20.0, 64.0, Some(0.8)),
@@ -107,6 +115,138 @@ fn disconnected_clipped_segment_does_not_rasterize_across_exited_region() {
     assert_ne!(pixel(80), &[255; 4]);
     assert_eq!(e.undo_count(), 1);
 }
+
+#[test]
+fn adaptive_stabilization_changes_real_raster_path_and_keeps_exact_endpoint() {
+    fn paint(smoothing: f64) -> Engine {
+        let mut e = Engine::new(160, 128, 300).unwrap();
+        e.brush.size = 3.0;
+        e.brush.pressure_size = false;
+        e.brush.hardness = 1.0;
+        e.brush.smoothing = smoothing;
+        let id = StrokeId(4);
+        e.apply(&C::BeginStroke {
+            stroke_id: id,
+            sample: sample_at(10.0, 64.0, Some(1.0), 0),
+        })
+        .unwrap();
+        for index in 1..=90 {
+            let jitter = if index % 2 == 0 { 3.0 } else { -3.0 };
+            e.apply(&C::UpdateStroke {
+                stroke_id: id,
+                sample: sample_at(index as f64 + 10.0, 64.0 + jitter, Some(1.0), index * 16),
+            })
+            .unwrap();
+        }
+        e.apply(&C::CommitStroke {
+            stroke_id: id,
+            sample: sample_at(110.0, 64.0, Some(1.0), 1456),
+        })
+        .unwrap();
+        e
+    }
+    let raw = paint(0.0);
+    let mut stabilized = paint(0.9);
+    let raw_pixels = raw.rgba();
+    let smooth_pixels = stabilized.rgba();
+    assert_ne!(raw_pixels, smooth_pixels);
+    assert_eq!(smooth_pixels, paint(0.9).rgba());
+    let endpoint = ((64 * 160 + 110) * 4) as usize;
+    assert_ne!(&smooth_pixels[endpoint..endpoint + 4], &[255; 4]);
+    assert_eq!(stabilized.undo_count(), 1);
+    assert!(stabilized.undo());
+    assert!(blank(&stabilized));
+}
+
+#[test]
+fn canceled_stabilized_path_never_reaches_authoritative_tiles() {
+    let mut e = Engine::new(128, 128, 300).unwrap();
+    e.brush.smoothing = 0.9;
+    e.apply(&C::BeginStroke {
+        stroke_id: StrokeId(5),
+        sample: sample_at(10.0, 64.0, Some(1.0), 0),
+    })
+    .unwrap();
+    e.apply(&C::UpdateStroke {
+        stroke_id: StrokeId(5),
+        sample: sample_at(80.0, 50.0, Some(1.0), 16),
+    })
+    .unwrap();
+    assert_eq!(e.state().tile_count(), 0);
+    cancel(&mut e, 5);
+    assert!(blank(&e));
+    assert_eq!(e.undo_count(), 0);
+}
+
+#[test]
+fn line_rectangle_and_ellipse_are_persistent_undoable_raster_edits() {
+    let mut e = Engine::new(128, 128, 300).unwrap();
+    e.brush.size = 4.0;
+    e.brush.pressure_size = false;
+    e.brush.color = [220, 30, 80];
+
+    e.draw_shape(ShapeKind::Line, [10.0, 10.0], [50.0, 50.0], false)
+        .unwrap();
+    e.brush.color = [20, 120, 230];
+    e.draw_shape(ShapeKind::Rectangle, [60.0, 10.0], [100.0, 50.0], false)
+        .unwrap();
+    let line_and_rectangle = e.rgba();
+    e.brush.color = [40, 180, 90];
+    e.draw_shape(ShapeKind::Ellipse, [10.0, 60.0], [50.0, 100.0], true)
+        .unwrap();
+
+    let pixels = e.rgba();
+    let pixel = |x: usize, y: usize| &pixels[(y * 128 + x) * 4..(y * 128 + x) * 4 + 4];
+    assert!(pixel(30, 30)[0] > 150); // line
+    assert!(pixel(60, 30)[2] > 150); // rectangle outline
+    assert_eq!(pixel(80, 30), &[255; 4]);
+    assert!(pixel(30, 80)[1] > 100); // ellipse fill
+    assert_eq!(pixel(12, 62), &[255; 4]); // outside ellipse
+    assert_eq!(e.undo_count(), 3);
+
+    let encoded = storage::encode(e.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&encoded).unwrap()).unwrap();
+    assert_eq!(reopened.rgba(), pixels);
+    let png = path("shape-png").with_extension("png");
+    storage::export_png(&png, &e).unwrap();
+    let mut imported = Engine::new(128, 128, 300).unwrap();
+    storage::import_png(&png, &mut imported).unwrap();
+    assert_eq!(imported.rgba(), pixels);
+
+    assert!(e.undo());
+    assert_eq!(e.rgba(), line_and_rectangle);
+    assert!(e.redo());
+    assert_eq!(e.rgba(), pixels);
+}
+
+#[test]
+fn shape_respects_layer_state_and_active_selection() {
+    let mut e = Engine::new(64, 64, 300).unwrap();
+    e.set_selection(Some(
+        Selection::new(SelectionKind::Rectangle, vec![[16.0, 16.0], [48.0, 48.0]]).unwrap(),
+    ))
+    .unwrap();
+    e.brush.size = 2.0;
+    e.draw_shape(ShapeKind::Line, [0.0, 32.0], [64.0, 32.0], false)
+        .unwrap();
+    let pixels = e.rgba();
+    assert_eq!(&pixels[(32 * 64 + 8) * 4..(32 * 64 + 8) * 4 + 4], &[255; 4]);
+    assert_ne!(
+        &pixels[(32 * 64 + 32) * 4..(32 * 64 + 32) * 4 + 4],
+        &[255; 4]
+    );
+    e.edit(|state| {
+        state.layers[0].locked = true;
+        Ok(())
+    })
+    .unwrap();
+    let before = e.rgba();
+    assert!(matches!(
+        e.draw_shape(ShapeKind::Rectangle, [20.0, 20.0], [40.0, 40.0], false),
+        Err(PaintError::Locked)
+    ));
+    assert_eq!(e.rgba(), before);
+}
 #[test]
 fn concurrent_cancellation_does_not_erase_other_commit() {
     let mut e = Engine::new(128, 128, 300).unwrap();
@@ -127,6 +267,7 @@ fn concurrent_cancellation_does_not_erase_other_commit() {
 #[test]
 fn zero_pressure_is_distinct_from_mouse_fallback() {
     let mut e = Engine::new(64, 64, 300).unwrap();
+    e.brush.smoothing = 0.8;
     e.apply(&C::BeginStroke {
         stroke_id: StrokeId(0),
         sample: sample(32.0, 32.0, Some(0.0)),
@@ -466,7 +607,8 @@ fn smoothing_connects_to_the_final_unfiltered_endpoint() {
     for x in 10..110 {
         assert_ne!(
             &e.rgba()[(32 * 128 + x) * 4..(32 * 128 + x) * 4 + 4],
-            &[255; 4]
+            &[255; 4],
+            "stroke has a horizontal gap at x={x}"
         );
     }
 }

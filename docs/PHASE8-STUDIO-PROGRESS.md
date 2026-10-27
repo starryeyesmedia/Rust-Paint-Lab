@@ -1976,3 +1976,52 @@ owner's tested `b50e7ec` Windows launch remains the physical-device baseline.
 2. Keep Windows pen pressure/tilt edge cases, physical DPI, and native
    screen-reader behavior labeled pending until validated on those systems.
    Do not merge or publish a release.
+
+## Painting-engine continuation — deterministic stabilization and raster shapes
+
+This checkpoint answers the engine-first continuation request. It is a
+functional slice, not Phase 8.3 completion.
+
+- Replaced the per-event low-pass position adjustment with a per-stroke,
+  constant-memory One Euro filter. Its cutoff responds to input velocity;
+  pressure and tilt remain attached to their original samples. A zero setting is
+  an exact pass-through. Repeated/out-of-order millisecond timestamps remain
+  finite, clipped-segment re-entry resets the filter, and commit explicitly
+  connects the filtered path to the real release point. Cancelled provisional
+  raster remains outside authoritative document tiles and history.
+- Added persistent raster Line, Rectangle and Ellipse edits to
+  `paint-document`. Outline width, brush color and opacity come from the active
+  brush; rectangles/ellipses also support fill. The edit checks active layer
+  lock/visibility, current selection, dimensions and tile budget, then records
+  one undo transaction. Committed output participates in the existing native
+  `.rpl` encoding, PNG export and undo/redo. These primitives are raster and are
+  not separately editable geometry.
+- Integrated drag previews and commit/cancel into the existing canvas pointer
+  path for mouse and native pen events. `L`, `R` and `O` select line, rectangle
+  and ellipse; Shift constrains line angle or shape proportions; Escape cancels.
+  Preview geometry is a transient overlay and cannot contaminate the document.
+  The Linux XTest workflow asserts visible contrast in the captured preview,
+  byte-identical artwork after Escape, actual selected-layer pixels after each
+  commit/save, and exact native-project bytes across undo and redo.
+- Local verification: 262 workspace tests, formatting, strict Clippy, workspace
+  build, Windows GNU target check/Clippy, llvmpipe Vulkan GPU smoke and the full
+  Linux/Xorg/XTest artwork workflow passed. The workflow also retains existing
+  create/paint/layer/save/reopen/PNG/OpenRaster/recovery checks. See
+  `docs/testing.md` for the exact command and validation limits.
+- No Windows/macOS CI result or new platform artifact is claimed until the
+  Actions run for this implementation finishes. This environment did not run a
+  Windows device or macOS desktop. Basic S Pen drawing had been physically
+  observed on the owner’s Galaxy Book2 Pro 360 in an earlier build; advanced
+  shape capture, pressure/tilt dynamics, high-DPI, Narrator and NVDA behavior
+  remain unverified on hardware.
+
+### Next implementation steps
+
+1. Inspect the pushed cross-platform CI and Linux screenshots/artifacts for this
+   checkpoint; fix any platform or workflow regressions before proceeding.
+2. Measure stabilization latency/quality on representative recorded samples and
+   add a replay-based adjustable stabilization comparison without changing the
+   WM_POINTER architecture.
+3. Continue engine workflows with useful shape properties and selection-aware
+   fill/gradient work only where each operation can be persisted, undone and
+   validated end to end. Keep Phase 8.3 active; do not merge or release.

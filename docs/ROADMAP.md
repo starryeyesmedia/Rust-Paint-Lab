@@ -19,6 +19,10 @@ Artwork preservation and cross-platform validation apply to every track.
   tool palette, contextual brush/layer/reference/color panels, recent-artwork
   previews, visual New Artwork flow, recovery manager, accessible preferences,
   keyboard/focus behavior, and Windows assistive-technology validation.
+- **Current engine continuation:** a deterministic per-stroke One Euro
+  stabilizer and document-backed raster line, rectangle and ellipse tools now
+  provide an initial functional slice. This is not Phase 8.3 acceptance; continue
+  stabilization workflow validation and substantive brush/editing development.
 - Complete theme, scalable interface, touch target, contrast, handedness, reduced
   motion, small-window and high-DPI behavior; add manual Narrator/NVDA testing.
 - Phase 9: adaptable workspace for shape/fill/selection workflows; Phase 10:
@@ -27,7 +31,7 @@ Artwork preservation and cross-platform validation apply to every track.
 
 ## Creative engine
 
-- Phase 9 — shapes, QuickShape, fills, gradients, symmetry, rulers/guides,
+- Phase 9 — QuickShape, fills, gradients, symmetry, rulers/guides,
   selection/transform improvements, masks and brush-system expansion.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
   non-destructive effects, and natural-media foundations.

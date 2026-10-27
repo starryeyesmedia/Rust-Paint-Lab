@@ -575,3 +575,42 @@ DISPLAY=:203 XDG_RUNTIME_DIR=/tmp/bitchpixel-runtime \
 This uses Mesa software rendering and Linux XTest, not physical display/GPU
 validation. Windows GUI startup, Windows DPI, screen readers and physical pen
 behavior remain platform-specific checks.
+
+## Engine-first painting continuation
+
+The current local checkpoint replaces the document engine's per-sample smoothing
+with a time-aware, constant-memory One Euro position filter. The amount-zero
+path is exact identity. Tests compare real raster output with smoothing disabled
+and enabled, repeat identical timestamped sequences, check the terminal release
+pixel, prove cancelled tiles do not enter document state, and retain the existing
+document-edge clipping/re-entry coverage. Pressure/tilt remain sample data and
+are not synthesized by the filter.
+
+Document tests also exercise raster line, rectangle and ellipse operations,
+selection clipping, locked layers, native encode/decode, PNG export/import, and
+single-operation undo/redo. The Linux application workflow uses XTest to draw
+and cancel a live shape preview, then commits each shape, saves and checks a
+pixel in the selected native layer, and verifies exact project bytes on undo and
+redo. Screenshot-region checks ensure the active preview actually rendered with
+contrast before the test cancels it. The full workflow additionally repeats
+painting, layer, native project, PNG/OpenRaster and journal-recovery paths.
+
+At this code checkpoint, local validation passed: **262 workspace tests**,
+`cargo fmt --all -- --check`, strict workspace Clippy, workspace build, Windows
+GNU target check/Clippy, llvmpipe Vulkan GPU smoke, and the full Xorg/XTest
+workflow. The exact Xvfb invocation used was:
+
+```sh
+export CARGO_HOME=/workspace/.cargo RUSTUP_HOME=/workspace/.rustup
+export PATH=/workspace/.canvas-runtime/usr/bin:/workspace/.cargo/bin:$PATH
+export LD_LIBRARY_PATH=/workspace/.canvas-runtime/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export XDG_RUNTIME_DIR=/tmp/rpl-runtime XDG_CACHE_HOME=/tmp/rpl-cache
+export VK_ICD_FILENAMES=/workspace/.canvas-runtime/lvp.json WGPU_BACKEND=vulkan
+export RPL_UI_SCREENSHOT_DIR=/tmp/bitchpixel-phase83-ui
+xvfb-run -a -s '-screen 0 2200x1400x24' python3 scripts/alpha-workflow-smoke.py
+```
+
+This verifies a software-rendered Linux window and real application input under
+XTest, not physical pen latency or Windows/macOS GUI behavior. Basic S Pen
+drawing was physically observed on the owner’s device in an earlier build;
+advanced pen behavior and native Windows accessibility testing remain pending.

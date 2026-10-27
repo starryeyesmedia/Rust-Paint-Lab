@@ -7,6 +7,15 @@ pub enum SelectionKind {
     Ellipse,
     Lasso,
 }
+
+/// Persistent raster shape primitives. This is distinct from a selection: the
+/// engine rasterizes each completed primitive into the selected layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShapeKind {
+    Line,
+    Rectangle,
+    Ellipse,
+}
 pub const MAX_SELECTION_POINTS: usize = 1024;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Selection {
@@ -159,6 +168,132 @@ fn mask(s: &State) -> Vec<bool> {
     mask
 }
 impl Engine {
+    /// Rasterize one completed shape as a single undoable document edit. Shape
+    /// previews belong to the workspace and never enter document pixels before
+    /// this method is called.
+    pub fn draw_shape(
+        &mut self,
+        kind: ShapeKind,
+        start: [f64; 2],
+        end: [f64; 2],
+        filled: bool,
+    ) -> Result<(), PaintError> {
+        let brush = self.brush.clone();
+        if !brush.validate()
+            || !start
+                .iter()
+                .chain(end.iter())
+                .all(|value| value.is_finite())
+        {
+            return Err(PaintError::Invalid);
+        }
+        self.edit(move |state| {
+            let width = f64::from(state.width);
+            let height = f64::from(state.height);
+            if start[0] < 0.0
+                || start[0] > width
+                || start[1] < 0.0
+                || start[1] > height
+                || end[0] < 0.0
+                || end[0] > width
+                || end[1] < 0.0
+                || end[1] > height
+            {
+                return Err(PaintError::Invalid);
+            }
+            if kind != ShapeKind::Line && (start[0] == end[0] || start[1] == end[1]) {
+                return Err(PaintError::Invalid);
+            }
+            if kind == ShapeKind::Line && start == end {
+                return Err(PaintError::Invalid);
+            }
+            let selected = state.selected;
+            let all_tiles = state.tile_count();
+            let selection = state.selection.clone();
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == selected)
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+
+            let half = brush.size / 2.0;
+            let margin = if kind == ShapeKind::Line || !filled {
+                half + 1.0
+            } else {
+                1.0
+            };
+            let bounds = [
+                start[0].min(end[0]),
+                start[1].min(end[1]),
+                start[0].max(end[0]),
+                start[1].max(end[1]),
+            ];
+            let left = (bounds[0] - margin).floor().max(0.0) as u32;
+            let top = (bounds[1] - margin).floor().max(0.0) as u32;
+            let right = (bounds[2] + margin).ceil().min(width) as u32;
+            let bottom = (bounds[3] + margin).ceil().min(height) as u32;
+            let mut updates = TileMap::new();
+            let mut tile_count = all_tiles;
+            let mut painted = false;
+            let base_alpha = brush.opacity * 255.0;
+            for y in top..bottom {
+                for x in left..right {
+                    let point = [f64::from(x) + 0.5, f64::from(y) + 0.5];
+                    if selection
+                        .as_ref()
+                        .is_some_and(|selection| !selection.contains(point))
+                    {
+                        continue;
+                    }
+                    let coverage = shape_coverage(kind, start, end, point, half, filled);
+                    let alpha = (base_alpha * coverage).round().clamp(0.0, 255.0) as u8;
+                    if alpha == 0 {
+                        continue;
+                    }
+                    let key = (x / TILE, y / TILE);
+                    if let std::collections::btree_map::Entry::Vacant(entry) = updates.entry(key) {
+                        if !layer.tiles.contains_key(&key) {
+                            if tile_count >= crate::MAX_TILES {
+                                return Err(PaintError::Limit);
+                            }
+                            tile_count += 1;
+                        }
+                        let tile = layer
+                            .tiles
+                            .get(&key)
+                            .map(|tile| tile.as_ref().clone())
+                            .unwrap_or_else(|| vec![0; TILE_BYTES]);
+                        entry.insert(Arc::new(tile));
+                    }
+                    let tile = Arc::make_mut(updates.get_mut(&key).expect("inserted tile"));
+                    let offset = ((y % TILE * TILE + x % TILE) * 4) as usize;
+                    let source = [
+                        ((u16::from(brush.color[0]) * u16::from(alpha) + 127) / 255) as u8,
+                        ((u16::from(brush.color[1]) * u16::from(alpha) + 127) / 255) as u8,
+                        ((u16::from(brush.color[2]) * u16::from(alpha) + 127) / 255) as u8,
+                        alpha,
+                    ];
+                    over(
+                        &mut tile[offset..offset + 4],
+                        &source,
+                        false,
+                        255,
+                        Blend::Normal,
+                    );
+                    painted = true;
+                }
+            }
+            if !painted {
+                return Err(PaintError::Invalid);
+            }
+            layer.tiles.extend(updates);
+            Ok(())
+        })
+    }
+
     pub fn set_selection(&mut self, selection: Option<Selection>) -> Result<(), PaintError> {
         if let Some(s) = &selection {
             s.validate()?;
@@ -313,4 +448,71 @@ impl Engine {
             Ok(())
         })
     }
+}
+
+fn shape_coverage(
+    kind: ShapeKind,
+    start: [f64; 2],
+    end: [f64; 2],
+    point: [f64; 2],
+    half_width: f64,
+    filled: bool,
+) -> f64 {
+    let (left, top, right, bottom) = (
+        start[0].min(end[0]),
+        start[1].min(end[1]),
+        start[0].max(end[0]),
+        start[1].max(end[1]),
+    );
+    match kind {
+        ShapeKind::Line => {
+            let distance = segment_distance(point, start, end);
+            (half_width + 0.5 - distance).clamp(0.0, 1.0)
+        }
+        ShapeKind::Rectangle => {
+            if filled {
+                let inside = (point[0] - left)
+                    .min(right - point[0])
+                    .min(point[1] - top)
+                    .min(bottom - point[1]);
+                (inside + 0.5).clamp(0.0, 1.0)
+            } else {
+                let corners = [[left, top], [right, top], [right, bottom], [left, bottom]];
+                let distance = (0..4)
+                    .map(|index| segment_distance(point, corners[index], corners[(index + 1) % 4]))
+                    .fold(f64::INFINITY, f64::min);
+                (half_width + 0.5 - distance).clamp(0.0, 1.0)
+            }
+        }
+        ShapeKind::Ellipse => {
+            let center = [(left + right) / 2.0, (top + bottom) / 2.0];
+            let radii = [(right - left) / 2.0, (bottom - top) / 2.0];
+            let delta = [point[0] - center[0], point[1] - center[1]];
+            let normalized = (delta[0] / radii[0]).hypot(delta[1] / radii[1]);
+            let gradient =
+                (delta[0] / (radii[0] * radii[0])).hypot(delta[1] / (radii[1] * radii[1]));
+            let signed_distance = if gradient > f64::EPSILON {
+                (normalized - 1.0) / gradient
+            } else {
+                -radii[0].min(radii[1])
+            };
+            if filled {
+                (0.5 - signed_distance).clamp(0.0, 1.0)
+            } else {
+                (half_width + 0.5 - signed_distance.abs()).clamp(0.0, 1.0)
+            }
+        }
+    }
+}
+
+fn segment_distance(point: [f64; 2], start: [f64; 2], end: [f64; 2]) -> f64 {
+    let delta = [end[0] - start[0], end[1] - start[1]];
+    let length_squared = delta[0].mul_add(delta[0], delta[1] * delta[1]);
+    if length_squared <= f64::EPSILON {
+        return (point[0] - start[0]).hypot(point[1] - start[1]);
+    }
+    let t = (((point[0] - start[0]) * delta[0] + (point[1] - start[1]) * delta[1])
+        / length_squared)
+        .clamp(0.0, 1.0);
+    (point[0] - (start[0] + t * delta[0])).hypot(point[1] - (start[1] + t * delta[1]))
 }

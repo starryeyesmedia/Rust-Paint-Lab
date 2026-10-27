@@ -214,6 +214,17 @@ captured at Begin. Spatial dab spacing/interpolated pressure is independent of e
 frequency; the final raw endpoint is included after smoothing. Mouse unavailable
 pressure remains None and uses explicit uniform brush fallback.
 
+Brush stabilization is applied inside each document stroke transaction. A bounded,
+constant-memory One Euro filter uses sample timestamps and derivative-adjusted
+cutoff: slow movement receives stronger filtering while fast movement raises the
+cutoff to retain responsiveness. Only document-space position is filtered;
+pressure, tilt, button state and source timing are preserved from the input sample.
+Setting stabilization to zero is an exact position passthrough. A clipped
+`BreakStrokeSegment` resets filter velocity so re-entry cannot bridge the outside
+region. Commit connects the filtered path to the actual release sample and adds its
+final dab, preventing a visible endpoint gap. Cancellation drops both preview tiles
+and filter state.
+
 64px premultiplied encoded-sRGB tiles use Arc COW for snapshots. Authoritative and
 preview tile count, layers, dimensions, history, file sizes, decoder allocations and
 recovery queues are bounded. Tiny legacy demo geometry limits do not limit alpha
@@ -241,6 +252,15 @@ Processor/Router and clips raster dabs against the active selection. Selection-t
 gestures are shell editing actions, not an alternative painting stream. Large lasso
 fills/transforms prepare bounded bit masks with scanline intersections rather than
 retesting every polygon edge for every output pixel. No feathering is claimed.
+
+Line, rectangle and ellipse creation are separate raster editing operations, not
+selections or vector objects. The workspace keeps drag previews transient; release
+calls `Engine::draw_shape`, which clips antialiased coverage to the document and
+active selection, checks the selected layer and global tile budget, then publishes
+the affected tiles through one undo snapshot. Current brush color, opacity and size
+provide the shape color, opacity and fixed outline width. Rectangle/ellipse may be
+filled instead of outlined. Native save/reopen and PNG export see the same raster
+pixels; shapes are not individually editable after commit.
 
 `paint-document::openraster` is an explicit interchange boundary, not native storage.
 It converts supported raster layers to individual PNG assets plus stack.xml and

@@ -6,6 +6,7 @@ pub mod editing;
 pub mod journal;
 pub mod openraster;
 pub mod recent;
+pub mod stabilization;
 pub mod storage;
 use brush::{Brush, BrushKind};
 use paint_stroke::{StrokeCommand, StrokeId, StrokeSample};
@@ -178,6 +179,7 @@ struct Transaction {
     brush: Brush,
     last: StrokeSample,
     remaining: f64,
+    stabilizer: stabilization::StrokeStabilizer,
     tiles: TileMap,
 }
 pub struct Engine {
@@ -423,6 +425,10 @@ impl Engine {
                     brush,
                     last: sample,
                     remaining: 0.0,
+                    stabilizer: stabilization::StrokeStabilizer::new(
+                        sample.position_document.0,
+                        sample.time_ms,
+                    ),
                     tiles: BTreeMap::new(),
                 };
                 self.dab(&mut t, sample)?;
@@ -434,6 +440,8 @@ impl Engine {
                 };
                 t.last = sample;
                 t.remaining = 0.0;
+                t.stabilizer
+                    .reset(sample.position_document.0, sample.time_ms);
                 if let Err(error) = self.dab(&mut t, sample) {
                     self.damage.extend(t.tiles.keys());
                     return Err(error);
@@ -445,15 +453,25 @@ impl Engine {
                 let Some(mut t) = self.active.remove(&stroke_id) else {
                     return Ok(());
                 };
-                // Finish at the actual endpoint rather than leaving a smoothing gap.
-                if matches!(c, StrokeCommand::CommitStroke { .. }) {
-                    t.brush.smoothing = 0.0;
-                }
+                let commit = matches!(c, StrokeCommand::CommitStroke { .. });
                 if let Err(e) = self.segment(&mut t, sample) {
                     self.damage.extend(t.tiles.keys());
                     return Err(e);
                 }
-                if matches!(c, StrokeCommand::CommitStroke { .. }) {
+                if commit && t.last.position_document.0 != sample.position_document.0 {
+                    // A filtered endpoint can lag behind its raw sample. Draw a
+                    // short, direct terminal segment so the visible stroke
+                    // always reaches the actual released point.
+                    let smoothing = t.brush.smoothing;
+                    t.brush.smoothing = 0.0;
+                    let result = self.segment(&mut t, sample);
+                    t.brush.smoothing = smoothing;
+                    if let Err(error) = result {
+                        self.damage.extend(t.tiles.keys());
+                        return Err(error);
+                    }
+                }
+                if commit {
                     // Final dab is explicit even when sample spacing has a remainder.
                     if let Err(e) = self.dab(&mut t, sample) {
                         self.damage.extend(t.tiles.keys());
@@ -497,12 +515,11 @@ impl Engine {
     }
     fn segment(&mut self, t: &mut Transaction, mut end: StrokeSample) -> Result<(), PaintError> {
         let a = t.last.position_document.0;
-        let mut b = end.position_document.0;
+        let b = t
+            .stabilizer
+            .update(end.position_document.0, end.time_ms, t.brush.smoothing);
         if !b.iter().all(|x| x.is_finite() && x.abs() <= 1_000_000.0) {
             return Err(PaintError::Invalid);
-        }
-        for i in 0..2 {
-            b[i] = a[i] + (b[i] - a[i]) * (1.0 - t.brush.smoothing * 0.9);
         }
         end.position_document.0 = b;
         let distance = (b[0] - a[0]).hypot(b[1] - a[1]);
