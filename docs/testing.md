@@ -646,3 +646,15 @@ the complete Linux/Xvfb/XTest artwork workflow. The existing 640 × 480, 1280 ×
 and recovery coverage remains active. This does not validate Windows hardware,
 physical color output, pen pressure/tilt behavior, or Narrator/NVDA. The owner's
 known successful `b50e7ec` Windows launch remains the hardware baseline.
+
+GitHub Actions run
+[`40546299074`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074)
+passed Windows, Linux and macOS. Windows performed the visible-window startup
+smoke and uploaded the separate
+[`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752669319)
+and [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752474102)
+artifacts. Linux passed the complete artwork/XTest workflow and uploaded
+[`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752754019).
+macOS passed first-frame startup and packaged an unsigned development build.
+These CI results do not replace physical device, display color or advanced
+stylus testing.

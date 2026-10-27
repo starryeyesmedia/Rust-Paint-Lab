@@ -442,7 +442,7 @@ artifacts. The Phase 8.3 program remains active. Continue the brush and editing
 engine with persistent, undoable end-to-end workflows before expanding into
 vector or animation scope.
 
-### Linear and radial raster gradients — local checkpoint, CI pending
+### Linear and radial raster gradients — `36a604c`, CI passed
 
 The current working continuation adds selected-layer Linear and Radial gradients,
 selection clipping, a transient bounded preview behind floating workspace panels,
@@ -450,7 +450,13 @@ and one-step save/undo/redo behavior. The XTest workflow asserts both actual UI
 modes, Escape leaves the native project byte-identical, and committed gradients
 change saved layer pixels. Local formatting, 266 tests, strict Clippy, workspace
 build, Windows GNU target checks, llvmpipe GPU smoke and the full Linux/Xvfb UI
-and artwork workflow pass. Verify the next Windows/Linux/macOS Actions run before
-recording CI as complete. Gradients are raster pixels with solid RGB stops and
-global brush opacity; they are not editable objects and full ICC color management
-is not implemented. See [the Phase 8.3 progress log](PHASE8-STUDIO-PROGRESS.md).
+and artwork workflow pass. Actions run
+[`40546299074`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074)
+passed on Windows, Linux and macOS, including Windows visible-window startup,
+Linux XTest artwork validation, and macOS first-frame startup. It uploaded the
+Windows [`canvas demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752669319),
+retained [`stylus diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752474102),
+and Linux [`UI screenshot archive`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752754019).
+Gradients are raster pixels with solid RGB stops and global brush opacity; they
+are not editable objects and full ICC color management is not implemented. See
+[the Phase 8.3 progress log](PHASE8-STUDIO-PROGRESS.md).

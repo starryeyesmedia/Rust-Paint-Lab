@@ -2059,8 +2059,16 @@ document engine and studio; it does not complete Phase 8.3.
 - Local verification passes: **266 workspace tests**, format, strict Clippy,
   workspace build, Windows GNU target check/Clippy, llvmpipe OpenGL GPU smoke,
   and the full Xvfb/XTest application workflow with dark/light/high-contrast,
-  populated Layers/Recovery and 640 × 480 through 1920 × 1080 captures. No CI
-  result for this new commit is available yet; verify all three jobs after push.
+  populated Layers/Recovery and 640 × 480 through 1920 × 1080 captures.
+- GitHub Actions run [`40546299074`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074)
+  passed on Windows, Linux and macOS. Windows passed visible-window startup and
+  uploaded the [`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752669319)
+  and retained [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752474102).
+  Linux passed GPU/window, mouse and full artwork/XTest workflows and uploaded
+  the [`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12752754019)
+  screenshot archive and unsigned [`Linux x64 alpha`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12754635831).
+  macOS passed first-frame startup and uploaded its unsigned
+  [`macOS ARM64 alpha`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40546299074/artifacts/12753057734).
 - Layer compositing remains the project's existing encoded-sRGB path; only stop
   interpolation is linear-light. Stops are solid RGB with global brush opacity,
   not independently transparent stops. The result is raster, not an editable
@@ -2071,9 +2079,6 @@ document engine and studio; it does not complete Phase 8.3.
 
 ### Immediate continuation
 
-1. Verify GitHub Windows/Linux/macOS CI and download the ordinary Windows canvas
-   artifact for the development checkpoint without replacing the owner's
-   `b50e7ec` evaluation baseline.
-2. Continue the next engine-first workflow with measured stabilization quality
+1. Continue the next engine-first workflow with measured stabilization quality
    and a useful end-to-end editing feature; preserve undo, selection, save and
    recovery boundaries. Keep Phase 8.3 active and do not merge or release.
