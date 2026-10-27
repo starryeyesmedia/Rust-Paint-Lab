@@ -270,6 +270,14 @@ def workspace_brush_tab_rect():
     marker=stable_marker('UI_TEST_WORKSPACE_BRUSH_TAB_RECT')
     return tuple(map(float,marker.split())) if marker else None
 
+def workspace_open_layers_rect():
+    marker=stable_marker('UI_TEST_WORKSPACE_OPEN_LAYERS_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def workspace_open_brush_rect():
+    marker=stable_marker('UI_TEST_WORKSPACE_OPEN_BRUSH_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
 def layer_front_row_rect():
     marker=stable_marker('UI_TEST_LAYER_FRONT_ROW_RECT')
     return tuple(map(float,marker.split())) if marker else None
@@ -277,6 +285,27 @@ def layer_front_row_rect():
 def layer_front_row_id():
     marker=stable_marker('UI_TEST_LAYER_FRONT_ROW_RECT')
     return int(marker.split()[0]) if marker else None
+
+def layer_thumbnail_update(layer_id):
+    prefix='UI_TEST_LAYER_THUMBNAIL_UPDATED: '
+    for line in reversed((directory/'application.log').read_text().splitlines()):
+        if line.startswith(prefix):
+            values=line.partition(': ')[2].split()
+            if int(values[0])==layer_id:
+                return int(values[1],16),int(values[2]),int(values[3])
+    return None
+
+def layer_thumbnail_bounds():
+    marker=stable_marker('UI_TEST_LAYER_THUMBNAIL_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_visibility_button_rect():
+    marker=stable_marker('UI_TEST_LAYER_VISIBILITY_BUTTON_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_lock_button_rect():
+    marker=stable_marker('UI_TEST_LAYER_LOCK_BUTTON_RECT')
+    return tuple(map(float,marker.split())) if marker else None
 
 def layer_row_rect(row_index):
     prefix='UI_TEST_LAYER_ROW_RECT: '
@@ -554,6 +583,7 @@ def native_layer_pixel_bytes(data, x, y):
             pixel=((y%64)*64+x%64)*4
             return tile[pixel:pixel+4]
     return b'\0\0\0\0'
+
 def png_chunk(kind, data):
     body=kind+data
     return struct.pack('>I',len(data))+body+struct.pack('>I',binascii.crc32(body)&0xffffffff)
@@ -623,6 +653,8 @@ def capture_window(window, name):
     saved_swatch_pixels=0
     recovery_preview_bounds=None
     brush_preview_bounds=None
+    layer_thumbnail_screen_bounds=None
+    layer_thumbnail_content_pixels=0
     saved_swatch_bounds=None
     saved_swatch_color=None
     hue_wheel_bounds=None
@@ -674,6 +706,11 @@ def capture_window(window, name):
         saved_swatch_color=(int(red),int(green),int(blue))
         x,y,wheel_width,wheel_height,scale=wait(hue_wheel_rect,'accessible hue wheel is laid out')
         hue_wheel_bounds=(x*scale,y*scale,(x+wheel_width)*scale,(y+wheel_height)*scale)
+    if name.startswith('layers-panel-populated-light'):
+        x,y,preview_width,preview_height,scale=wait(
+            layer_thumbnail_bounds,'selected raster-layer thumbnail reports its rendered bounds')
+        layer_thumbnail_screen_bounds=(x*scale,y*scale,(x+preview_width)*scale,
+                                       (y+preview_height)*scale)
     if name.startswith('reference-board-'):
         if width < 760:
             image_marker=wait(compact_reference_image_rect,
@@ -746,6 +783,17 @@ def capture_window(window, name):
                 left,top,right,bottom=hue_wheel_bounds
                 if left<=x_pixel<right and top<=y<bottom and max(red,green,blue)-min(red,green,blue)>55:
                     hue_wheel_colors.add((red,green,blue))
+            if layer_thumbnail_screen_bounds is not None:
+                left,top,right,bottom=layer_thumbnail_screen_bounds
+                # Exclude the selected-thumbnail frame: require pixels from
+                # the raster content inside the actual preview, not its purple
+                # selection border.
+                if left+2<=x_pixel<right-2 and top+2<=y<bottom-2:
+                    checker_colors=((255,255,255),(240,233,246))
+                    contrast=min(max(abs(channel-base) for channel,base in zip(
+                        (red,green,blue),checker)) for checker in checker_colors)
+                    if contrast>=30:
+                        layer_thumbnail_content_pixels+=1
             rows.extend((red,green,blue,255))
     raw=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+png_chunk(b'IDAT',zlib.compress(bytes(rows),6))+png_chunk(b'IEND',b'')
     destination=Path(folder) if folder else None
@@ -839,6 +887,10 @@ def capture_window(window, name):
         print(f'UI_SCREENSHOT_SAVED_SWATCH_PIXELS: {name} {saved_swatch_pixels}', flush=True)
         assert len(hue_wheel_colors)>=32, f'{name} does not visibly render the hue wheel ({len(hue_wheel_colors)} chromatic colors)'
         print(f'UI_SCREENSHOT_HUE_WHEEL_COLORS: {name} {len(hue_wheel_colors)}', flush=True)
+    if name.startswith('layers-panel-populated-light'):
+        assert layer_thumbnail_content_pixels>=1, \
+            f'{name} selected-layer thumbnail did not visibly alter checkerboard pixels inside its frame ({layer_thumbnail_content_pixels})'
+        print(f'UI_SCREENSHOT_LAYER_THUMBNAIL_CONTENT_PIXELS: {name} {layer_thumbnail_content_pixels}',flush=True)
     captured_screenshots[name] = (width, height)
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 
@@ -1163,11 +1215,51 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE') == 'Layers',
                  'floating workspace controls show the current Layers tab')
             capture_window(window,'workspace-controls-floating-light-normal')
+            launch_layers=wait(workspace_open_layers_rect,
+                               'the redundant Layers tab offers its integrated floating-panel action')
+            layer_window_count=sum(line.startswith('UI_TEST_LAYERS_WINDOW_RECT: ')
+                                   for line in (directory/'application.log').read_text().splitlines())
+            click_at((launch_layers[0]+launch_layers[2]/2)*launch_layers[4],
+                     (launch_layers[1]+launch_layers[3]/2)*launch_layers[4])
+            wait(lambda: event_marker('UI_TEST_LAYERS_FLYOUT_OPENED')=='workspace controls',
+                 'the Layers tab opens the real thumbnail-backed Layers panel')
+            wait(lambda: sum(line.startswith('UI_TEST_LAYERS_WINDOW_RECT: ')
+                             for line in (directory/'application.log').read_text().splitlines())>
+                 layer_window_count,
+                 'the integrated Layers panel reports its real floating-window bounds')
+            wait(lambda: json.loads(prefs.read_text()).get('show_controls') is False,
+                 'launching Layers closes the duplicate inspector and persists that workspace state')
+            key('Escape')
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='layers',
+                 'Escape dismisses the launched Layers panel')
+            key('F6')
+            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'F6 reopens the workspace launcher after closing Layers')
             tab_bounds=wait(workspace_brush_tab_rect,'floating Brush settings tab is laid out')
             click_at((tab_bounds[0]+tab_bounds[2]/2)*tab_bounds[4],
                      (tab_bounds[1]+tab_bounds[3]/2)*tab_bounds[4])
             wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE') == 'Brush',
-                 'floating workspace controls switch to Brush settings')
+                 'floating workspace controls switch to the Brush Library launcher')
+            launch_brush=wait(workspace_open_brush_rect,
+                              'the Brush tab offers its integrated Brush Library action')
+            brush_panel_count=sum(line == 'UI_TEST_BRUSH_PANEL_VISIBLE'
+                                   for line in (directory/'application.log').read_text().splitlines())
+            click_at((launch_brush[0]+launch_brush[2]/2)*launch_brush[4],
+                     (launch_brush[1]+launch_brush[3]/2)*launch_brush[4])
+            wait(lambda: event_marker('UI_TEST_BRUSH_FLYOUT_OPENED')=='workspace controls',
+                 'the Brush tab opens the actual preset and settings Library')
+            wait(lambda: sum(line == 'UI_TEST_BRUSH_PANEL_VISIBLE'
+                             for line in (directory/'application.log').read_text().splitlines())>
+                 brush_panel_count,
+                 'the launched Brush Library renders its actual floating panel')
+            wait(lambda: json.loads(prefs.read_text()).get('show_controls') is False,
+                 'launching Brush closes the duplicate inspector and persists that workspace state')
+            key('Escape')
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='brush',
+                 'Escape dismisses the launched Brush Library')
+            key('F6')
+            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Brush',
+                 'F6 restores the workspace launcher to its saved Brush tab')
             workspace_save_count=(directory/'application.log').read_text().count('UI_TEST_WORKSPACE_SAVE:')
             key('Escape')
             assert process.poll() is None, 'Escape closed the application instead of dismissing workspace controls'
@@ -1230,10 +1322,85 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             window=wait(find_window,'window after Ctrl+L opens Layers')
             ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
             wait(lambda: 'UI_TEST_LAYERS_ADDED: 3' in (directory/'application.log').read_text(), 'Layers panel contains three real editable layers')
+            populated_layer_id=wait(layer_front_row_id,'the frontmost editable layer is selected')
+            empty_thumbnail=wait(lambda: layer_thumbnail_update(populated_layer_id),
+                                 'the selected layer starts with a cached transparent thumbnail')
+            assert empty_thumbnail[1]==0 and empty_thumbnail[2]==0, f'new layer should begin transparent, got {empty_thumbnail}'
+            paint_start_count=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                                  for line in (directory/'application.log').read_text().splitlines())
+            key('b');drag_at(180,250,260,330)
+            wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>paint_start_count,
+                 'painting on the selected layer uses the ordinary input pipeline')
+            painted_thumbnail=wait(
+                lambda: (lambda value: value if value and value[0]!=empty_thumbnail[0]
+                         and value[1]>0 and value[2]>=5 else None)(layer_thumbnail_update(populated_layer_id)),
+                'painting refreshes the actual selected-layer thumbnail content',
+            )
+            assert painted_thumbnail[0]!=empty_thumbnail[0]
+            print(f'UI_TEST_LAYER_THUMBNAIL_PAINTED: {populated_layer_id} covered={painted_thumbnail[1]} colored={painted_thumbnail[2]}',flush=True)
             capture_window(window,'layers-panel-populated-light')
+            resize_window(window,1920,1080);capture_window(window,'layers-panel-populated-light-wide')
             resize_window(window,640,480);capture_window(window,'layers-panel-populated-light-narrow')
+            resize_window(window,1280,800)
+            ctrl('z')
+            restored_thumbnail=wait(
+                lambda: (lambda value: value if value and value[0]==empty_thumbnail[0]
+                         else None)(layer_thumbnail_update(populated_layer_id)),
+                'undo restores the exact cached thumbnail of the transparent layer',
+            )
+            assert restored_thumbnail[1]==0 and restored_thumbnail[2]==0
+            visibility_marker_count=sum(
+                line.startswith('UI_TEST_LAYER_VISIBILITY_BUTTON_RECT: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )
+            resize_window(window,640,480)
+            wait(lambda: sum(
+                line.startswith('UI_TEST_LAYER_VISIBILITY_BUTTON_RECT: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )>visibility_marker_count,
+                 'the layer controls have been rendered again after narrowing the viewport')
+            wait(lambda: 'viewport=640.0x480.0' in (event_marker('UI_TEST_COMPACT_PLAN') or ''),
+                 'the layer controls have recomputed their positions for the narrow viewport')
             compact_more=wait(layer_more_button_rect,
                               'compact layer rows keep their contextual visibility controls reachable')
+            compact_layer_id=layer_front_row_id()
+            compact_visibility=wait(layer_visibility_button_rect,
+                                    'compact rows expose a direct accessible visibility control')
+            visibility_point=((compact_visibility[0]+compact_visibility[2]/2)*compact_visibility[4],
+                              (compact_visibility[1]+compact_visibility[3]/2)*compact_visibility[4])
+            print(f'UI_TEST_LAYER_VISIBILITY_CLICK: {visibility_point}', flush=True)
+            click_at(*visibility_point)
+            wait(lambda: event_marker('UI_TEST_LAYER_VISIBILITY_BUTTON_CHANGED')==
+                 f'{compact_layer_id} false',
+                 'the direct visibility button hides the actual document layer')
+            wait(lambda: event_marker('UI_TEST_LAYER_STATE_APPLIED')==
+                 f'{compact_layer_id} visible=false locked=false',
+                 'direct visibility changes persist into document state')
+            compact_visibility=wait(layer_visibility_button_rect,
+                                    'the selected hidden layer remains directly showable')
+            click_at((compact_visibility[0]+compact_visibility[2]/2)*compact_visibility[4],
+                     (compact_visibility[1]+compact_visibility[3]/2)*compact_visibility[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_STATE_APPLIED')==
+                 f'{compact_layer_id} visible=true locked=false',
+                 'the direct visibility control restores the layer')
+            compact_lock=wait(layer_lock_button_rect,
+                              'compact rows expose a direct accessible lock control')
+            click_at((compact_lock[0]+compact_lock[2]/2)*compact_lock[4],
+                     (compact_lock[1]+compact_lock[3]/2)*compact_lock[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_LOCK_BUTTON_CHANGED')==
+                 f'{compact_layer_id} true',
+                 'the direct lock button locks the actual document layer')
+            wait(lambda: event_marker('UI_TEST_LAYER_STATE_APPLIED')==
+                 f'{compact_layer_id} visible=true locked=true',
+                 'direct locking persists into document state')
+            compact_lock=wait(layer_lock_button_rect,
+                              'the selected locked layer remains directly unlockable')
+            click_at((compact_lock[0]+compact_lock[2]/2)*compact_lock[4],
+                     (compact_lock[1]+compact_lock[3]/2)*compact_lock[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_STATE_APPLIED')==
+                 f'{compact_layer_id} visible=true locked=false',
+                 'the direct lock control restores the unlocked layer')
             compact_open_count=layer_actions_open_count()
             click_at((compact_more[0]+compact_more[2]/2)*compact_more[4],
                      (compact_more[1]+compact_more[3]/2)*compact_more[4])
@@ -1241,7 +1408,6 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'compact layer actions open without growing the panel stack')
             compact_visible=wait(lambda: layer_menu_action_rect('VISIBLE'),
                                  'compact layer menu exposes the real visibility toggle')
-            compact_layer_id=layer_front_row_id()
             click_at((compact_visible[0]+compact_visible[2]/2)*compact_visible[4],
                      (compact_visible[1]+compact_visible[3]/2)*compact_visible[4])
             wait(lambda: event_marker('UI_TEST_LAYER_VISIBILITY_CHANGED') ==
@@ -1301,7 +1467,16 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert sum(line.startswith('UI_TEST_LAYER_MENU_STATE: ')
                        for line in (directory/'application.log').read_text().splitlines()) == menu_state_count, \
                 'Escape must dismiss the compact layer menu before resizing'
+            front_row_marker_count=sum(
+                line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )
             resize_window(window,1280,800)
+            wait(lambda: sum(
+                line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )>front_row_marker_count,
+                 'the full-size layer row has been laid out after widening the viewport')
             front_row=wait(layer_front_row_rect,'frontmost layer row offers its contextual actions')
             more=wait(layer_more_button_rect,'frontmost layer exposes a keyboard-accessible actions menu')
             opened=layer_actions_open_count()
@@ -1315,17 +1490,35 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'the Duplicate layer menu item receives the real pointer click')
             wait(lambda: layer_context_duplicate_count()==4,
                  'layer context Duplicate targets the clicked layer and creates an editable copy')
+            row_count_before_undo=sum(
+                line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )
             ctrl('z')
             wait(lambda: history_layer_count()==3,
                  'undo removes the context-menu duplicate without changing the other layers')
+            wait(lambda: sum(
+                line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')
+                for line in (directory/'application.log').read_text().splitlines()
+            )>row_count_before_undo,
+                 'the restored front layer has been laid out after undoing duplication')
             front_id=layer_front_row_id()
             more=wait(layer_more_button_rect,'frontmost layer action button remains available after undo')
             opened=layer_actions_open_count()
             click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
-            wait(lambda: layer_actions_open_count()>opened,
+            wait(lambda: layer_actions_open_count()>opened and
+                 event_marker('UI_TEST_LAYER_ACTIONS_OPENED')==str(front_id),
                  'the frontmost layer Actions menu reopens for reordering')
-            send_backward=wait(lambda: layer_menu_action_rect('SEND_BACKWARD'),
-                               'Send backward is available for a non-bottom layer')
+            try:
+                send_backward=wait(lambda: layer_menu_action_rect('SEND_BACKWARD'),
+                                   'Send backward is available for a non-bottom layer')
+            except AssertionError:
+                lines=(directory/'application.log').read_text().splitlines()
+                start=max((i for i,line in enumerate(lines)
+                           if line.startswith('UI_TEST_LAYER_ACTIONS_OPENED: ')),default=-1)
+                print('UI_TEST_LAYER_REORDER_MENU_DIAGNOSTIC:\n'+'\n'.join(lines[start:][-80:]),
+                      flush=True)
+                raise
             click_at((send_backward[0]+send_backward[2]/2)*send_backward[4],
                      (send_backward[1]+send_backward[3]/2)*send_backward[4])
             wait(lambda: event_marker('UI_TEST_LAYER_CONTEXT_MOVED') is not None,
@@ -1335,6 +1528,52 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('z')
             wait(lambda: layer_front_row_id()==front_id,
                  'undo restores the previous layer order')
+            front_name=wait(layer_front_name_rect,
+                            'the frontmost target can be selected directly before painting')
+            click_at((front_name[0]+front_name[2]/2)*front_name[4],
+                     (front_name[1]+front_name[3]/2)*front_name[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_SELECTED')==str(front_id),
+                 'direct layer-row selection targets the layer to clear')
+            paint_count=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                            for line in (directory/'application.log').read_text().splitlines())
+            key('b');drag_at(180,250,260,330)
+            wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>paint_count,
+                 'the targeted front layer receives raster content through the real mouse pipeline')
+            before_clear_thumbnail=wait(lambda: layer_thumbnail_update(front_id),
+                                        'the selected layer has a rendered thumbnail before clearing')
+            assert before_clear_thumbnail[2]>0, \
+                'the context-clear test requires real selected-layer raster content'
+            more=wait(layer_more_button_rect,'frontmost layer exposes its targeted clear action')
+            opened=layer_actions_open_count()
+            click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
+            wait(lambda: layer_actions_open_count()>opened and
+                 event_marker('UI_TEST_LAYER_ACTIONS_OPENED')==str(front_id),
+                 'the populated front layer Actions menu opens for a targeted clear')
+            clear_contents=wait(lambda: layer_menu_action_rect('CLEAR'),
+                                'layer Actions exposes Clear layer contents')
+            click_at((clear_contents[0]+clear_contents[2]/2)*clear_contents[4],
+                     (clear_contents[1]+clear_contents[3]/2)*clear_contents[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_CLEAR_CLICKED')==str(front_id),
+                 'Clear layer contents targets the actual frontmost row')
+            wait(lambda: event_marker('UI_TEST_LAYER_CONTEXT_CLEARED')==str(front_id),
+                 'the document engine clears pixels on the requested layer ID')
+            cleared_thumbnail=wait(
+                lambda: (lambda value: value if value and value[0]!=before_clear_thumbnail[0]
+                         and value[1]==0 and value[2]==0 else None)(layer_thumbnail_update(front_id)),
+                'the selected layer thumbnail becomes transparent after contextual Clear',
+            )
+            ctrl('z')
+            restored_clear_thumbnail=wait(
+                lambda: (lambda value: value if value and value[0]==before_clear_thumbnail[0]
+                         else None)(layer_thumbnail_update(front_id)),
+                'Undo restores the exact raster-thumbnail pixels after contextual Clear',
+            )
+            assert restored_clear_thumbnail==before_clear_thumbnail
+            ctrl('z')
+            wait(lambda: (lambda value: value if value and value[1]==0 and value[2]==0 else None)(
+                     layer_thumbnail_update(front_id)),
+                 'a second Undo removes the temporary clear-test stroke before the save regression')
             more=wait(layer_more_button_rect,'frontmost layer action button remains available after reorder undo')
             opened=layer_actions_open_count()
             click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])

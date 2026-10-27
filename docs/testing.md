@@ -658,3 +658,25 @@ artifacts. Linux passed the complete artwork/XTest workflow and uploaded
 macOS passed first-frame startup and packaged an unsigned development build.
 These CI results do not replace physical device, display color or advanced
 stylus testing.
+
+## Coordinated workspace and raster-layer thumbnails
+
+The bounded thumbnail cache is covered by
+`cargo test --locked -p canvas-demo layer_thumbnails::tests --lib`. It verifies
+the 96 × 64 size cap, layer opacity, actual brush/shape/gradient content, Undo and
+Redo, selective per-layer invalidation, and a save/open round trip using the
+native `.rpl` Store. The document test
+`clearing_a_targeted_layer_preserves_selection_and_undo_restores_its_pixels`
+checks ID-targeted clearing, selection retention, lock rejection, and pixel
+restoration.
+
+The real-window Xorg/XTest workflow opens the real Layers and Brush panels from
+Workspace controls, paints and selects a populated layer through normal input,
+then clears and undoes it. A document regression also checks that the Brush
+Library's calligraphy-angle setting rotates the actual rasterized mark. Its
+screenshot assertions check content pixels inside the thumbnail rather than
+counting the selected border. It captures populated
+Layers/References at 640 × 480, 1280 × 800, and 1920 × 1080, and fails if the
+actual window rectangles overlap or leave the viewport. The latest local run
+passed this workflow and all 270 workspace tests. Screenshot PNGs are written to
+the configured `RPL_UI_SCREENSHOT_DIR`; generated files are not committed.

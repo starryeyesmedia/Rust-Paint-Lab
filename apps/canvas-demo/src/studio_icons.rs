@@ -24,6 +24,10 @@ pub enum Icon {
     DragHandle,
     ChevronLeft,
     ChevronRight,
+    Eye,
+    EyeOff,
+    Lock,
+    Unlock,
 }
 
 fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::Color32) {
@@ -238,6 +242,48 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
         }
         Icon::ChevronLeft => path(&[(2.0, -6.0), (-3.0, 0.0), (2.0, 6.0)]),
         Icon::ChevronRight => path(&[(-2.0, -6.0), (3.0, 0.0), (-2.0, 6.0)]),
+        Icon::Eye | Icon::EyeOff => {
+            painter.add(Shape::closed_line(
+                [
+                    (-8.0, 0.0),
+                    (-4.0, -4.0),
+                    (0.0, -5.5),
+                    (4.0, -4.0),
+                    (8.0, 0.0),
+                    (4.0, 4.0),
+                    (0.0, 5.5),
+                    (-4.0, 4.0),
+                ]
+                .into_iter()
+                .map(|(x, y)| at(x, y))
+                .collect(),
+                stroke,
+            ));
+            painter.circle_stroke(center, 2.3 * scale, stroke);
+            if icon == Icon::EyeOff {
+                line((-7.0, -7.0), (7.0, 7.0));
+            }
+        }
+        Icon::Lock | Icon::Unlock => {
+            painter.rect_stroke(
+                rect(-6.0, -1.0, 6.0, 8.0),
+                1.5 * scale,
+                stroke,
+                StrokeKind::Inside,
+            );
+            path(&[
+                (-3.5, -1.0),
+                (-3.5, -4.0),
+                (-2.0, -6.0),
+                (0.0, -7.0),
+                (2.0, -6.0),
+                (3.5, -4.0),
+                (3.5, -1.0),
+            ]);
+            if icon == Icon::Unlock {
+                line((3.5, -5.0), (5.5, -5.0));
+            }
+        }
     }
 }
 
@@ -255,6 +301,7 @@ pub fn button(
         .size(1.0)
         .color(egui::Color32::TRANSPARENT);
     let response = ui.add_sized(size, egui::Button::new(hidden_label).selected(selected));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
     let color = if selected {
         ui.visuals().selection.stroke.color
     } else if response.hovered() {

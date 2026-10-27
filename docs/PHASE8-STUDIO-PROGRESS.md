@@ -2082,3 +2082,68 @@ document engine and studio; it does not complete Phase 8.3.
 1. Continue the next engine-first workflow with measured stabilization quality
    and a useful end-to-end editing feature; preserve undo, selection, save and
    recovery boundaries. Keep Phase 8.3 active and do not merge or release.
+
+## Workspace launcher and raster-layer integration — local checkpoint on `f812666`
+
+The compact workspace and Layers pass now connects the F6 Workspace controls to
+the real floating Layers and Brush Library panels. The old Inspector Brush and
+Layers tabs no longer repeat the full set of settings and stack actions; they
+summarize the active state and launch the focused panel. Launching a panel closes
+the redundant Inspector and preserves the selected Workspace tab preference.
+The full Brush Library retains brush-angle adjustment in its advanced dynamics
+section; a document regression confirms calligraphy angle changes rasterized
+mark orientation.
+
+Layer rows now use a bounded per-layer thumbnail cache. It downsamples each
+document layer to at most 96 × 64 pixels, includes layer opacity, reuses its egui
+texture, and only re-renders the layers whose tile identities or opacity changed
+after a document revision. The cache drops deleted layer entries. A storage test
+drives a brush stroke, shape and gradient through Undo/Redo, saves and reopens the
+actual `.rpl` file, then compares the reopened thumbnail pixels. An additional
+cache assertion confirms adding or changing one layer does not resample unchanged
+layers.
+
+The Layers panel supports direct row selection, drag reordering plus the existing
+accessible Actions menu ordering commands, compact accessible visibility/lock
+checkboxes, in-row rename, opacity/blend settings, and targeted clear. The new
+targeted clear operation is a normal document transaction keyed by layer ID; it
+preserves the current selection and Undo restores the layer's pixels. In compact
+layouts, short but accessible action labels and reduced row preview/grip sizes
+keep the controls within their planned panel slot. This fixed a measured
+31-point Layers/Reference overlap at 640 × 480 without changing saved desktop
+panel sizes.
+
+The Linux Xorg/XTest workflow now opens Layers and Brush from Workspace controls,
+verifies those launchers close the duplicate Inspector, tests direct layer
+selection, paints the target layer through the ordinary mouse input pipeline,
+clears it from its contextual menu, checks the thumbnail becomes transparent,
+and verifies Undo restores the exact thumbnail fingerprint. Screenshot capture
+now excludes the selected purple frame and requires actual raster-color changes
+inside the thumbnail bounds.
+
+Local validation on this working tree passes `cargo fmt --all -- --check`, strict
+workspace Clippy, workspace build, Windows GNU workspace check/Clippy, and **270
+workspace tests**. The required offscreen smoke passed on Mesa llvmpipe/OpenGL
+with `RPL_REQUIRE_GPU=1`; this is software-adapter validation, not a performance
+measurement for Iris Xe or RTX 3060. The full real-X11/XTest artwork workflow
+passed, including the populated Layers/Reference no-overlap check at 640 × 480,
+true thumbnail pixels at 640 × 480, 1280 × 800 and 1920 × 1080, `.rpl` save/open,
+reference-isolated PNG/OpenRaster exports, recovery and existing artwork
+regressions. I inspected the populated light Layers and dark compact
+Layers/Reference screenshots. The compact Layer list is scrollable; only its
+front rows fit at once in a 640 × 480 window.
+
+This is a local implementation checkpoint based on `f812666`, not yet a pushed
+commit or a Phase 8.3 completion claim. Three-platform Actions results for this
+change are pending. No physical Windows device, high-DPI or advanced pen
+validation was run; the previously owner-confirmed basic S Pen behavior remains
+the hardware baseline. Broader workspace design, layer presentation and
+keyboard/focus workflows remain active follow-up work.
+
+### Next implementation steps
+
+1. Commit and push this verified workspace/layer slice and inspect its Windows,
+   Linux and macOS Actions run; retain the ordinary Windows canvas artifact.
+2. Continue the coordinated panel system and canvas-first hierarchy, then expand
+   the XTest/accessibility workflow to exercise opacity and blend mode with
+   saved pixel assertions. Keep Phase 8.3 active.

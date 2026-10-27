@@ -2216,6 +2216,7 @@ pub(crate) enum Action {
     Delete,
     DuplicateLayer(u64),
     DeleteLayer(u64),
+    ClearLayer(u64),
     Clear,
     Select(u64),
     Move(i32),
@@ -2348,6 +2349,24 @@ fn layer_actions_menu(
         actions.push(Action::DuplicateLayer(target.id));
         ui.close();
     }
+    let clear = ui.add_enabled(!target.locked, egui::Button::new("Clear layer contents"));
+    if target.emit_test_markers {
+        eprintln!(
+            "UI_TEST_LAYER_CLEAR_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            clear.rect.left(),
+            clear.rect.top(),
+            clear.rect.width(),
+            clear.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if clear.clicked() {
+        if target.emit_test_markers {
+            eprintln!("UI_TEST_LAYER_CLEAR_CLICKED: {}", target.id);
+        }
+        actions.push(Action::ClearLayer(target.id));
+        ui.close();
+    }
     let delete = ui.add_enabled(target.layer_count > 1, egui::Button::new("Delete layer"));
     if target.emit_test_markers {
         eprintln!(
@@ -2427,9 +2446,15 @@ impl FileRequest {
     }
 }
 
+pub(crate) struct LayerThumbnailContext<'a> {
+    pub cache: &'a mut crate::layer_thumbnails::LayerThumbnailCache,
+    pub document_epoch: u64,
+}
+
 pub(crate) fn layer_flyout_contents(
     ui: &mut egui::Ui,
     project: &mut Engine,
+    thumbnail_context: &mut LayerThumbnailContext<'_>,
     actions: &mut Vec<Action>,
     test_mode: bool,
     compact: bool,
@@ -2437,6 +2462,18 @@ pub(crate) fn layer_flyout_contents(
 ) {
     drag_ui.handles.clear();
     drag_ui.drop_targets.clear();
+    let thumbnail_updates =
+        thumbnail_context
+            .cache
+            .refresh(ui.ctx(), thumbnail_context.document_epoch, project);
+    if test_mode {
+        for update in thumbnail_updates {
+            eprintln!(
+                "UI_TEST_LAYER_THUMBNAIL_UPDATED: {} {:016x} {} {}",
+                update.layer_id, update.fingerprint, update.covered_pixels, update.colored_pixels
+            );
+        }
+    }
     let selected = project.state().selected;
     let selected_index = project
         .state()
@@ -2445,7 +2482,6 @@ pub(crate) fn layer_flyout_contents(
         .position(|layer| layer.id == selected)
         .unwrap_or(0);
     let layer_count = project.state().layers.len();
-    let canvas_size = [project.state().width, project.state().height];
     let layers: Vec<_> = project
         .state()
         .layers
@@ -2457,24 +2493,66 @@ pub(crate) fn layer_flyout_contents(
                 layer.name.clone(),
                 layer.visible,
                 layer.locked,
-                layer_thumbnail_samples(layer, canvas_size),
+                thumbnail_context.cache.texture(layer.id).cloned(),
             )
         })
         .collect();
-    ui.horizontal(|ui| {
-        if ui.button("New").clicked() {
+    let mut layer_actions = |ui: &mut egui::Ui| {
+        let new = ui
+            .button(if compact { "+" } else { "New" })
+            .on_hover_text("New layer");
+        new.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "New layer")
+        });
+        if new.clicked() {
             actions.push(Action::Add);
         }
-        if ui.button("Duplicate").clicked() {
+        let duplicate = ui
+            .button(if compact { "Copy" } else { "Duplicate" })
+            .on_hover_text("Duplicate selected layer");
+        duplicate.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                "Duplicate selected layer",
+            )
+        });
+        if duplicate.clicked() {
             actions.push(Action::Duplicate);
         }
-        if ui
-            .add_enabled(layers.len() > 1, egui::Button::new("Delete"))
-            .clicked()
-        {
+        let delete = ui
+            .add_enabled(
+                layers.len() > 1,
+                egui::Button::new(if compact { "Del" } else { "Delete" }),
+            )
+            .on_hover_text("Delete selected layer");
+        delete.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                "Delete selected layer",
+            )
+        });
+        if delete.clicked() {
             actions.push(Action::Delete);
         }
-    });
+        let clear = ui
+            .button("Clear")
+            .on_hover_text("Clear the selected layer; Undo restores its pixels");
+        clear.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                "Clear selected layer",
+            )
+        });
+        if clear.clicked() {
+            actions.push(Action::Clear);
+        }
+    };
+    // Compact labels keep all four common actions on one row, preserving
+    // vertical room for the selected layer's visibility and lock controls.
+    ui.horizontal(&mut layer_actions);
     if !compact {
         ui.horizontal(|ui| {
             ui.label("Order");
@@ -2531,8 +2609,11 @@ pub(crate) fn layer_flyout_contents(
                 let rename_id = egui::Id::new(("layer-flyout-name", id));
                 let mut focus_rename = false;
                 let row = ui.horizontal(|ui| {
-                    let drag_handle =
-                        crate::studio_icons::layer_drag_handle(ui, &name, [36.0, 44.0]);
+                    let drag_handle = crate::studio_icons::layer_drag_handle(
+                        ui,
+                        &name,
+                        if compact { [20.0, 44.0] } else { [36.0, 44.0] },
+                    );
                     drag_ui.handles.push((id, drag_handle.rect));
                     if test_mode {
                         eprintln!(
@@ -2546,7 +2627,18 @@ pub(crate) fn layer_flyout_contents(
                             ui.ctx().pixels_per_point(),
                         );
                     }
-                    layer_thumbnail(ui, &thumbnail, id == selected);
+                    let thumbnail_rect =
+                        layer_thumbnail(ui, thumbnail.as_ref(), id == selected, compact);
+                    if test_mode && row_index == 0 {
+                        eprintln!(
+                            "UI_TEST_LAYER_THUMBNAIL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            thumbnail_rect.left(),
+                            thumbnail_rect.top(),
+                            thumbnail_rect.width(),
+                            thumbnail_rect.height(),
+                            ui.ctx().pixels_per_point(),
+                        );
+                    }
                     let more = if compact {
                         egui::containers::menu::MenuButton::new("⋯")
                             .config(
@@ -2608,6 +2700,9 @@ pub(crate) fn layer_flyout_contents(
                         );
                     }
                     if label.clicked() {
+                        if test_mode {
+                            eprintln!("UI_TEST_LAYER_SELECTED: {id}");
+                        }
                         actions.push(Action::Select(id));
                     }
                     label
@@ -2660,35 +2755,122 @@ pub(crate) fn layer_flyout_contents(
                     ui.ctx()
                         .memory_mut(|memory| memory.request_focus(rename_id));
                 }
-                if !compact {
-                    ui.horizontal(|ui| {
-                        if ui.checkbox(&mut visible, "Visible").changed()
-                            && let Some(layer) =
-                                project.state().layers.iter().find(|layer| layer.id == id)
-                        {
-                            actions.push(Action::Layer(
-                                id,
-                                layer.name.clone(),
+                let mut layer_state_changed = false;
+                ui.horizontal(|ui| {
+                    let visibility = if compact {
+                        let response = crate::studio_icons::button(
+                            ui,
+                            if visible {
+                                crate::studio_icons::Icon::Eye
+                            } else {
+                                crate::studio_icons::Icon::EyeOff
+                            },
+                            "Visible",
+                            None,
+                            visible,
+                            [32.0, 32.0],
+                        );
+                        response.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::WidgetType::Checkbox,
+                                true,
                                 visible,
-                                layer.locked,
-                                layer.opacity,
-                                layer.blend,
-                            ));
+                                "Visible",
+                            )
+                        });
+                        let response = response.on_hover_text(if visible {
+                            "Visible — activate to hide this layer"
+                        } else {
+                            "Hidden — activate to show this layer"
+                        });
+                        let changed = response.clicked();
+                        if changed {
+                            visible = !visible;
                         }
-                        if ui.checkbox(&mut locked, "Locked").changed()
-                            && let Some(layer) =
-                                project.state().layers.iter().find(|layer| layer.id == id)
-                        {
-                            actions.push(Action::Layer(
-                                id,
-                                layer.name.clone(),
-                                layer.visible,
+                        (changed, response.rect)
+                    } else {
+                        let response = ui.checkbox(&mut visible, "Visible");
+                        (response.changed(), response.rect)
+                    };
+                    if test_mode && row_index == 0 {
+                        eprintln!(
+                            "UI_TEST_LAYER_VISIBILITY_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            visibility.1.left(),
+                            visibility.1.top(),
+                            visibility.1.width(),
+                            visibility.1.height(),
+                            ui.ctx().pixels_per_point(),
+                        );
+                    }
+                    if visibility.0 {
+                        layer_state_changed = true;
+                        if test_mode {
+                            eprintln!("UI_TEST_LAYER_VISIBILITY_BUTTON_CHANGED: {id} {visible}");
+                        }
+                    }
+                    let locking = if compact {
+                        let response = crate::studio_icons::button(
+                            ui,
+                            if locked {
+                                crate::studio_icons::Icon::Lock
+                            } else {
+                                crate::studio_icons::Icon::Unlock
+                            },
+                            "Locked",
+                            None,
+                            locked,
+                            [32.0, 32.0],
+                        );
+                        response.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::WidgetType::Checkbox,
+                                true,
                                 locked,
-                                layer.opacity,
-                                layer.blend,
-                            ));
+                                "Locked",
+                            )
+                        });
+                        let response = response.on_hover_text(if locked {
+                            "Locked — activate to unlock this layer"
+                        } else {
+                            "Unlocked — activate to lock this layer"
+                        });
+                        let changed = response.clicked();
+                        if changed {
+                            locked = !locked;
                         }
-                    });
+                        (changed, response.rect)
+                    } else {
+                        let response = ui.checkbox(&mut locked, "Locked");
+                        (response.changed(), response.rect)
+                    };
+                    if test_mode && row_index == 0 {
+                        eprintln!(
+                            "UI_TEST_LAYER_LOCK_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            locking.1.left(),
+                            locking.1.top(),
+                            locking.1.width(),
+                            locking.1.height(),
+                            ui.ctx().pixels_per_point(),
+                        );
+                    }
+                    if locking.0 {
+                        layer_state_changed = true;
+                        if test_mode {
+                            eprintln!("UI_TEST_LAYER_LOCK_BUTTON_CHANGED: {id} {locked}");
+                        }
+                    }
+                });
+                if layer_state_changed
+                    && let Some(layer) = project.state().layers.iter().find(|l| l.id == id)
+                {
+                    actions.push(Action::Layer(
+                        id,
+                        layer.name.clone(),
+                        visible,
+                        locked,
+                        layer.opacity,
+                        layer.blend,
+                    ));
                 }
                 if id == selected && !compact {
                     let selected_layer = project.state().layers.iter().find(|layer| layer.id == id);
@@ -2766,67 +2948,27 @@ pub(crate) fn layer_flyout_contents(
     }
 }
 
-const LAYER_PREVIEW_COLUMNS: usize = 10;
-const LAYER_PREVIEW_ROWS: usize = 7;
-
-fn layer_thumbnail_samples(
-    layer: &paint_document::Layer,
-    document_size: [u32; 2],
-) -> Vec<egui::Color32> {
-    let mut samples = Vec::with_capacity(LAYER_PREVIEW_COLUMNS * LAYER_PREVIEW_ROWS);
-    let (width, height) = (document_size[0].max(1), document_size[1].max(1));
-    for row in 0..LAYER_PREVIEW_ROWS {
-        for column in 0..LAYER_PREVIEW_COLUMNS {
-            let x0 = column as u64 * u64::from(width) / LAYER_PREVIEW_COLUMNS as u64;
-            let x1 =
-                ((column + 1) as u64 * u64::from(width) / LAYER_PREVIEW_COLUMNS as u64).max(x0 + 1);
-            let y0 = row as u64 * u64::from(height) / LAYER_PREVIEW_ROWS as u64;
-            let y1 = ((row + 1) as u64 * u64::from(height) / LAYER_PREVIEW_ROWS as u64).max(y0 + 1);
-            let mut rgba = [0u32; 4];
-            let mut count = 0u32;
-            for sample_y in 0..4u64 {
-                for sample_x in 0..4u64 {
-                    let x = (x0 + (x1 - x0 - 1) * sample_x / 3).min(u64::from(width - 1)) as u32;
-                    let y = (y0 + (y1 - y0 - 1) * sample_y / 3).min(u64::from(height - 1)) as u32;
-                    count += 1;
-                    let tile_x = x / paint_document::TILE;
-                    let tile_y = y / paint_document::TILE;
-                    let Some(tile) = layer.tiles.get(&(tile_x, tile_y)) else {
-                        continue;
-                    };
-                    let pixel = ((y % paint_document::TILE * paint_document::TILE
-                        + x % paint_document::TILE)
-                        * 4) as usize;
-                    for channel in 0..4 {
-                        rgba[channel] += u32::from(tile[pixel + channel]);
-                    }
-                }
-            }
-            samples.push(if count == 0 {
-                egui::Color32::TRANSPARENT
-            } else {
-                egui::Color32::from_rgba_premultiplied(
-                    (rgba[0] / count) as u8,
-                    (rgba[1] / count) as u8,
-                    (rgba[2] / count) as u8,
-                    (rgba[3] / count) as u8,
-                )
-            });
-        }
-    }
-    samples
-}
-
-fn layer_thumbnail(ui: &mut egui::Ui, samples: &[egui::Color32], selected: bool) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(60.0, 44.0), egui::Sense::hover());
+fn layer_thumbnail(
+    ui: &mut egui::Ui,
+    texture: Option<&egui::TextureHandle>,
+    selected: bool,
+    compact: bool,
+) -> egui::Rect {
+    let bounds = if compact {
+        egui::vec2(46.0, 34.0)
+    } else {
+        egui::vec2(64.0, 44.0)
+    };
+    let (rect, _) = ui.allocate_exact_size(bounds, egui::Sense::hover());
     let painter = ui.painter();
+    let checker_columns = 8;
+    let checker_rows = 6;
     let cell = egui::vec2(
-        rect.width() / LAYER_PREVIEW_COLUMNS as f32,
-        rect.height() / LAYER_PREVIEW_ROWS as f32,
+        rect.width() / checker_columns as f32,
+        rect.height() / checker_rows as f32,
     );
-    for row in 0..LAYER_PREVIEW_ROWS {
-        for column in 0..LAYER_PREVIEW_COLUMNS {
-            let index = row * LAYER_PREVIEW_COLUMNS + column;
+    for row in 0..checker_rows {
+        for column in 0..checker_columns {
             let checker = if (row + column) % 2 == 0 {
                 ui.visuals().extreme_bg_color
             } else {
@@ -2837,10 +2979,18 @@ fn layer_thumbnail(ui: &mut egui::Ui, samples: &[egui::Color32], selected: bool)
                 cell,
             );
             painter.rect_filled(cell_rect, 0.0, checker);
-            if let Some(color) = samples.get(index).filter(|color| color.a() > 0) {
-                painter.rect_filled(cell_rect, 0.0, *color);
-            }
         }
+    }
+    if let Some(texture) = texture {
+        let image_size = texture.size_vec2();
+        let scale = (bounds.x / image_size.x).min(bounds.y / image_size.y);
+        let image_rect = egui::Rect::from_center_size(rect.center(), image_size * scale);
+        painter.image(
+            texture.id(),
+            image_rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
     }
     painter.rect_stroke(
         rect,
@@ -2852,6 +3002,7 @@ fn layer_thumbnail(ui: &mut egui::Ui, samples: &[egui::Color32], selected: bool)
         },
         egui::StrokeKind::Inside,
     );
+    rect
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2909,6 +3060,7 @@ pub struct Studio {
     test_brush_layout_logged: bool,
     test_brush_preview_logged: bool,
     test_brush_window_logged: bool,
+    test_brush_panel_visible: bool,
     test_brush_preset_previews_logged: bool,
     test_brush_narrow_card_logged: bool,
     test_brush_narrow_layout_logged: bool,
@@ -2978,6 +3130,8 @@ pub struct Studio {
     layer_drag_handles: Vec<(u64, egui::Rect)>,
     layer_drop_targets: Vec<(u64, egui::Rect)>,
     pending_layer_move: Option<(u64, usize)>,
+    layer_thumbnail_cache: crate::layer_thumbnails::LayerThumbnailCache,
+    layer_thumbnail_document_epoch: u64,
     color_flyout_open: bool,
     navigation: crate::navigation::Navigation,
     touches: crate::navigation::TouchNavigation,
@@ -3130,6 +3284,7 @@ impl Studio {
             test_brush_layout_logged: false,
             test_brush_preview_logged: false,
             test_brush_window_logged: false,
+            test_brush_panel_visible: false,
             test_brush_preset_previews_logged: false,
             test_brush_narrow_card_logged: false,
             test_brush_narrow_layout_logged: false,
@@ -3202,6 +3357,8 @@ impl Studio {
             layer_drag_handles: Vec::new(),
             layer_drop_targets: Vec::new(),
             pending_layer_move: None,
+            layer_thumbnail_cache: Default::default(),
+            layer_thumbnail_document_epoch: 0,
             color_flyout_open: false,
             navigation: crate::navigation::Navigation {
                 zoom: preferences.canvas_zoom,
@@ -3298,6 +3455,11 @@ impl Studio {
         } else {
             usize::from(self.layers_flyout_open) + self.references.len()
         }
+    }
+
+    fn invalidate_document_thumbnail_cache(&mut self) {
+        self.layer_thumbnail_document_epoch = self.layer_thumbnail_document_epoch.saturating_add(1);
+        self.layer_thumbnail_cache.invalidate();
     }
 
     fn visible_workspace_obstacles(
@@ -5809,6 +5971,8 @@ impl Studio {
 
             if self.show_controls && !self.welcome && !self.new_dialog && !self.recovery_manager {
                 let mut controls_open = true;
+                let mut open_layers_from_controls = false;
+                let mut open_brush_from_controls = false;
                 let controls_size = egui::vec2(
                     self.workspace_controls_size[0].min((screen.width() - 16.0).max(1.0)),
                     self.workspace_controls_size[1].min((screen.height() - 16.0).max(1.0)),
@@ -5887,177 +6051,25 @@ impl Studio {
                         let project = session.live_mut().project_mut();
 
                         if self.inspector_tab == crate::workspace::InspectorTab::Brush {
-                            ui.heading("Brush presets and color");
-                            egui::ComboBox::from_label("Preset")
-                                .selected_text(brush_display_name(project.brush.kind))
-                                .show_ui(ui, |ui| {
-                                    for k in [
-                                        BrushKind::Round,
-                                        BrushKind::Ink,
-                                        BrushKind::Pencil,
-                                        BrushKind::Marker,
-                                        BrushKind::Airbrush,
-                                        BrushKind::Soft,
-                                        BrushKind::Textured,
-                                        BrushKind::Calligraphy,
-                                        BrushKind::Eraser,
-                                        BrushKind::Wash,
-                                    ] {
-                                        if ui
-                                            .selectable_label(
-                                                project.brush.kind == k,
-                                                brush_display_name(k),
-                                            )
-                                            .clicked()
-                                        {
-                                            activate_brush_preset(&mut project.brush, k);
-                                        }
-                                    }
-                                });
-
-                            ui.horizontal(|ui| {
-                                crate::studio_icons::label(
-                                    ui,
-                                    crate::studio_icons::Icon::Color,
-                                    "Color",
+                            ui.heading("Brush tools");
+                            ui.label(brush_display_name(project.brush.kind));
+                            ui.small(format!(
+                                "{} px · {}% opacity",
+                                project.brush.size,
+                                (project.brush.opacity * 100.0).round() as u32
+                            ));
+                            ui.label("Quick size and opacity stay above the canvas. Presets and advanced behavior live together in the Brush Library.");
+                            let launch = ui.button("Open Brush Library");
+                            if self.test_path_dialog {
+                                eprintln!(
+                                    "UI_TEST_WORKSPACE_OPEN_BRUSH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    launch.rect.left(), launch.rect.top(), launch.rect.width(),
+                                    launch.rect.height(), ui.ctx().pixels_per_point(),
                                 );
-                                ui.color_edit_button_srgb(&mut project.brush.color);
-                                let mut eraser = project.brush.kind == BrushKind::Eraser;
-                                if ui.checkbox(&mut eraser, "Eraser mode").changed() {
-                                    project.brush.kind = if eraser {
-                                        BrushKind::Eraser
-                                    } else {
-                                        BrushKind::Round
-                                    };
-                                }
-                            });
-                            if self.hex_color_for != Some(project.brush.color) {
-                                self.hex_color =
-                                    crate::color_controls::format_hex_rgb(project.brush.color);
-                                self.hex_color_for = Some(project.brush.color);
                             }
-                            ui.collapsing("Color values (sRGB)", |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label("HEX");
-                                    let response = ui.add(
-                                        egui::TextEdit::singleline(&mut self.hex_color)
-                                            .char_limit(7)
-                                            .desired_width(88.0),
-                                    );
-                                    let apply = ui.button("Apply").clicked()
-                                        || (response.lost_focus()
-                                            && ui.input(|input| {
-                                                input.key_pressed(egui::Key::Enter)
-                                            }));
-                                    if apply {
-                                        if let Some(color) =
-                                            crate::color_controls::parse_hex_rgb(&self.hex_color)
-                                        {
-                                            project.brush.color = color;
-                                            self.hex_color =
-                                                crate::color_controls::format_hex_rgb(color);
-                                            self.hex_color_for = Some(color);
-                                            self.status = "Brush color updated".into();
-                                        } else {
-                                            self.status =
-                                                "Enter a six-digit color such as #4B86D1".into();
-                                        }
-                                    }
-                                });
-                                let mut rgb = project.brush.color;
-                                ui.horizontal(|ui| {
-                                    ui.label("RGB");
-                                    for component in &mut rgb {
-                                        ui.add(
-                                            egui::DragValue::new(component).range(0..=255).speed(1),
-                                        );
-                                    }
-                                });
-                                if rgb != project.brush.color {
-                                    project.brush.color = rgb;
-                                    self.hex_color = crate::color_controls::format_hex_rgb(rgb);
-                                    self.hex_color_for = Some(rgb);
-                                }
-                            });
-                            ui.collapsing("Recent brush colors", |ui| {
-                                if self.recent_brush_colors.is_empty() {
-                                    ui.small("Colors you choose will appear here.");
-                                } else {
-                                    ui.horizontal_wrapped(|ui| {
-                                        for color in self.recent_brush_colors.clone() {
-                                            let hex = crate::color_controls::format_hex_rgb(color);
-                                            if crate::studio_icons::color_swatch(
-                                                ui,
-                                                egui::Color32::from_rgb(
-                                                    color[0], color[1], color[2],
-                                                ),
-                                                &format!("Brush color {hex}"),
-                                            )
-                                            .clicked()
-                                            {
-                                                project.brush.color = color;
-                                                self.hex_color = hex;
-                                                self.hex_color_for = Some(color);
-                                            }
-                                        }
-                                    });
-                                }
-                            });
-
-                            ui.horizontal(|ui| {
-                                ui.label("Size");
-                                ui.add(
-                                    egui::DragValue::new(&mut project.brush.size)
-                                        .range(1.0..=256.0)
-                                        .speed(0.25)
-                                        .suffix(" px"),
-                                );
-                            });
-                            ui.add(
-                                egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
-                                    .show_value(false)
-                                    .text("Size"),
-                            );
-                            ui.horizontal(|ui| {
-                                ui.label("Opacity");
-                                ui.add(
-                                    egui::DragValue::new(&mut project.brush.opacity)
-                                        .range(0.0..=1.0)
-                                        .speed(0.01),
-                                );
-                            });
-                            ui.add(
-                                egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
-                                    .show_value(false)
-                                    .text("Opacity"),
-                            );
-                            ui.collapsing("More brush settings", |ui| {
-                                ui.add(
-                                    egui::Slider::new(&mut project.brush.flow, 0.0..=1.0)
-                                        .text("Flow"),
-                                );
-                                ui.add(
-                                    egui::Slider::new(&mut project.brush.hardness, 0.0..=1.0)
-                                        .text("Hardness"),
-                                );
-                                ui.add(
-                                    egui::Slider::new(&mut project.brush.spacing, 0.05..=1.0)
-                                        .text("Spacing"),
-                                );
-                                ui.add(
-                                    egui::Slider::new(
-                                        &mut project.brush.angle,
-                                        -std::f64::consts::PI..=std::f64::consts::PI,
-                                    )
-                                    .text("Angle"),
-                                );
-                                ui.checkbox(&mut project.brush.pressure_size, "Pressure size");
-                                ui.checkbox(
-                                    &mut project.brush.pressure_opacity,
-                                    "Pressure opacity",
-                                );
-                                ui.checkbox(&mut project.brush.tilt, "Tilt angle");
-                            });
+                            if launch.clicked() {
+                                open_brush_from_controls = true;
+                            }
                         }
 
                         if self.inspector_tab == crate::workspace::InspectorTab::Edit {
@@ -6168,144 +6180,48 @@ impl Studio {
                         if self.inspector_tab == crate::workspace::InspectorTab::Layers {
                             let selected = project.state().selected;
                             let layer_count = project.state().layers.len();
-                            let selected_index = project
+                            let selected_name = project
                                 .state()
                                 .layers
                                 .iter()
-                                .position(|layer| layer.id == selected)
-                                .unwrap_or(0);
-
-                            ui.separator();
-                            ui.label(crate::ui_tokens::type_text(
-                                "Layers",
-                                crate::ui_tokens::TypeRole::PanelTitle,
-                                ui.visuals().text_color(),
-                            ));
-                            ui.small(format!("{layer_count} layers · top of list is frontmost"));
-                            ui.horizontal(|ui| {
-                                if ui.button("New layer").clicked() {
-                                    actions.push(Action::Add);
-                                }
-                                if ui.button("Duplicate").clicked() {
-                                    actions.push(Action::Duplicate);
-                                }
-                                if ui
-                                    .add_enabled(layer_count > 1, egui::Button::new("Delete"))
-                                    .clicked()
-                                {
-                                    actions.push(Action::Delete);
-                                }
-                            });
-
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .add_enabled(
-                                        selected_index + 1 < layer_count,
-                                        egui::Button::new("Raise"),
-                                    )
-                                    .clicked()
-                                {
-                                    actions.push(Action::Move(1));
-                                }
-                                if ui
-                                    .add_enabled(selected_index > 0, egui::Button::new("Lower"))
-                                    .clicked()
-                                {
-                                    actions.push(Action::Move(-1));
-                                }
-                                if ui.button("Clear layer").clicked() {
-                                    actions.push(Action::Clear);
-                                }
-                            });
-
-                            let layers: Vec<_> = project
-                                .state()
-                                .layers
-                                .iter()
-                                .rev()
-                                .map(|l| {
-                                    (
-                                        l.id,
-                                        l.name.clone(),
-                                        l.visible,
-                                        l.locked,
-                                        l.opacity,
-                                        l.blend,
-                                    )
-                                })
-                                .collect();
-
-                            for (id, mut name, mut visible, mut locked, mut opacity, mut blend) in
-                                layers
-                            {
-                                ui.group(|ui| {
-                                    let mut changed = false;
-                                    ui.horizontal(|ui| {
-                                        if ui.selectable_label(id == selected, &name).clicked() {
-                                            actions.push(Action::Select(id));
-                                        }
-                                        changed |= ui.checkbox(&mut visible, "Visible").changed();
-                                        changed |= ui.checkbox(&mut locked, "Locked").changed();
-                                    });
-                                    egui::CollapsingHeader::new("Layer settings")
-                                        .id_salt(("layer-settings", id))
-                                        .show(ui, |ui| {
-                                            changed |= ui
-                                                .add(
-                                                    egui::TextEdit::singleline(&mut name)
-                                                        .char_limit(64)
-                                                        .hint_text("Layer name"),
-                                                )
-                                                .changed();
-                                            let mut opacity_percent =
-                                                f32::from(opacity) * 100.0 / 255.0;
-                                            if ui
-                                                .add(
-                                                    egui::Slider::new(
-                                                        &mut opacity_percent,
-                                                        0.0..=100.0,
-                                                    )
-                                                    .suffix("%")
-                                                    .text("Opacity"),
-                                                )
-                                                .changed()
-                                            {
-                                                opacity = (opacity_percent * 2.55).round() as u8;
-                                                changed = true;
-                                            }
-                                            let old = blend;
-                                            egui::ComboBox::from_id_salt(("blend", id))
-                                                .selected_text(format!("{blend:?}"))
-                                                .show_ui(ui, |ui| {
-                                                    for b in [
-                                                        Blend::Normal,
-                                                        Blend::Multiply,
-                                                        Blend::Screen,
-                                                        Blend::Overlay,
-                                                    ] {
-                                                        ui.selectable_value(
-                                                            &mut blend,
-                                                            b,
-                                                            format!("{b:?}"),
-                                                        );
-                                                    }
-                                                });
-                                            changed |= old != blend;
-                                        });
-                                    if changed {
-                                        actions.push(Action::Layer(
-                                            id, name, visible, locked, opacity, blend,
-                                        ));
-                                    }
-                                });
+                                .find(|layer| layer.id == selected)
+                                .map_or("No selected layer", |layer| layer.name.as_str());
+                            ui.heading("Layer stack");
+                            ui.label(format!("{layer_count} layers · {selected_name} selected"));
+                            ui.label("Previews, visibility, ordering, opacity, blend mode and layer actions stay together in the floating Layers panel.");
+                            let launch = ui.button("Open Layers panel");
+                            if self.test_path_dialog {
+                                eprintln!(
+                                    "UI_TEST_WORKSPACE_OPEN_LAYERS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    launch.rect.left(), launch.rect.top(), launch.rect.width(),
+                                    launch.rect.height(), ui.ctx().pixels_per_point(),
+                                );
                             }
-
-                            ui.separator();
-                            ui.label("Ctrl-Z / Ctrl-Y: history");
+                            if launch.clicked() {
+                                open_layers_from_controls = true;
+                            }
                         }
                     });
                 });
                 self.show_controls = controls_open;
+                if open_layers_from_controls {
+                    self.layers_flyout_open = true;
+                    self.show_controls = false;
+                    workspace_changed = true;
+                    if self.test_path_dialog {
+                        eprintln!("UI_TEST_LAYERS_FLYOUT_OPENED: workspace controls");
+                        eprintln!("UI_TEST_WORKSPACE_LAUNCHED: Layers");
+                    }
+                }
+                if open_brush_from_controls {
+                    self.brush_flyout_open = true;
+                    self.show_controls = false;
+                    workspace_changed = true;
+                    if self.test_path_dialog {
+                        eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: workspace controls");
+                        eprintln!("UI_TEST_WORKSPACE_LAUNCHED: Brush");
+                    }
+                }
                 if let Some(controls_window) = controls_window {
                     let panel_position = [
                         controls_window.response.rect.left(),
@@ -6426,10 +6342,15 @@ impl Studio {
                         source: self.layer_drag_source,
                         target: self.layer_drag_target,
                     };
+                    let mut thumbnail_context = LayerThumbnailContext {
+                        cache: &mut self.layer_thumbnail_cache,
+                        document_epoch: self.layer_thumbnail_document_epoch,
+                    };
                     let mut contents = |ui: &mut egui::Ui| {
                         layer_flyout_contents(
                             ui,
                             session.live_mut().project_mut(),
+                            &mut thumbnail_context,
                             actions,
                             self.test_path_dialog,
                             compact,
@@ -6801,6 +6722,14 @@ impl Studio {
                             ui.add(egui::Slider::new(&mut project.brush.hardness, 0.0..=1.0).text("Hardness"));
                             ui.add(egui::Slider::new(&mut project.brush.spacing, 0.02..=1.0).text("Spacing"));
                             ui.add(
+                                egui::Slider::new(
+                                    &mut project.brush.angle,
+                                    -std::f64::consts::PI..=std::f64::consts::PI,
+                                )
+                                .text("Angle"),
+                            )
+                            .on_hover_text("Rotate the textured brush pattern while painting.");
+                            ui.add(
                                 egui::Slider::new(&mut project.brush.smoothing, 0.0..=1.0)
                                     .text("Stabilization"),
                             )
@@ -6824,6 +6753,10 @@ impl Studio {
                             });
                     });
                 if let Some(panel) = panel {
+                    if self.test_path_dialog && !self.test_brush_panel_visible {
+                        self.test_brush_panel_visible = true;
+                        eprintln!("UI_TEST_BRUSH_PANEL_VISIBLE");
+                    }
                     if self.test_path_dialog
                         && screen.width() < 760.0
                         && !self.test_brush_narrow_layout_logged
@@ -6877,6 +6810,9 @@ impl Studio {
                     }
                 }
                 self.brush_flyout_open = open;
+            }
+            if !self.brush_flyout_open {
+                self.test_brush_panel_visible = false;
             }
             if self.color_flyout_open && !self.welcome && !self.new_dialog && !self.recovery_manager
             {
@@ -9457,6 +9393,7 @@ impl Studio {
             Action::ImportOra => {
                 let state = paint_document::openraster::load(std::path::Path::new(&self.path))?;
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
+                self.invalidate_document_thumbnail_cache();
                 *project = Engine::from_state(state)?;
                 project.revision = 1;
                 self.recovery = Some(next);
@@ -9524,6 +9461,12 @@ impl Studio {
                         project.state().layers.len(),
                         project.state().selected,
                     );
+                }
+            }
+            Action::ClearLayer(id) => {
+                project.clear_layer_by_id(id)?;
+                if self.test_path_dialog {
+                    eprintln!("UI_TEST_LAYER_CONTEXT_CLEARED: {id}");
                 }
             }
             Action::Clear => project.clear_layer()?,
@@ -9631,6 +9574,7 @@ impl Studio {
                     .truncate(crate::workspace::MAX_RECENT_DOCUMENT_SIZES);
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
                 self.recovery = Some(next);
+                self.invalidate_document_thumbnail_cache();
                 *project = Engine::from_state(state)?;
                 self.store = None;
                 self.path = format!(
@@ -9648,6 +9592,7 @@ impl Studio {
             Action::Recover(path) => {
                 let (state, fallback) = paint_document::recovery::restore(&path)?;
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
+                self.invalidate_document_thumbnail_cache();
                 *project = Engine::from_state(state)?;
                 project.revision = 1;
                 self.recovery = Some(next);
@@ -9670,6 +9615,7 @@ impl Studio {
                 };
                 let (store, state) = Store::open(path)?;
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
+                self.invalidate_document_thumbnail_cache();
                 *project = Engine::from_state(state)?;
                 self.recovery = Some(next);
                 self.path = store.path.to_string_lossy().into();
@@ -9777,9 +9723,9 @@ mod tests {
         FormatIllustration, LassoAppend, activate_brush_preset, append_lasso_point,
         brush_size_after_shortcut, document_format_card_height, document_format_grid,
         fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
-        home_sections_stacked, layer_thumbnail_samples, native_project_path,
-        quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
-        recent_project_matches, recovery_checkpoint_label, recovery_source_label,
+        home_sections_stacked, native_project_path, quick_document_card_layout,
+        recent_artwork_preview_height, recent_gallery_layout, recent_project_matches,
+        recovery_checkpoint_label, recovery_source_label,
     };
     use paint_document::brush::{Brush, BrushKind};
     use std::path::{Path, PathBuf};
@@ -10020,39 +9966,5 @@ mod tests {
             assert!((172.0..=410.0).contains(&card_width));
             assert!(columns as f32 * card_width + 12.0 * (columns - 1) as f32 <= width + 0.1);
         }
-    }
-
-    #[test]
-    fn layer_previews_are_bounded_and_show_real_transparent_layer_pixels() {
-        let mut tile = vec![0; paint_document::TILE_BYTES];
-        for y in 16..48 {
-            for x in 16..48 {
-                let pixel = ((y * paint_document::TILE + x) * 4) as usize;
-                tile[pixel..pixel + 4].copy_from_slice(&[120, 30, 60, 128]);
-            }
-        }
-        let layer = paint_document::Layer {
-            id: 1,
-            name: "Paint 1".into(),
-            visible: true,
-            locked: false,
-            opacity: 255,
-            blend: paint_document::Blend::Normal,
-            tiles: std::collections::BTreeMap::from([((0, 0), std::sync::Arc::new(tile))]),
-        };
-        let preview = layer_thumbnail_samples(&layer, [64, 64]);
-        assert_eq!(preview.len(), 70);
-        assert!(preview.iter().any(|color| color.a() > 0));
-        assert!(preview.iter().any(|color| color.a() == 0));
-
-        let empty = paint_document::Layer {
-            tiles: std::collections::BTreeMap::new(),
-            ..layer
-        };
-        assert!(
-            layer_thumbnail_samples(&empty, [4096, 4096])
-                .iter()
-                .all(|color| color.a() == 0)
-        );
     }
 }

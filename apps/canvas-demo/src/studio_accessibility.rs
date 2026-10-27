@@ -48,6 +48,11 @@ mod tests {
         project.add_layer().unwrap();
         project.add_layer().unwrap();
         let mut actions = Vec::new();
+        let mut thumbnail_cache = crate::layer_thumbnails::LayerThumbnailCache::default();
+        let mut thumbnail_context = crate::studio::LayerThumbnailContext {
+            cache: &mut thumbnail_cache,
+            document_epoch: 0,
+        };
         let mut drag_handles = Vec::new();
         let mut drop_targets = Vec::new();
         let mut drag_ui = crate::studio::LayerDragUi {
@@ -61,6 +66,7 @@ mod tests {
                 crate::studio::layer_flyout_contents(
                     ui,
                     &mut project,
+                    &mut thumbnail_context,
                     &mut actions,
                     false,
                     false,
@@ -101,6 +107,65 @@ mod tests {
                 "{label} missing from the populated layer tree: {labels}"
             );
         }
+    }
+
+    #[test]
+    fn compact_layer_icon_toggles_keep_checkbox_names_and_values() {
+        let context = app_context();
+        context.enable_accesskit();
+        let mut project = paint_document::Engine::new(32, 32, 300).unwrap();
+        project.add_layer().unwrap();
+        let mut actions = Vec::new();
+        let mut thumbnail_cache = crate::layer_thumbnails::LayerThumbnailCache::default();
+        let mut thumbnail_context = crate::studio::LayerThumbnailContext {
+            cache: &mut thumbnail_cache,
+            document_epoch: 0,
+        };
+        let mut drag_handles = Vec::new();
+        let mut drop_targets = Vec::new();
+        let mut drag_ui = crate::studio::LayerDragUi {
+            handles: &mut drag_handles,
+            drop_targets: &mut drop_targets,
+            source: None,
+            target: None,
+        };
+        let output = context.run(Default::default(), |ctx| {
+            egui::Window::new("Layers").show(ctx, |ui| {
+                crate::studio::layer_flyout_contents(
+                    ui,
+                    &mut project,
+                    &mut thumbnail_context,
+                    &mut actions,
+                    false,
+                    true,
+                    &mut drag_ui,
+                );
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("compact layer controls remain in the accessible tree");
+        let nodes = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(nodes.contains("label: \"Visible\""), "{nodes}");
+        assert!(nodes.contains("label: \"Locked\""), "{nodes}");
+        assert!(
+            nodes.contains("role: CheckBox"),
+            "compact toggles are not checkbox semantics: {nodes}"
+        );
+        assert!(
+            nodes.contains("label: \"Visible\", toggled: True"),
+            "visible layer state is missing: {nodes}"
+        );
+        assert!(
+            nodes.contains("label: \"Locked\", toggled: False"),
+            "unlocked layer state is missing: {nodes}"
+        );
     }
 
     #[test]

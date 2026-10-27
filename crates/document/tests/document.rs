@@ -492,6 +492,46 @@ fn presets_are_deterministic_distinct_and_versioned() {
 }
 
 #[test]
+fn calligraphy_angle_setting_changes_the_rasterized_mark_orientation() {
+    fn rasterized_bounds(angle: f64) -> [u32; 4] {
+        let mut engine = Engine::new(64, 64, 300).unwrap();
+        engine.brush = Brush::preset(BrushKind::Calligraphy);
+        engine.brush.size = 24.0;
+        engine.brush.color = [20, 30, 90];
+        engine.brush.angle = angle;
+        engine.brush.smoothing = 0.0;
+        begin(&mut engine, 1, 32.0, 32.0);
+        end(&mut engine, 1, 32.0, 32.0);
+
+        let mut bounds = [u32::MAX, u32::MAX, 0, 0];
+        for (index, pixel) in engine.rgba().chunks_exact(4).enumerate() {
+            if pixel[..3] != [255, 255, 255] {
+                let x = (index % 64) as u32;
+                let y = (index / 64) as u32;
+                bounds[0] = bounds[0].min(x);
+                bounds[1] = bounds[1].min(y);
+                bounds[2] = bounds[2].max(x);
+                bounds[3] = bounds[3].max(y);
+            }
+        }
+        assert!(
+            bounds[0] != u32::MAX,
+            "calligraphy stroke should paint pixels"
+        );
+        bounds
+    }
+
+    let horizontal = rasterized_bounds(0.0);
+    let vertical = rasterized_bounds(std::f64::consts::FRAC_PI_2);
+    let horizontal_width = horizontal[2] - horizontal[0] + 1;
+    let horizontal_height = horizontal[3] - horizontal[1] + 1;
+    let vertical_width = vertical[2] - vertical[0] + 1;
+    let vertical_height = vertical[3] - vertical[1] + 1;
+    assert!(horizontal_width > horizontal_height * 2);
+    assert!(vertical_height > vertical_width * 2);
+}
+
+#[test]
 fn brush_presets_roundtrip_with_bounded_no_clobber_storage() {
     let root = std::env::temp_dir().join(format!("rpl-brush-presets-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -590,6 +630,56 @@ fn layer_creation_duplicate_lock_reorder_delete_and_clear() {
     assert_eq!(e.state().layers.len(), 1);
     assert!(e.undo());
     assert_eq!(e.state().layers.len(), 2);
+}
+
+#[test]
+fn clearing_a_targeted_layer_preserves_selection_and_undo_restores_its_pixels() {
+    let mut e = Engine::new(64, 64, 300).unwrap();
+    e.brush.color = [230, 35, 80];
+    begin(&mut e, 0, 18.0, 22.0);
+    end(&mut e, 0, 30.0, 22.0);
+    let lower_id = e.state().selected;
+
+    e.add_layer().unwrap();
+    e.brush.color = [30, 90, 230];
+    begin(&mut e, 1, 40.0, 42.0);
+    end(&mut e, 1, 48.0, 42.0);
+    let selected_id = e.state().selected;
+    let before = e.rgba();
+    let lower_pixels = e
+        .state()
+        .layers
+        .iter()
+        .find(|layer| layer.id == lower_id)
+        .unwrap()
+        .tiles
+        .len();
+    assert!(lower_pixels > 0);
+
+    e.clear_layer_by_id(lower_id).unwrap();
+    assert_eq!(e.state().selected, selected_id);
+    assert!(
+        e.state()
+            .layers
+            .iter()
+            .find(|layer| layer.id == lower_id)
+            .unwrap()
+            .tiles
+            .is_empty()
+    );
+    assert!(e.undo());
+    assert_eq!(e.state().selected, selected_id);
+    assert_eq!(e.rgba(), before);
+
+    e.edit(|state| {
+        state.layers[0].locked = true;
+        Ok(())
+    })
+    .unwrap();
+    assert!(matches!(
+        e.clear_layer_by_id(lower_id),
+        Err(PaintError::Locked)
+    ));
 }
 #[test]
 fn blend_modes_and_transparent_alpha_preserve_invariants() {

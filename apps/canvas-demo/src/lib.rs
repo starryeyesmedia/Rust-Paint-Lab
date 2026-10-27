@@ -9,6 +9,7 @@ pub mod drafts;
 pub mod gpu;
 pub mod home_thumbnails;
 pub mod interaction;
+pub mod layer_thumbnails;
 pub mod native_history;
 pub mod navigation;
 pub mod playback;

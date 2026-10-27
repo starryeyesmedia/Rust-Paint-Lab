@@ -354,11 +354,14 @@ impl Engine {
         })
     }
     pub fn clear_layer(&mut self) -> Result<(), PaintError> {
+        self.clear_layer_by_id(self.state.selected)
+    }
+    pub fn clear_layer_by_id(&mut self, id: u64) -> Result<(), PaintError> {
         self.edit(|s| {
             let l = s
                 .layers
                 .iter_mut()
-                .find(|l| l.id == s.selected)
+                .find(|l| l.id == id)
                 .ok_or(PaintError::Invalid)?;
             if l.locked {
                 return Err(PaintError::Locked);
