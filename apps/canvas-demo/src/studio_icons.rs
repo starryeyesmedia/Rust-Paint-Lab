@@ -6,6 +6,7 @@ pub enum Icon {
     Brush,
     Eraser,
     Line,
+    Gradient,
     Rectangle,
     Ellipse,
     Lasso,
@@ -61,6 +62,19 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
             line((-7.0, 7.0), (7.0, -7.0));
             painter.circle_filled(at(-7.0, 7.0), 1.7 * scale, color);
             painter.circle_filled(at(7.0, -7.0), 1.7 * scale, color);
+        }
+        Icon::Gradient => {
+            line((-7.0, -5.0), (7.0, -5.0));
+            line((-7.0, 0.0), (7.0, 0.0));
+            line((-7.0, 5.0), (7.0, 5.0));
+            for index in 0..5 {
+                let x = -6.0 + index as f32 * 3.0;
+                painter.circle_filled(
+                    at(x, 0.0),
+                    (2.4 - (index as f32 * 0.25)) * scale,
+                    color.linear_multiply(0.35 + index as f32 * 0.13),
+                );
+            }
         }
         Icon::Eraser => {
             let points = [(-7.0, 2.0), (1.0, -7.0), (8.0, -1.0), (0.0, 7.0)];

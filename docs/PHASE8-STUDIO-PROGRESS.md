@@ -2031,3 +2031,49 @@ functional slice, not Phase 8.3 completion.
 2. Continue engine workflows with useful shape properties and selection-aware
    fill/gradient work only where each operation can be persisted, undone and
    validated end to end. Keep Phase 8.3 active; do not merge or release.
+
+## Linear and radial raster-gradient checkpoint
+
+This checkpoint adds a practical two-stop gradient workflow to the existing
+document engine and studio; it does not complete Phase 8.3.
+
+- `paint-document` now applies linear projected and radial-distance gradients as
+  bounded active-layer raster edits. The two RGB stops interpolate through a
+  1025-sample linear-light sRGB ramp. Active-brush opacity supplies overall
+  alpha. Pixel-center rectangle, ellipse and lasso selections clip the edit;
+  hidden/locked layer checks and the existing tile budget still apply. Repeating
+  an identical opaque gradient is a no-op without an extra history entry.
+- `G` selects the Gradient tool. The contextual controls expose Linear/Radial,
+  the active brush color as Start, an accessible end-color picker, Swap and
+  opacity. Pointer drag previews against the current document in a capped
+  512-pixel transient texture; the preview is painted in the canvas layer under
+  floating references and tools. Escape and pointer cancellation do not touch
+  authoritative artwork. Release commits one transaction and existing `.rpl`,
+  PNG and undo/redo paths operate on its raster pixels without a format change.
+- The application XTest workflow exercises cancellation byte-for-byte, both
+  actual UI modes, preview screenshot visibility, native save, sampled selected-
+  layer pixels and exact undo/redo. It also retains all existing mouse painting,
+  layers, references, save/reopen, PNG/OpenRaster and journal-recovery paths. I
+  inspected the generated linear preview image; the References panels stay
+  visually above the gradient and the palette remains accessible.
+- Local verification passes: **266 workspace tests**, format, strict Clippy,
+  workspace build, Windows GNU target check/Clippy, llvmpipe OpenGL GPU smoke,
+  and the full Xvfb/XTest application workflow with dark/light/high-contrast,
+  populated Layers/Recovery and 640 × 480 through 1920 × 1080 captures. No CI
+  result for this new commit is available yet; verify all three jobs after push.
+- Layer compositing remains the project's existing encoded-sRGB path; only stop
+  interpolation is linear-light. Stops are solid RGB with global brush opacity,
+  not independently transparent stops. The result is raster, not an editable
+  gradient object, and selection state is still not persisted in native v1.
+  Windows device rendering, screen readers and physical pen behavior were not
+  retested; owner-confirmed basic S Pen drawing and the successful `b50e7ec`
+  launch remain the hardware baseline.
+
+### Immediate continuation
+
+1. Verify GitHub Windows/Linux/macOS CI and download the ordinary Windows canvas
+   artifact for the development checkpoint without replacing the owner's
+   `b50e7ec` evaluation baseline.
+2. Continue the next engine-first workflow with measured stabilization quality
+   and a useful end-to-end editing feature; preserve undo, selection, save and
+   recovery boundaries. Keep Phase 8.3 active and do not merge or release.

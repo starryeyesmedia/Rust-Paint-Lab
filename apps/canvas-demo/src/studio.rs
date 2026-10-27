@@ -7,7 +7,10 @@ use crate::{
 use paint_document::{
     Blend, Engine,
     brush::{Brush, BrushKind},
-    editing::{Selection, SelectionKind, ShapeKind},
+    editing::{
+        GradientKind, GradientRamp, Selection, SelectionKind, ShapeKind, gradient_parameter,
+        selection_row_spans,
+    },
     recovery::Recovery,
     storage::{self, Store},
 };
@@ -39,6 +42,93 @@ struct BrushPreviewCache {
 struct BrushPresetPreviewCache {
     kind: BrushKind,
     texture: egui::TextureHandle,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct GradientPreviewKey {
+    document: [u32; 2],
+    kind: GradientKind,
+    start: [u64; 2],
+    end: [u64; 2],
+    colors: [[u8; 3]; 2],
+    opacity: u8,
+    selection: u64,
+}
+
+fn gradient_preview_key(
+    document: [u32; 2],
+    kind: GradientKind,
+    start: [f64; 2],
+    end: [f64; 2],
+    colors: [[u8; 3]; 2],
+    opacity: u8,
+    selection: Option<&Selection>,
+) -> GradientPreviewKey {
+    use std::hash::{Hash, Hasher};
+    let selection = selection.map_or(0, |selection| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        selection.kind().hash(&mut hasher);
+        for point in selection.points() {
+            point[0].to_bits().hash(&mut hasher);
+            point[1].to_bits().hash(&mut hasher);
+        }
+        hasher.finish()
+    });
+    GradientPreviewKey {
+        document,
+        kind,
+        start: start.map(f64::to_bits),
+        end: end.map(f64::to_bits),
+        colors,
+        opacity,
+        selection,
+    }
+}
+
+/// Generate a bounded, document-space color preview. It never allocates more
+/// than 512×512 texels and uses scanline selection spans for lasso efficiency.
+fn gradient_preview_image(
+    document: [u32; 2],
+    kind: GradientKind,
+    start: [f64; 2],
+    end: [f64; 2],
+    colors: [[u8; 3]; 2],
+    opacity: u8,
+    selection: Option<&Selection>,
+) -> egui::ColorImage {
+    let longest = document[0].max(document[1]).max(1);
+    let (width, height) = if longest <= 512 {
+        (document[0], document[1])
+    } else if document[0] >= document[1] {
+        (
+            512,
+            ((u64::from(document[1]) * 512) / u64::from(document[0])).max(1) as u32,
+        )
+    } else {
+        (
+            ((u64::from(document[0]) * 512) / u64::from(document[1])).max(1) as u32,
+            512,
+        )
+    };
+    let ramp = GradientRamp::new(colors[0], colors[1]);
+    let mut pixels = vec![egui::Color32::TRANSPARENT; (width * height) as usize];
+    for y in 0..height {
+        let doc_y = (f64::from(y) + 0.5) * f64::from(document[1]) / f64::from(height);
+        let spans = selection_row_spans(selection, doc_y, document[0]);
+        for x in 0..width {
+            let doc_x = (f64::from(x) + 0.5) * f64::from(document[0]) / f64::from(width);
+            let selected = spans
+                .iter()
+                .any(|(left, right)| doc_x >= f64::from(*left) && doc_x < f64::from(*right));
+            if !selected {
+                continue;
+            }
+            let color = ramp.sample(gradient_parameter(kind, start, end, [doc_x, doc_y]));
+            pixels[(y * width + x) as usize] =
+                egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], opacity);
+        }
+    }
+    egui::ColorImage::new([width as usize, height as usize], pixels)
 }
 
 type AppearanceKey = (
@@ -2774,6 +2864,7 @@ enum EditTool {
     ShapeLine,
     ShapeRectangle,
     ShapeEllipse,
+    Gradient,
 }
 pub struct Studio {
     pub context: egui::Context,
@@ -2897,6 +2988,10 @@ pub struct Studio {
     workspace_center: [f64; 2],
     tool: EditTool,
     shape_filled: bool,
+    gradient_kind: GradientKind,
+    gradient_end_color: [u8; 3],
+    gradient_preview_texture: Option<egui::TextureHandle>,
+    gradient_preview_key: Option<GradientPreviewKey>,
     edit_pointer: Option<u64>,
     edit_points: Vec<[f64; 2]>,
     transform_offset: [f64; 2],
@@ -3120,6 +3215,10 @@ impl Studio {
             workspace_center: [0.0; 2],
             tool: EditTool::Brush,
             shape_filled: false,
+            gradient_kind: GradientKind::Linear,
+            gradient_end_color: [255, 116, 196],
+            gradient_preview_texture: None,
+            gradient_preview_key: None,
             edit_pointer: None,
             edit_points: Vec::new(),
             transform_offset: [0.0; 2],
@@ -3881,6 +3980,7 @@ impl Studio {
             self.tool,
             EditTool::ShapeLine | EditTool::ShapeRectangle | EditTool::ShapeEllipse
         );
+        let gradient_tool = self.tool == EditTool::Gradient;
         if self.tool == EditTool::Brush
             || session.mode() != crate::interaction::Mode::Live
             || self.blocks_canvas()
@@ -3903,6 +4003,9 @@ impl Studio {
         if phase == Phase::Cancel {
             self.edit_pointer = None;
             self.edit_points.clear();
+            if self.test_path_dialog && gradient_tool {
+                eprintln!("UI_TEST_GRADIENT_CANCELLED: pointer");
+            }
             return true;
         }
         let Some(mut position) = self
@@ -3912,7 +4015,7 @@ impl Studio {
         else {
             return true;
         };
-        if shape_tool && captured {
+        if (shape_tool || gradient_tool) && captured {
             let size = session.live().project().state();
             position[0] = position[0].clamp(0.0, f64::from(size.width));
             position[1] = position[1].clamp(0.0, f64::from(size.height));
@@ -3967,6 +4070,38 @@ impl Studio {
                             Err(error) => error.to_string(),
                         };
                     }
+                } else if gradient_tool {
+                    let start = self.edit_points[0];
+                    self.edit_points[1] = position;
+                    if phase == Phase::Up {
+                        let result = session.live_mut().project_mut().draw_gradient(
+                            self.gradient_kind,
+                            start,
+                            position,
+                            self.gradient_end_color,
+                        );
+                        self.edit_pointer = None;
+                        self.edit_points.clear();
+                        self.status = match result {
+                            Ok(()) => {
+                                if self.test_path_dialog {
+                                    eprintln!(
+                                        "UI_TEST_GRADIENT_COMMITTED: {:?} {:.2} {:.2} {:.2} {:.2}",
+                                        self.gradient_kind,
+                                        start[0],
+                                        start[1],
+                                        position[0],
+                                        position[1]
+                                    );
+                                }
+                                format!(
+                                    "{:?} gradient applied · Ctrl+Z to undo",
+                                    self.gradient_kind
+                                )
+                            }
+                            Err(error) => error.to_string(),
+                        };
+                    }
                 } else if self.tool == EditTool::Lasso {
                     if append_lasso_point(&mut self.edit_points, position)
                         == LassoAppend::LimitReached
@@ -3980,7 +4115,7 @@ impl Studio {
                 } else {
                     self.edit_points[1] = position;
                 }
-                if phase == Phase::Up {
+                if phase == Phase::Up && !shape_tool && !gradient_tool {
                     let kind = match self.tool {
                         EditTool::Rectangle => SelectionKind::Rectangle,
                         EditTool::Ellipse => SelectionKind::Ellipse,
@@ -4056,11 +4191,15 @@ impl Studio {
             'l' => EditTool::ShapeLine,
             'r' => EditTool::ShapeRectangle,
             'o' => EditTool::ShapeEllipse,
+            'g' => EditTool::Gradient,
             _ => EditTool::Brush,
         };
         if matches!(
             self.tool,
-            EditTool::ShapeLine | EditTool::ShapeRectangle | EditTool::ShapeEllipse
+            EditTool::ShapeLine
+                | EditTool::ShapeRectangle
+                | EditTool::ShapeEllipse
+                | EditTool::Gradient
         ) {
             self.brush_flyout_open = false;
             self.color_flyout_open = false;
@@ -4254,9 +4393,17 @@ impl Studio {
         }
         if self.edit_pointer.take().is_some() {
             self.edit_points.clear();
-            self.status = "Shape preview cancelled".into();
+            self.status = if self.tool == EditTool::Gradient {
+                "Gradient preview cancelled".into()
+            } else {
+                "Shape preview cancelled".into()
+            };
             if self.test_path_dialog {
-                eprintln!("UI_TEST_SHAPE_CANCELLED");
+                if self.tool == EditTool::Gradient {
+                    eprintln!("UI_TEST_GRADIENT_CANCELLED: escape");
+                } else {
+                    eprintln!("UI_TEST_SHAPE_CANCELLED");
+                }
             }
             return true;
         }
@@ -4838,7 +4985,7 @@ impl Studio {
                             ui.label("BitchPixel — painting without permission");
                             ui.separator();
                             ui.label("Brush size [ / ] · fine adjustment: Shift+[ / Shift+]");
-                            ui.label("B Brush · C Color · M / E Rectangle / ellipse selection");
+                            ui.label("B Brush · G Gradient · C Color · M / E selection");
                             ui.label("K Lasso · I Eyedropper · L Line · R Rectangle · O Ellipse");
                             ui.label("Shift constrains line angles and shape proportions");
                             ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
@@ -4973,6 +5120,75 @@ impl Studio {
                                         self.brush_flyout_open = false;
                                     }
                                     ui.label("Shift constrains angle or proportions");
+                                } else if self.tool == EditTool::Gradient {
+                                    ui.strong("Gradient");
+                                    let linear = ui.selectable_value(
+                                        &mut self.gradient_kind,
+                                        GradientKind::Linear,
+                                        "Linear",
+                                    );
+                                    if self.test_path_dialog {
+                                        eprintln!(
+                                            "UI_TEST_GRADIENT_LINEAR_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                            linear.rect.left(),
+                                            linear.rect.top(),
+                                            linear.rect.width(),
+                                            linear.rect.height(),
+                                            ui.ctx().pixels_per_point()
+                                        );
+                                    }
+                                    let radial = ui.selectable_value(
+                                        &mut self.gradient_kind,
+                                        GradientKind::Radial,
+                                        "Radial",
+                                    );
+                                    if self.test_path_dialog {
+                                        eprintln!(
+                                            "UI_TEST_GRADIENT_RADIAL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                            radial.rect.left(),
+                                            radial.rect.top(),
+                                            radial.rect.width(),
+                                            radial.rect.height(),
+                                            ui.ctx().pixels_per_point()
+                                        );
+                                        eprintln!("UI_TEST_GRADIENT_MODE: {:?}", self.gradient_kind);
+                                    }
+                                    let project = session.live_mut().project_mut();
+                                    let start_color = project.brush.color;
+                                    if color_swatch(
+                                        ui,
+                                        start_color,
+                                        "Gradient start · current brush color",
+                                        false,
+                                        30.0,
+                                    ) {
+                                        self.color_flyout_open = true;
+                                        self.brush_flyout_open = false;
+                                    }
+                                    ui.label("Start");
+                                    let end_color = ui
+                                        .color_edit_button_srgb(&mut self.gradient_end_color)
+                                        .on_hover_text("Gradient end color · RGB/HSV picker");
+                                    end_color.widget_info(|| {
+                                        egui::WidgetInfo::labeled(
+                                            egui::WidgetType::ColorButton,
+                                            ui.is_enabled(),
+                                            "Gradient end color",
+                                        )
+                                    });
+                                    ui.label("End");
+                                    if ui.button("Swap").clicked() {
+                                        std::mem::swap(
+                                            &mut project.brush.color,
+                                            &mut self.gradient_end_color,
+                                        );
+                                    }
+                                    ui.add_sized(
+                                        [150.0, 30.0],
+                                        egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
+                                            .text("Opacity"),
+                                    );
+                                    ui.weak("Drag · Esc cancels");
                                 } else {
                                     let has_selection =
                                         session.live().project().state().selection.is_some();
@@ -4984,7 +5200,8 @@ impl Studio {
                                         EditTool::Brush => "Brush",
                                         EditTool::ShapeLine
                                         | EditTool::ShapeRectangle
-                                        | EditTool::ShapeEllipse => unreachable!("handled above"),
+                                        | EditTool::ShapeEllipse
+                                        | EditTool::Gradient => unreachable!("handled above"),
                                     });
                                     if ui
                                         .add_enabled(has_selection, egui::Button::new("Fill"))
@@ -5213,6 +5430,12 @@ impl Studio {
                                 "O",
                             ),
                             (
+                                EditTool::Gradient,
+                                crate::studio_icons::Icon::Gradient,
+                                "Gradient",
+                                "G",
+                            ),
+                            (
                                 EditTool::Lasso,
                                 crate::studio_icons::Icon::Lasso,
                                 "Freehand lasso",
@@ -5285,6 +5508,7 @@ impl Studio {
                                         EditTool::ShapeLine
                                             | EditTool::ShapeRectangle
                                             | EditTool::ShapeEllipse
+                                            | EditTool::Gradient
                                     ) {
                                         self.color_flyout_open = false;
                                     }
@@ -6885,6 +7109,135 @@ impl Studio {
                 .frame(egui::Frame::NONE)
                 .show(ctx, |ui| {
                     *central = ui.available_rect_before_wrap();
+                    if session.mode() == crate::interaction::Mode::Live
+                        && self.tool == EditTool::Gradient
+                        && self.edit_pointer.is_some()
+                        && self.edit_points.len() == 2
+                        && let Some(mapping) = CanvasMapping::for_document(
+                            [
+                                (ctx.content_rect().width() * ctx.pixels_per_point()).round()
+                                    as u32,
+                                (ctx.content_rect().height() * ctx.pixels_per_point()).round()
+                                    as u32,
+                            ],
+                            [
+                                f64::from(session.live().project().state().width),
+                                f64::from(session.live().project().state().height),
+                            ],
+                            [
+                                f64::from(central.min.x * ctx.pixels_per_point()),
+                                f64::from(central.min.y * ctx.pixels_per_point()),
+                                f64::from(central.max.x * ctx.pixels_per_point()),
+                                f64::from(central.max.y * ctx.pixels_per_point()),
+                            ],
+                        )
+                        .and_then(|mapping| {
+                            mapping.navigated(self.navigation.zoom, self.navigation.pan)
+                        })
+                        .ok()
+                    {
+                        let start = self.edit_points[0];
+                        let end = self.edit_points[1];
+                        let project = session.live().project();
+                        let state = project.state();
+                        let opacity = (project.brush.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+                        let key = gradient_preview_key(
+                            [state.width, state.height],
+                            self.gradient_kind,
+                            start,
+                            end,
+                            [project.brush.color, self.gradient_end_color],
+                            opacity,
+                            state.selection.as_ref(),
+                        );
+                        if self.gradient_preview_key != Some(key) {
+                            let preview = gradient_preview_image(
+                                [state.width, state.height],
+                                self.gradient_kind,
+                                start,
+                                end,
+                                [project.brush.color, self.gradient_end_color],
+                                opacity,
+                                state.selection.as_ref(),
+                            );
+                            if let Some(texture) = self.gradient_preview_texture.as_mut() {
+                                texture.set(preview, egui::TextureOptions::LINEAR);
+                            } else {
+                                self.gradient_preview_texture = Some(ctx.load_texture(
+                                    "provisional-gradient-preview",
+                                    preview,
+                                    egui::TextureOptions::LINEAR,
+                                ));
+                            }
+                            self.gradient_preview_key = Some(key);
+                            if self.test_path_dialog {
+                                eprintln!(
+                                    "UI_TEST_GRADIENT_PREVIEW: {:?} {} {} {}",
+                                    self.gradient_kind, start[0], start[1], end[0]
+                                );
+                            }
+                        }
+                        if let Some(texture) = self.gradient_preview_texture.as_ref()
+                            && let (Ok(top_left), Ok(bottom_right)) = (
+                                mapping.document_to_client([0.0, 0.0]),
+                                mapping.document_to_client([
+                                    f64::from(state.width),
+                                    f64::from(state.height),
+                                ]),
+                            )
+                        {
+                            let scale = f64::from(ctx.pixels_per_point());
+                            let image_rect = egui::Rect::from_min_max(
+                                egui::pos2(
+                                    (top_left[0] / scale) as f32,
+                                    (top_left[1] / scale) as f32,
+                                ),
+                                egui::pos2(
+                                    (bottom_right[0] / scale) as f32,
+                                    (bottom_right[1] / scale) as f32,
+                                ),
+                            );
+                            ui.painter().image(
+                                texture.id(),
+                                image_rect,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                egui::Color32::WHITE,
+                            );
+                            if let (Ok(from), Ok(to)) = (
+                                mapping.document_to_client(start),
+                                mapping.document_to_client(end),
+                            ) {
+                                let to_points = |point: [f64; 2]| {
+                                    egui::pos2((point[0] / scale) as f32, (point[1] / scale) as f32)
+                                };
+                                let from = to_points(from);
+                                let to = to_points(to);
+                                ui.painter().line_segment(
+                                    [from, to],
+                                    egui::Stroke::new(4.0, egui::Color32::BLACK),
+                                );
+                                ui.painter().line_segment(
+                                    [from, to],
+                                    egui::Stroke::new(1.5, egui::Color32::WHITE),
+                                );
+                                for (point, color) in
+                                    [(from, project.brush.color), (to, self.gradient_end_color)]
+                                {
+                                    let fill =
+                                        egui::Color32::from_rgb(color[0], color[1], color[2]);
+                                    ui.painter().circle_filled(point, 5.0, fill);
+                                    ui.painter().circle_stroke(
+                                        point,
+                                        6.0,
+                                        egui::Stroke::new(1.5, egui::Color32::WHITE),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 });
 
             let screen_viewport = ctx.content_rect();

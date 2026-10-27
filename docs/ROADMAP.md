@@ -441,3 +441,16 @@ and retained [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyes
 artifacts. The Phase 8.3 program remains active. Continue the brush and editing
 engine with persistent, undoable end-to-end workflows before expanding into
 vector or animation scope.
+
+### Linear and radial raster gradients — local checkpoint, CI pending
+
+The current working continuation adds selected-layer Linear and Radial gradients,
+selection clipping, a transient bounded preview behind floating workspace panels,
+and one-step save/undo/redo behavior. The XTest workflow asserts both actual UI
+modes, Escape leaves the native project byte-identical, and committed gradients
+change saved layer pixels. Local formatting, 266 tests, strict Clippy, workspace
+build, Windows GNU target checks, llvmpipe GPU smoke and the full Linux/Xvfb UI
+and artwork workflow pass. Verify the next Windows/Linux/macOS Actions run before
+recording CI as complete. Gradients are raster pixels with solid RGB stops and
+global brush opacity; they are not editable objects and full ICC color management
+is not implemented. See [the Phase 8.3 progress log](PHASE8-STUDIO-PROGRESS.md).

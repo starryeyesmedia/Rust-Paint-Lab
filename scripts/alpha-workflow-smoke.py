@@ -173,6 +173,16 @@ def event_marker(name):
            if line.startswith(name + ': ')]
     return lines[-1].partition(': ')[2] if lines else None
 
+def gradient_control_rect(mode):
+    return stable_window_rect_marker(f'UI_TEST_GRADIENT_{mode.upper()}_RECT')
+
+def screenshot_pixel_difference(left, right):
+    width,height,a=decode_rgba_png(left)
+    other_width,other_height,b=decode_rgba_png(right)
+    assert (width,height)==(other_width,other_height)
+    return sum(a[offset:offset+3]!=b[offset:offset+3]
+               for offset in range(0,len(a),4))
+
 def palette_bounds():
     return window_rect_marker('UI_TEST_PALETTE_RECT')
 
@@ -1537,6 +1547,95 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 ctrl('y');ctrl('s')
                 wait(lambda: imported.read_bytes()==shape_bytes and '*' not in title(window),
                      f'{kind} redo restores the saved shape pixels exactly')
+            # Linear and radial gradients use the actual pointer lifecycle,
+            # transient GPU preview, document transaction, native save and
+            # undo/redo path. Escape must discard only the preview.
+            key('g')
+            wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='Gradient',
+                 'G selects the real document-backed gradient tool')
+            wait(lambda: gradient_control_rect('linear') is not None,
+                 'gradient controls expose accessible Linear and Radial modes')
+            gradient_base=imported.read_bytes()
+            cancellation_count=sum(line.startswith('UI_TEST_GRADIENT_CANCELLED: ')
+                                   for line in (directory/'application.log').read_text().splitlines())
+            move(600,450)
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                capture_window(window,'gradient-preview-before')
+                preview_before=(Path(os.environ['RPL_UI_SCREENSHOT_DIR'])/'gradient-preview-before.png').read_bytes()
+            move(450,250);click_button(1,True);move(525,350);move(600,450)
+            wait(lambda: event_marker('UI_TEST_GRADIENT_PREVIEW') is not None,
+                 'active gradient drag creates a transient preview texture')
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                capture_window(window,'gradient-preview-linear')
+                preview_after=(Path(os.environ['RPL_UI_SCREENSHOT_DIR'])/'gradient-preview-linear.png').read_bytes()
+                visible_gradient_pixels=screenshot_pixel_difference(preview_before,preview_after)
+                assert visible_gradient_pixels>=2000, \
+                    f'live gradient preview is not visible across the canvas ({visible_gradient_pixels} changed pixels)'
+                print(f'UI_TEST_GRADIENT_PREVIEW_PIXELS: {visible_gradient_pixels}', flush=True)
+            key('Escape');click_button(1,False)
+            wait(lambda: sum(line.startswith('UI_TEST_GRADIENT_CANCELLED: escape')
+                             for line in (directory/'application.log').read_text().splitlines())>cancellation_count,
+                 'Escape cancels a gradient preview without committing artwork')
+            assert imported.read_bytes()==gradient_base, \
+                'cancelled gradient preview must leave existing native artwork byte-for-byte unchanged'
+            linear_before=imported.read_bytes()
+            linear_count=sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())
+            drag_at(450,250,600,450)
+            wait(lambda: sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>linear_count,
+                 'canvas drag commits a linear gradient through the document engine')
+            linear_marker=(directory/'application.log').read_text().split('UI_TEST_GRADIENT_COMMITTED: ')[-1].splitlines()[0].split()
+            assert linear_marker[0]=='Linear', f'linear mode committed a different gradient: {linear_marker}'
+            ctrl('s')
+            wait(lambda: valid_project(imported) and imported.read_bytes()!=linear_before and '*' not in title(window),
+                 'linear gradient pixels are saved to the existing native project')
+            sx,sy,ex,ey=map(float,linear_marker[1:])
+            sample_x=max(0,min(1599,round((sx+ex)/2)))
+            sample_y=max(0,min(999,round((sy+ey)/2)))
+            linear_sample=native_layer_pixel(imported,sample_x,sample_y)
+            assert linear_sample[3]>0 and linear_sample!=native_layer_pixel_bytes(linear_before,sample_x,sample_y), \
+                'linear gradient changed no visible selected-layer sample'
+            linear_bytes=imported.read_bytes()
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                capture_window(window,'gradient-committed-linear')
+            ctrl('z');ctrl('s')
+            wait(lambda: imported.read_bytes()==linear_before,
+                 'linear gradient is one exact undoable transaction')
+            radial_rect=wait(lambda: gradient_control_rect('radial'),
+                             'Radial selector remains keyboard/touch accessible')
+            click_at((radial_rect[0]+radial_rect[2]/2)*radial_rect[4],
+                     (radial_rect[1]+radial_rect[3]/2)*radial_rect[4])
+            wait(lambda: event_marker('UI_TEST_GRADIENT_MODE')=='Radial',
+                 'Radial selector changes the active gradient mode')
+            radial_count=sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())
+            drag_at(450,250,600,450)
+            wait(lambda: sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>radial_count,
+                 'canvas drag commits a radial gradient through the document engine')
+            radial_marker=(directory/'application.log').read_text().split('UI_TEST_GRADIENT_COMMITTED: ')[-1].splitlines()[0].split()
+            assert radial_marker[0]=='Radial', f'radial mode committed a different gradient: {radial_marker}'
+            ctrl('s')
+            wait(lambda: valid_project(imported) and imported.read_bytes()!=linear_before and '*' not in title(window),
+                 'radial gradient pixels are saved to the existing native project')
+            sx,sy,ex,ey=map(float,radial_marker[1:])
+            dx,dy=ex-sx,ey-sy
+            length=math.hypot(dx,dy)
+            sample_x=max(0,min(1599,round((sx+ex)/2-dy/length*length*0.22)))
+            sample_y=max(0,min(999,round((sy+ey)/2+dx/length*length*0.22)))
+            radial_sample=native_layer_pixel(imported,sample_x,sample_y)
+            assert radial_sample[3]>0 and radial_sample!=linear_sample, \
+                'radial gradient did not produce distinct off-axis raster output'
+            radial_bytes=imported.read_bytes()
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                capture_window(window,'gradient-committed-radial')
+            ctrl('z');ctrl('s')
+            wait(lambda: imported.read_bytes()==linear_before,
+                 'radial gradient is one exact undoable transaction')
+            ctrl('y');ctrl('s')
+            wait(lambda: imported.read_bytes()==radial_bytes and '*' not in title(window),
+                 'radial gradient redo restores the exact saved pixels')
             journal_path=Path(str(snapshot)+'.journal')
             assert latest_journal_checkpoint(journal_path)==snapshot.read_bytes(),'initial checkpoint has a complete synced journal record'
             before=snapshot.read_bytes()
@@ -1754,7 +1853,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, Home thumbnail after restart, persistent theme/reference board, image centering that preserves zoom, multi-reference auto-placement away from the movable palette at normal/narrow sizes, floating workspace panel/tab interaction, saved-color add/apply/deduplicate/remove, hue wheel color change and saved swatch restore, targeted layer duplicate/reorder/delete and drag-reorder with undo, native right-click layer menu, reference image excluded from artwork export, save checksum, undo/redo, previous-file backup, PNG export, reopen, brush preset save/load, rectangle selection/fill/undo, zoom/fit, layered OpenRaster export/import, journal-durable process-kill recovery without paired snapshot, source artwork preservation, clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint, live linear/radial gradient preview and Escape cancellation, selection-clipped gradient commits, native gradient save/reopen pixels and exact undo/redo, Home thumbnail after restart, persistent theme/reference board, multi-reference placement, floating workspace panels, saved colors and hue wheel, layer duplicate/reorder/delete/undo, reference isolation from artwork exports, save checksum and backup, PNG/OpenRaster export/import, brush preset save/load, rectangle selection/fill/undo, zoom/fit, journal-durable process-kill recovery without paired snapshot, preserved source artwork, clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

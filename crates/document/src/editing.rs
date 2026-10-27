@@ -1,7 +1,7 @@
 //! Pixel-center selections and bounded nearest-neighbor raster edits.
 use crate::{Blend, Engine, PaintError, State, TILE, TILE_BYTES, TileMap, over};
 use std::sync::Arc;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SelectionKind {
     Rectangle,
     Ellipse,
@@ -15,6 +15,110 @@ pub enum ShapeKind {
     Line,
     Rectangle,
     Ellipse,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientKind {
+    Linear,
+    Radial,
+}
+
+/// Small lookup table for deterministic linear-light sRGB interpolation.
+/// Reusing the ramp keeps large 4096px document operations practical.
+#[derive(Debug, Clone)]
+pub struct GradientRamp {
+    colors: Vec<[u8; 3]>,
+}
+
+impl GradientRamp {
+    pub fn new(start: [u8; 3], end: [u8; 3]) -> Self {
+        let colors = (0..=1024)
+            .map(|step| interpolate_srgb_linear(start, end, step as f64 / 1024.0))
+            .collect();
+        Self { colors }
+    }
+
+    pub fn sample(&self, amount: f64) -> [u8; 3] {
+        if !amount.is_finite() {
+            return self.colors[0];
+        }
+        let index = (amount.clamp(0.0, 1.0) * (self.colors.len() - 1) as f64).round() as usize;
+        self.colors[index]
+    }
+}
+
+/// Interpolate sRGB stops in linear light, then encode the result as sRGB
+/// bytes. Alpha/brush opacity is applied separately by the raster compositor.
+pub fn interpolate_srgb_linear(start: [u8; 3], end: [u8; 3], amount: f64) -> [u8; 3] {
+    if !amount.is_finite() {
+        return start;
+    }
+    let amount = amount.clamp(0.0, 1.0);
+    let decode = |value: u8| {
+        let value = f64::from(value) / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let encode = |value: f64| {
+        let value = value.clamp(0.0, 1.0);
+        let srgb = if value <= 0.0031308 {
+            value * 12.92
+        } else {
+            1.055 * value.powf(1.0 / 2.4) - 0.055
+        };
+        (srgb * 255.0).round().clamp(0.0, 255.0) as u8
+    };
+    std::array::from_fn(|channel| {
+        let a = decode(start[channel]);
+        let b = decode(end[channel]);
+        encode(a + (b - a) * amount)
+    })
+}
+
+pub fn selection_row_spans(selection: Option<&Selection>, y: f64, width: u32) -> Vec<(u32, u32)> {
+    let Some(selection) = selection else {
+        return vec![(0, width)];
+    };
+    let [left, top, right, bottom] = selection.bounds();
+    if y < top || y >= bottom {
+        return Vec::new();
+    }
+    let span = |left: f64, right: f64| {
+        let start = (left - 0.5).ceil().clamp(0.0, f64::from(width)) as u32;
+        let end = (right - 0.5).ceil().clamp(0.0, f64::from(width)) as u32;
+        (start < end).then_some((start, end))
+    };
+    match selection.kind {
+        SelectionKind::Rectangle => span(left, right).into_iter().collect(),
+        SelectionKind::Ellipse => {
+            let [cx, cy] = [(left + right) / 2.0, (top + bottom) / 2.0];
+            let [rx, ry] = [(right - left) / 2.0, (bottom - top) / 2.0];
+            let vertical = (y - cy) / ry;
+            if vertical.abs() > 1.0 {
+                return Vec::new();
+            }
+            let half_width = rx * (1.0 - vertical * vertical).max(0.0).sqrt();
+            span(cx - half_width, cx + half_width).into_iter().collect()
+        }
+        SelectionKind::Lasso => {
+            let mut intersections = Vec::with_capacity(selection.points.len());
+            let mut a = selection.points[selection.points.len() - 1];
+            for &b in &selection.points {
+                if (a[1] > y) != (b[1] > y) {
+                    intersections.push((b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]);
+                }
+                a = b;
+            }
+            intersections.sort_by(f64::total_cmp);
+            intersections
+                .chunks_exact(2)
+                .filter_map(|pair| span(pair[0], pair[1]))
+                .collect()
+        }
+    }
 }
 pub const MAX_SELECTION_POINTS: usize = 1024;
 #[derive(Debug, Clone, PartialEq)]
@@ -168,6 +272,106 @@ fn mask(s: &State) -> Vec<bool> {
     mask
 }
 impl Engine {
+    /// Apply one raster gradient to the active layer as a single undoable edit.
+    /// The first stop is the active brush color, the second stop is supplied by
+    /// the workspace, and brush opacity composites the gradient over existing
+    /// layer pixels. Selection clipping follows pixel-center geometry.
+    pub fn draw_gradient(
+        &mut self,
+        kind: GradientKind,
+        start: [f64; 2],
+        end: [f64; 2],
+        end_color: [u8; 3],
+    ) -> Result<(), PaintError> {
+        let brush = self.brush.clone();
+        if !brush.validate()
+            || !start
+                .iter()
+                .chain(end.iter())
+                .all(|value| value.is_finite())
+            || start == end
+        {
+            return Err(PaintError::Invalid);
+        }
+        let alpha = (brush.opacity * 255.0).round().clamp(0.0, 255.0) as u8;
+        if alpha == 0 {
+            return Ok(());
+        }
+        let start_color = brush.color;
+        let ramp = GradientRamp::new(start_color, end_color);
+        self.cancel_all();
+        let before = self.state.clone();
+        let mut next = before.clone();
+        let mut painted = false;
+        {
+            let state = &mut next;
+            let width = state.width;
+            let height = state.height;
+            let doc_width = f64::from(width);
+            let doc_height = f64::from(height);
+            if start[0] < 0.0
+                || start[0] > doc_width
+                || start[1] < 0.0
+                || start[1] > doc_height
+                || end[0] < 0.0
+                || end[0] > doc_width
+                || end[1] < 0.0
+                || end[1] > doc_height
+            {
+                return Err(PaintError::Invalid);
+            }
+            let selected_id = state.selected;
+            let mut tile_count = state.tile_count();
+            let selection = state.selection.clone();
+            let (top, bottom) = selection.as_ref().map_or((0.0, doc_height), |selection| {
+                let [_, top, _, bottom] = selection.bounds();
+                (top, bottom)
+            });
+            let first_y = (top - 0.5).ceil().clamp(0.0, doc_height) as u32;
+            let end_y = (bottom - 0.5).ceil().clamp(0.0, doc_height) as u32;
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == selected_id)
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+
+            for y in first_y..end_y {
+                let py = f64::from(y) + 0.5;
+                for (left, right) in selection_row_spans(selection.as_ref(), py, width) {
+                    for x in left..right {
+                        let point = [f64::from(x) + 0.5, py];
+                        let amount = gradient_parameter(kind, start, end, point);
+                        let color = ramp.sample(amount);
+                        let source = [
+                            ((u16::from(color[0]) * u16::from(alpha) + 127) / 255) as u8,
+                            ((u16::from(color[1]) * u16::from(alpha) + 127) / 255) as u8,
+                            ((u16::from(color[2]) * u16::from(alpha) + 127) / 255) as u8,
+                            alpha,
+                        ];
+                        let previous = read(&layer.tiles, x, y);
+                        let mut result = previous;
+                        over(&mut result, &source, false, 255, Blend::Normal);
+                        if result != previous {
+                            write(&mut layer.tiles, x, y, result, &mut tile_count)?;
+                            painted = true;
+                        }
+                    }
+                }
+            }
+        }
+        next.validate()?;
+        if !painted {
+            return Ok(());
+        }
+        self.state = next;
+        self.changed(before);
+        self.damage_all();
+        Ok(())
+    }
+
     /// Rasterize one completed shape as a single undoable document edit. Shape
     /// previews belong to the workspace and never enter document pixels before
     /// this method is called.
@@ -448,6 +652,34 @@ impl Engine {
             Ok(())
         })
     }
+}
+
+pub fn gradient_parameter(
+    kind: GradientKind,
+    start: [f64; 2],
+    end: [f64; 2],
+    point: [f64; 2],
+) -> f64 {
+    let delta = [end[0] - start[0], end[1] - start[1]];
+    let length_squared = delta[0].mul_add(delta[0], delta[1] * delta[1]);
+    if length_squared <= f64::EPSILON
+        || !start
+            .iter()
+            .chain(end.iter())
+            .chain(point.iter())
+            .all(|value| value.is_finite())
+    {
+        return 0.0;
+    }
+    match kind {
+        GradientKind::Linear => {
+            ((point[0] - start[0]) * delta[0] + (point[1] - start[1]) * delta[1]) / length_squared
+        }
+        GradientKind::Radial => {
+            (point[0] - start[0]).hypot(point[1] - start[1]) / length_squared.sqrt()
+        }
+    }
+    .clamp(0.0, 1.0)
 }
 
 fn shape_coverage(

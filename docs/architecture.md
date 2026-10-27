@@ -262,6 +262,21 @@ provide the shape color, opacity and fixed outline width. Rectangle/ellipse may 
 filled instead of outlined. Native save/reopen and PNG export see the same raster
 pixels; shapes are not individually editable after commit.
 
+Linear and radial gradients are likewise document-backed raster edits. Their stop
+colors are sampled through a bounded 1025-entry ramp interpolated in linear-light
+sRGB; the document's existing premultiplied encoded-sRGB source-over compositor
+still governs blending against layer pixels. A linear drag defines a clamped
+projection and a radial drag defines center plus radius. The active brush color is
+the first stop, the workspace's selectable RGB color is the second, and brush
+opacity controls overall alpha. Gradient writes honor the current pixel-center
+selection, reject a hidden or locked active layer, obey the tile budget and create
+one undo transaction only when pixels change. Native v1 storage and PNG need no
+schema change because the result is ordinary raster tile data. The interactive
+preview uses one transient texture capped at 512 pixels on its longest edge; it is
+drawn in the canvas panel layer beneath floating references and tools, and never
+enters document tiles or recovery state. Escape, pointer cancellation, or tool
+interruption drops the provisional preview without committing artwork.
+
 `paint-document::openraster` is an explicit interchange boundary, not native storage.
 It converts supported raster layers to individual PNG assets plus stack.xml and
 rejects unsupported editing structures. The shell imports into a fresh unsaved

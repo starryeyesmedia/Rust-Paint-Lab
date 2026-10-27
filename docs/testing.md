@@ -625,3 +625,24 @@ retained [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedi
 and Linux screenshot archive
 [`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40529268958/artifacts/12745936098).
 These are workflow artifacts, not a release or physical-hardware validation.
+
+## Linear and radial raster gradients
+
+The document tests verify clamped linear projection and radial distance,
+linear-light sRGB stop interpolation, pixel-center rectangle/ellipse/lasso
+clipping, hidden/locked layer rejection, brush opacity, no-op idempotence,
+tile bounds, one-step undo/redo, native `.rpl` encode/decode and PNG import/export.
+The XTest workflow exercises `G`, selects Radial through its real contextual
+control, checks the transient live preview in a captured wgpu frame, cancels with
+Escape and verifies byte-identical artwork, then commits Linear and Radial,
+checks selected-layer pixels, saves, and compares exact project bytes through
+undo/redo. Linear/radial gradient screenshots were reviewed to confirm reference
+windows remain above the preview and visible.
+
+The latest local run passes **266 workspace tests**, formatting, strict Clippy,
+workspace build, Windows GNU target check/Clippy, llvmpipe OpenGL GPU smoke, and
+the complete Linux/Xvfb/XTest artwork workflow. The existing 640 × 480, 1280 ×
+800, 1920 × 1080, theme, populated Layers/Recovery, save/reopen, PNG/OpenRaster
+and recovery coverage remains active. This does not validate Windows hardware,
+physical color output, pen pressure/tilt behavior, or Narrator/NVDA. The owner's
+known successful `b50e7ec` Windows launch remains the hardware baseline.

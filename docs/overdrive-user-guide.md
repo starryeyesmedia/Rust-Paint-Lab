@@ -59,6 +59,19 @@ selected layer's visibility/lock and active selection, are rasterized into that
 layer, and form one Ctrl+Z/Ctrl+Y transaction. Saved projects and PNG exports
 include committed shapes; shape geometry is not separately editable after commit.
 
+Use **G** to choose the Gradient tool. Select **Linear** or **Radial** in the
+contextual options, then drag across the canvas: linear uses the drag direction;
+radial uses the first point as its center and the drag length as its radius. The
+active brush color is the start stop; select the End swatch to choose the second
+color, or use **Swap** to reverse the stops. Brush opacity controls the gradient's
+overall alpha. A live preview follows the drag, and **Escape** cancels without
+changing artwork. Gradients respect the current selection and require the selected
+layer to be visible and unlocked. Releasing commits ordinary raster pixels as one
+Undo/Redo step, saved in `.rpl` and included in PNG export; the stops and gradient
+geometry are not retained as editable objects. Stop colors interpolate in
+linear-light sRGB, while the document compositor remains encoded-sRGB and is not
+fully color-managed.
+
 Layers support add, duplicate, delete, rename, reorder, visibility, lock, opacity,
 Normal/Multiply/Screen/Overlay, and clear. The frontmost layer appears at the top;
 use Raise/Lower to reorder, and expand Layer settings to rename or adjust opacity

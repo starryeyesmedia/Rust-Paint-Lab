@@ -1,7 +1,7 @@
 use paint_document::{
     Blend, Engine, PaintError, State,
     brush::{Brush, BrushKind},
-    editing::{Selection, SelectionKind, ShapeKind},
+    editing::{GradientKind, Selection, SelectionKind, ShapeKind},
     storage::{self, Fault, Store},
 };
 use paint_input::{Buttons, Tool};
@@ -156,6 +156,184 @@ fn adaptive_stabilization_changes_real_raster_path_and_keeps_exact_endpoint() {
     assert_eq!(stabilized.undo_count(), 1);
     assert!(stabilized.undo());
     assert!(blank(&stabilized));
+}
+
+#[test]
+fn linear_and_radial_gradients_rasterize_linear_light_colors_and_roundtrip() {
+    let mut linear = Engine::new(5, 5, 300).unwrap();
+    linear.brush.color = [0, 0, 0];
+    linear
+        .draw_gradient(
+            GradientKind::Linear,
+            [0.5, 2.5],
+            [4.5, 2.5],
+            [255, 255, 255],
+        )
+        .unwrap();
+    linear
+        .draw_gradient(
+            GradientKind::Linear,
+            [0.5, 2.5],
+            [4.5, 2.5],
+            [255, 255, 255],
+        )
+        .unwrap();
+    let pixels = linear.rgba();
+    let pixel = |image: &[u8], x: usize, y: usize| -> [u8; 4] {
+        image[(y * 5 + x) * 4..(y * 5 + x) * 4 + 4]
+            .try_into()
+            .unwrap()
+    };
+    assert_eq!(pixel(&pixels, 0, 2), [0, 0, 0, 255]);
+    assert_eq!(pixel(&pixels, 2, 2), [188, 188, 188, 255]);
+    assert_eq!(pixel(&pixels, 4, 2), [255, 255, 255, 255]);
+    assert_eq!(
+        linear.undo_count(),
+        1,
+        "repeating an identical opaque gradient is a no-op"
+    );
+
+    let encoded = storage::encode(linear.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&encoded).unwrap()).unwrap();
+    assert_eq!(reopened.rgba(), pixels);
+    let png = path("gradient-png").with_extension("png");
+    storage::export_png(&png, &linear).unwrap();
+    let mut imported = Engine::new(5, 5, 300).unwrap();
+    storage::import_png(&png, &mut imported).unwrap();
+    assert_eq!(imported.rgba(), pixels);
+
+    let mut radial = Engine::new(5, 5, 300).unwrap();
+    radial.brush.color = [0, 0, 0];
+    radial
+        .draw_gradient(
+            GradientKind::Radial,
+            [2.5, 2.5],
+            [4.5, 2.5],
+            [255, 255, 255],
+        )
+        .unwrap();
+    let radial_pixels = radial.rgba();
+    assert_eq!(pixel(&radial_pixels, 2, 2), [0, 0, 0, 255]);
+    assert_eq!(pixel(&radial_pixels, 4, 2), [255, 255, 255, 255]);
+    assert_ne!(pixel(&radial_pixels, 3, 3), pixel(&pixels, 3, 3));
+
+    assert!(radial.undo());
+    assert!(blank(&radial));
+    assert!(radial.redo());
+    assert_eq!(radial.rgba(), radial_pixels);
+}
+
+#[test]
+fn gradient_obeys_selection_layer_guards_opacity_and_resource_bounds() {
+    let mut e = Engine::new(8, 4, 300).unwrap();
+    e.brush.color = [0, 0, 0];
+    e.set_selection(Some(
+        Selection::new(SelectionKind::Rectangle, vec![[2.0, 1.0], [6.0, 3.0]]).unwrap(),
+    ))
+    .unwrap();
+    e.draw_gradient(GradientKind::Linear, [0.5, 1.5], [7.5, 1.5], [255, 0, 0])
+        .unwrap();
+    let pixels = e.rgba();
+    let pixel = |x: usize, y: usize| &pixels[(y * 8 + x) * 4..(y * 8 + x) * 4 + 4];
+    assert_eq!(pixel(1, 1), &[255, 255, 255, 255]);
+    assert_eq!(pixel(6, 1), &[255, 255, 255, 255]);
+    assert_ne!(pixel(3, 1), &[255, 255, 255, 255]);
+    assert_eq!(e.state().tile_count(), 1);
+    assert!(e.state().tile_count() <= paint_document::MAX_TILES);
+
+    e.edit(|state| {
+        state.layers[0].locked = true;
+        Ok(())
+    })
+    .unwrap();
+    let before = e.rgba();
+    let history = e.undo_count();
+    assert!(matches!(
+        e.draw_gradient(GradientKind::Radial, [2.5, 2.5], [6.5, 2.5], [0, 0, 255]),
+        Err(PaintError::Locked)
+    ));
+    assert_eq!(e.rgba(), before);
+    assert_eq!(e.undo_count(), history);
+
+    let mut hidden = Engine::new(4, 4, 300).unwrap();
+    hidden
+        .edit(|state| {
+            state.layers[0].visible = false;
+            Ok(())
+        })
+        .unwrap();
+    let before = hidden.rgba();
+    let history = hidden.undo_count();
+    assert!(matches!(
+        hidden.draw_gradient(GradientKind::Linear, [0.5, 0.5], [3.5, 3.5], [255, 0, 0]),
+        Err(PaintError::Locked)
+    ));
+    assert_eq!(hidden.rgba(), before);
+    assert_eq!(hidden.undo_count(), history);
+
+    let mut translucent = Engine::new(4, 2, 300).unwrap();
+    translucent.brush.color = [255, 0, 0];
+    translucent.brush.opacity = 0.5;
+    translucent
+        .draw_gradient(GradientKind::Linear, [0.5, 0.5], [3.5, 0.5], [0, 0, 255])
+        .unwrap();
+    let tile = translucent.state().layers[0].tiles.get(&(0, 0)).unwrap();
+    assert_eq!(&tile[..4], &[128, 0, 0, 128]);
+
+    let unchanged = translucent.rgba();
+    let history = translucent.undo_count();
+    assert!(matches!(
+        translucent.draw_gradient(GradientKind::Linear, [1.0, 1.0], [1.0, 1.0], [0, 0, 0]),
+        Err(PaintError::Invalid)
+    ));
+    assert_eq!(translucent.rgba(), unchanged);
+    assert_eq!(translucent.undo_count(), history);
+}
+
+#[test]
+fn gradients_clip_to_ellipse_and_lasso_pixel_centers() {
+    let mut ellipse = Engine::new(8, 8, 300).unwrap();
+    ellipse.brush.color = [0, 0, 0];
+    ellipse
+        .set_selection(Some(
+            Selection::new(SelectionKind::Ellipse, vec![[1.0, 1.0], [7.0, 7.0]]).unwrap(),
+        ))
+        .unwrap();
+    ellipse
+        .draw_gradient(GradientKind::Linear, [0.5, 3.5], [7.5, 3.5], [255, 0, 0])
+        .unwrap();
+    let pixels = ellipse.rgba();
+    let pixel = |image: &[u8], x: usize, y: usize| {
+        let offset = (y * 8 + x) * 4;
+        [
+            image[offset],
+            image[offset + 1],
+            image[offset + 2],
+            image[offset + 3],
+        ]
+    };
+    assert_eq!(pixel(&pixels, 0, 3), [255, 255, 255, 255]);
+    assert_ne!(pixel(&pixels, 3, 3), [255, 255, 255, 255]);
+    assert_eq!(pixel(&pixels, 7, 3), [255, 255, 255, 255]);
+
+    let mut lasso = Engine::new(8, 8, 300).unwrap();
+    lasso.brush.color = [0, 0, 0];
+    lasso
+        .set_selection(Some(
+            Selection::new(
+                SelectionKind::Lasso,
+                vec![[1.0, 1.0], [7.0, 1.0], [4.0, 7.0]],
+            )
+            .unwrap(),
+        ))
+        .unwrap();
+    lasso
+        .draw_gradient(GradientKind::Radial, [4.0, 1.0], [4.0, 7.0], [255, 0, 0])
+        .unwrap();
+    let pixels = lasso.rgba();
+    assert_eq!(pixel(&pixels, 0, 2), [255, 255, 255, 255]);
+    assert_ne!(pixel(&pixels, 4, 2), [255, 255, 255, 255]);
+    assert_eq!(pixel(&pixels, 7, 2), [255, 255, 255, 255]);
 }
 
 #[test]
