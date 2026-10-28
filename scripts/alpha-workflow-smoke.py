@@ -710,15 +710,18 @@ def ctrl_shift(name):
 def ctrl_alt(name):
     code=keycode(display,keysym(b'Alt_L'));key_event(display,code,1,0);ctrl(name);key_event(display,code,0,0);send()
 def valid_project(path):
-    if not path.exists(): return False
+    if not path.exists(): return None
     return valid_project_bytes(path.read_bytes())
 def valid_project_bytes(data):
     try:
-        if len(data)<48 or data[:8] not in (b'RPLALP01',b'RPLALP02') or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return False
-        native_document_tables(data)
-        return True
+        if len(data)<48 or data[:8] not in (b'RPLALP01',b'RPLALP02') or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return None
+        _,layers,_=native_document_tables(data)
+        # Preserve the helper's original contract: valid files return their
+        # raster tile count, so zero distinguishes a clean empty document from
+        # a file that still contains painted pixels. None means malformed.
+        return sum(len(tiles) for tiles in layers.values())
     except (AssertionError,IndexError,ValueError,struct.error,json.JSONDecodeError):
-        return False
+        return None
 def latest_journal_checkpoint(path):
     if not path.exists(): return None
     data=path.read_bytes();offset=0;last_sequence=0;latest=None
@@ -729,7 +732,7 @@ def latest_journal_checkpoint(path):
         if sequence<=last_sequence or record_end>len(data): return None
         if hashlib.sha256(data[offset:end]).digest()!=data[end:record_end]: return None
         payload=data[offset+24:end]
-        if valid_project_bytes(payload) is False: return None
+        if valid_project_bytes(payload) is None: return None
         latest=payload;last_sequence=sequence;offset=record_end
     return latest
 def native_state(path):

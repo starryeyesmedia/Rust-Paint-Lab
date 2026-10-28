@@ -2811,9 +2811,13 @@ strict workspace Clippy, **334 workspace tests**, workspace build, Windows GNU
 workspace check/Clippy, Python syntax, and llvmpipe/OpenGL GPU smoke pass. The
 complete Xorg/XTest application workflow cannot run locally because Xvfb is not
 installed and the package mirror is unavailable. Actions run `40754643332` for
-QuickShape failed at the line pixel-difference assertion; this update relocates
-the line gesture and retains the meaningful pixel assertion. Hosted cross-platform
-and artwork/workflow validation for this combined checkpoint remains pending.
+QuickShape failed at the line pixel-difference assertion; the check now includes
+the brush-radius raster coverage and reports its measured changed-pixel region.
+The next run, `40759189142`, then failed earlier at the empty-document regression:
+the v2 parser edit accidentally changed the helper from a valid raster-tile count
+to a boolean. The helper now returns the original count for valid files and
+`None` only for malformed data. A new hosted run is required; neither the mask
+GUI test nor the QuickShape fix has completed in hosted CI yet.
 No new physical Windows startup, S Pen, Narrator/NVDA, or real-device mask use was
 performed. Existing basic S Pen drawing observations remain valid; advanced
 pressure/tilt and mask workflows need separate hardware validation.
