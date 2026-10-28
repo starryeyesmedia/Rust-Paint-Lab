@@ -210,6 +210,38 @@ def window_rect_marker(name):
            if line.startswith(prefix)]
     return tuple(map(float,lines[-1].split()[:5])) if lines else None
 
+def home_preset_card_rect(name='Portrait'):
+    prefix=f'UI_TEST_HOME_PRESET_CARD_RECT|{name}|'
+    lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    return tuple(map(float,lines[-1].split()[:5])) if lines else None
+
+def settled_home_preset_card_rect(name='Portrait'):
+    first=home_preset_card_rect(name)
+    if first is None: return None
+    time.sleep(0.2)
+    return first if first==home_preset_card_rect(name) else None
+
+def assert_new_document_name_and_create_visible(width, height):
+    name=wait(lambda: window_rect_marker('UI_TEST_NEW_DOCUMENT_NAME_RECT'),
+              'New Artwork has a visible, top-positioned document-name field')
+    create=wait(lambda: window_rect_marker('UI_TEST_NEW_DOCUMENT_CREATE_RECT'),
+                'New Artwork exposes its primary Create action')
+    first_card=wait(lambda: stable_format_card_rect('Portrait'),
+                    'New Artwork has a visually illustrated Portrait preset')
+    name_x,name_y,name_w,name_h,scale=name
+    create_x,create_y,create_w,create_h,create_scale=create
+    assert name_y < first_card[1], \
+        f'Document name must appear before the format choices: field={name}, card={first_card}'
+    assert name_x >= -1 and name_y >= -1 and name_x+name_w <= width/scale+1 \
+        and name_y+name_h <= height/scale+1, \
+        f'Document name is clipped in {width}x{height}: {name}'
+    if width >= 1200 and height >= 700:
+        assert create_scale == scale and create_x >= -1 and create_y >= -1 \
+            and create_x+create_w <= width/scale+1 and create_y+create_h <= height/scale-2, \
+            f'Primary Create action should fit without scrolling at {width}x{height}: {create}'
+    return name, create
+
 def stable_window_rect_marker(name):
     prefix=name + ': '
     lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
@@ -343,6 +375,14 @@ def reference_panel_count():
 def reference_last_window_rect():
     marker=stable_marker('UI_TEST_REFERENCE_LAST_WINDOW_RECT')
     return tuple(map(float,marker.split())) if marker else None
+
+def reference_window_rect(index):
+    prefix=f'UI_TEST_REFERENCE_LAYOUT_RECT: {index} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if not lines: return None
+    values=tuple(map(float,lines[-1].split()))
+    return values if len(values)==5 else None
 
 def layers_panel_open():
     marker=event_marker('UI_TEST_LAYERS_PANEL_STATE')
@@ -1091,15 +1131,39 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,640,480)
             capture_window(window,'home-light-narrow')
             resize_window(window,1280,800)
+            preset=wait(lambda: settled_home_preset_card_rect('Portrait'),
+                        'Home exposes a measured standard Portrait canvas preset')
+            click_at((preset[0]+preset[2]/2)*preset[4],
+                     (preset[1]+preset[3]/2)*preset[4])
+            wait(lambda: 'UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1' in
+                 (directory/'application.log').read_text(),
+                 'selecting the Home Portrait preset creates a named 1800x2400 painting document directly')
+            capture_window(window,'home-preset-created')
             ctrl('n');new_document_prompt();time.sleep(0.25)
             wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 1,
                  'light New Artwork interface has rendered before capture')
+            assert_new_document_name_and_create_visible(1280,800)
             capture_window(window,'new-artwork-light-normal')
             resize_window(window,640,480)
+            assert_new_document_name_and_create_visible(640,480)
             capture_window(window,'new-artwork-light-narrow')
-            assert_format_card_fully_visible('Custom',640,480)
+            # Constrained windows may scroll, but the primary action must be
+            # reachable and visible after ordinary wheel navigation.
+            wheel_at(320,430,notches=8)
+            time.sleep(0.25)
+            create=wait(lambda: window_rect_marker('UI_TEST_NEW_DOCUMENT_CREATE_RECT'),
+                        'narrow New Artwork scrolling exposes the Create action')
+            assert create[1]>=-1 and create[1]+create[3]<=480/create[4]+1, \
+                f'Create action is not visible after scrolling the narrow dialog: {create}'
+            capture_window(window,'new-artwork-light-narrow-scrolled')
+            created_before=sum(line.startswith('UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1')
+                               for line in (directory/'application.log').read_text().splitlines())
+            click_at((create[0]+create[2]/2)*create[4],
+                     (create[1]+create[3]/2)*create[4])
+            wait(lambda: sum(line.startswith('UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1')
+                             for line in (directory/'application.log').read_text().splitlines())>created_before,
+                 'the visible narrow-dialog Create action creates the selected native document')
             resize_window(window,1280,800)
-            key('Return');time.sleep(0.5)
             capture_window(window,'canvas-workspace-light')
             key('bracketright')
             increased=wait(active_brush_size,'right bracket reports a brush size adjustment')
@@ -1412,6 +1476,31 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Escape dismisses Color controls')
             ctrl('l');time.sleep(0.3)
             window=wait(find_window,'window after Ctrl+L opens Layers')
+            # Arrange the two saved references to the right of the fitted
+            # portrait artboard and the compact Layers panel immediately left
+            # of it, leaving an unobstructed strip for genuine paint input.
+            layer_bounds=wait(layers_window_rect,'Layers panel is ready to be moved for canvas interaction')
+            layer_target_x=90.0
+            drag_at((layer_bounds[0]+layer_bounds[2]/2)*layer_bounds[4],
+                    (layer_bounds[1]+16.0)*layer_bounds[4],
+                    (layer_target_x+layer_bounds[2]/2)*layer_bounds[4],
+                    (layer_bounds[1]+16.0)*layer_bounds[4])
+            moved_layers=wait(lambda: layers_window_rect()
+                               if layers_window_rect() and abs(layers_window_rect()[0]-layer_target_x)<3
+                               else None,
+                               'Layers panel movement leaves the fitted artboard reachable')
+            for reference_index,target in [(0,(900.0,90.0)),(1,(900.0,425.0))]:
+                reference_bounds=wait(lambda reference_index=reference_index:
+                                       reference_window_rect(reference_index),
+                                       f'Reference {reference_index+1} reports its panel geometry')
+                drag_at((reference_bounds[0]+40.0)*reference_bounds[4],
+                        (reference_bounds[1]+16.0)*reference_bounds[4],
+                        (target[0]+40.0)*reference_bounds[4],
+                        (target[1]+16.0)*reference_bounds[4])
+                wait(lambda reference_index=reference_index,target=target:
+                     (lambda bounds: bounds if bounds and abs(bounds[0]-target[0])<3
+                      and abs(bounds[1]-target[1])<3 else None)(reference_window_rect(reference_index)),
+                     f'Reference {reference_index+1} moves outside the fitted artboard')
             ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
             wait(lambda: 'UI_TEST_LAYERS_ADDED: 3' in (directory/'application.log').read_text(), 'Layers panel contains three real editable layers')
             populated_layer_id=wait(layer_front_row_id,'the frontmost editable layer is selected')
@@ -1420,7 +1509,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert empty_thumbnail[1]==0 and empty_thumbnail[2]==0, f'new layer should begin transparent, got {empty_thumbnail}'
             paint_start_count=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                                   for line in (directory/'application.log').read_text().splitlines())
-            key('b');drag_at(180,250,260,330)
+            key('b');drag_at(460,250,550,330)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>paint_start_count,
                  'painting on the selected layer uses the ordinary input pipeline')
@@ -1638,7 +1727,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'direct layer-row selection targets the layer to clear')
             paint_count=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                             for line in (directory/'application.log').read_text().splitlines())
-            key('b');drag_at(180,250,260,330)
+            key('b');drag_at(460,250,550,330)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>paint_count,
                  'the targeted front layer receives raster content through the real mouse pipeline')
@@ -1719,7 +1808,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: 'UI_TEST_LAYER_NATIVE_CONTEXT_OPENED' in (directory/'application.log').read_text(),
                  'right-clicking a layer name opens its native context menu')
             key('Escape')
-            move(180,250);click_button(1,True);move(400,400);click_button(1,False)
+            move(460,250);click_button(1,True);move(550,350);click_button(1,False)
             status('*')
             ctrl('s');project=directory/'artwork.rpl'
             wait(lambda: valid_project(project) and '*' not in title(window),'valid saved raster project')
@@ -1734,9 +1823,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('e');png=directory/'artwork.png'
             wait(lambda: png.exists(),'PNG export')
             data=png.read_bytes();assert data[:8]==b'\x89PNG\r\n\x1a\n'
-            assert struct.unpack('>II',data[16:24])==(1600,1000)
+            assert struct.unpack('>II',data[16:24])==(1800,2400)
             png_width,png_height,pixels=decode_rgba_png(data)
-            assert (png_width,png_height)==(1600,1000)
+            assert (png_width,png_height)==(1800,2400)
             assert not any(pixels[i:i+4]==b'\xff\x00\xff\xff' for i in range(0,len(pixels),4)), 'workspace reference pixels leaked into the exported artwork'
             assert not any(pixels[i] < 80 and pixels[i+1] > 120 and pixels[i+2] < 100 for i in range(0,len(pixels),4)), 'workspace reference marker pixels leaked into the exported artwork'
             assert json.loads(prefs.read_text())['references'][0]['path']==str(reference)
@@ -1773,9 +1862,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # Exercise actual selection-tool ownership and transactional fill.
             time.sleep(0.5)
             saved=project.read_bytes()
-            # Keep the captured selection gesture on exposed canvas pixels;
-            # the docked Layers window starts at x=252 in this workspace.
-            key('m');move(200,260);click_button(1,True);move(240,330);click_button(1,False)
+            # Keep the captured selection gesture on exposed portrait-canvas
+            # pixels; the moved Layers panel occupies x=90..450.
+            key('m');move(480,260);click_button(1,True);move(540,330);click_button(1,False)
             wait(lambda: (lambda marker: marker if marker and marker.startswith('true ') else None)(
                 event_marker('UI_TEST_SELECTION_COMMITTED')),
                  'the real mouse drag commits a document-space selection before layer editing')
@@ -2028,7 +2117,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             shape_before=len(shape_markers())
             key('r');wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='ShapeRectangle',
                            'R selects the document-backed rectangle shape tool')
-            move(250,300);click_button(1,True);move(330,380)
+            move(480,180);click_button(1,True);move(560,260)
             preview_bounds=tuple(map(float,wait(
                 lambda: stable_marker('UI_TEST_SHAPE_PREVIEW_BOUNDS'),
                 'active shape drag reports its clipped preview geometry').split()))
@@ -2047,9 +2136,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert imported.read_bytes()==preview_base,'Escape cancellation must discard the preview without changing artwork'
             assert len(shape_markers())==shape_before,'cancelled shape preview must not create a document command'
             for shortcut,kind,start,end in [
-                ('r','Rectangle',(250,300),(330,380)),
-                ('o','Ellipse',(250,420),(330,500)),
-                ('l','Line',(250,540),(350,610)),
+                ('r','Rectangle',(480,180),(560,260)),
+                ('o','Ellipse',(480,320),(560,400)),
+                ('l','Line',(480,470),(580,540)),
             ]:
                 key(shortcut)
                 wait(lambda expected=f'Shape{kind}': event_marker('UI_TEST_ACTIVE_TOOL')==expected,
@@ -2090,11 +2179,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             gradient_base=imported.read_bytes()
             cancellation_count=sum(line.startswith('UI_TEST_GRADIENT_CANCELLED: ')
                                    for line in (directory/'application.log').read_text().splitlines())
-            move(600,450)
+            move(620,610)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
                 capture_window(window,'gradient-preview-before')
                 preview_before=(Path(os.environ['RPL_UI_SCREENSHOT_DIR'])/'gradient-preview-before.png').read_bytes()
-            move(450,250);click_button(1,True);move(525,350);move(600,450)
+            move(480,180);click_button(1,True);move(540,300);move(620,610)
             wait(lambda: event_marker('UI_TEST_GRADIENT_PREVIEW') is not None,
                  'active gradient drag creates a transient preview texture')
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
@@ -2113,7 +2202,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             linear_before=imported.read_bytes()
             linear_count=sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
                              for line in (directory/'application.log').read_text().splitlines())
-            drag_at(450,250,600,450)
+            drag_at(480,180,620,610)
             wait(lambda: sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>linear_count,
                  'canvas drag commits a linear gradient through the document engine')
@@ -2123,8 +2212,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: valid_project(imported) and imported.read_bytes()!=linear_before and '*' not in title(window),
                  'linear gradient pixels are saved to the existing native project')
             sx,sy,ex,ey=map(float,linear_marker[1:])
-            sample_x=max(0,min(1599,round((sx+ex)/2)))
-            sample_y=max(0,min(999,round((sy+ey)/2)))
+            sample_x=max(0,min(1799,round((sx+ex)/2)))
+            sample_y=max(0,min(2399,round((sy+ey)/2)))
             linear_sample=native_layer_pixel(imported,sample_x,sample_y)
             assert linear_sample[3]>0 and linear_sample!=native_layer_pixel_bytes(linear_before,sample_x,sample_y), \
                 'linear gradient changed no visible selected-layer sample'
@@ -2142,7 +2231,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Radial selector changes the active gradient mode')
             radial_count=sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
                              for line in (directory/'application.log').read_text().splitlines())
-            drag_at(450,250,600,450)
+            drag_at(480,180,620,610)
             wait(lambda: sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>radial_count,
                  'canvas drag commits a radial gradient through the document engine')
@@ -2154,8 +2243,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             sx,sy,ex,ey=map(float,radial_marker[1:])
             dx,dy=ex-sx,ey-sy
             length=math.hypot(dx,dy)
-            sample_x=max(0,min(1599,round((sx+ex)/2-dy/length*length*0.22)))
-            sample_y=max(0,min(999,round((sy+ey)/2+dx/length*length*0.22)))
+            sample_x=max(0,min(1799,round((sx+ex)/2-dy/length*length*0.22)))
+            sample_y=max(0,min(2399,round((sy+ey)/2+dx/length*length*0.22)))
             radial_sample=native_layer_pixel(imported,sample_x,sample_y)
             assert radial_sample[3]>0 and radial_sample!=linear_sample, \
                 'radial gradient did not produce distinct off-axis raster output'
@@ -2283,11 +2372,30 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('n');new_document_prompt()
             wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 2,
                  'dark New Artwork interface has rendered before capture')
+            assert_new_document_name_and_create_visible(1280,800)
             time.sleep(0.25);capture_window(window,'new-artwork-dark-normal')
             resize_window(window,640,480)
+            assert_new_document_name_and_create_visible(640,480)
             capture_window(window,'new-artwork-dark-narrow')
-            assert_format_card_fully_visible('Custom',640,480)
-            resize_window(window,1280,800);key('Return');time.sleep(0.4)
+            hidden_wheel_count=sum(line.startswith('UI_TEST_REFERENCE_WHEEL_IGNORED_HIDDEN')
+                                   for line in (directory/'application.log').read_text().splitlines())
+            wheel_at(320,430,notches=8);time.sleep(0.25)
+            wait(lambda: sum(line.startswith('UI_TEST_REFERENCE_WHEEL_IGNORED_HIDDEN')
+                             for line in (directory/'application.log').read_text().splitlines())
+                 >hidden_wheel_count,
+                 'wheel input at the hidden saved Reference position safely reaches the visible New Artwork dialog')
+            assert process.poll() is None, 'scrolling the dark New Artwork dialog must not route through a hidden reference viewport'
+            dark_create=wait(lambda: window_rect_marker('UI_TEST_NEW_DOCUMENT_CREATE_RECT'),
+                             'dark narrow New Artwork exposes the Create action by scrolling')
+            assert dark_create[1]+dark_create[3]<=480/dark_create[4]+1, \
+                f'dark narrow Create action is clipped after scrolling: {dark_create}'
+            capture_window(window,'new-artwork-dark-narrow-scrolled')
+            click_at((dark_create[0]+dark_create[2]/2)*dark_create[4],
+                     (dark_create[1]+dark_create[3]/2)*dark_create[4])
+            wait(lambda: 'UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1' in
+                 (directory/'application.log').read_text(),
+                 'dark narrow New Artwork Create action creates its document')
+            resize_window(window,1280,800);time.sleep(0.4)
             capture_window(window,'canvas-workspace-dark-toolbar-top')
             clearance=wait(top_palette_clearance,'top-docked palette reports its measured app-toolbar clearance')
             assert clearance[0]>=clearance[1]-0.5, f'top palette overlaps contextual options: {clearance}'
@@ -2376,7 +2484,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

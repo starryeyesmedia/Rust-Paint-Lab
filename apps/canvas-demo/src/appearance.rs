@@ -117,6 +117,26 @@ pub fn readable_text_accent(accent: egui::Color32, surface: egui::Color32) -> eg
     readable_text_color(accent, surface)
 }
 
+/// Returns a purple-to-magenta text gradient only when every sampled color
+/// remains readable on the selected surface. High-contrast mode should use a
+/// single foreground color instead.
+pub fn accessible_text_gradient(
+    start: egui::Color32,
+    end: egui::Color32,
+    surface: egui::Color32,
+) -> Option<[egui::Color32; 2]> {
+    let start = readable_text_color(start, surface);
+    let end = readable_text_color(end, surface);
+    let colors = [start, end];
+    (text_gradient_min_contrast(colors, surface) >= 4.5).then_some(colors)
+}
+
+pub fn text_gradient_min_contrast(colors: [egui::Color32; 2], surface: egui::Color32) -> f32 {
+    (0..=32)
+        .map(|step| contrast_ratio(mix(colors[0], colors[1], step as f32 / 32.0), surface))
+        .fold(f32::INFINITY, f32::min)
+}
+
 pub fn visuals(
     mode: AppearanceMode,
     system_dark: bool,
@@ -343,6 +363,21 @@ mod tests {
                 let accent = readable_text_accent(palette.hyperlink_color, palette.panel_fill);
                 assert!(contrast_ratio(accent, palette.panel_fill) >= 4.5);
             }
+        }
+    }
+
+    #[test]
+    fn brand_slogan_gradient_is_only_returned_when_all_samples_meet_text_contrast() {
+        let requested = [
+            egui::Color32::from_rgb(156, 108, 255),
+            egui::Color32::from_rgb(234, 111, 214),
+        ];
+        for mode in [AppearanceMode::Dark, AppearanceMode::Light] {
+            let palette = visuals(mode, mode.is_dark(false), AccentScheme::Violet, None);
+            let surface = crate::ui_tokens::hero_surface(&palette);
+            let colors = accessible_text_gradient(requested[0], requested[1], surface)
+                .expect("theme has a readable purple-magenta text gradient");
+            assert!(text_gradient_min_contrast(colors, surface) >= 4.5);
         }
     }
 

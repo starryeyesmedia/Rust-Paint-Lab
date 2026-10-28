@@ -84,6 +84,40 @@ pub fn type_text(text: impl Into<String>, role: TypeRole, color: egui::Color32) 
     egui::RichText::new(text).font(font_id(role)).color(color)
 }
 
+/// Builds a locally rendered, offline gradient text run using the same named
+/// type roles as the rest of the interface. Callers must check contrast of the
+/// gradient against its actual surface before using it.
+pub fn gradient_type_job(
+    text: &str,
+    role: TypeRole,
+    colors: [egui::Color32; 2],
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let count = text.chars().count();
+    let denominator = count.saturating_sub(1).max(1) as f32;
+    for (index, character) in text.chars().enumerate() {
+        let amount = index as f32 / denominator;
+        let channel = |start: u8, end: u8| {
+            (f32::from(start) + (f32::from(end) - f32::from(start)) * amount).round() as u8
+        };
+        let color = egui::Color32::from_rgb(
+            channel(colors[0].r(), colors[1].r()),
+            channel(colors[0].g(), colors[1].g()),
+            channel(colors[0].b(), colors[1].b()),
+        );
+        job.append(
+            &character.to_string(),
+            0.0,
+            egui::TextFormat {
+                font_id: font_id(role),
+                color,
+                ..Default::default()
+            },
+        );
+    }
+    job
+}
+
 fn mix_color(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 {
     let amount = amount.clamp(0.0, 1.0);
     let mix = |left: u8, right: u8| {
@@ -499,6 +533,21 @@ mod tests {
             font_definitions()
                 .families
                 .contains_key(&TypeRole::Brand.family())
+        );
+    }
+
+    #[test]
+    fn gradient_type_job_preserves_text_role_and_both_color_endpoints() {
+        let start = egui::Color32::from_rgb(156, 108, 255);
+        let end = egui::Color32::from_rgb(234, 111, 214);
+        let job = gradient_type_job("No limits. No bullshit.", TypeRole::Slogan, [start, end]);
+        assert_eq!(job.text, "No limits. No bullshit.");
+        assert_eq!(job.sections.first().unwrap().format.color, start);
+        assert_eq!(job.sections.last().unwrap().format.color, end);
+        assert!(
+            job.sections
+                .iter()
+                .all(|section| { section.format.font_id == font_id(TypeRole::Slogan) })
         );
     }
 

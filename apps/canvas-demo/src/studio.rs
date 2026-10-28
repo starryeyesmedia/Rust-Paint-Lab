@@ -287,7 +287,9 @@ fn document_format_card_height(viewport_height: f32) -> f32 {
     if viewport_height.is_finite() && viewport_height <= 560.0 {
         112.0
     } else {
-        154.0
+        // Two rows of seven formats, the preview, and the primary action should
+        // fit in a regular laptop dialog without forcing the artist to scroll.
+        132.0
     }
 }
 
@@ -636,12 +638,12 @@ fn paint_format_illustration(
     );
 }
 
-pub(crate) fn home_document_card(
+fn home_document_card_with_rect(
     ui: &mut egui::Ui,
     name: &str,
     dimensions: [u32; 2],
     card_width: f32,
-) -> bool {
+) -> (bool, egui::Rect) {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(card_width, 132.0), egui::Sense::click());
     response.widget_info(|| {
@@ -695,11 +697,24 @@ pub(crate) fn home_document_card(
         crate::ui_tokens::font_id_at(crate::ui_tokens::TypeRole::Metadata, 11.5),
         crate::appearance::readable_text_color(visuals.weak_text_color(), fill),
     );
-    response.clicked()
-        || (response.has_focus()
-            && ui.input(|input| {
-                input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
-            }))
+    (
+        response.clicked()
+            || (response.has_focus()
+                && ui.input(|input| {
+                    input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
+                })),
+        rect,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn home_document_card(
+    ui: &mut egui::Ui,
+    name: &str,
+    dimensions: [u32; 2],
+    card_width: f32,
+) -> bool {
+    home_document_card_with_rect(ui, name, dimensions, card_width).0
 }
 
 pub(crate) fn home_custom_document_card(ui: &mut egui::Ui, card_width: f32) -> bool {
@@ -3203,6 +3218,8 @@ pub struct Studio {
     test_home_dark_contrast_logged: bool,
     test_home_light_contrast_logged: bool,
     test_home_content_bounds_logged: bool,
+    test_home_preset_rect_logged: Option<[i32; 5]>,
+    test_hidden_reference_wheel_logged: bool,
     test_strong_text_contrast_logged: bool,
     confirm: Option<Action>,
     pub close_requested: bool,
@@ -3427,6 +3444,8 @@ impl Studio {
             test_home_dark_contrast_logged: false,
             test_home_light_contrast_logged: false,
             test_home_content_bounds_logged: false,
+            test_home_preset_rect_logged: None,
+            test_hidden_reference_wheel_logged: false,
             test_strong_text_contrast_logged: false,
             confirm: None,
             close_requested: false,
@@ -4003,7 +4022,18 @@ impl Studio {
                     (pointer_px[1] / scale) as f32,
                 );
                 let reference = &mut self.references[index];
-                let viewport = reference.viewport.unwrap();
+                let Some(viewport) = reference.viewport else {
+                    // The reference area state can outlive the visible panel
+                    // for a frame when a modal or Home hides it. Forward the
+                    // wheel event to egui so the visible modal can scroll;
+                    // never unwrap the missing viewport or route it to art.
+                    if self.test_path_dialog && !self.test_hidden_reference_wheel_logged {
+                        self.test_hidden_reference_wheel_logged = true;
+                        crate::studio_log!("UI_TEST_REFERENCE_WHEEL_IGNORED_HIDDEN");
+                    }
+                    let response = self.input.on_window_event(window, event);
+                    return (false, response.repaint);
+                };
                 let changed = match delta {
                     winit::event::MouseScrollDelta::PixelDelta(delta) if !self.control_held => {
                         reference_zoom_about(
@@ -8016,7 +8046,19 @@ impl Studio {
                                                     let dark_mode = ui.visuals().dark_mode;
                                                     let contrast = crate::appearance::contrast_ratio(foreground, surface);
                                                     let accent = crate::appearance::readable_text_accent(ui.visuals().hyperlink_color, surface);
-                                                    let slogan_contrast = crate::appearance::contrast_ratio(accent, surface);
+                                                    let slogan_gradient = if self.high_contrast {
+                                                        None
+                                                    } else {
+                                                        crate::appearance::accessible_text_gradient(
+                                                            egui::Color32::from_rgb(165, 111, 255),
+                                                            egui::Color32::from_rgb(235, 112, 220),
+                                                            surface,
+                                                        )
+                                                    };
+                                                    let slogan_contrast = slogan_gradient.map_or_else(
+                                                        || crate::appearance::contrast_ratio(accent, surface),
+                                                        |colors| crate::appearance::text_gradient_min_contrast(colors, surface),
+                                                    );
                                                     if self.test_path_dialog && contrast >= 4.5 {
                                                         let logged = if dark_mode {
                                                             &mut self.test_home_dark_contrast_logged
@@ -8029,20 +8071,38 @@ impl Studio {
                                                             crate::studio_log!("UI_TEST_HOME_SLOGAN_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, slogan_contrast);
                                                         }
                                                     }
-                                                    ui.label(crate::ui_tokens::type_text(
-                                                        "No limits. No bullshit.",
-                                                        crate::ui_tokens::TypeRole::Slogan,
-                                                        accent,
-                                                    ));
+                                                    if let Some(colors) = slogan_gradient {
+                                                        let response = ui.add(
+                                                            egui::Label::new(crate::ui_tokens::gradient_type_job(
+                                                                "No limits. No bullshit.",
+                                                                crate::ui_tokens::TypeRole::Slogan,
+                                                                colors,
+                                                            ))
+                                                            .wrap(),
+                                                        );
+                                                        response.widget_info(|| {
+                                                            egui::WidgetInfo::labeled(
+                                                                egui::WidgetType::Label,
+                                                                true,
+                                                                "No limits. No bullshit.",
+                                                            )
+                                                        });
+                                                    } else {
+                                                        ui.label(crate::ui_tokens::type_text(
+                                                            "No limits. No bullshit.",
+                                                            crate::ui_tokens::TypeRole::Slogan,
+                                                            accent,
+                                                        ));
+                                                    }
                                                     ui.add_space(4.0);
                                                     ui.label(crate::ui_tokens::display_text(
-                                                        "Create without permission.",
-                                                        (screen.width() * 0.04).clamp(42.0, 64.0),
+                                                        "Create, open, or continue artwork.",
+                                                        (ui.available_width() * 0.065).clamp(30.0, 46.0),
                                                         foreground,
                                                     ));
-                                                    ui.add_space(5.0);
-                                                    ui.label(egui::RichText::new("A painting studio for ideas that do not fit inside the lines.")
-                                                        .size(16.0).color(muted));
+                                                    ui.add_space(8.0);
+                                                    ui.label(egui::RichText::new("Start something new, open a project, or continue where you left off.")
+                                                        .size(if compact { 16.0 } else { 17.5 }).color(muted));
                                                     ui.add_space(if compact { 8.0 } else { 12.0 });
                                                     ui.horizontal_wrapped(|ui| {
                                                         let action_width = (screen.width() * 0.42).clamp(168.0, 232.0);
@@ -8113,12 +8173,30 @@ impl Studio {
                                                                 ("Square", 2048, 2048),
                                                                 ("Landscape", 2400, 1800),
                                                             ] {
-                                                                if home_document_card(
+                                                                let (activated, rect) = home_document_card_with_rect(
                                                                     ui,
                                                                     name,
                                                                     [width, height],
                                                                     card_width,
-                                                                ) {
+                                                                );
+                                                                let marker = [
+                                                                    rect.left().round() as i32,
+                                                                    rect.top().round() as i32,
+                                                                    rect.width().round() as i32,
+                                                                    rect.height().round() as i32,
+                                                                    (ctx.pixels_per_point() * 100.0).round() as i32,
+                                                                ];
+                                                                if self.test_path_dialog
+                                                                    && name == "Portrait"
+                                                                    && self.test_home_preset_rect_logged != Some(marker)
+                                                                {
+                                                                    self.test_home_preset_rect_logged = Some(marker);
+                                                                    crate::studio_log!(
+                                                                        "UI_TEST_HOME_PRESET_CARD_RECT|Portrait|{:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                                        rect.left(), rect.top(), rect.width(), rect.height(), ctx.pixels_per_point(),
+                                                                    );
+                                                                }
+                                                                if activated {
                                                                     start_preset =
                                                                         Some((width, height));
                                                                 }
@@ -8163,12 +8241,30 @@ impl Studio {
                                             ("Landscape", 2400, 1800),
                                             ("A4 Print", 2480, 3508),
                                         ] {
-                                            if home_document_card(
+                                            let (activated, rect) = home_document_card_with_rect(
                                                 ui,
                                                 name,
                                                 [width, height],
                                                 card_width,
-                                            ) {
+                                            );
+                                            let marker = [
+                                                rect.left().round() as i32,
+                                                rect.top().round() as i32,
+                                                rect.width().round() as i32,
+                                                rect.height().round() as i32,
+                                                (ctx.pixels_per_point() * 100.0).round() as i32,
+                                            ];
+                                            if self.test_path_dialog
+                                                && name == "Portrait"
+                                                && self.test_home_preset_rect_logged != Some(marker)
+                                            {
+                                                self.test_home_preset_rect_logged = Some(marker);
+                                                crate::studio_log!(
+                                                    "UI_TEST_HOME_PRESET_CARD_RECT|Portrait|{:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                    rect.left(), rect.top(), rect.width(), rect.height(), ctx.pixels_per_point(),
+                                                );
+                                            }
+                                            if activated {
                                                 start_preset = Some((width, height));
                                             }
                                         }
@@ -8436,9 +8532,13 @@ impl Studio {
                 if !self.test_path_dialog {
                     self.new_name = "Untitled".into();
                 }
-                self.new_from_welcome = true;
-                self.new_dialog = true;
+                self.new_from_welcome = false;
+                self.new_dialog = false;
                 self.welcome = false;
+                actions.push(Action::New);
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_HOME_PRESET_CREATE_REQUESTED: {width} {height}");
+                }
             }
             if custom_size_requested {
                 self.picker_from_welcome = false;
@@ -8692,40 +8792,41 @@ impl Studio {
                 let dialog_width = (ctx.content_rect().width() - 32.0).clamp(280.0, 880.0);
                 ui.set_min_width(dialog_width.min(440.0));
                 ui.set_max_width(dialog_width);
+                let dialog_view_height = ctx.content_rect().height();
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .min_scrolled_height((ctx.content_rect().height() - 64.0).clamp(180.0, 560.0))
-                    .max_height((ctx.content_rect().height() - 32.0).max(120.0))
+                    .min_scrolled_height((dialog_view_height - 48.0).clamp(180.0, 720.0))
+                    .max_height((dialog_view_height - 24.0).max(120.0))
                     .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.heading("Create a new canvas");
-                    let can_create = self
-                        .new_unit
-                        .to_pixels(self.new_width, self.new_dpi)
-                        .is_some()
-                        && self
-                            .new_unit
-                            .to_pixels(self.new_height, self.new_dpi)
-                            .is_some();
-                    let button_text = crate::appearance::readable_text_color(
-                        ui.visuals().text_color(),
-                        ui.visuals().selection.bg_fill,
+                ui.heading("Create a new canvas");
+                ui.horizontal(|ui| {
+                    ui.label("Document name");
+                    let field_width = (ui.available_width() - 120.0).max(120.0);
+                    let response = ui.add_sized(
+                        [field_width, 38.0],
+                        egui::TextEdit::singleline(&mut self.new_name)
+                            .hint_text("Untitled"),
                     );
-                    let button = egui::Button::new(
-                        egui::RichText::new("Create canvas")
-                            .strong()
-                            .color(button_text),
-                    )
-                        .fill(ui.visuals().selection.bg_fill)
-                        .min_size(egui::vec2(156.0, 44.0));
-                    if ui.add_enabled(can_create, button).clicked() {
-                        actions.push(Action::New);
-                        self.new_dialog = false;
-                        self.welcome = false;
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::TextEdit,
+                            true,
+                            "Document name",
+                        )
+                    });
+                    if self.test_path_dialog {
+                        crate::studio_log!(
+                            "UI_TEST_NEW_DOCUMENT_NAME_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            response.rect.left(),
+                            response.rect.top(),
+                            response.rect.width(),
+                            response.rect.height(),
+                            ctx.pixels_per_point(),
+                        );
                     }
                 });
-                ui.label("Start with a paper shape, then fine-tune the document size.");
-                ui.add_space(8.0);
+                ui.label("Choose a paper format, then fine-tune dimensions and output settings.");
+                ui.add_space(6.0);
                 let (_, card_width) = document_format_grid(ui.available_width());
                 let formats = [
                     ("Portrait", 1800, 2400, 300),
@@ -8795,7 +8896,7 @@ impl Studio {
                     (Some(width), Some(height)) => (width as f32, height as f32),
                     _ => (1.0, 1.0),
                 };
-                let preview_slot_size = egui::vec2(224.0, 158.0);
+                let preview_slot_size = egui::vec2(208.0, 138.0);
                 let preview_size = fit_paper_to_box(
                     preview_slot_size - egui::vec2(24.0, 24.0),
                     preview_document_width,
@@ -8856,10 +8957,6 @@ impl Studio {
                         ui.weak(format!("{} DPI · sRGB RGBA8", self.new_dpi));
                     });
                 });
-                ui.add_sized(
-                    [(dialog_width - 40.0).clamp(190.0, 380.0), 40.0],
-                    egui::TextEdit::singleline(&mut self.new_name).hint_text("Document name"),
-                );
                 egui::CollapsingHeader::new("Advanced dimensions, presets and resolution")
                     .default_open(false)
                     .show(ui, |ui| {
@@ -8961,7 +9058,18 @@ impl Studio {
                         .color(create_text),
                 )
                 .fill(create_fill);
-                if ui.add_enabled(can_create, create_button).clicked()
+                let create_response = ui.add_enabled(can_create, create_button);
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_NEW_DOCUMENT_CREATE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        create_response.rect.left(),
+                        create_response.rect.top(),
+                        create_response.rect.width(),
+                        create_response.rect.height(),
+                        ctx.pixels_per_point(),
+                    );
+                }
+                if create_response.clicked()
                     || (can_create && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                 {
                     actions.push(Action::New);
@@ -9846,6 +9954,13 @@ impl Studio {
                 self.last_submitted = u64::MAX;
                 self.welcome = false;
                 self.status = format!("Created {width} × {height} px at {} DPI", self.new_dpi);
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_DOCUMENT_CREATED: {width} {height} {} {}",
+                        self.new_name,
+                        project.state().layers.len(),
+                    );
+                }
                 if let Err(error) = self.persist_workspace() {
                     self.status =
                         format!("Document created; setup preference save failed: {error}");
@@ -10167,8 +10282,9 @@ mod tests {
     fn document_format_cards_compact_for_short_viewports() {
         assert_eq!(document_format_card_height(480.0), 112.0);
         assert_eq!(document_format_card_height(560.0), 112.0);
-        assert_eq!(document_format_card_height(561.0), 154.0);
-        assert_eq!(document_format_card_height(f32::NAN), 154.0);
+        assert_eq!(document_format_card_height(561.0), 132.0);
+        assert_eq!(document_format_card_height(800.0), 132.0);
+        assert_eq!(document_format_card_height(f32::NAN), 132.0);
 
         // The narrow dialog's three rows now fit within its initial viewport,
         // including both row gaps and the short heading/subtitle block.

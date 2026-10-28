@@ -121,8 +121,17 @@ mod tests {
     #[test]
     fn normal_log_destination_is_local_and_named_for_product() {
         let path = default_log_directory().expect("fallback log directory");
-        assert!(path.ends_with("logs"));
         assert!(path.to_string_lossy().contains("BitchPixel"));
+        let directory_name = path.file_name().and_then(|name| name.to_str());
+        let has_platform_log_directory = directory_name == Some("logs")
+            || (cfg!(target_os = "macos")
+                && directory_name == Some("BitchPixel")
+                && path.parent().is_some_and(|parent| parent.ends_with("Logs")));
+        assert!(
+            has_platform_log_directory,
+            "unexpected local diagnostic directory: {}",
+            path.display()
+        );
     }
 
     #[test]
