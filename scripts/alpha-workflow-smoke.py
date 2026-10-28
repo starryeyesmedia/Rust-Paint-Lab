@@ -703,6 +703,17 @@ def native_layer_pixel_by_id_bytes(data, layer_id, x, y):
             pixel=((y%64)*64+x%64)*4
             return tile[pixel:pixel+4]
     return b'\0\0\0\0'
+def native_layer_tiles(data):
+    state=native_state_bytes(data)
+    layer_id=state['selected']
+    metadata=struct.unpack('<I',data[8:12])[0]
+    count_offset=12+metadata;count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
+    offset=count_offset+4;tiles={}
+    for _ in range(count):
+        actual_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
+        tile=data[offset:offset+16384];offset+=16384
+        if actual_id==layer_id: tiles[(tile_x,tile_y)]=tile
+    return tiles
 def native_layer_tiles_bytes(data):
     metadata=struct.unpack('<I',data[8:12])[0]
     count_offset=12+metadata;count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
@@ -2257,6 +2268,44 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda: imported.read_bytes()==radial_bytes and '*' not in title(window),
                  'radial gradient redo restores the exact saved pixels')
+            # Exercise Smudge through its real toolbar shortcut, winit input,
+            # lifecycle processor, router, document transaction and native
+            # persistence. Compare raster tile bytes, not just the window title.
+            smudge_base=imported.read_bytes()
+            key('s')
+            wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='Smudge',
+                 'S selects the document-backed Smudge tool')
+            smudge_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                              for line in (directory/'application.log').read_text().splitlines())
+            drag_at(520,350,600,390)
+            wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>smudge_starts,
+                 'Smudge uses the ordinary routed canvas pointer lifecycle')
+            ctrl('s')
+            wait(lambda: valid_project(imported) and imported.read_bytes()!=smudge_base
+                 and '*' not in title(window),
+                 'committed Smudge pixels are saved in the editable native document')
+            smudge_bytes=imported.read_bytes()
+            base_tiles=native_layer_tiles(smudge_base)
+            smudged_tiles=native_layer_tiles(smudge_bytes)
+            changed_smudge_pixels=sum(
+                old_pixel!=new_pixel
+                for tile_key in set(base_tiles)|set(smudged_tiles)
+                for old_tile,new_tile in [(base_tiles.get(tile_key,b'\0'*16384),
+                                           smudged_tiles.get(tile_key,b'\0'*16384))]
+                for old_pixel,new_pixel in zip(
+                    (old_tile[i:i+4] for i in range(0,16384,4)),
+                    (new_tile[i:i+4] for i in range(0,16384,4)))
+            )
+            assert changed_smudge_pixels>0, 'Smudge must modify authoritative selected-layer pixels'
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                capture_window(window,'smudge-workspace')
+            ctrl('z');ctrl('s')
+            wait(lambda: imported.read_bytes()==smudge_base,
+                 'Smudge is one exact undoable raster transaction')
+            ctrl('y');ctrl('s')
+            wait(lambda: imported.read_bytes()==smudge_bytes and '*' not in title(window),
+                 'redo restores the exact committed Smudge result')
             snapshot=wait(lambda: latest_recovery_project(recovery_dir),
                           'latest active document recovery lineage is available')
             journal_path=Path(str(snapshot)+'.journal')

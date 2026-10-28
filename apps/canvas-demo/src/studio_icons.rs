@@ -4,6 +4,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     Brush,
+    Smudge,
     Eraser,
     Line,
     Gradient,
@@ -63,6 +64,17 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
                 stroke,
             ));
             line((4.0, -5.0), (6.0, -3.0));
+        }
+        Icon::Smudge => {
+            path(&[
+                (-7.0, 4.0),
+                (-3.0, 2.0),
+                (0.0, -1.0),
+                (3.0, -4.0),
+                (7.0, -5.0),
+            ]);
+            path(&[(-6.0, 7.0), (-2.0, 6.0), (2.0, 3.0), (6.0, 2.0)]);
+            painter.circle_filled(at(5.0, -6.0), 1.2 * scale, color);
         }
         Icon::Line => {
             line((-7.0, 7.0), (7.0, -7.0));

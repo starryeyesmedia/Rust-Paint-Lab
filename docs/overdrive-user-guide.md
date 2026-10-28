@@ -72,6 +72,16 @@ geometry are not retained as editable objects. Stop colors interpolate in
 linear-light sRGB, while the document compositor remains encoded-sRGB and is not
 fully color-managed.
 
+Use **S** for Smudge. It samples and carries pixels from the active layer; the
+current brush's size, hardness, smoothing and pressure toggles apply. In the
+context row, **Strength** controls how much pixels move and **Pickup** controls
+how quickly the carried color mixes with the layer under the stroke. Smudge
+works through the same pen/mouse lifecycle, clips to the active selection,
+previews transactionally, and commits as one undoable edit. It affects only the
+selected visible unlocked layer; transparent pixels can receive carried pigment.
+Device eraser/inversion takes precedence. Concurrent contacts are ignored while
+a Smudge transaction is active to avoid conflicting edits to that layer.
+
 Layers support add, duplicate, delete, rename, reorder, visibility, lock, opacity,
 Normal/Multiply/Screen/Overlay, and clear. The frontmost layer appears at the top;
 use Raise/Lower to reorder, and expand Layer settings to rename or adjust opacity
@@ -206,7 +216,7 @@ Standalone `stylus-diagnostic.exe` remains separately packaged and unchanged.
 
 ## Selection and editing slice
 
-B selects brush; M rectangle selection; E ellipse; K lasso; I eyedropper. Drag inside
+B selects brush; S Smudge; M rectangle selection; E ellipse; K lasso; I eyedropper. Drag inside
 paper to select, then switch back to Brush to constrain painting to that selection.
 Selection outlines are black/white. Lasso is capped at 1024 points (2 document-pixel
 minimum spacing); reaching the cap cancels the whole lasso with a visible status

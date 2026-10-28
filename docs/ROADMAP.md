@@ -26,16 +26,30 @@ startup and the post-`2979c02` GitHub Actions results are pending. See
 `PHASE8-STUDIO-PROGRESS.md` for exact tests and status. Keep the WM_POINTER and
 stabilization paths unchanged absent a reproduced defect.
 
+## Deep development campaign update — Phase 9 started
+
+The reported Linux artwork-workflow timeout was caused by a five-minute step
+limit shorter than the measured software-rendered run. Actions run
+[`40708740871`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40708740871)
+passed all three platform jobs after raising the unchanged full workflow's cap to
+ten minutes. Phase 9 now has a document-backed Smudge mode integrated into the
+ordinary routed mouse/pen stroke path. It preserves v1 project compatibility,
+uses bounded private tiles with cancel/commit/undo semantics, and has a local
+full artwork workflow that verifies saved tile changes and exact undo/redo.
+The implementation's cross-platform Actions run is pending; Smudge has not been
+validated on the owner's physical pen hardware. Continue with color-mixing
+painting, configurable pen barrel behavior and transformed image placement.
+
 ## Experience and accessibility
 
 - **Phase 8.3 — Studio and accessibility foundation:** unified movable/dockable
   tool palette, contextual brush/layer/reference/color panels, recent-artwork
   previews, visual New Artwork flow, recovery manager, accessible preferences,
   keyboard/focus behavior, and Windows assistive-technology validation.
-- **Current engine continuation:** a deterministic per-stroke One Euro
-  stabilizer and document-backed raster line, rectangle and ellipse tools now
-  provide an initial functional slice. This is not Phase 8.3 acceptance; continue
-  stabilization workflow validation and substantive brush/editing development.
+- **Current engine continuation:** deterministic per-stroke stabilization,
+  raster shapes and gradients, plus a transactional layer-scoped Smudge mode
+  provide functional editing slices. This is not Phase 8.3 acceptance; continue
+  substantive brush/editing development and validate stabilization on hardware.
 - Complete theme, scalable interface, touch target, contrast, handedness, reduced
   motion, small-window and high-DPI behavior; add manual Narrator/NVDA testing.
 - Phase 9: adaptable workspace for shape/fill/selection workflows; Phase 10:
@@ -44,7 +58,9 @@ stabilization paths unchanged absent a reproduced defect.
 
 ## Creative engine
 
-- Phase 9 — QuickShape, fills, gradients, symmetry, rulers/guides,
+- Phase 9 — raster Smudge is implemented with selection/pressure, bounded
+  previews, native/PNG roundtrips and undo/redo. Continue color-mixing painting,
+  image placement/transforms, stylus controls, QuickShape, fills, symmetry, rulers/guides,
   selection/transform improvements, masks and brush-system expansion.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
   non-destructive effects, and natural-media foundations.

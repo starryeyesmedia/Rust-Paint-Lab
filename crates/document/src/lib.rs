@@ -22,6 +22,14 @@ pub const HISTORY_BYTES: usize = 128 * 1024 * 1024;
 pub const MAX_LAYERS: usize = 32;
 pub type TileKey = (u32, u32);
 pub type TileMap = BTreeMap<TileKey, Arc<Vec<u8>>>;
+/// Operation used for the lifetime of a single pointer stroke. This is not
+/// persisted in a brush preset or document: only the resulting pixels are.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StrokeMode {
+    #[default]
+    Paint,
+    Smudge,
+}
 #[derive(Debug)]
 pub enum PaintError {
     Invalid,
@@ -207,6 +215,8 @@ impl State {
 struct Transaction {
     layer: u64,
     brush: Brush,
+    mode: StrokeMode,
+    smudge_carry: Option<[u8; 4]>,
     last: StrokeSample,
     remaining: f64,
     stabilizer: stabilization::StrokeStabilizer,
@@ -410,6 +420,16 @@ impl Engine {
         }
     }
     pub fn apply(&mut self, c: &StrokeCommand) -> Result<(), PaintError> {
+        self.apply_with_mode(c, StrokeMode::Paint)
+    }
+
+    /// Apply a command using the requested mode when a transaction begins.
+    /// Later commands retain the mode captured by that stroke's BeginStroke.
+    pub fn apply_with_mode(
+        &mut self,
+        c: &StrokeCommand,
+        mode: StrokeMode,
+    ) -> Result<(), PaintError> {
         let candidate = match c {
             StrokeCommand::BeginStroke { stroke_id, sample }
             | StrokeCommand::BreakStrokeSegment { stroke_id, sample }
@@ -440,6 +460,24 @@ impl Engine {
                 if self.active.contains_key(&stroke_id) {
                     return Ok(());
                 }
+                // Inversion is an explicit device-level erase gesture and
+                // retains precedence over the selected contextual tool.
+                let effective_mode = if sample.buttons.eraser || sample.buttons.inverted {
+                    StrokeMode::Paint
+                } else {
+                    mode
+                };
+                if (effective_mode == StrokeMode::Smudge && !self.active.is_empty())
+                    || self
+                        .active
+                        .values()
+                        .any(|transaction| transaction.mode == StrokeMode::Smudge)
+                {
+                    // A second pointer cannot safely mutate the same layer
+                    // while Smudge owns a private working copy. Ignore that
+                    // contact rather than interrupting the first transaction.
+                    return Ok(());
+                }
                 if !self.brush.validate() || self.active.len() >= 64 {
                     return Err(PaintError::Limit);
                 }
@@ -459,6 +497,8 @@ impl Engine {
                 let mut t = Transaction {
                     layer: layer.id,
                     brush,
+                    mode: effective_mode,
+                    smudge_carry: None,
                     last: sample,
                     remaining: 0.0,
                     stabilizer: stabilization::StrokeStabilizer::new(
@@ -467,7 +507,11 @@ impl Engine {
                     ),
                     tiles: BTreeMap::new(),
                 };
-                self.dab(&mut t, sample)?;
+                if effective_mode == StrokeMode::Paint {
+                    self.dab(&mut t, sample)?;
+                } else {
+                    self.smudge_dab(&mut t, sample, true)?;
+                }
                 self.active.insert(stroke_id, t);
             }
             StrokeCommand::BreakStrokeSegment { stroke_id, sample } => {
@@ -478,7 +522,12 @@ impl Engine {
                 t.remaining = 0.0;
                 t.stabilizer
                     .reset(sample.position_document.0, sample.time_ms);
-                if let Err(error) = self.dab(&mut t, sample) {
+                let result = if t.mode == StrokeMode::Smudge {
+                    self.smudge_dab(&mut t, sample, true)
+                } else {
+                    self.dab(&mut t, sample)
+                };
+                if let Err(error) = result {
                     self.damage.extend(t.tiles.keys());
                     return Err(error);
                 }
@@ -514,6 +563,7 @@ impl Engine {
                         return Err(e);
                     }
                     let before = self.state.clone();
+                    let mut any_change = false;
                     let l = self
                         .state
                         .layers
@@ -521,22 +571,42 @@ impl Engine {
                         .find(|l| l.id == t.layer)
                         .ok_or(PaintError::Invalid)?;
                     for (key, src) in t.tiles {
-                        let dst = l
-                            .tiles
-                            .entry(key)
-                            .or_insert_with(|| Arc::new(vec![0; TILE_BYTES]));
-                        let dst = Arc::make_mut(dst);
-                        for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-                            over(
-                                d,
-                                s,
-                                t.brush.kind == BrushKind::Eraser,
-                                (t.brush.opacity * 255.0).round() as u8,
-                                Blend::Normal,
-                            );
+                        if t.mode == StrokeMode::Smudge {
+                            let same = l
+                                .tiles
+                                .get(&key)
+                                .is_some_and(|existing| existing.as_ref() == src.as_ref())
+                                || (!l.tiles.contains_key(&key)
+                                    && src.iter().all(|&byte| byte == 0));
+                            if !same {
+                                if src.iter().any(|&byte| byte != 0) {
+                                    l.tiles.insert(key, src);
+                                } else {
+                                    l.tiles.remove(&key);
+                                }
+                                any_change = true;
+                            }
+                        } else {
+                            any_change = true;
+                            let dst = l
+                                .tiles
+                                .entry(key)
+                                .or_insert_with(|| Arc::new(vec![0; TILE_BYTES]));
+                            let dst = Arc::make_mut(dst);
+                            for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                                over(
+                                    d,
+                                    s,
+                                    t.brush.kind == BrushKind::Eraser,
+                                    (t.brush.opacity * 255.0).round() as u8,
+                                    Blend::Normal,
+                                );
+                            }
                         }
                     }
-                    self.changed(before);
+                    if any_change {
+                        self.changed(before);
+                    }
                 } else {
                     self.active.insert(stroke_id, t);
                 }
@@ -580,6 +650,9 @@ impl Engine {
         Ok(())
     }
     fn dab(&mut self, t: &mut Transaction, s: StrokeSample) -> Result<(), PaintError> {
+        if t.mode == StrokeMode::Smudge {
+            return self.smudge_dab(t, s, false);
+        }
         let [x, y] = s.position_document.0;
         if ![x, y].iter().all(|v| v.is_finite()) {
             return Err(PaintError::Invalid);
@@ -691,6 +764,157 @@ impl Engine {
         }
         Ok(())
     }
+
+    fn smudge_dab(
+        &mut self,
+        t: &mut Transaction,
+        s: StrokeSample,
+        reset_carry: bool,
+    ) -> Result<(), PaintError> {
+        let [x, y] = s.position_document.0;
+        if !x.is_finite() || !y.is_finite() {
+            return Err(PaintError::Invalid);
+        }
+        let pressure = f64::from(s.pressure.unwrap_or(1.0)).clamp(0.0, 1.0);
+        if t.brush.pressure_size && pressure == 0.0 {
+            return Ok(());
+        }
+        let pressure_strength = if t.brush.pressure_opacity {
+            pressure
+        } else {
+            1.0
+        };
+        let radius =
+            (t.brush.size * if t.brush.pressure_size { pressure } else { 1.0 } / 2.0).max(0.25);
+        let minx = (x - radius - 1.0).floor().max(0.0) as u32;
+        let miny = (y - radius - 1.0).floor().max(0.0) as u32;
+        let maxx = (x + radius + 1.0)
+            .ceil()
+            .clamp(0.0, f64::from(self.state.width)) as u32;
+        let maxy = (y + radius + 1.0)
+            .ceil()
+            .clamp(0.0, f64::from(self.state.height)) as u32;
+        let layer = self
+            .state
+            .layers
+            .iter()
+            .find(|layer| layer.id == t.layer)
+            .ok_or(PaintError::Invalid)?;
+
+        // Sample premultiplied pixels from this transaction's working copy,
+        // falling back to the selected layer. Averaging premultiplied RGBA
+        // keeps alpha edges valid while pigment is carried across transparency.
+        let mut sum = [0.0; 4];
+        let mut total_weight = 0.0;
+        for yy in miny..maxy {
+            for xx in minx..maxx {
+                if self.state.selection.as_ref().is_some_and(|selection| {
+                    !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                }) {
+                    continue;
+                }
+                let dx = f64::from(xx) + 0.5 - x;
+                let dy = f64::from(yy) + 0.5 - y;
+                let distance = dx.hypot(dy) / radius;
+                let weight = smudge_edge_weight(distance, radius, t.brush.hardness);
+                if weight <= 0.0 {
+                    continue;
+                }
+                let key = (xx / TILE, yy / TILE);
+                let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
+                let pixel =
+                    t.tiles
+                        .get(&key)
+                        .or_else(|| layer.tiles.get(&key))
+                        .map_or([0; 4], |tile| {
+                            tile[offset..offset + 4]
+                                .try_into()
+                                .expect("RGBA pixel has four bytes")
+                        });
+                for channel in 0..4 {
+                    sum[channel] += f64::from(pixel[channel]) * weight;
+                }
+                total_weight += weight;
+            }
+        }
+        let sampled = if total_weight > 0.0 {
+            sum.map(|channel| (channel / total_weight).round().clamp(0.0, 255.0) as u8)
+        } else {
+            [0; 4]
+        };
+        if reset_carry || t.smudge_carry.is_none() {
+            t.smudge_carry = Some(sampled);
+            return Ok(());
+        }
+        if total_weight == 0.0 {
+            return Ok(());
+        }
+
+        let mut carry = t.smudge_carry.unwrap_or(sampled);
+        let pickup = (t.brush.flow * pressure_strength).clamp(0.0, 1.0);
+        for channel in 0..4 {
+            carry[channel] = mix_byte(carry[channel], sampled[channel], pickup);
+        }
+        t.smudge_carry = Some(carry);
+        let strength = (t.brush.opacity * pressure_strength).clamp(0.0, 1.0);
+        if strength <= 0.0 {
+            return Ok(());
+        }
+
+        for yy in miny..maxy {
+            for xx in minx..maxx {
+                if self.state.selection.as_ref().is_some_and(|selection| {
+                    !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                }) {
+                    continue;
+                }
+                let distance = (f64::from(xx) + 0.5 - x).hypot(f64::from(yy) + 0.5 - y) / radius;
+                let amount = strength * smudge_edge_weight(distance, radius, t.brush.hardness);
+                if amount <= 0.0 {
+                    continue;
+                }
+                let key = (xx / TILE, yy / TILE);
+                let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
+                let previous =
+                    t.tiles
+                        .get(&key)
+                        .or_else(|| layer.tiles.get(&key))
+                        .map_or([0; 4], |tile| {
+                            tile[offset..offset + 4]
+                                .try_into()
+                                .expect("RGBA pixel has four bytes")
+                        });
+                let next = std::array::from_fn(|channel| {
+                    mix_byte(previous[channel], carry[channel], amount)
+                });
+                if next == previous {
+                    continue;
+                }
+                if !t.tiles.contains_key(&key)
+                    && self.state.tile_count()
+                        + self
+                            .active
+                            .values()
+                            .map(|transaction| transaction.tiles.len())
+                            .sum::<usize>()
+                        + t.tiles.len()
+                        >= MAX_TILES
+                {
+                    return Err(PaintError::Limit);
+                }
+                let tile = t.tiles.entry(key).or_insert_with(|| {
+                    layer
+                        .tiles
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::new(vec![0; TILE_BYTES]))
+                });
+                Arc::make_mut(tile)[offset..offset + 4].copy_from_slice(&next);
+                self.damage.insert(key);
+            }
+        }
+        Ok(())
+    }
     pub fn composite_tile(&self, key: TileKey) -> Vec<u8> {
         let mut out = vec![0; TILE_BYTES];
         if let Some(bg) = self.state.background {
@@ -706,14 +930,18 @@ impl Engine {
                 .unwrap_or_else(|| vec![0; TILE_BYTES]);
             for t in self.active.values().filter(|t| t.layer == l.id) {
                 if let Some(src) = t.tiles.get(&key) {
-                    for (d, s) in tile.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-                        over(
-                            d,
-                            s,
-                            t.brush.kind == BrushKind::Eraser,
-                            (t.brush.opacity * 255.0).round() as u8,
-                            Blend::Normal,
-                        );
+                    if t.mode == StrokeMode::Smudge {
+                        tile.copy_from_slice(src);
+                    } else {
+                        for (d, s) in tile.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                            over(
+                                d,
+                                s,
+                                t.brush.kind == BrushKind::Eraser,
+                                (t.brush.opacity * 255.0).round() as u8,
+                                Blend::Normal,
+                            );
+                        }
                     }
                 }
             }
@@ -822,6 +1050,23 @@ impl Engine {
         }
         Ok((width, height, pixels))
     }
+}
+fn mix_byte(from: u8, to: u8, amount: f64) -> u8 {
+    (f64::from(from) + (f64::from(to) - f64::from(from)) * amount.clamp(0.0, 1.0))
+        .round()
+        .clamp(0.0, 255.0) as u8
+}
+fn smudge_edge_weight(distance: f64, radius: f64, hardness: f64) -> f64 {
+    if distance >= 1.0 {
+        return 0.0;
+    }
+    let coverage = ((1.0 - distance) * radius).clamp(0.0, 1.0);
+    coverage
+        * if distance <= hardness {
+            1.0
+        } else {
+            ((1.0 - distance) / (1.0 - hardness).max(0.001)).clamp(0.0, 1.0)
+        }
 }
 fn over(dst: &mut [u8], src: &[u8], erase: bool, opacity: u8, mode: Blend) {
     let sa = u32::from(src[3]) * u32::from(opacity) / 255;

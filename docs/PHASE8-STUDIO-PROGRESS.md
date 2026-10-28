@@ -2331,3 +2331,55 @@ Phase 8.3.
 1. Keep Phase 8.3 active: continue broader workspace/focus work and complete a
    dedicated, accurate Home/accessibility screenshot review. Merge Down and
    broader layer semantics remain out of this slice.
+
+## Deep development campaign — timeout resolved and Phase 9 Smudge slice
+
+The continuation started from `1978106` on `feature/studio-overdrive-phase-8`.
+Commit `745543b` raised the Linux full-artwork smoke timeout from five to ten
+minutes without removing any checks; Actions run
+[`40708740871`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40708740871)
+passed in 16m 22s across Windows, Linux and macOS.
+
+Phase 9's first engine slice adds transient `StrokeMode::Smudge`. It samples
+premultiplied pixels from only the selected layer, carries color across
+transparent pixels, and writes bounded COW transaction tiles. Size, strength,
+pickup/flow, pressure, hardness, smoothing and selection clipping use existing
+brush/document settings. Commit replaces only changed layer tiles as one undo
+step; cancel/focus loss discard preview tiles. Device eraser/inversion retains
+precedence. Concurrent contacts are ignored while the layer is privately held,
+preventing stale-copy overwrites. `StrokeMode` is not serialized; native v1
+documents and brush presets do not change.
+
+The primary palette exposes Smudge as **S** with contextual size, strength,
+pickup and pressure controls. The ordinary input processor/router feeds the
+same document transactions for mouse and pen. `paint-document` tests verify
+transparent-pixel pickup, pressure and strength, selection/lock guards,
+eraser precedence, preview/cancel, no-op history behavior, exact undo/redo, and
+native/PNG roundtrips. A `LiveMouse` test verifies routed preview, focus-loss
+cancellation, commit and undo on document pixels. The full Linux Xorg/XTest
+artwork workflow was rerun locally; it selected Smudge, changed selected-layer
+tile bytes through real UI input, saved, undid and redid exact native files, and
+captured `/tmp/bp-smudge-screens/smudge-workspace.png`. The screenshot showed
+the contextual row's final helper sentence clipped at the right edge; that
+redundant inline sentence has been removed and retained as tool hover text. A
+refreshed screenshot is expected from the implementation Actions run.
+
+After that last text-only layout adjustment, formatting and strict workspace
+Clippy pass; all **286 workspace tests** pass, including the llvmpipe/OpenGL GPU
+smoke. The full workspace build and local `x86_64-pc-windows-gnu` workspace
+check/strict Clippy pass. MSVC package/startup checks and macOS runtime validation
+await Actions on the implementation commit. No owner hardware test was requested
+or performed; WM_POINTER, pen pressure/tilt and stabilization algorithms were
+not changed.
+
+### Continue from here
+
+1. Commit and push this Smudge checkpoint, then verify its Windows/MSVC visible
+   startup, artifacts, Linux artwork/screenshot workflow and macOS smoke in
+   Actions.
+2. Continue Phase 9 with genuinely mixed-color brush painting or configurable
+   barrel-button behavior; keep project format v1 unchanged unless a real
+   persistent-data need requires a migration.
+3. Then develop transformed Place Image, selection transforms, symmetry and
+   raster masks. Phase 10 editable vector/text and Phase 11 timelapse/animation
+   remain untouched and active in the longer campaign.

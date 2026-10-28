@@ -277,6 +277,20 @@ drawn in the canvas panel layer beneath floating references and tools, and never
 enters document tiles or recovery state. Escape, pointer cancellation, or tool
 interruption drops the provisional preview without committing artwork.
 
+Smudge is an explicit, transient `StrokeMode` captured by `BeginStroke`, not a
+brush-preset or native-schema field. It samples only the active layer's
+premultiplied RGBA tile data (transparent regions included), carries that sample
+along deterministic brush dabs, and writes a private COW tile map. Opacity is
+smudge strength; flow controls pickup/mixing rate; size, hardness, smoothing and
+the existing pressure toggles affect the raster path. Selection pixel centers,
+document bounds, visibility/lock state, and the global tile budget remain in
+force. Preview tiles replace the active layer's provisional composite; commit
+publishes changed tiles in one undo transaction, while cancel, focus loss or
+capture interruption discards them. Device inversion/eraser still overrides
+Smudge. Because the current transaction model does not merge concurrent edits to
+the same layer, a second contact is ignored while Smudge owns the layer; committed
+pixels remain ordinary v1 raster data and save/export without migration.
+
 `paint-document::openraster` is an explicit interchange boundary, not native storage.
 It converts supported raster layers to individual PNG assets plus stack.xml and
 rejects unsupported editing structures. The shell imports into a fresh unsaved

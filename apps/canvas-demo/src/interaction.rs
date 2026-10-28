@@ -48,6 +48,7 @@ pub struct LiveMouse {
     notice: Option<SceneError>,
     document_error: Option<String>,
     last_pen: Option<PointerSample>,
+    stroke_mode: paint_document::StrokeMode,
 }
 impl LiveMouse {
     pub fn new(size: [u32; 2]) -> Self {
@@ -68,6 +69,7 @@ impl LiveMouse {
             notice: None,
             document_error: None,
             last_pen: None,
+            stroke_mode: paint_document::StrokeMode::Paint,
         }
     }
     pub fn project(&self) -> &paint_document::Engine {
@@ -75,6 +77,12 @@ impl LiveMouse {
     }
     pub fn project_mut(&mut self) -> &mut paint_document::Engine {
         &mut self.project
+    }
+    pub fn set_stroke_mode(&mut self, mode: paint_document::StrokeMode) {
+        if self.stroke_mode != mode {
+            self.interrupt(Reason::Interrupted);
+            self.stroke_mode = mode;
+        }
     }
     pub fn enable_document(&mut self) {
         self.interrupt(Reason::Interrupted);
@@ -108,7 +116,7 @@ impl LiveMouse {
         for output in self.processor.interrupt(self.time_ms, reason) {
             if let Some(command) = self.router.route(&output) {
                 let _ = self.scene.apply(&command);
-                let _ = self.project.apply(&command);
+                let _ = self.project.apply_with_mode(&command, self.stroke_mode);
             }
         }
         self.primary_down = false;
@@ -178,7 +186,7 @@ impl LiveMouse {
             }) {
                 if let Some(command) = self.router.route(&output) {
                     let _ = self.scene.apply(&command);
-                    let _ = self.project.apply(&command);
+                    let _ = self.project.apply_with_mode(&command, self.stroke_mode);
                 }
             }
             return;
@@ -277,10 +285,12 @@ impl LiveMouse {
         for output in self.processor.process(sample) {
             if let Some(command) = self.router.route(&output) {
                 let result = if self.document_mode {
-                    self.project.apply(&command).map_err(|error| {
-                        self.document_error = Some(error.to_string());
-                        SceneError::Capacity
-                    })
+                    self.project
+                        .apply_with_mode(&command, self.stroke_mode)
+                        .map_err(|error| {
+                            self.document_error = Some(error.to_string());
+                            SceneError::Capacity
+                        })
                 } else {
                     self.scene.apply(&command)
                 };
@@ -451,6 +461,119 @@ fn interpolate_attributes(sample: &mut PointerSample, from: PointerSample, t: f6
     sample.timestamp_ms = from
         .timestamp_ms
         .saturating_add((elapsed as f64 * fraction).round() as u64);
+}
+
+#[cfg(test)]
+mod smudge_tests {
+    use super::{LiveMouse, MouseEvent};
+    use crate::scene::CanvasMapping;
+    use paint_document::{StrokeMode, brush::BrushKind};
+    use paint_stroke::{StrokeCommand, StrokeId, StrokeSample, coordinates::DocumentPoint};
+
+    fn seed_red_patch(live: &mut LiveMouse) {
+        let engine = live.project_mut();
+        engine.brush.kind = BrushKind::Round;
+        engine.brush.color = [255, 0, 0];
+        engine.brush.size = 8.0;
+        engine.brush.pressure_size = false;
+        engine.brush.pressure_opacity = false;
+        engine.brush.hardness = 1.0;
+        let sample = |x| StrokeSample {
+            source_counter: None,
+            pointer_id: 2,
+            tool: paint_input::Tool::Pen,
+            position_client_px: [x, 250.0],
+            position_document: DocumentPoint([x, 250.0]),
+            pressure: Some(1.0),
+            tilt_degrees: [None; 2],
+            buttons: Default::default(),
+            source_time_ms: 0,
+            time_ms: 0,
+        };
+        engine
+            .apply(&StrokeCommand::BeginStroke {
+                stroke_id: StrokeId(22),
+                sample: sample(12.0),
+            })
+            .unwrap();
+        engine
+            .apply(&StrokeCommand::CommitStroke {
+                stroke_id: StrokeId(22),
+                sample: sample(26.0),
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn live_mouse_router_smudge_previews_cancels_and_commits_real_document_pixels() {
+        let mut live = LiveMouse::new([800, 500]);
+        live.enable_document();
+        seed_red_patch(&mut live);
+        let mapping = CanvasMapping::new([800, 500]).unwrap();
+        let client = |x| mapping.document_to_client([x, 250.0]).unwrap();
+        live.project_mut().brush.size = 8.0;
+        live.project_mut().brush.opacity = 1.0;
+        live.project_mut().brush.flow = 0.0;
+        let before = live.project().rgba();
+        let destination = (250 * 800 + 55) * 4;
+
+        live.set_stroke_mode(StrokeMode::Smudge);
+        live.handle(MouseEvent::Entered, 1);
+        live.handle(MouseEvent::Moved(client(16.0)), 2);
+        live.handle(
+            MouseEvent::Button {
+                primary: true,
+                pressed: true,
+            },
+            3,
+        );
+        live.handle(MouseEvent::Moved(client(60.0)), 4);
+        let preview = live.project().rgba();
+        assert_ne!(
+            &preview[destination..destination + 4],
+            &before[destination..destination + 4],
+            "input pipeline displays preview"
+        );
+        assert_eq!(
+            live.project().state().tile_count(),
+            1,
+            "preview is scratch-only"
+        );
+        live.handle(MouseEvent::Focus(false), 5);
+        assert!(!live.active());
+        assert_eq!(
+            live.project().rgba(),
+            before,
+            "focus loss cancels the smudge"
+        );
+
+        live.handle(MouseEvent::Focus(true), 6);
+        live.handle(MouseEvent::Entered, 7);
+        live.handle(MouseEvent::Moved(client(16.0)), 8);
+        live.handle(
+            MouseEvent::Button {
+                primary: true,
+                pressed: true,
+            },
+            9,
+        );
+        live.handle(MouseEvent::Moved(client(60.0)), 10);
+        live.handle(
+            MouseEvent::Button {
+                primary: true,
+                pressed: false,
+            },
+            11,
+        );
+        let after = live.project().rgba();
+        assert!(
+            after[destination + 3] > 0,
+            "router smudges pigment to the endpoint"
+        );
+        assert!(live.project().dirty());
+        assert!(live.project_mut().undo());
+        assert_eq!(live.project().rgba(), before);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

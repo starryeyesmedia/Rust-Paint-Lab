@@ -1122,3 +1122,291 @@ fn home_thumbnail_is_deterministic_transparent_and_bounded() {
         Err(PaintError::Busy)
     ));
 }
+
+fn smudge_fixture() -> Engine {
+    let mut engine = Engine::new(128, 64, 300).unwrap();
+    engine
+        .edit(|state| {
+            state.background = None;
+            Ok(())
+        })
+        .unwrap();
+    engine.brush.size = 8.0;
+    engine.brush.pressure_size = false;
+    engine.brush.pressure_opacity = false;
+    engine.brush.opacity = 1.0;
+    engine.brush.flow = 1.0;
+    engine.brush.hardness = 1.0;
+    engine.brush.spacing = 0.1;
+    engine.brush.color = [255, 0, 0];
+    begin(&mut engine, 1, 12.0, 32.0);
+    end(&mut engine, 1, 26.0, 32.0);
+    engine
+}
+
+fn apply_smudge(engine: &mut Engine, id: u64, start: [f64; 2], end: [f64; 2]) {
+    engine
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(id),
+                sample: sample(start[0], start[1], Some(1.0)),
+            },
+            paint_document::StrokeMode::Smudge,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &C::CommitStroke {
+                stroke_id: StrokeId(id),
+                sample: sample(end[0], end[1], Some(1.0)),
+            },
+            paint_document::StrokeMode::Smudge,
+        )
+        .unwrap();
+}
+
+#[test]
+fn smudge_moves_premultiplied_pigment_across_transparency_and_roundtrips() {
+    let mut engine = smudge_fixture();
+    let before = engine.rgba();
+    let start = (32 * 128 + 55) * 4;
+    assert_eq!(&before[start..start + 4], &[0; 4]);
+
+    engine.brush.size = 8.0;
+    engine.brush.opacity = 1.0;
+    engine.brush.flow = 0.0; // retain the pickup color while dragging
+    apply_smudge(&mut engine, 2, [16.0, 32.0], [60.0, 32.0]);
+    let pixels = engine.rgba();
+    let destination = (32 * 128 + 55) * 4;
+    assert!(
+        pixels[destination + 3] > 0,
+        "pigment reaches transparent pixels"
+    );
+    assert_eq!(&pixels[destination..destination + 3], &[255, 0, 0]);
+    assert!(engine.state().validate().is_ok());
+    assert_eq!(engine.undo_count(), 3, "smudge is one atomic edit");
+
+    let encoded = storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&encoded).unwrap()).unwrap();
+    assert_eq!(reopened.rgba(), pixels);
+    let png = path("smudge-export").with_extension("png");
+    storage::export_png(&png, &reopened).unwrap();
+    let mut imported = Engine::new(128, 64, 300).unwrap();
+    imported
+        .edit(|state| {
+            state.background = None;
+            Ok(())
+        })
+        .unwrap();
+    storage::import_png(&png, &mut imported).unwrap();
+    assert_eq!(imported.rgba(), pixels);
+
+    assert!(engine.undo());
+    assert_eq!(engine.rgba(), before);
+    assert!(engine.redo());
+    assert_eq!(engine.rgba(), pixels);
+}
+
+#[test]
+fn smudge_preview_cancel_and_strength_are_transactional() {
+    fn render(strength: f64) -> Vec<u8> {
+        let mut engine = smudge_fixture();
+        engine.brush.size = 8.0;
+        engine.brush.opacity = strength;
+        engine.brush.flow = 0.0;
+        let id = StrokeId(4);
+        let before = engine.rgba();
+        engine
+            .apply_with_mode(
+                &C::BeginStroke {
+                    stroke_id: id,
+                    sample: sample(16.0, 32.0, Some(1.0)),
+                },
+                paint_document::StrokeMode::Smudge,
+            )
+            .unwrap();
+        engine
+            .apply_with_mode(
+                &C::UpdateStroke {
+                    stroke_id: id,
+                    sample: sample(60.0, 32.0, Some(1.0)),
+                },
+                paint_document::StrokeMode::Smudge,
+            )
+            .unwrap();
+        let preview = engine.rgba();
+        assert_ne!(preview, before, "provisional smudge previews its tile copy");
+        cancel(&mut engine, id.0);
+        assert_eq!(engine.rgba(), before, "cancel discards the working copy");
+        assert_eq!(engine.undo_count(), 2);
+        apply_smudge(&mut engine, 5, [16.0, 32.0], [60.0, 32.0]);
+        engine.rgba()
+    }
+    let weak = render(0.2);
+    let strong = render(1.0);
+    let destination = (32 * 128 + 55) * 4;
+    assert!(strong[destination + 3] > weak[destination + 3]);
+
+    fn pressure_result(pressure: f32) -> Vec<u8> {
+        let mut engine = smudge_fixture();
+        engine.brush.size = 8.0;
+        engine.brush.opacity = 1.0;
+        engine.brush.flow = 0.0;
+        engine.brush.pressure_size = false;
+        engine.brush.pressure_opacity = true;
+        let id = StrokeId(12);
+        engine
+            .apply_with_mode(
+                &C::BeginStroke {
+                    stroke_id: id,
+                    sample: sample(16.0, 32.0, Some(pressure)),
+                },
+                paint_document::StrokeMode::Smudge,
+            )
+            .unwrap();
+        engine
+            .apply_with_mode(
+                &C::CommitStroke {
+                    stroke_id: id,
+                    sample: sample(60.0, 32.0, Some(pressure)),
+                },
+                paint_document::StrokeMode::Smudge,
+            )
+            .unwrap();
+        engine.rgba()
+    }
+    let soft_pressure = pressure_result(0.25);
+    let firm_pressure = pressure_result(1.0);
+    assert!(firm_pressure[destination + 3] > soft_pressure[destination + 3]);
+
+    let mut disabled = smudge_fixture();
+    disabled.brush.size = 8.0;
+    disabled.brush.opacity = 0.0;
+    disabled.brush.flow = 0.0;
+    let before = disabled.rgba();
+    let history = disabled.undo_count();
+    apply_smudge(&mut disabled, 13, [16.0, 32.0], [60.0, 32.0]);
+    assert_eq!(disabled.rgba(), before);
+    assert_eq!(
+        disabled.undo_count(),
+        history,
+        "zero strength creates no empty edit"
+    );
+}
+
+#[test]
+fn smudge_obeys_selection_layer_guards_and_mode_conflicts() {
+    use paint_document::editing::{Selection, SelectionKind};
+
+    let mut selected = smudge_fixture();
+    selected
+        .set_selection(Some(
+            Selection::new(SelectionKind::Rectangle, vec![[10.0, 24.0], [40.0, 40.0]]).unwrap(),
+        ))
+        .unwrap();
+    let before = selected.rgba();
+    selected.brush.size = 8.0;
+    selected.brush.flow = 0.0;
+    apply_smudge(&mut selected, 6, [16.0, 32.0], [68.0, 32.0]);
+    let after = selected.rgba();
+    let inside = (32 * 128 + 35) * 4;
+    let outside = (32 * 128 + 68) * 4;
+    assert_ne!(&after[inside..inside + 4], &before[inside..inside + 4]);
+    assert_eq!(&after[outside..outside + 4], &before[outside..outside + 4]);
+
+    let mut locked = smudge_fixture();
+    locked
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    assert!(matches!(
+        locked.apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(7),
+                sample: sample(16.0, 32.0, Some(1.0)),
+            },
+            paint_document::StrokeMode::Smudge,
+        ),
+        Err(PaintError::Locked)
+    ));
+
+    let mut inverted = smudge_fixture();
+    inverted.brush.size = 8.0;
+    inverted.brush.pressure_size = false;
+    let mut eraser_sample = sample(16.0, 32.0, Some(1.0));
+    eraser_sample.buttons.eraser = true;
+    inverted
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(13),
+                sample: eraser_sample,
+            },
+            paint_document::StrokeMode::Smudge,
+        )
+        .unwrap();
+    let mut eraser_end = sample(16.0, 32.0, Some(1.0));
+    eraser_end.buttons.eraser = true;
+    inverted
+        .apply_with_mode(
+            &C::CommitStroke {
+                stroke_id: StrokeId(13),
+                sample: eraser_end,
+            },
+            paint_document::StrokeMode::Smudge,
+        )
+        .unwrap();
+    let erased_pixel = (32 * 128 + 16) * 4;
+    assert_eq!(&inverted.rgba()[erased_pixel..erased_pixel + 4], &[0; 4]);
+
+    let mut hidden = smudge_fixture();
+    hidden
+        .edit(|state| {
+            state.layers[0].visible = false;
+            Ok(())
+        })
+        .unwrap();
+    assert!(matches!(
+        hidden.apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(14),
+                sample: sample(16.0, 32.0, Some(1.0)),
+            },
+            paint_document::StrokeMode::Smudge,
+        ),
+        Err(PaintError::Locked)
+    ));
+
+    let mut conflict = Engine::new(64, 64, 300).unwrap();
+    begin(&mut conflict, 8, 12.0, 12.0);
+    conflict
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(9),
+                sample: sample(16.0, 16.0, Some(1.0)),
+            },
+            paint_document::StrokeMode::Smudge,
+        )
+        .unwrap();
+    assert_eq!(conflict.active_count(), 1);
+    cancel(&mut conflict, 8);
+
+    conflict
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(10),
+                sample: sample(16.0, 16.0, Some(1.0)),
+            },
+            paint_document::StrokeMode::Smudge,
+        )
+        .unwrap();
+    conflict
+        .apply(&C::BeginStroke {
+            stroke_id: StrokeId(11),
+            sample: sample(20.0, 16.0, Some(1.0)),
+        })
+        .unwrap();
+    assert_eq!(conflict.active_count(), 1);
+    cancel(&mut conflict, 10);
+}

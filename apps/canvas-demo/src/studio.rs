@@ -3149,6 +3149,7 @@ fn layer_thumbnail(
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum EditTool {
     Brush,
+    Smudge,
     Rectangle,
     Ellipse,
     Lasso,
@@ -4316,7 +4317,7 @@ impl Studio {
             EditTool::ShapeLine | EditTool::ShapeRectangle | EditTool::ShapeEllipse
         );
         let gradient_tool = self.tool == EditTool::Gradient;
-        if self.tool == EditTool::Brush
+        if matches!(self.tool, EditTool::Brush | EditTool::Smudge)
             || session.mode() != crate::interaction::Mode::Live
             || self.blocks_canvas()
         {
@@ -4529,6 +4530,7 @@ impl Studio {
             return;
         }
         self.tool = match key {
+            's' => EditTool::Smudge,
             'm' => EditTool::Rectangle,
             'e' => EditTool::Ellipse,
             'k' => EditTool::Lasso,
@@ -4539,6 +4541,13 @@ impl Studio {
             'g' => EditTool::Gradient,
             _ => EditTool::Brush,
         };
+        session
+            .live_mut()
+            .set_stroke_mode(if self.tool == EditTool::Smudge {
+                paint_document::StrokeMode::Smudge
+            } else {
+                paint_document::StrokeMode::Paint
+            });
         if matches!(
             self.tool,
             EditTool::ShapeLine
@@ -5331,7 +5340,7 @@ impl Studio {
                             ui.separator();
                             ui.label("Brush size [ / ] · fine adjustment: Shift+[ / Shift+]");
                             ui.label("B Brush · G Gradient · C Color · M / E selection");
-                            ui.label("K Lasso · I Eyedropper · L Line · R Rectangle · O Ellipse");
+                            ui.label("K Lasso · I Eyedropper · S Smudge · L Line · R Rectangle · O Ellipse");
                             ui.label("Shift constrains line angles and shape proportions");
                             ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
                             ui.label("Ctrl+L Floating Layers panel");
@@ -5427,6 +5436,31 @@ impl Studio {
                                         self.brush_flyout_open = !self.brush_flyout_open;
                                         self.color_flyout_open = false;
                                     }
+                                } else if self.tool == EditTool::Smudge {
+                                    let project = session.live_mut().project_mut();
+                                    ui.strong("Smudge").on_hover_text(
+                                        "Smears pixels on the active unlocked layer; the current selection clips the stroke.",
+                                    );
+                                    ui.add_sized(
+                                        [148.0, 34.0],
+                                        egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
+                                            .text("Size"),
+                                    );
+                                    ui.add_sized(
+                                        [148.0, 34.0],
+                                        egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
+                                            .text("Strength"),
+                                    );
+                                    ui.add_sized(
+                                        [148.0, 34.0],
+                                        egui::Slider::new(&mut project.brush.flow, 0.0..=1.0)
+                                            .text("Pickup"),
+                                    );
+                                    ui.checkbox(&mut project.brush.pressure_size, "Pressure size");
+                                    ui.checkbox(
+                                        &mut project.brush.pressure_opacity,
+                                        "Pressure strength",
+                                    );
                                 } else if matches!(
                                     self.tool,
                                     EditTool::ShapeLine
@@ -5543,6 +5577,7 @@ impl Studio {
                                         EditTool::Lasso => "Freehand selection",
                                         EditTool::Eyedropper => "Eyedropper",
                                         EditTool::Brush => "Brush",
+                                        EditTool::Smudge => "Smudge",
                                         EditTool::ShapeLine
                                         | EditTool::ShapeRectangle
                                         | EditTool::ShapeEllipse
@@ -5747,6 +5782,13 @@ impl Studio {
                                 0,
                             ),
                             (
+                                EditTool::Smudge,
+                                crate::studio_icons::Icon::Smudge,
+                                "Smudge",
+                                "S",
+                                0,
+                            ),
+                            (
                                 EditTool::Rectangle,
                                 crate::studio_icons::Icon::RectangleSelection,
                                 "Rectangle selection",
@@ -5851,6 +5893,16 @@ impl Studio {
                             }
                             if response.clicked() {
                                 self.tool = tool;
+                                session.live_mut().set_stroke_mode(
+                                    if tool == EditTool::Smudge {
+                                        paint_document::StrokeMode::Smudge
+                                    } else {
+                                        paint_document::StrokeMode::Paint
+                                    },
+                                );
+                                if self.test_path_dialog {
+                                    crate::studio_log!("UI_TEST_ACTIVE_TOOL: {:?}", self.tool);
+                                }
                                 if tool == EditTool::Brush {
                                     self.show_controls = false;
                                     self.color_flyout_open = false;
@@ -9597,7 +9649,7 @@ impl Studio {
                 }
             }
         }
-        if self.tool == EditTool::Brush
+        if matches!(self.tool, EditTool::Brush | EditTool::Smudge)
             && session.mode() == crate::interaction::Mode::Live
             && let Some(pen) = session.live().last_pen()
             && pen.phase != paint_input::Phase::Cancel

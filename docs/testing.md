@@ -749,3 +749,19 @@ and [`rust-paint-lab-windows-diagnostic`](https://github.com/starryeyesmedia/Rus
 artifacts and Linux
 [`rust-paint-lab-studio-ui-smoke`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40590882859/artifacts/12775130275)
 archive. No physical Windows hardware was retested here.
+
+## Phase 9 transient Smudge mode
+
+`paint-document` tests cover premultiplied-color pickup into transparent pixels,
+strength and pressure response, preview-only tile copies, cancellation, exact
+undo/redo, native `.rpl` and PNG roundtrips, selection clipping, hidden/locked
+layers, device eraser precedence, and safe concurrent-contact rejection. A
+`LiveMouse` test drives samples through Processor, Router and the document engine,
+then checks preview, focus-loss cancellation, commit and undo on actual pixels.
+Smudge mode is transient and does not change native v1 storage.
+
+The Linux artwork workflow also selects **S Smudge**, draws through the real
+winit/XTest path, saves, compares selected-layer tile bytes, and checks exact
+undo/redo file restoration. It captures `smudge-workspace.png`. The 2026-10-28
+local run passed against Xorg with llvmpipe; Actions will refresh the screenshot
+archive after this implementation is pushed.
