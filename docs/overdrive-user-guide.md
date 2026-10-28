@@ -134,6 +134,14 @@ the source intact; **Move selected pixels to new layer** clears those pixel cent
 from the source and puts them on a new layer immediately above. The moved layer
 inherits opacity and blend mode, preserving the composite for the selected pixels.
 Both actions are one undoable operation and retain the selection.
+For a non-destructive mask, open the selected layer's Actions → Layer mask →
+Add white mask, then choose **Edit mask with Brush**. Black brush colors hide
+the layer, white reveals it, and gray partially reveals it; the eraser reveals
+by painting white. The Layers status identifies mask-editing mode. The mask can
+be enabled/disabled, inverted, cleared to white, or removed from the same menu.
+Mask strokes and these controls are undoable and remain separate from raster
+pixels in `.rpl` files. OpenRaster export applies masks to each exported layer
+image and therefore flattens mask editability; the source `.rpl` retains it.
 Locked/hidden layers reject drawing. Transparency shows a checkerboard. History is
 session-only and bounded (up to 32 snapshots, 128 MiB unique tile payload per history queue);
 large documents with many changed tiles can retain fewer steps. Limits produce an error, never silently
@@ -311,9 +319,11 @@ are refused. There is no automatic age-based deletion; preservation takes priori
 
 OpenRaster: **Export ORA** / Ctrl+Shift+E keeps supported raster layers; **Open ORA** /
 Ctrl+Shift+O imports into a new unsaved native document. Background becomes a layer;
-locks, brush presets and history are omitted. Groups/masks/nonzero offsets and
-unsupported blend modes are rejected. Save `.rpl` afterward. See openraster.md for
-exact capabilities/limits. External application interoperability still needs testing.
+locks, brush presets and history are omitted. Export applies editable `.rpl`
+masks to layer pixels and reports that mask editability is flattened. Import
+rejects external groups, masks, nonzero offsets, and unsupported blend modes.
+Save `.rpl` afterward. See openraster.md for exact capabilities/limits. External
+application interoperability still needs testing.
 
 Ctrl+Shift+R restores the latest inactive recovery into a new unsaved document.
 If the latest journal entry is incomplete/corrupt, recovery uses the previous
