@@ -15,7 +15,7 @@ BitchPixel is a Rust-based, offline-first digital painting application. Please r
 
 ## Licensing contributions
 
-The project's original code is offered under the GNU General Public License version 3.0 only (GPL-3.0-only), subject to confirmation of the copyright holder and the project owner's final review of this licensing change. See [LICENSE](LICENSE).
+BitchPixel's original project code is licensed under the GNU General Public License version 3.0 only (GPL-3.0-only). Copyright © 2026 Starry Eyes Media, LLC for original material it owns. See [LICENSE](LICENSE) and [COPYRIGHT.md](COPYRIGHT.md). Independent contributors retain copyright in their original contributions unless expressly assigned.
 
 By submitting a contribution for inclusion, you represent that you have the right to submit it and agree that it can be distributed under GPL-3.0-only. Retain existing copyright and attribution notices, and identify any third-party code or assets and their licenses in the pull request. Do not submit proprietary code copied from another project or material that has incompatible licensing.
 
