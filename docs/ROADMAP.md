@@ -645,3 +645,23 @@ integrate QuickShape with the existing raster geometry tools, then design a
 versioned mask format and migration before editable masks. Phase 10
 editable vector/text, Phase 11 timelapse/animation, and Phase 8.3 acceptance
 remain incomplete.
+
+### Interactive canvas selection transforms — local integration checkpoint
+
+The selection boundary now provides movable and transformable canvas controls.
+Drag within the selection to move pixels, use the lower-right handle for
+proportional scale, or the upper handle to rotate around the selection center.
+Shift snaps rotation to 15 degrees. Each gesture previews without writing
+artwork, then commits as a single native edit; Escape and lifecycle interruption
+cancel it without changing document bytes. Rectangle, ellipse and lasso
+selections share the behavior and `.rpl` v1 is unchanged.
+
+The Linux Xorg/XTest workflow exercised movement, scaling and rotation on real
+saved raster pixels, including cancellation and byte-exact undo/redo. Formatting,
+strict Clippy, **322 workspace tests**, build, Windows GNU checks, required GPU
+smoke and the complete artwork/export/recovery workflow passed locally. I
+inspected the populated selection-transform screenshot. This does not add new
+physical S Pen validation. Cross-platform Actions for this checkpoint are
+pending push. Next, implement a complete QuickShape workflow or first specify
+the versioned document migration required for editable layer masks. Phase 8.3,
+Phase 9, Phase 10 and Phase 11 remain active; none is declared complete.

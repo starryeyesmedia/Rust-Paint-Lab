@@ -35,12 +35,20 @@ struct RecentProjectCard {
     thumbnail: Option<egui::TextureHandle>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionTransformKind {
+    Move,
+    Scale,
+    Rotate,
+}
+
 #[derive(Debug, Clone)]
-struct SelectionMoveDrag {
+struct SelectionTransformDrag {
     pointer_id: u64,
     selection: Selection,
+    kind: SelectionTransformKind,
     origin: [f64; 2],
-    offset: [f64; 2],
+    transform: [f64; 6],
 }
 
 fn selection_move_offset(
@@ -73,19 +81,199 @@ fn selection_move_offset(
     ])
 }
 
-fn translated_selection(selection: &Selection, offset: [f64; 2]) -> Option<Selection> {
-    if !offset.iter().all(|value| value.is_finite()) {
+fn selection_outline_points(selection: &Selection) -> Vec<[f64; 2]> {
+    let [left, top, right, bottom] = selection.bounds();
+    match selection.kind() {
+        SelectionKind::Rectangle => {
+            vec![[left, top], [right, top], [right, bottom], [left, bottom]]
+        }
+        SelectionKind::Ellipse => (0..64)
+            .map(|index| {
+                let angle = index as f64 * std::f64::consts::TAU / 64.0;
+                [
+                    (left + right) / 2.0 + angle.cos() * (right - left) / 2.0,
+                    (top + bottom) / 2.0 + angle.sin() * (bottom - top) / 2.0,
+                ]
+            })
+            .collect(),
+        SelectionKind::Lasso => selection.points().to_vec(),
+    }
+}
+
+fn transform_selection_point(transform: [f64; 6], point: [f64; 2]) -> [f64; 2] {
+    [
+        transform[0] * point[0] + transform[2] * point[1] + transform[4],
+        transform[1] * point[0] + transform[3] * point[1] + transform[5],
+    ]
+}
+
+fn transform_selection_outline(selection: &Selection, transform: [f64; 6]) -> Vec<[f64; 2]> {
+    selection_outline_points(selection)
+        .into_iter()
+        .map(|point| transform_selection_point(transform, point))
+        .collect()
+}
+
+fn clamp_selection_transform(
+    selection: &Selection,
+    mut transform: [f64; 6],
+    document: [u32; 2],
+) -> Option<[f64; 6]> {
+    if document.contains(&0) || !transform.iter().all(|value| value.is_finite()) {
         return None;
     }
-    Selection::new(
-        selection.kind(),
-        selection
-            .points()
-            .iter()
-            .map(|point| [point[0] + offset[0], point[1] + offset[1]])
-            .collect(),
-    )
-    .ok()
+    let points = transform_selection_outline(selection, transform);
+    if points.is_empty() || points.iter().flatten().any(|value| !value.is_finite()) {
+        return None;
+    }
+    let bounds = points.iter().fold(
+        [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ],
+        |bounds, point| {
+            [
+                bounds[0].min(point[0]),
+                bounds[1].min(point[1]),
+                bounds[2].max(point[0]),
+                bounds[3].max(point[1]),
+            ]
+        },
+    );
+    let width = f64::from(document[0]);
+    let height = f64::from(document[1]);
+    if bounds[2] - bounds[0] > width || bounds[3] - bounds[1] > height {
+        return None;
+    }
+    transform[4] += if bounds[0] < 0.0 {
+        -bounds[0]
+    } else if bounds[2] > width {
+        width - bounds[2]
+    } else {
+        0.0
+    };
+    transform[5] += if bounds[1] < 0.0 {
+        -bounds[1]
+    } else if bounds[3] > height {
+        height - bounds[3]
+    } else {
+        0.0
+    };
+    Some(transform)
+}
+
+fn selection_transform_matrix(
+    kind: SelectionTransformKind,
+    selection: &Selection,
+    origin: [f64; 2],
+    current: [f64; 2],
+    document: [u32; 2],
+    snap_rotation: bool,
+) -> Option<[f64; 6]> {
+    if !origin
+        .iter()
+        .chain(current.iter())
+        .all(|value| value.is_finite())
+    {
+        return None;
+    }
+    let [left, top, right, bottom] = selection.bounds();
+    let transform = match kind {
+        SelectionTransformKind::Move => {
+            let offset = selection_move_offset(origin, current, selection.bounds(), document)?;
+            [1.0, 0.0, 0.0, 1.0, offset[0], offset[1]]
+        }
+        SelectionTransformKind::Scale => {
+            let width = right - left;
+            let height = bottom - top;
+            let start = [width, height];
+            let current = [current[0] - left, current[1] - top];
+            let denominator = width.mul_add(width, height * height);
+            if denominator <= f64::EPSILON {
+                return None;
+            }
+            let scale = (current[0].mul_add(start[0], current[1] * start[1]) / denominator)
+                .clamp(0.01, 16.0);
+            let max_fit = ((f64::from(document[0]) - left) / width)
+                .min((f64::from(document[1]) - top) / height);
+            let scale = scale.min(max_fit);
+            [
+                scale,
+                0.0,
+                0.0,
+                scale,
+                left - scale * left,
+                top - scale * top,
+            ]
+        }
+        SelectionTransformKind::Rotate => {
+            let center = [(left + right) / 2.0, (top + bottom) / 2.0];
+            let start_angle = (origin[1] - center[1]).atan2(origin[0] - center[0]);
+            let mut angle = (current[1] - center[1]).atan2(current[0] - center[0]) - start_angle;
+            if snap_rotation {
+                let step = std::f64::consts::PI / 12.0;
+                angle = (angle / step).round() * step;
+            }
+            let (sin, cos) = angle.sin_cos();
+            [
+                cos,
+                sin,
+                -sin,
+                cos,
+                center[0] - cos * center[0] + sin * center[1],
+                center[1] - sin * center[0] - cos * center[1],
+            ]
+        }
+    };
+    clamp_selection_transform(selection, transform, document)
+}
+
+fn selection_transform_handles(
+    mapping: CanvasMapping,
+    selection: &Selection,
+    pixels_per_point: f32,
+) -> Option<[[f64; 2]; 2]> {
+    if !pixels_per_point.is_finite() || pixels_per_point <= 0.0 {
+        return None;
+    }
+    let [left, top, right, _bottom] = selection.bounds();
+    let scale = mapping
+        .document_to_client([right, selection.bounds()[3]])
+        .ok()?;
+    let rotation = mapping
+        .document_to_client([(left + right) / 2.0, top])
+        .ok()?;
+    Some([
+        scale,
+        [
+            rotation[0],
+            rotation[1] - f64::from(pixels_per_point) * 24.0,
+        ],
+    ])
+}
+
+fn selection_transform_handle_at(
+    mapping: CanvasMapping,
+    selection: &Selection,
+    client: [f64; 2],
+    pixels_per_point: f32,
+) -> Option<SelectionTransformKind> {
+    if !client.iter().all(|value| value.is_finite()) || !pixels_per_point.is_finite() {
+        return None;
+    }
+    let [[scale_x, scale_y], [rotate_x, rotate_y]] =
+        selection_transform_handles(mapping, selection, pixels_per_point)?;
+    let radius = f64::from(pixels_per_point) * 12.0;
+    let near = |center: [f64; 2]| (client[0] - center[0]).hypot(client[1] - center[1]) <= radius;
+    if near([scale_x, scale_y]) {
+        Some(SelectionTransformKind::Scale)
+    } else if near([rotate_x, rotate_y]) {
+        Some(SelectionTransformKind::Rotate)
+    } else {
+        None
+    }
 }
 
 struct BrushPreviewCache {
@@ -3509,7 +3697,8 @@ pub struct Studio {
     gradient_preview_key: Option<GradientPreviewKey>,
     edit_pointer: Option<u64>,
     edit_points: Vec<[f64; 2]>,
-    selection_move: Option<SelectionMoveDrag>,
+    selection_transform: Option<SelectionTransformDrag>,
+    test_selection_handles_logged: bool,
     transform_offset: [f64; 2],
     transform_scale: f64,
     transform_angle: f64,
@@ -3760,7 +3949,8 @@ impl Studio {
             gradient_preview_key: None,
             edit_pointer: None,
             edit_points: Vec::new(),
-            selection_move: None,
+            selection_transform: None,
+            test_selection_handles_logged: false,
             transform_offset: [0.0; 2],
             transform_scale: 1.0,
             transform_angle: 0.0,
@@ -4044,7 +4234,7 @@ impl Studio {
         if self.blocks_canvas() {
             self.symmetry_origin_armed = false;
             self.symmetry_origin_pointer = None;
-            self.selection_move = None;
+            self.selection_transform = None;
         }
         // The deterministic path-entry dialog is only enabled by the Xvfb
         // workflow harness. Latch its submit key at the winit boundary: egui
@@ -4091,7 +4281,7 @@ impl Studio {
             self.layer_drag_target = None;
             self.clear_touch_routes();
             self.pan_cursor = None;
-            if self.selection_move.take().is_some() {
+            if self.selection_transform.take().is_some() {
                 self.status = "Selection move cancelled · artwork unchanged".into();
             }
         }
@@ -4868,19 +5058,19 @@ impl Studio {
             self.placement_drag = None;
         }
         if self
-            .selection_move
+            .selection_transform
             .as_ref()
             .is_some_and(|drag| drag.pointer_id == id)
         {
-            self.selection_move = None;
-            self.status = "Selection move cancelled · pointer capture lost".into();
+            self.selection_transform = None;
+            self.status = "Selection transform cancelled · pointer capture lost".into();
         }
     }
     pub fn cancel_native_barrel_actions(&mut self) {
         self.barrel_router.cancel_all();
         self.placement_drag = None;
-        if self.selection_move.take().is_some() {
-            self.status = "Selection move cancelled · pointer capture lost".into();
+        if self.selection_transform.take().is_some() {
+            self.status = "Selection transform cancelled · pointer capture lost".into();
         }
         self.symmetry_origin_armed = false;
         self.symmetry_origin_pointer = None;
@@ -4893,24 +5083,28 @@ impl Studio {
         client: [f64; 2],
     ) -> bool {
         use paint_input::Phase;
-        if let Some(drag) = self.selection_move.as_ref() {
+        if let Some(drag) = self.selection_transform.as_ref() {
             if drag.pointer_id != id {
-                // A selected-pixel move owns the pointer until commit/cancel;
-                // another pen identity cannot paint through the transaction.
+                // A selected-pixel transform owns the pointer until
+                // commit/cancel; another pen identity cannot paint through it.
                 return true;
             }
             if phase == Phase::Cancel {
-                self.selection_move = None;
-                self.status = "Selection move cancelled · artwork unchanged".into();
+                let kind = drag.kind;
+                self.selection_transform = None;
+                self.status = "Selection transform cancelled · artwork unchanged".into();
                 if self.test_path_dialog {
-                    crate::studio_log!("UI_TEST_SELECTION_DRAG_CANCELLED: pointer");
+                    crate::studio_log!("UI_TEST_SELECTION_TRANSFORM_CANCELLED: pointer");
+                    if kind == SelectionTransformKind::Move {
+                        crate::studio_log!("UI_TEST_SELECTION_DRAG_CANCELLED: pointer");
+                    }
                 }
                 return true;
             }
             if matches!(phase, Phase::Move | Phase::Up) {
                 let Some(mapping) = self.mapping else {
-                    self.selection_move = None;
-                    self.status = "Selection move cancelled · artwork unchanged".into();
+                    self.selection_transform = None;
+                    self.status = "Selection transform cancelled · artwork unchanged".into();
                     return true;
                 };
                 let Some(position) = mapping
@@ -4919,51 +5113,72 @@ impl Studio {
                     .ok()
                     .map(|point| point.0)
                 else {
-                    self.selection_move = None;
-                    self.status = "Selection move cancelled · invalid pointer position".into();
+                    self.selection_transform = None;
+                    self.status = "Selection transform cancelled · invalid pointer position".into();
                     return true;
                 };
                 let document = session.live().project().state();
-                let Some(drag) = self.selection_move.as_mut() else {
+                let snap_rotation = self.context.input(|input| input.modifiers.shift);
+                let Some(drag) = self.selection_transform.as_mut() else {
                     return true;
                 };
-                let Some(offset) = selection_move_offset(
+                let Some(transform) = selection_transform_matrix(
+                    drag.kind,
+                    &drag.selection,
                     drag.origin,
                     position,
-                    drag.selection.bounds(),
                     [document.width, document.height],
+                    snap_rotation,
                 ) else {
-                    self.selection_move = None;
-                    self.status = "Selection move cancelled · invalid document bounds".into();
+                    // Keep the last valid preview if an extreme pointer move
+                    // would put part of the result outside the document.
+                    if phase == Phase::Up {
+                        self.selection_transform = None;
+                        self.status =
+                            "Selection transform cancelled · result exceeds document bounds".into();
+                    }
                     return true;
                 };
-                drag.offset = offset;
+                drag.transform = transform;
                 if phase == Phase::Up {
-                    let drag = self.selection_move.take().expect("active selection move");
-                    if drag.offset[0].abs() < 0.5 && drag.offset[1].abs() < 0.5 {
-                        self.status = "Selection move unchanged".into();
+                    let drag = self
+                        .selection_transform
+                        .take()
+                        .expect("active selection transform");
+                    self.test_selection_handles_logged = false;
+                    let identity = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+                    if drag
+                        .transform
+                        .iter()
+                        .zip(identity)
+                        .all(|(actual, expected)| (actual - expected).abs() < 0.0001)
+                    {
+                        self.status = "Selection transform unchanged".into();
                         if self.test_path_dialog {
-                            crate::studio_log!("UI_TEST_SELECTION_DRAG_COMMITTED: unchanged");
+                            crate::studio_log!("UI_TEST_SELECTION_TRANSFORM_COMMITTED: unchanged");
                         }
                     } else {
-                        let result = session.live_mut().project_mut().transform_selection([
-                            1.0,
-                            0.0,
-                            0.0,
-                            1.0,
-                            drag.offset[0],
-                            drag.offset[1],
-                        ]);
+                        let result = session
+                            .live_mut()
+                            .project_mut()
+                            .transform_selection(drag.transform);
                         self.status = match result {
                             Ok(()) => {
                                 if self.test_path_dialog {
                                     crate::studio_log!(
-                                        "UI_TEST_SELECTION_DRAG_COMMITTED: {:.2} {:.2}",
-                                        drag.offset[0],
-                                        drag.offset[1]
+                                        "UI_TEST_SELECTION_TRANSFORM_COMMITTED: {:?} {:?}",
+                                        drag.kind,
+                                        drag.transform
                                     );
+                                    if drag.kind == SelectionTransformKind::Move {
+                                        crate::studio_log!(
+                                            "UI_TEST_SELECTION_DRAG_COMMITTED: {:.2} {:.2}",
+                                            drag.transform[4],
+                                            drag.transform[5]
+                                        );
+                                    }
                                 }
-                                "Selected pixels moved · Ctrl+Z to undo".into()
+                                "Selection transform committed · Ctrl+Z to undo".into()
                             }
                             Err(error) => error.to_string(),
                         };
@@ -4990,14 +5205,37 @@ impl Studio {
         if self.floating_ui_under_client(client) && !captured {
             return false;
         }
+        let selection_tool = matches!(
+            self.tool,
+            EditTool::Rectangle | EditTool::Ellipse | EditTool::Lasso
+        );
+        let selected = selection_tool
+            .then(|| session.live().project().state().selection.as_ref())
+            .flatten();
+        let transform_handle = self.mapping.and_then(|mapping| {
+            selected.and_then(|selection| {
+                selection_transform_handle_at(
+                    mapping,
+                    selection,
+                    client,
+                    self.context.pixels_per_point(),
+                )
+            })
+        });
+        let handle_in_window = transform_handle.is_some()
+            && self
+                .mapping
+                .is_some_and(|mapping| mapping.contains_window_client(client))
+            && !self.reference_under_client(client)
+            && !self.floating_ui_under_client(client);
         let on_canvas = self.mapping.is_some_and(|m| m.contains_client(client))
             && !self.reference_under_client(client)
             && !self.floating_ui_under_client(client);
-        if !on_canvas && !captured {
+        if !on_canvas && !captured && !handle_in_window {
             return false;
         }
         if phase == Phase::Cancel && !captured {
-            return on_canvas;
+            return on_canvas || handle_in_window;
         }
         if phase == Phase::Cancel {
             self.edit_pointer = None;
@@ -5018,7 +5256,7 @@ impl Studio {
             let size = session.live().project().state();
             position[0] = position[0].clamp(0.0, f64::from(size.width));
             position[1] = position[1].clamp(0.0, f64::from(size.height));
-        } else if !on_canvas {
+        } else if !on_canvas && !captured && !handle_in_window {
             self.edit_pointer = None;
             self.edit_points.clear();
             return true;
@@ -5031,27 +5269,47 @@ impl Studio {
                         Ok(c) => session.live_mut().project_mut().brush.color = c,
                         Err(e) => self.status = e.to_string(),
                     }
-                } else if matches!(
-                    self.tool,
-                    EditTool::Rectangle | EditTool::Ellipse | EditTool::Lasso
-                ) && !session.live().active()
+                } else if selection_tool
+                    && !session.live().active()
                     && let Some(selection) = session.live().project().state().selection.clone()
-                    && selection.contains(position)
                     && session.live().project().state().layers.iter().any(|layer| {
                         layer.id == session.live().project().state().selected
                             && layer.visible
                             && !layer.locked
                     })
+                    && let Some(kind) = transform_handle.or_else(|| {
+                        selection
+                            .contains(position)
+                            .then_some(SelectionTransformKind::Move)
+                    })
                 {
-                    self.selection_move = Some(SelectionMoveDrag {
+                    let origin = match kind {
+                        SelectionTransformKind::Scale => {
+                            [selection.bounds()[2], selection.bounds()[3]]
+                        }
+                        SelectionTransformKind::Move | SelectionTransformKind::Rotate => position,
+                    };
+                    self.selection_transform = Some(SelectionTransformDrag {
                         pointer_id: id,
                         selection,
-                        origin: position,
-                        offset: [0.0; 2],
+                        kind,
+                        origin,
+                        transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                     });
-                    self.status = "Drag to move selected pixels · Esc cancels".into();
+                    self.status = match kind {
+                        SelectionTransformKind::Move => {
+                            "Drag to move selected pixels · Esc cancels".into()
+                        }
+                        SelectionTransformKind::Scale => {
+                            "Drag the selection handle to scale · Esc cancels".into()
+                        }
+                        SelectionTransformKind::Rotate => {
+                            "Drag the selection handle to rotate · Shift snaps 15° · Esc cancels"
+                                .into()
+                        }
+                    };
                     if self.test_path_dialog {
-                        crate::studio_log!("UI_TEST_SELECTION_DRAG_STARTED: {id}");
+                        crate::studio_log!("UI_TEST_SELECTION_TRANSFORM_STARTED: {id} {kind:?}");
                     }
                 } else {
                     self.edit_pointer = Some(id);
@@ -5140,6 +5398,7 @@ impl Studio {
                     self.edit_points[1] = position;
                 }
                 if phase == Phase::Up && !shape_tool && !gradient_tool {
+                    self.test_selection_handles_logged = false;
                     let kind = match self.tool {
                         EditTool::Rectangle => SelectionKind::Rectangle,
                         EditTool::Ellipse => SelectionKind::Ellipse,
@@ -5201,7 +5460,7 @@ impl Studio {
         session.mouse(MouseEvent::Interrupted, 0);
         self.edit_pointer = None;
         self.edit_points.clear();
-        self.selection_move = None;
+        self.selection_transform = None;
         if key == 'y' {
             self.symmetry_panel_open = !self.symmetry_panel_open;
             if !self.symmetry_panel_open {
@@ -5437,10 +5696,13 @@ impl Studio {
 
     /// Dismiss the top contextual panel before Escape can close the application.
     pub fn dismiss_flyout(&mut self) -> bool {
-        if self.selection_move.take().is_some() {
-            self.status = "Selection move cancelled · artwork unchanged".into();
+        if let Some(drag) = self.selection_transform.take() {
+            self.status = "Selection transform cancelled · artwork unchanged".into();
             if self.test_path_dialog {
-                crate::studio_log!("UI_TEST_SELECTION_DRAG_CANCELLED: escape");
+                crate::studio_log!("UI_TEST_SELECTION_TRANSFORM_CANCELLED: escape");
+                if drag.kind == SelectionTransformKind::Move {
+                    crate::studio_log!("UI_TEST_SELECTION_DRAG_CANCELLED: escape");
+                }
             }
             return true;
         }
@@ -6382,7 +6644,7 @@ impl Studio {
                                                 | EditTool::Lasso
                                         )
                                     {
-                                        ui.weak("Drag inside the selection to move pixels");
+                                        ui.weak("Drag inside to move · corners scale · top handle rotates");
                                     }
                                     if ui
                                         .add_enabled(has_selection, egui::Button::new("Fill"))
@@ -7150,7 +7412,7 @@ impl Studio {
 
                             ui.collapsing("Edit selected pixels", |ui| {
                                 ui.label("Selected layer only; outside canvas is clipped.");
-                                ui.label("Drag inside a selection to move pixels; Escape cancels.");
+                                ui.label("Canvas: drag inside to move, lower-right handle to scale, top handle to rotate. Shift snaps rotation to 15°. Escape cancels.");
 
                                 ui.horizontal(|ui| {
                                     ui.label("Move X/Y");
@@ -10643,17 +10905,20 @@ impl Studio {
                     }
                 }
             } else {
-                let selection = if let Some(drag) = &self.selection_move {
-                    translated_selection(&drag.selection, drag.offset)
+                let (selection, preview_outline) = if let Some(drag) = &self.selection_transform {
+                    (
+                        Some(drag.selection.clone()),
+                        Some(transform_selection_outline(&drag.selection, drag.transform)),
+                    )
                 } else if self.edit_pointer.is_some() {
                     let kind = match self.tool {
                         EditTool::Ellipse => SelectionKind::Ellipse,
                         EditTool::Lasso => SelectionKind::Lasso,
                         _ => SelectionKind::Rectangle,
                     };
-                    Selection::new(kind, self.edit_points.clone()).ok()
+                    (Selection::new(kind, self.edit_points.clone()).ok(), None)
                 } else {
-                    session.live().project().state().selection.clone()
+                    (session.live().project().state().selection.clone(), None)
                 };
                 if let Some(selection) = selection {
                     let to_screen = |p: [f64; 2]| {
@@ -10664,20 +10929,8 @@ impl Studio {
                             )
                         })
                     };
-                    let [x, y, r, b] = selection.bounds();
-                    let points: Vec<_> = match selection.kind() {
-                        SelectionKind::Rectangle => vec![[x, y], [r, y], [r, b], [x, b]],
-                        SelectionKind::Ellipse => (0..64)
-                            .map(|i| {
-                                let a = i as f64 * std::f64::consts::TAU / 64.0;
-                                [
-                                    (x + r) / 2.0 + a.cos() * (r - x) / 2.0,
-                                    (y + b) / 2.0 + a.sin() * (b - y) / 2.0,
-                                ]
-                            })
-                            .collect(),
-                        SelectionKind::Lasso => selection.points().to_vec(),
-                    };
+                    let points =
+                        preview_outline.unwrap_or_else(|| selection_outline_points(&selection));
                     let points: Vec<_> = points.into_iter().filter_map(to_screen).collect();
                     for (width, color) in [(3.0, egui::Color32::BLACK), (1.0, egui::Color32::WHITE)]
                     {
@@ -10688,6 +10941,77 @@ impl Studio {
                                 egui::Stroke::new(width, color),
                             ),
                         });
+                    }
+
+                    let show_handles = self.selection_transform.is_none()
+                        && self.edit_pointer.is_none()
+                        && matches!(
+                            self.tool,
+                            EditTool::Rectangle | EditTool::Ellipse | EditTool::Lasso
+                        );
+                    if show_handles
+                        && let Some([[scale_x, scale_y], [rotate_x, rotate_y]]) =
+                            selection_transform_handles(
+                                mapping,
+                                &selection,
+                                output.pixels_per_point,
+                            )
+                        && let Some(top_center) = to_screen([
+                            (selection.bounds()[0] + selection.bounds()[2]) / 2.0,
+                            selection.bounds()[1],
+                        ])
+                    {
+                        let scale_point = egui::pos2(
+                            scale_x as f32 / output.pixels_per_point,
+                            scale_y as f32 / output.pixels_per_point,
+                        );
+                        let rotate_point = egui::pos2(
+                            rotate_x as f32 / output.pixels_per_point,
+                            rotate_y as f32 / output.pixels_per_point,
+                        );
+                        for shape in [
+                            egui::Shape::line_segment(
+                                [top_center, rotate_point],
+                                egui::Stroke::new(1.5, egui::Color32::from_rgb(179, 87, 255)),
+                            ),
+                            egui::Shape::rect_filled(
+                                egui::Rect::from_center_size(scale_point, egui::vec2(12.0, 12.0)),
+                                2.0,
+                                egui::Color32::from_rgb(179, 87, 255),
+                            ),
+                            egui::Shape::rect_stroke(
+                                egui::Rect::from_center_size(scale_point, egui::vec2(12.0, 12.0)),
+                                2.0,
+                                egui::Stroke::new(1.5, egui::Color32::WHITE),
+                                egui::StrokeKind::Inside,
+                            ),
+                            egui::Shape::circle_filled(
+                                rotate_point,
+                                6.0,
+                                egui::Color32::from_rgb(179, 87, 255),
+                            ),
+                            egui::Shape::circle_stroke(
+                                rotate_point,
+                                6.0,
+                                egui::Stroke::new(1.5, egui::Color32::WHITE),
+                            ),
+                        ] {
+                            output.shapes.push(egui::epaint::ClippedShape {
+                                clip_rect: central,
+                                shape,
+                            });
+                        }
+                        if self.test_path_dialog && !self.test_selection_handles_logged {
+                            self.test_selection_handles_logged = true;
+                            crate::studio_log!(
+                                "UI_TEST_SELECTION_TRANSFORM_HANDLES: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                scale_x,
+                                scale_y,
+                                rotate_x,
+                                rotate_y,
+                                output.pixels_per_point,
+                            );
+                        }
                     }
                 }
             }
@@ -11006,7 +11330,8 @@ impl Studio {
     fn execute(&mut self, a: Action, session: &mut CanvasSession) -> Result<(), Failure> {
         self.symmetry_origin_armed = false;
         self.symmetry_origin_pointer = None;
-        self.selection_move = None;
+        self.selection_transform = None;
+        self.test_selection_handles_logged = false;
         let project = session.live_mut().project_mut();
         match a {
             Action::ImportOra => {
@@ -11499,13 +11824,14 @@ impl Studio {
 mod tests {
     use super::{
         CanvasMapping, FormatIllustration, LassoAppend, LayerMenuTarget, Selection,
-        activate_brush_preset, append_lasso_point, brush_size_after_shortcut,
-        document_format_card_height, document_format_grid, fit_paper_to_box, format_illustration,
-        home_hero_height, home_open_card_needed, home_sections_stacked, layer_actions_menu,
-        native_project_path, quick_document_card_layout, recent_artwork_preview_height,
-        recent_gallery_layout, recent_project_matches, recovery_checkpoint_label,
-        recovery_source_label, selection_move_offset, symmetry_origin_from_client,
-        translated_selection,
+        SelectionTransformKind, activate_brush_preset, append_lasso_point,
+        brush_size_after_shortcut, document_format_card_height, document_format_grid,
+        fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
+        home_sections_stacked, layer_actions_menu, native_project_path, quick_document_card_layout,
+        recent_artwork_preview_height, recent_gallery_layout, recent_project_matches,
+        recovery_checkpoint_label, recovery_source_label, selection_move_offset,
+        selection_transform_handle_at, selection_transform_handles, selection_transform_matrix,
+        symmetry_origin_from_client, transform_selection_outline,
     };
     use paint_document::brush::{Brush, BrushKind};
     use std::path::{Path, PathBuf};
@@ -11576,9 +11902,9 @@ mod tests {
         let offset =
             selection_move_offset([20.0, 20.0], [35.0, 7.0], selection.bounds(), [64, 64]).unwrap();
         assert_eq!(offset, [15.0, -12.0]);
-        let moved = translated_selection(&selection, offset).unwrap();
-        assert_eq!(moved.kind(), selection.kind());
-        assert_eq!(moved.points(), &[[25.0, 0.0], [55.0, 3.0], [37.0, 26.0]]);
+        let moved =
+            transform_selection_outline(&selection, [1.0, 0.0, 0.0, 1.0, offset[0], offset[1]]);
+        assert_eq!(moved, vec![[25.0, 0.0], [55.0, 3.0], [37.0, 26.0]]);
 
         let right_edge =
             selection_move_offset([20.0, 20.0], [100.0, 20.0], selection.bounds(), [64, 64])
@@ -11592,8 +11918,127 @@ mod tests {
             selection_move_offset([0.0; 2], [f64::NAN, 0.0], selection.bounds(), [64, 64])
                 .is_none()
         );
-        assert!(translated_selection(&selection, [f64::INFINITY, 0.0]).is_none());
-        assert!(translated_selection(&selection, [5000.0, 0.0]).is_none());
+        assert!(
+            selection_transform_matrix(
+                SelectionTransformKind::Move,
+                &selection,
+                [20.0, 20.0],
+                [f64::INFINITY, 0.0],
+                [64, 64],
+                false,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn canvas_scale_rotate_and_move_transforms_are_predictable_and_bounded() {
+        let selection = Selection::new(
+            paint_document::editing::SelectionKind::Rectangle,
+            vec![[10.0, 10.0], [30.0, 30.0]],
+        )
+        .unwrap();
+        let scale = selection_transform_matrix(
+            SelectionTransformKind::Scale,
+            &selection,
+            [30.0, 30.0],
+            [40.0, 40.0],
+            [64, 64],
+            false,
+        )
+        .unwrap();
+        assert_eq!(scale, [1.5, 0.0, 0.0, 1.5, -5.0, -5.0]);
+        let scaled = transform_selection_outline(&selection, scale);
+        assert_eq!(
+            scaled,
+            vec![[10.0, 10.0], [40.0, 10.0], [40.0, 40.0], [10.0, 40.0]]
+        );
+
+        let rotation = selection_transform_matrix(
+            SelectionTransformKind::Rotate,
+            &selection,
+            [20.0, 0.0],
+            [40.0, 20.0],
+            [64, 64],
+            false,
+        )
+        .unwrap();
+        let rotated = transform_selection_outline(&selection, rotation);
+        for (actual, expected) in
+            rotated
+                .iter()
+                .zip([[30.0, 10.0], [30.0, 30.0], [10.0, 30.0], [10.0, 10.0]])
+        {
+            assert!((actual[0] - expected[0]).abs() < 1e-10);
+            assert!((actual[1] - expected[1]).abs() < 1e-10);
+        }
+        let snapped = selection_transform_matrix(
+            SelectionTransformKind::Rotate,
+            &selection,
+            [20.0, 0.0],
+            [30.0, 0.0],
+            [64, 64],
+            true,
+        )
+        .unwrap();
+        let snapped_points = transform_selection_outline(&selection, snapped);
+        assert!(
+            snapped_points
+                .iter()
+                .all(|point| { point.iter().all(|value| (0.0..=64.0).contains(value)) })
+        );
+
+        let moved = selection_transform_matrix(
+            SelectionTransformKind::Move,
+            &selection,
+            [20.0, 20.0],
+            [100.0, 100.0],
+            [64, 64],
+            false,
+        )
+        .unwrap();
+        assert_eq!(moved[4..], [34.0, 34.0]);
+        assert!(
+            selection_transform_matrix(
+                SelectionTransformKind::Rotate,
+                &selection,
+                [20.0, 0.0],
+                [f64::NAN, 0.0],
+                [64, 64],
+                false,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn selection_transform_handles_have_stable_high_dpi_hit_targets() {
+        let selection = Selection::new(
+            paint_document::editing::SelectionKind::Rectangle,
+            vec![[10.0, 12.0], [40.0, 36.0]],
+        )
+        .unwrap();
+        let mapping =
+            CanvasMapping::for_document([1200, 900], [64.0, 64.0], [0.0, 0.0, 1200.0, 900.0])
+                .unwrap()
+                .navigated(1.5, [17.0, -9.0])
+                .unwrap();
+        let [[scale_x, scale_y], [rotate_x, rotate_y]] =
+            selection_transform_handles(mapping, &selection, 2.0).unwrap();
+        assert_eq!(
+            selection_transform_handle_at(mapping, &selection, [scale_x, scale_y], 2.0),
+            Some(SelectionTransformKind::Scale)
+        );
+        assert_eq!(
+            selection_transform_handle_at(mapping, &selection, [rotate_x, rotate_y], 2.0),
+            Some(SelectionTransformKind::Rotate)
+        );
+        assert_eq!(
+            selection_transform_handle_at(mapping, &selection, [scale_x + 24.1, scale_y], 2.0,),
+            None,
+            "high-DPI hit targets are measured in physical pixels"
+        );
+        assert!(selection_transform_handles(mapping, &selection, f32::NAN).is_none());
     }
 
     #[test]

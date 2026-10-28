@@ -181,6 +181,11 @@ def event_marker(name):
            if line.startswith(name + ': ')]
     return lines[-1].partition(': ')[2] if lines else None
 
+def selection_transform_handles():
+    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_SELECTION_TRANSFORM_HANDLES: ')]
+    return tuple(map(float,lines[-1].split())) if lines else None
+
 def gradient_control_rect(mode):
     return stable_window_rect_marker(f'UI_TEST_GRADIENT_{mode.upper()}_RECT')
 
@@ -1939,6 +1944,65 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 event_marker('UI_TEST_SELECTION_COMMITTED')),
                  'the moved artwork can be selected again for layer actions')
             before_copy=project.read_bytes()
+            handles=wait(selection_transform_handles,
+                         'selected artwork exposes visible scale and rotation handles')
+            assert len(handles)==5 and handles[4]>0
+            scale_handle=(handles[0],handles[1],handles[4])
+            # A canceled scale preview is geometry-only and cannot enter history.
+            move(round(scale_handle[0]),round(scale_handle[1]));click_button(1,True)
+            move(round(scale_handle[0]+12*scale_handle[2]),
+                 round(scale_handle[1]+12*scale_handle[2]))
+            key('Escape')
+            wait(lambda: event_marker('UI_TEST_SELECTION_TRANSFORM_CANCELLED')=='escape',
+                 'Escape cancels a proportional scale preview')
+            click_button(1,False)
+            assert project.read_bytes()==before_copy and '*' not in title(window), \
+                'canceling a scale preview must not change document bytes or dirty state'
+
+            def apply_selection_handle(kind, dx, dy, baseline, message):
+                current_handles=wait(selection_transform_handles,
+                                     'selection transform handles return after history restore')
+                x,y,rx,ry,handle_scale=current_handles
+                point=(x,y) if kind=='Scale' else (rx,ry)
+                commit_count=sum(line.startswith('UI_TEST_SELECTION_TRANSFORM_COMMITTED: ')
+                                 and f' {kind} ' in line
+                                 for line in (directory/'application.log').read_text().splitlines())
+                move(round(point[0]),round(point[1]));click_button(1,True)
+                move(round(point[0]+dx*handle_scale),
+                     round(point[1]+dy*handle_scale))
+                click_button(1,False)
+                wait(lambda: sum(line.startswith('UI_TEST_SELECTION_TRANSFORM_COMMITTED: ')
+                                 and f' {kind} ' in line
+                                 for line in (directory/'application.log').read_text().splitlines())>
+                     commit_count,
+                     message)
+                wait(lambda: '*' in title(window),
+                     f'{kind.lower()} changes selected document pixels')
+                ctrl('s')
+                wait(lambda: valid_project(project) and project.read_bytes()!=baseline
+                     and '*' not in title(window),
+                     f'{kind.lower()} selection transform saves native pixels')
+                changed=project.read_bytes()
+                ctrl('z');ctrl('s')
+                wait(lambda: project.read_bytes()==baseline,
+                     f'Undo restores exact pixels before {kind.lower()}')
+                ctrl('y');ctrl('s')
+                wait(lambda: project.read_bytes()==changed,
+                     f'Redo restores exact pixels after {kind.lower()}')
+                ctrl('z');ctrl('s')
+                wait(lambda: project.read_bytes()==baseline,
+                     f'final Undo restores selection and document for next workflow')
+                return changed
+
+            scale_bytes=apply_selection_handle(
+                'Scale',18,12,before_copy,'dragging the lower-right handle commits proportional scale')
+            assert native_layer_tiles_bytes(scale_bytes)!=native_layer_tiles_bytes(before_copy), \
+                'scaling must change actual raster tile data'
+            rotate_bytes=apply_selection_handle(
+                'Rotate',20,12,before_copy,'dragging the top handle commits rotation')
+            assert native_layer_tiles_bytes(rotate_bytes)!=native_layer_tiles_bytes(before_copy), \
+                'rotation must change actual raster tile data'
+            capture_window(window,'selection-scale-rotate-workspace')
             more=wait(layer_more_button_rect,'selected layer exposes its contextual editing actions')
             opened=layer_actions_open_count()
             click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
@@ -2759,7 +2823,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -2775,7 +2839,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; canvas scale/rotation handles with cancelled previews, pixel changes, save and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

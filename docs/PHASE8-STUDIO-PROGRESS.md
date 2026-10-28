@@ -2702,11 +2702,46 @@ selected-move implementation still needs its own hosted validation after push.
 
 ### Continue here
 
-1. Verify the new three-platform Actions run, with particular attention to the
-   10-minute Linux artwork job and preserved Windows startup/artifact jobs.
-2. Continue Phase 9 with the remaining interactive selection-transform
-   workflow (canvas handles for scale/rotation plus keyboard confirmation), or
-   QuickShape if that can be integrated without destabilizing the raster path.
+1. Verify three-platform Actions for the selected-pixel move and transform
+   commits, preserving Linux artwork automation and both Windows artifacts.
+2. Integrate QuickShape into the existing raster geometry workflow.
 3. Design versioned editable mask storage and v1 migration before implementing
-   layer masks. Phase 10 editable vector/text and Phase 11 timelapse/animation
-   remain unimplemented.
+   layer masks. Phase 10 vector/text and Phase 11 timelapse/animation remain
+   unimplemented.
+
+## Phase 9 — interactive canvas selection transforms (2026-10-28)
+
+Selection tools now expose direct canvas handles: dragging inside moves the
+selected pixels, dragging the lower-right handle scales proportionally, and
+dragging the handle above the selection rotates around its center. Shift snaps
+rotation to 15-degree increments. Rectangle, ellipse and lasso selections use
+the same transform interaction; previews remain overlays until release, when
+one existing document transaction commits the changed pixels. Escape, focus
+loss, window exit/resize, tool changes, blocking UI and pointer capture loss
+cancel the provisional gesture. Scale and rotation are clamped to finite,
+document-bounded geometry. The selection remains available after an edit for
+subsequent transforms. The document format is unchanged.
+
+The full Xorg/XTest workflow dragged both handles in the running app, verified
+actual raster-tile changes, saved each operation, and checked byte-exact Undo
+and Redo. It also cancelled a scale preview and verified unchanged document
+bytes and clean save state. The existing mouse drawing, symmetry, shape,
+gradient, Smudge, Color Mixer, layer, import/export and forced-process-kill
+recovery workflow passed in the same run. The workflow produced 55 UI captures;
+I inspected `selection-scale-rotate-workspace.png`, which shows the visible
+scale and rotation handles and selection outline. The screenshot also exposes
+the already documented crowded Layers/Reference layout; these transforms do
+not claim to resolve that workspace issue.
+
+Formatting, strict workspace Clippy, workspace build, Windows GNU workspace
+check/Clippy, GPU-required llvmpipe/OpenGL smoke, Python syntax and **322
+workspace tests** passed locally. The full Linux Xorg/XTest artwork workflow
+passed. The new commit's hosted Windows/Linux/macOS CI and Windows artifacts
+are pending push. No new physical S Pen pressure/tilt or transform testing was
+performed; native WM_POINTER continues through the same pointer lifecycle.
+
+Next, prioritize a complete QuickShape workflow or the versioned mask-storage
+design and v1 migration tests before implementing editable layer masks. Keep
+image placement and configurable S Pen barrel action on the Phase 9 list.
+Phase 8.3 acceptance, Phase 9, Phase 10 vector/text, and Phase 11
+timelapse/animation remain active and incomplete.
