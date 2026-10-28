@@ -35,6 +35,59 @@ struct RecentProjectCard {
     thumbnail: Option<egui::TextureHandle>,
 }
 
+#[derive(Debug, Clone)]
+struct SelectionMoveDrag {
+    pointer_id: u64,
+    selection: Selection,
+    origin: [f64; 2],
+    offset: [f64; 2],
+}
+
+fn selection_move_offset(
+    origin: [f64; 2],
+    current: [f64; 2],
+    bounds: [f64; 4],
+    document: [u32; 2],
+) -> Option<[f64; 2]> {
+    if document.contains(&0)
+        || !origin
+            .iter()
+            .chain(current.iter())
+            .chain(bounds.iter())
+            .all(|value| value.is_finite())
+        || bounds[2] <= bounds[0]
+        || bounds[3] <= bounds[1]
+        || bounds[0] < 0.0
+        || bounds[1] < 0.0
+        || bounds[2] > f64::from(document[0])
+        || bounds[3] > f64::from(document[1])
+    {
+        return None;
+    }
+    let clamp_axis = |delta: f64, start: f64, end: f64, extent: u32| {
+        delta.clamp(-start, f64::from(extent) - end)
+    };
+    Some([
+        clamp_axis(current[0] - origin[0], bounds[0], bounds[2], document[0]),
+        clamp_axis(current[1] - origin[1], bounds[1], bounds[3], document[1]),
+    ])
+}
+
+fn translated_selection(selection: &Selection, offset: [f64; 2]) -> Option<Selection> {
+    if !offset.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    Selection::new(
+        selection.kind(),
+        selection
+            .points()
+            .iter()
+            .map(|point| [point[0] + offset[0], point[1] + offset[1]])
+            .collect(),
+    )
+    .ok()
+}
+
 struct BrushPreviewCache {
     brush: Brush,
     texture: egui::TextureHandle,
@@ -3456,6 +3509,7 @@ pub struct Studio {
     gradient_preview_key: Option<GradientPreviewKey>,
     edit_pointer: Option<u64>,
     edit_points: Vec<[f64; 2]>,
+    selection_move: Option<SelectionMoveDrag>,
     transform_offset: [f64; 2],
     transform_scale: f64,
     transform_angle: f64,
@@ -3706,6 +3760,7 @@ impl Studio {
             gradient_preview_key: None,
             edit_pointer: None,
             edit_points: Vec::new(),
+            selection_move: None,
             transform_offset: [0.0; 2],
             transform_scale: 1.0,
             transform_angle: 0.0,
@@ -3989,6 +4044,7 @@ impl Studio {
         if self.blocks_canvas() {
             self.symmetry_origin_armed = false;
             self.symmetry_origin_pointer = None;
+            self.selection_move = None;
         }
         // The deterministic path-entry dialog is only enabled by the Xvfb
         // workflow harness. Latch its submit key at the winit boundary: egui
@@ -4035,6 +4091,9 @@ impl Studio {
             self.layer_drag_target = None;
             self.clear_touch_routes();
             self.pan_cursor = None;
+            if self.selection_move.take().is_some() {
+                self.status = "Selection move cancelled · artwork unchanged".into();
+            }
         }
         if matches!(event, E::Focused(false)) {
             self.placement_drag = None;
@@ -4808,10 +4867,21 @@ impl Studio {
         if self.placement_drag == Some(id) {
             self.placement_drag = None;
         }
+        if self
+            .selection_move
+            .as_ref()
+            .is_some_and(|drag| drag.pointer_id == id)
+        {
+            self.selection_move = None;
+            self.status = "Selection move cancelled · pointer capture lost".into();
+        }
     }
     pub fn cancel_native_barrel_actions(&mut self) {
         self.barrel_router.cancel_all();
         self.placement_drag = None;
+        if self.selection_move.take().is_some() {
+            self.status = "Selection move cancelled · pointer capture lost".into();
+        }
         self.symmetry_origin_armed = false;
         self.symmetry_origin_pointer = None;
     }
@@ -4823,6 +4893,86 @@ impl Studio {
         client: [f64; 2],
     ) -> bool {
         use paint_input::Phase;
+        if let Some(drag) = self.selection_move.as_ref() {
+            if drag.pointer_id != id {
+                // A selected-pixel move owns the pointer until commit/cancel;
+                // another pen identity cannot paint through the transaction.
+                return true;
+            }
+            if phase == Phase::Cancel {
+                self.selection_move = None;
+                self.status = "Selection move cancelled · artwork unchanged".into();
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_SELECTION_DRAG_CANCELLED: pointer");
+                }
+                return true;
+            }
+            if matches!(phase, Phase::Move | Phase::Up) {
+                let Some(mapping) = self.mapping else {
+                    self.selection_move = None;
+                    self.status = "Selection move cancelled · artwork unchanged".into();
+                    return true;
+                };
+                let Some(position) = mapping
+                    .routing_viewport()
+                    .to_document(client)
+                    .ok()
+                    .map(|point| point.0)
+                else {
+                    self.selection_move = None;
+                    self.status = "Selection move cancelled · invalid pointer position".into();
+                    return true;
+                };
+                let document = session.live().project().state();
+                let Some(drag) = self.selection_move.as_mut() else {
+                    return true;
+                };
+                let Some(offset) = selection_move_offset(
+                    drag.origin,
+                    position,
+                    drag.selection.bounds(),
+                    [document.width, document.height],
+                ) else {
+                    self.selection_move = None;
+                    self.status = "Selection move cancelled · invalid document bounds".into();
+                    return true;
+                };
+                drag.offset = offset;
+                if phase == Phase::Up {
+                    let drag = self.selection_move.take().expect("active selection move");
+                    if drag.offset[0].abs() < 0.5 && drag.offset[1].abs() < 0.5 {
+                        self.status = "Selection move unchanged".into();
+                        if self.test_path_dialog {
+                            crate::studio_log!("UI_TEST_SELECTION_DRAG_COMMITTED: unchanged");
+                        }
+                    } else {
+                        let result = session.live_mut().project_mut().transform_selection([
+                            1.0,
+                            0.0,
+                            0.0,
+                            1.0,
+                            drag.offset[0],
+                            drag.offset[1],
+                        ]);
+                        self.status = match result {
+                            Ok(()) => {
+                                if self.test_path_dialog {
+                                    crate::studio_log!(
+                                        "UI_TEST_SELECTION_DRAG_COMMITTED: {:.2} {:.2}",
+                                        drag.offset[0],
+                                        drag.offset[1]
+                                    );
+                                }
+                                "Selected pixels moved · Ctrl+Z to undo".into()
+                            }
+                            Err(error) => error.to_string(),
+                        };
+                    }
+                }
+                return true;
+            }
+            return true;
+        }
         let shape_tool = matches!(
             self.tool,
             EditTool::ShapeLine | EditTool::ShapeRectangle | EditTool::ShapeEllipse
@@ -4880,6 +5030,28 @@ impl Studio {
                     match session.live().project().eyedropper(position) {
                         Ok(c) => session.live_mut().project_mut().brush.color = c,
                         Err(e) => self.status = e.to_string(),
+                    }
+                } else if matches!(
+                    self.tool,
+                    EditTool::Rectangle | EditTool::Ellipse | EditTool::Lasso
+                ) && !session.live().active()
+                    && let Some(selection) = session.live().project().state().selection.clone()
+                    && selection.contains(position)
+                    && session.live().project().state().layers.iter().any(|layer| {
+                        layer.id == session.live().project().state().selected
+                            && layer.visible
+                            && !layer.locked
+                    })
+                {
+                    self.selection_move = Some(SelectionMoveDrag {
+                        pointer_id: id,
+                        selection,
+                        origin: position,
+                        offset: [0.0; 2],
+                    });
+                    self.status = "Drag to move selected pixels · Esc cancels".into();
+                    if self.test_path_dialog {
+                        crate::studio_log!("UI_TEST_SELECTION_DRAG_STARTED: {id}");
                     }
                 } else {
                     self.edit_pointer = Some(id);
@@ -5029,6 +5201,7 @@ impl Studio {
         session.mouse(MouseEvent::Interrupted, 0);
         self.edit_pointer = None;
         self.edit_points.clear();
+        self.selection_move = None;
         if key == 'y' {
             self.symmetry_panel_open = !self.symmetry_panel_open;
             if !self.symmetry_panel_open {
@@ -5264,6 +5437,13 @@ impl Studio {
 
     /// Dismiss the top contextual panel before Escape can close the application.
     pub fn dismiss_flyout(&mut self) -> bool {
+        if self.selection_move.take().is_some() {
+            self.status = "Selection move cancelled · artwork unchanged".into();
+            if self.test_path_dialog {
+                crate::studio_log!("UI_TEST_SELECTION_DRAG_CANCELLED: escape");
+            }
+            return true;
+        }
         if self.symmetry_origin_armed || self.symmetry_origin_pointer.is_some() {
             self.symmetry_origin_armed = false;
             self.symmetry_origin_pointer = None;
@@ -6194,6 +6374,16 @@ impl Studio {
                                         | EditTool::ShapeEllipse
                                         | EditTool::Gradient => unreachable!("handled above"),
                                     });
+                                    if has_selection
+                                        && matches!(
+                                            self.tool,
+                                            EditTool::Rectangle
+                                                | EditTool::Ellipse
+                                                | EditTool::Lasso
+                                        )
+                                    {
+                                        ui.weak("Drag inside the selection to move pixels");
+                                    }
                                     if ui
                                         .add_enabled(has_selection, egui::Button::new("Fill"))
                                         .clicked()
@@ -6960,6 +7150,7 @@ impl Studio {
 
                             ui.collapsing("Edit selected pixels", |ui| {
                                 ui.label("Selected layer only; outside canvas is clipped.");
+                                ui.label("Drag inside a selection to move pixels; Escape cancels.");
 
                                 ui.horizontal(|ui| {
                                     ui.label("Move X/Y");
@@ -10452,7 +10643,9 @@ impl Studio {
                     }
                 }
             } else {
-                let selection = if self.edit_pointer.is_some() {
+                let selection = if let Some(drag) = &self.selection_move {
+                    translated_selection(&drag.selection, drag.offset)
+                } else if self.edit_pointer.is_some() {
                     let kind = match self.tool {
                         EditTool::Ellipse => SelectionKind::Ellipse,
                         EditTool::Lasso => SelectionKind::Lasso,
@@ -10813,6 +11006,7 @@ impl Studio {
     fn execute(&mut self, a: Action, session: &mut CanvasSession) -> Result<(), Failure> {
         self.symmetry_origin_armed = false;
         self.symmetry_origin_pointer = None;
+        self.selection_move = None;
         let project = session.live_mut().project_mut();
         match a {
             Action::ImportOra => {
@@ -11304,13 +11498,14 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        CanvasMapping, FormatIllustration, LassoAppend, LayerMenuTarget, activate_brush_preset,
-        append_lasso_point, brush_size_after_shortcut, document_format_card_height,
-        document_format_grid, fit_paper_to_box, format_illustration, home_hero_height,
-        home_open_card_needed, home_sections_stacked, layer_actions_menu, native_project_path,
-        quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
-        recent_project_matches, recovery_checkpoint_label, recovery_source_label,
-        symmetry_origin_from_client,
+        CanvasMapping, FormatIllustration, LassoAppend, LayerMenuTarget, Selection,
+        activate_brush_preset, append_lasso_point, brush_size_after_shortcut,
+        document_format_card_height, document_format_grid, fit_paper_to_box, format_illustration,
+        home_hero_height, home_open_card_needed, home_sections_stacked, layer_actions_menu,
+        native_project_path, quick_document_card_layout, recent_artwork_preview_height,
+        recent_gallery_layout, recent_project_matches, recovery_checkpoint_label,
+        recovery_source_label, selection_move_offset, symmetry_origin_from_client,
+        translated_selection,
     };
     use paint_document::brush::{Brush, BrushKind};
     use std::path::{Path, PathBuf};
@@ -11369,6 +11564,36 @@ mod tests {
         assert!(symmetry_origin_from_client(mapping, [-1.0, 20.0]).is_none());
         let beyond_document = mapping.document_to_client([-1.0, 200.0]).unwrap();
         assert!(symmetry_origin_from_client(mapping, beyond_document).is_none());
+    }
+
+    #[test]
+    fn selection_move_preserves_geometry_and_clamps_the_entire_selection_to_document_bounds() {
+        let selection = Selection::new(
+            paint_document::editing::SelectionKind::Lasso,
+            vec![[10.0, 12.0], [40.0, 15.0], [22.0, 38.0]],
+        )
+        .unwrap();
+        let offset =
+            selection_move_offset([20.0, 20.0], [35.0, 7.0], selection.bounds(), [64, 64]).unwrap();
+        assert_eq!(offset, [15.0, -12.0]);
+        let moved = translated_selection(&selection, offset).unwrap();
+        assert_eq!(moved.kind(), selection.kind());
+        assert_eq!(moved.points(), &[[25.0, 0.0], [55.0, 3.0], [37.0, 26.0]]);
+
+        let right_edge =
+            selection_move_offset([20.0, 20.0], [100.0, 20.0], selection.bounds(), [64, 64])
+                .unwrap();
+        assert_eq!(right_edge[0], 24.0, "the right edge remains on canvas");
+        let bottom_edge =
+            selection_move_offset([20.0, 20.0], [20.0, 100.0], selection.bounds(), [64, 64])
+                .unwrap();
+        assert_eq!(bottom_edge[1], 26.0, "the bottom edge remains on canvas");
+        assert!(
+            selection_move_offset([0.0; 2], [f64::NAN, 0.0], selection.bounds(), [64, 64])
+                .is_none()
+        );
+        assert!(translated_selection(&selection, [f64::INFINITY, 0.0]).is_none());
+        assert!(translated_selection(&selection, [5000.0, 0.0]).is_none());
     }
 
     #[test]

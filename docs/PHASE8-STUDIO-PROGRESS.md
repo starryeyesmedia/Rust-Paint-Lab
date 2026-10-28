@@ -2660,3 +2660,53 @@ transform or QuickShape improvement, then design versioned non-destructive layer
 mask storage and migration. Keep the next commits focused on artist workflows.
 Phase 9 as a whole, Phase 8.3 acceptance, Phase 10 vector/text and Phase 11
 timelapse/animation are still active/incomplete.
+
+## Phase 9 — direct selected-pixel movement (2026-10-28)
+
+Rectangle, ellipse, and lasso selection tools now move selected pixels directly:
+press inside the active selection and drag; the selection boundary follows as a
+preview, while Escape cancels without changing the document. Releasing applies
+one ordinary `transform_selection` translation to the selected, visible,
+unlocked raster layer. The whole selection is clamped inside document bounds,
+the active pointer owns the gesture through release/cancellation, and another
+native pen identity cannot paint through it. Focus loss, window exit/resize,
+canvas-blocking UI, tool shortcuts, and native pointer capture loss abandon the
+provisional move. The existing numeric/rotation/scale/flip controls remain
+available as keyboard-adjustable alternatives. No `.rpl` schema or version
+change was needed.
+
+The actual Linux Xorg/XTest artwork workflow verified Escape cancellation leaves
+the saved project byte-identical; a second drag changed actual layer tile data;
+save, Undo and Redo matched the pre-move and moved project bytes exactly; the
+translated artwork could then be selected again and copied through the existing
+Layers action workflow. Its rendered post-move workspace capture is
+`selection-move-canvas.png`. The full workflow continued through existing brush,
+gradient, Smudge, Color Mixer, layer, import/export, recovery and clean-close
+checks. The standalone document regression verifies moved pixel centers,
+single-edit history, v1 encode/decode, Undo and Redo. Selection geometry tests
+cover lasso shape preservation, invalid values, and right/bottom document-edge
+clamping.
+
+On the final local tree, pinned Rust 1.90 formatting, strict workspace Clippy,
+workspace build, Windows GNU workspace check/Clippy, GPU-required
+llvmpipe/OpenGL smoke, and **320 workspace tests** passed. The Xorg/XTest app
+workflow passed with its populated screenshot matrix. I inspected the captured
+selection-move workspace; it shows the moved raster marks and the current panel
+layout, while panel crowding remains an existing visual follow-up. This is
+software-rendered Linux validation only; native WM_POINTER integration is kept,
+but no new physical S Pen or Windows capture-loss test was performed. Actions
+run [`40741970797`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40741970797)
+has now passed Windows, Linux, and macOS for the preceding `f2046e3` symmetry
+origin checkpoint. It completed with both Windows artifacts present; this
+selected-move implementation still needs its own hosted validation after push.
+
+### Continue here
+
+1. Verify the new three-platform Actions run, with particular attention to the
+   10-minute Linux artwork job and preserved Windows startup/artifact jobs.
+2. Continue Phase 9 with the remaining interactive selection-transform
+   workflow (canvas handles for scale/rotation plus keyboard confirmation), or
+   QuickShape if that can be integrated without destabilizing the raster path.
+3. Design versioned editable mask storage and v1 migration before implementing
+   layer masks. Phase 10 editable vector/text and Phase 11 timelapse/animation
+   remain unimplemented.

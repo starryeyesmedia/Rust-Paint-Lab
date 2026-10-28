@@ -618,3 +618,30 @@ obstructs most of the artboard, so coordinated compact panels remain open work.
 Actions run [`40738225142`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40738225142)
 passed the prior symmetry commit; the origin-placement follow-up requires its own
 cross-platform run. This is one Phase 9 slice; Phase 8.3 and Phase 9 remain active.
+
+### Direct selected-pixel movement — local integration checkpoint
+
+Mouse and native WM_POINTER selection gestures now move a selected region on the
+active visible, unlocked raster layer. The translated selection outline follows
+the pointer; release performs one normal document transaction, and Escape,
+window/focus loss, or capture loss cancels without altering artwork. The
+selection is constrained within document bounds. No native-format migration was
+needed. The full Linux Xorg/XTest workflow checked cancelled-project byte
+identity, actual changed layer tiles, save/reopen-compatible bytes, and exact
+Undo/Redo before reselecting and continuing the layer copy workflow.
+
+Locally, formatting, strict Clippy, all **320 workspace tests**, workspace
+build, Windows GNU check/Clippy, required llvmpipe/OpenGL GPU smoke, and the full
+populated Linux artwork/export/recovery workflow passed. The post-move workspace
+image was visually inspected; compact Layers/Reference crowding remains an
+existing workspace issue. No new physical S Pen behavior is claimed. Actions
+run [`40741970797`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40741970797)
+has passed Windows, Linux and macOS for previous checkpoint `f2046e3` and
+published both Windows application artifacts. This implementation needs its own
+hosted run.
+
+Next Phase 9 work: finish interactive scale/rotation selection transforms or
+integrate QuickShape with the existing raster geometry tools, then design a
+versioned mask format and migration before editable masks. Phase 10
+editable vector/text, Phase 11 timelapse/animation, and Phase 8.3 acceptance
+remain incomplete.

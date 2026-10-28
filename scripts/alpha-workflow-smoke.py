@@ -1900,7 +1900,45 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert '*' not in title(window), 'selection alone changed artwork'
             source_id=native_state(project)['selected']
             assert layer_front_row_id()==source_id, 'the selected layer row and document active layer must agree'
-            before_copy=saved
+            # Esc cancels a provisional canvas move without altering the saved
+            # artwork; a second drag commits the selected pixels as one edit.
+            move(500,280);click_button(1,True);move(530,310)
+            key('Escape')
+            wait(lambda: event_marker('UI_TEST_SELECTION_DRAG_CANCELLED')=='escape',
+                 'Escape cancels a selected-pixel move preview')
+            click_button(1,False)
+            assert project.read_bytes()==saved and '*' not in title(window), \
+                'cancelling the selection move must leave artwork and save state unchanged'
+            drag_commit_count=sum(line.startswith('UI_TEST_SELECTION_DRAG_COMMITTED: ')
+                                  for line in (directory/'application.log').read_text().splitlines())
+            move(500,280);click_button(1,True);move(530,310);click_button(1,False)
+            wait(lambda: sum(line.startswith('UI_TEST_SELECTION_DRAG_COMMITTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>
+                 drag_commit_count,
+                 'dragging inside the selection moves the selected raster pixels')
+            wait(lambda: '*' in title(window),
+                 'moving selected pixels marks the native artwork dirty')
+            ctrl('s')
+            wait(lambda: valid_project(project) and project.read_bytes()!=saved
+                 and '*' not in title(window),
+                 'the moved pixel region saves to the native document')
+            moved_selection_bytes=project.read_bytes()
+            assert native_layer_tiles_bytes(moved_selection_bytes)!=native_layer_tiles_bytes(saved), \
+                'the selection drag must change actual raster-layer tile data'
+            capture_window(window,'selection-move-canvas')
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==saved,
+                 'Undo restores the exact pre-move artwork bytes')
+            ctrl('y');ctrl('s')
+            wait(lambda: project.read_bytes()==moved_selection_bytes,
+                 'Redo restores the moved pixel data byte for byte')
+            # The move clears the active selection. Re-select its translated
+            # screen-space rectangle before exercising the layer-copy workflow.
+            key('m');move(510,290);click_button(1,True);move(570,360);click_button(1,False)
+            wait(lambda: (lambda marker: marker if marker and marker.startswith('true ') else None)(
+                event_marker('UI_TEST_SELECTION_COMMITTED')),
+                 'the moved artwork can be selected again for layer actions')
+            before_copy=project.read_bytes()
             more=wait(layer_more_button_rect,'selected layer exposes its contextual editing actions')
             opened=layer_actions_open_count()
             click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
@@ -2721,7 +2759,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -2737,7 +2775,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

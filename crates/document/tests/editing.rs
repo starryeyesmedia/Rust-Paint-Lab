@@ -108,6 +108,39 @@ fn transforms_move_flip_rotate_scale_and_undo() {
 }
 
 #[test]
+fn moving_selected_pixels_is_one_reversible_edit_and_roundtrips_as_v1_raster_data() {
+    let mut engine = empty();
+    engine.set_selection(Some(rect(K::Rectangle))).unwrap();
+    engine.fill_selection(false).unwrap();
+    let before_move = engine.rgba();
+    let undo_before_move = engine.undo_count();
+
+    engine
+        .transform_selection([1.0, 0.0, 0.0, 1.0, 3.0, 4.0])
+        .unwrap();
+    assert_eq!(engine.state().selection, None);
+    assert_eq!(pixel(&engine, 8, 12), [0; 4]);
+    assert_eq!(pixel(&engine, 11, 12), [255, 0, 0, 255]);
+    assert_eq!(pixel(&engine, 26, 27), [255, 0, 0, 255]);
+    assert_eq!(pixel(&engine, 27, 27), [0; 4]);
+    assert_eq!(engine.undo_count(), undo_before_move + 1);
+
+    let encoded = paint_document::storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(paint_document::storage::decode(&encoded).unwrap()).unwrap();
+    assert_eq!(reopened.rgba(), engine.rgba());
+    assert_eq!(
+        reopened.state().layers[0].tiles,
+        engine.state().layers[0].tiles
+    );
+
+    assert!(engine.undo());
+    assert_eq!(engine.rgba(), before_move);
+    assert!(engine.state().selection.is_some());
+    assert!(engine.redo());
+    assert_eq!(engine.rgba(), reopened.rgba());
+}
+
+#[test]
 fn copy_selection_to_new_layer_preserves_source_and_copies_pixel_center_masks() {
     for (case_index, selection) in [
         rect(K::Rectangle),
