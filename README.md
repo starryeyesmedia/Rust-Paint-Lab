@@ -15,7 +15,7 @@ Start with the [alpha user guide](docs/overdrive-user-guide.md), [Phase 8 implem
 
 ## License and copyright
 
-The original BitchPixel project code is licensed under the [GNU General Public License version 3.0 only](LICENSE) (`GPL-3.0-only`). Copyright © 2026 **Starry Eyes Media, LLC** for original material it owns.
+The original BitchPixel project code is licensed under the [GNU General Public License version 3.0 only](LICENSE) (`GPL-3.0-only`). Copyright © 2026 **Cecelia Thompson** for original material she owns.
 
 See [copyright and ownership](COPYRIGHT.md), [contribution guidelines](CONTRIBUTING.md), and [third-party notices](THIRD-PARTY.md). Third-party fonts and Rust dependencies retain their separate license terms.
 
