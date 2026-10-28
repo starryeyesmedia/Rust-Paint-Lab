@@ -1,21 +1,22 @@
 # Phase 8 — Creative Studio Overdrive progress
 
-## Latest owner-usability checkpoint — local validation passed, Actions pending (2026-10-28)
+## Latest owner-usability checkpoint — Linux workflow timeout diagnosed (2026-10-28)
 
 The active continuation starts from the successful owner-tested `b50e7ec`
 Windows launch and basic S Pen drawing. It preserves that hardware result as the
 baseline; no new physical pen or laptop demo was requested or performed. The
-latest implementation commit is `2979c02` on
+latest application implementation commit before CI follow-up is `2979c02` on
 `feature/studio-overdrive-phase-8`.
 
 The Windows canvas executable is configured as a GUI application, with bounded
 local diagnostics and a native startup error dialog. AccessKit is still created
 before the window is shown, and GPU initialization completes before the visible
 window appears. The independent stylus diagnostic and WM_POINTER pipeline are
-unchanged. Windows packaged startup/artifact verification must be confirmed by
-the new Actions run; the earlier run `40611993952` exposed a macOS-only test
-assumption about `~/Library/Logs/BitchPixel`. The diagnostics test now accepts
-that standard macOS location while remaining constrained on other platforms.
+unchanged. Actions run `40616773433` passed the Windows visible-startup smoke and
+packaged both Windows artifacts; macOS passed as well. The earlier run
+`40611993952` exposed a macOS-only test assumption about
+`~/Library/Logs/BitchPixel`. The diagnostics test now accepts that standard
+macOS location while remaining constrained on other platforms.
 
 Home now uses an action-oriented “Create, open, or continue artwork.” heading,
 the exact “No limits. No bullshit.” line with a sampled contrast-safe purple to
@@ -47,9 +48,33 @@ too little open canvas; compact panel ergonomics remain an identified defect.
 The screenshots and logs are local under `/tmp/bp-screens-phase8c-final` and
 `/tmp/rpl-alpha-window-8sh83476`.
 
+### Linux CI duration diagnosis
+
+Actions run [`40616773433`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40616773433)
+passed the Windows and macOS jobs, including packaging the Windows canvas and
+stylus diagnostic artifacts and the macOS alpha artifact. Linux formatting,
+strict Clippy, workspace tests/build, and the replay and live-mouse window
+smokes also passed. Its `Linux alpha artwork workflow smoke` step alone was
+terminated at the configured five-minute timeout. The Windows artifacts from
+that run are available as `rust-paint-lab-canvas-demo` and
+`rust-paint-lab-windows-diagnostic`.
+
+To distinguish a slow test from an application stall, I rebuilt the exact
+`1978106` checkout and ran the complete Linux Xorg/XTest workflow locally with
+the same software-rendered configuration. It completed successfully in **336.7
+seconds**, captured all 50 screenshots, and reached the final artwork,
+save/reopen, export, and forced-crash recovery assertions. The application kept
+progressing through the scenarios; no hung process or failed workflow
+assertion occurred. The evidence points to the five-minute CI cap being shorter
+than this comprehensive software-rendered test, not missing coverage or a
+stalled app. The workflow cap is now raised to 10 minutes; all scenarios and
+screenshot assertions remain enabled. This adjustment awaits Actions
+verification on its follow-up commit.
+
 ### Ten owner findings — current status
 
-- **1. Console-free Windows launch — implemented, packaged GUI/startup CI pending.**
+- **1. Console-free Windows launch — implemented and verified by the packaged
+  Windows startup smoke; physical retest of this latest package is pending.**
 - **2. Tool icons — partially addressed.** Selection silhouettes are distinct;
   the full icon discoverability and toolbar-density review remains.
 - **3. Home/New Canvas — partially addressed.** Direct standard presets, visual
@@ -68,19 +93,21 @@ The screenshots and logs are local under `/tmp/bp-screens-phase8c-final` and
   scale, rotate and fit controls are not implemented.
 - **9. Custom frame — deferred.** The reliable native frame remains; no safe
   Windows custom-frame behavior has been demonstrated.
-- **10. Native Windows startup and hardware validation — pending new CI and owner
-  evaluation.** The existing b50e7ec launch/basic S Pen result remains the only
+- **10. Native Windows startup and hardware validation — automated startup passes;
+  physical retest of this latest package and advanced stylus behavior remain
+  pending.** The existing b50e7ec launch/basic S Pen result remains the only
   physical validation claimed.
 
 ### Exact continuation
 
-1. Push `2979c02` and this progress update; verify Windows GUI startup/artifact,
-   Linux UI/artwork, and macOS first-frame/diagnostics Actions results.
-2. Continue reducing small-window panel obstruction and complete a compact
-   canvas-first Layers workflow without weakening current document tests.
-3. Then implement the configurable WM_POINTER barrel action and a real
-   transaction-safe Smudge tool, followed by transformed Place Image.
-   Preserve native-window behavior unless a safe custom frame is proven.
+1. Push the Linux timeout adjustment and this progress update; verify the full
+   Linux artwork workflow within its 10-minute cap while Windows startup/artifact
+   and macOS first-frame checks remain green.
+2. Advance Phase 9 with a real transaction-safe Smudge tool; do not let compact
+   panel refinements block creative-engine work.
+3. Implement configurable WM_POINTER barrel-button actions, then transformed
+   Place Image. Preserve native-window behavior unless safe custom chrome is
+   proven, and retain existing artwork-format compatibility.
 4. Keep Phase 8.3 active; do not merge or release.
 
 ## Phase 8.1 — Studio refinement (active)
