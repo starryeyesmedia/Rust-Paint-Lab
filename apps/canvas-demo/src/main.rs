@@ -676,6 +676,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 PhysicalKey::Code(KeyCode::KeyR) => Some('r'),
                                 PhysicalKey::Code(KeyCode::KeyO) => Some('o'),
                                 PhysicalKey::Code(KeyCode::KeyG) => Some('g'),
+                                PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
                                 _ => None,
                             };
                             if let Some(key) = key {

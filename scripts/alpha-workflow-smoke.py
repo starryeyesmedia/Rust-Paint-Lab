@@ -184,6 +184,18 @@ def event_marker(name):
 def gradient_control_rect(mode):
     return stable_window_rect_marker(f'UI_TEST_GRADIENT_{mode.upper()}_RECT')
 
+def symmetry_mode_rect(label):
+    prefix=f'UI_TEST_SYMMETRY_MODE_RECT: {label} '
+    lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()[:5]))
+
+def symmetry_canvas_bounds():
+    marker=stable_marker('UI_TEST_SYMMETRY_CANVAS')
+    return tuple(map(float,marker.split())) if marker else None
+
 def screenshot_pixel_difference(left, right):
     width,height,a=decode_rgba_png(left)
     other_width,other_height,b=decode_rgba_png(right)
@@ -2385,6 +2397,62 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda: imported.read_bytes()==color_mix_bytes and '*' not in title(window),
                  'redo restores the exact committed Color Mixer result')
+            # The UI's symmetry panel must affect real routed mouse strokes,
+            # save preference separately, and persist reflected pixels as one
+            # ordinary editable native raster transaction.
+            key('b')
+            wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+                 'B restores the normal raster painting tool')
+            symmetry_base=imported.read_bytes()
+            key('y')
+            wait(lambda: event_marker('UI_TEST_SYMMETRY_PANEL_TOGGLED')=='true',
+                 'Y opens the keyboard-accessible drawing symmetry panel')
+            vertical=wait(lambda: symmetry_mode_rect('Vertical'),
+                          'symmetry panel exposes a named Vertical mode control')
+            click_at((vertical[0]+vertical[2]/2)*vertical[4],
+                     (vertical[1]+vertical[3]/2)*vertical[4])
+            wait(lambda: (event_marker('UI_TEST_SYMMETRY_CHANGED') or '').startswith('Vertical'),
+                 'Vertical mode enables actual mirrored drawing')
+            wait(lambda: json.loads(prefs.read_text()).get('symmetry',{}).get('mode')=='vertical',
+                 'symmetry mode is persisted in local workspace preferences')
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                capture_window(window,'symmetry-panel-vertical')
+            canvas=wait(symmetry_canvas_bounds,
+                        'document mapping exposes physical bounds for pixel-level verification')
+            left,top,right,bottom,doc_width,doc_height=canvas
+            start=(left+0.72*(right-left),top+0.43*(bottom-top))
+            end=(left+0.79*(right-left),top+0.48*(bottom-top))
+            stroke_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                              for line in (directory/'application.log').read_text().splitlines())
+            drag_at(*start,*end)
+            wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>stroke_starts,
+                 'symmetry-painted mouse input traverses Processor and Router')
+            ctrl('s')
+            wait(lambda: valid_project(imported) and imported.read_bytes()!=symmetry_base
+                 and '*' not in title(window),
+                 'mirrored stroke pixels are committed and saved in the native artwork')
+            symmetry_bytes=imported.read_bytes()
+            sample_x=round(0.755*doc_width)
+            sample_y=round(0.455*doc_height)
+            mirror_x=round(doc_width-sample_x)
+            before_source=native_layer_pixel_bytes(symmetry_base,sample_x,sample_y)
+            after_source=native_layer_pixel_bytes(symmetry_bytes,sample_x,sample_y)
+            before_mirror=native_layer_pixel_bytes(symmetry_base,mirror_x,sample_y)
+            after_mirror=native_layer_pixel_bytes(symmetry_bytes,mirror_x,sample_y)
+            assert after_source!=before_source and after_source[3]>0, \
+                f'original stroke location did not change its editable layer pixel: {after_source.hex()}'
+            assert after_mirror!=before_mirror and after_mirror[3]>0, \
+                f'vertical reflection did not change its mirrored layer pixel: {after_mirror.hex()}'
+            ctrl('z');ctrl('s')
+            wait(lambda: imported.read_bytes()==symmetry_base,
+                 'one Undo removes both original and reflected artwork')
+            ctrl('y');ctrl('s')
+            wait(lambda: imported.read_bytes()==symmetry_bytes and '*' not in title(window),
+                 'Redo restores both symmetry copies byte-for-byte')
+            key('y')
+            wait(lambda: event_marker('UI_TEST_SYMMETRY_PANEL_TOGGLED')=='false',
+                 'Y closes the symmetry panel without changing the selected tool')
             snapshot=wait(lambda: latest_recovery_project(recovery_dir),
                           'latest active document recovery lineage is available')
             journal_path=Path(str(snapshot)+'.journal')
@@ -2612,7 +2680,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-vertical','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -2628,7 +2696,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

@@ -54,6 +54,11 @@ fn cancel(e: &mut Engine, id: u64) {
 fn blank(e: &Engine) -> bool {
     e.rgba().chunks_exact(4).all(|p| p == [255, 255, 255, 255])
 }
+fn has_ink(e: &Engine, x: usize, y: usize) -> bool {
+    let rgba = e.rgba();
+    let pixel = &rgba[(y * e.state().width as usize + x) * 4..][..4];
+    pixel[0] < 240 || pixel[1] < 240 || pixel[2] < 240
+}
 fn path(name: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("rpl-core-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -334,6 +339,218 @@ fn gradients_clip_to_ellipse_and_lasso_pixel_centers() {
     assert_eq!(pixel(&pixels, 0, 2), [255, 255, 255, 255]);
     assert_ne!(pixel(&pixels, 4, 2), [255, 255, 255, 255]);
     assert_eq!(pixel(&pixels, 7, 2), [255, 255, 255, 255]);
+}
+
+#[test]
+fn reflection_symmetry_commits_one_undoable_stroke_and_snapshots_settings() {
+    let mut engine = Engine::new(128, 128, 300).unwrap();
+    engine.brush.kind = BrushKind::Round;
+    engine.brush.color = [12, 18, 26];
+    engine.brush.size = 8.0;
+    engine.brush.hardness = 1.0;
+    engine.brush.pressure_size = false;
+    engine.brush.pressure_opacity = false;
+    let symmetry = paint_document::Symmetry {
+        mode: paint_document::SymmetryMode::Vertical,
+        axes: 6,
+        center: [0.5, 0.5],
+    };
+    engine.set_symmetry(symmetry).unwrap();
+    engine
+        .apply(&C::BeginStroke {
+            stroke_id: StrokeId(800),
+            sample: sample(20.0, 36.0, Some(1.0)),
+        })
+        .unwrap();
+    // A settings change during contact is deferred to the next transaction.
+    engine
+        .set_symmetry(paint_document::Symmetry::default())
+        .unwrap();
+    engine
+        .apply(&C::CommitStroke {
+            stroke_id: StrokeId(800),
+            sample: sample(44.0, 36.0, Some(1.0)),
+        })
+        .unwrap();
+
+    for (x, y) in [(20, 36), (44, 36), (108, 36), (84, 36)] {
+        assert!(
+            has_ink(&engine, x, y),
+            "missing reflected sample at ({x},{y})"
+        );
+    }
+    assert_eq!(engine.undo_count(), 1, "all copies are a single edit");
+    let committed = engine.rgba();
+    assert!(engine.undo());
+    assert!(blank(&engine));
+    assert!(engine.redo());
+    assert_eq!(engine.rgba(), committed);
+
+    let encoded = storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&encoded).unwrap()).unwrap();
+    assert_eq!(reopened.rgba(), committed);
+    assert_eq!(
+        reopened.undo_count(),
+        0,
+        "native artwork stores raster pixels, not transient guides"
+    );
+}
+
+#[test]
+fn radial_symmetry_generates_bounded_copies_and_cancel_discards_them_all() {
+    let mut engine = Engine::new(128, 128, 300).unwrap();
+    engine.brush.kind = BrushKind::Round;
+    engine.brush.color = [0, 0, 0];
+    engine.brush.size = 8.0;
+    engine.brush.hardness = 1.0;
+    engine.brush.pressure_size = false;
+    engine.brush.pressure_opacity = false;
+    engine
+        .set_symmetry(paint_document::Symmetry {
+            mode: paint_document::SymmetryMode::Radial,
+            axes: 4,
+            center: [0.5, 0.5],
+        })
+        .unwrap();
+    engine
+        .apply(&C::BeginStroke {
+            stroke_id: StrokeId(801),
+            sample: sample(84.0, 64.0, Some(1.0)),
+        })
+        .unwrap();
+    for (x, y) in [(84, 64), (64, 84), (44, 64), (64, 44)] {
+        assert!(has_ink(&engine, x, y), "missing radial dab at ({x},{y})");
+    }
+    engine
+        .apply(&C::CancelStroke {
+            stroke_id: StrokeId(801),
+            last: sample(84.0, 64.0, Some(1.0)),
+            time_ms: 0,
+            reason: CancelReason::RouterInterrupted,
+        })
+        .unwrap();
+    assert!(
+        blank(&engine),
+        "cancellation removes every provisional symmetry copy"
+    );
+    assert_eq!(engine.undo_count(), 0);
+
+    engine
+        .apply(&C::BeginStroke {
+            stroke_id: StrokeId(802),
+            sample: sample(84.0, 64.0, Some(1.0)),
+        })
+        .unwrap();
+    engine
+        .apply(&C::CommitStroke {
+            stroke_id: StrokeId(802),
+            sample: sample(84.0, 64.0, Some(1.0)),
+        })
+        .unwrap();
+    assert_eq!(engine.undo_count(), 1);
+    assert!(engine.undo());
+    assert!(blank(&engine));
+}
+
+#[test]
+fn symmetry_guides_are_clipped_bounded_and_reject_invalid_settings() {
+    use paint_document::{Symmetry, SymmetryMode};
+    let mut symmetry = Symmetry {
+        mode: SymmetryMode::VerticalAndHorizontal,
+        axes: 6,
+        center: [0.5, 0.5],
+    };
+    assert!(symmetry.validate());
+    assert_eq!(symmetry.guide_lines(100, 80).len(), 2);
+    for line in symmetry.guide_lines(100, 80) {
+        for point in line {
+            assert!(point[0].is_finite() && (0.0..=100.0).contains(&point[0]));
+            assert!(point[1].is_finite() && (0.0..=80.0).contains(&point[1]));
+        }
+    }
+    symmetry.mode = SymmetryMode::Radial;
+    symmetry.axes = 16;
+    let radial_guides = symmetry.guide_lines(100, 80);
+    assert_eq!(radial_guides.len(), 16);
+    assert_eq!(radial_guides[0][0], [50.0, 40.0]);
+    assert_eq!(radial_guides[0][1], [100.0, 40.0]);
+    assert_eq!(radial_guides[4][1], [50.0, 80.0]);
+    assert!(symmetry.guide_lines(0, 80).is_empty());
+    symmetry.axes = 1;
+    assert!(!symmetry.validate());
+    assert!(symmetry.guide_lines(100, 80).is_empty());
+    symmetry.axes = 6;
+    symmetry.center = [f64::NAN, 0.5];
+    assert!(!symmetry.validate());
+    assert!(Engine::new(8, 8, 300).unwrap().symmetry().validate());
+}
+
+#[test]
+fn symmetry_deduplicates_overlapping_dabs_on_an_axis_and_radial_origin() {
+    fn paint(symmetry: paint_document::Symmetry, from: [f64; 2], to: [f64; 2]) -> Engine {
+        let mut engine = Engine::new(128, 128, 300).unwrap();
+        engine.brush.kind = BrushKind::Round;
+        engine.brush.color = [24, 32, 48];
+        engine.brush.size = 10.0;
+        engine.brush.hardness = 0.5;
+        engine.brush.opacity = 0.35;
+        engine.brush.flow = 0.8;
+        engine.brush.pressure_size = false;
+        engine.brush.pressure_opacity = false;
+        engine.set_symmetry(symmetry).unwrap();
+        engine
+            .apply(&C::BeginStroke {
+                stroke_id: StrokeId(803),
+                sample: sample(from[0], from[1], Some(1.0)),
+            })
+            .unwrap();
+        engine
+            .apply(&C::CommitStroke {
+                stroke_id: StrokeId(803),
+                sample: sample(to[0], to[1], Some(1.0)),
+            })
+            .unwrap();
+        engine
+    }
+    let plain = paint(
+        paint_document::Symmetry::default(),
+        [64.0, 20.0],
+        [64.0, 108.0],
+    );
+    let mirrored = paint(
+        paint_document::Symmetry {
+            mode: paint_document::SymmetryMode::Vertical,
+            axes: 6,
+            center: [0.5, 0.5],
+        },
+        [64.0, 20.0],
+        [64.0, 108.0],
+    );
+    assert_eq!(
+        mirrored.rgba(),
+        plain.rgba(),
+        "the mirror axis is not painted twice"
+    );
+
+    let plain_origin = paint(
+        paint_document::Symmetry::default(),
+        [64.0, 64.0],
+        [64.0, 64.0],
+    );
+    let radial_origin = paint(
+        paint_document::Symmetry {
+            mode: paint_document::SymmetryMode::Radial,
+            axes: 16,
+            center: [0.5, 0.5],
+        },
+        [64.0, 64.0],
+        [64.0, 64.0],
+    );
+    assert_eq!(
+        radial_origin.rgba(),
+        plain_origin.rgba(),
+        "the radial origin is not painted sixteen times"
+    );
 }
 
 #[test]

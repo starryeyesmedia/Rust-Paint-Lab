@@ -821,3 +821,37 @@ the selected paint tool, visible-composite Eyedropper sampling without painting,
 and Pan deltas without painting. Workspace tests verify that Eraser is the
 backward-compatible default and that assignments persist. This does not replace
 physical S Pen validation of the Windows WM_POINTER button bit.
+
+## Raster symmetry and drawing guides
+
+`paint-document` tests cover vertical/horizontal reflection, radial copies up to
+16, transaction-captured settings, cancellation, one-step undo/redo, native
+roundtrip pixels, coincident-dab deduplication and clipped guide geometry.
+`canvas-demo`'s AccessKit test checks semantic, keyboard-reachable mode and origin
+controls. The full Linux/Xorg/XTest application workflow presses **Y**, selects
+Vertical in the floating panel, draws through the routed mouse path, checks the
+original and reflected layer pixels in the saved `.rpl`, and compares exact
+project bytes after Undo/Redo. It also captures a populated symmetry-panel
+screenshot.
+
+Run the targeted tests with:
+
+```sh
+cargo test --locked -p paint-document --test document symmetry_
+cargo test --locked -p canvas-demo --lib drawing_symmetry_controls_are_named_and_keyboard_exposed
+```
+
+Run the full application integration locally with an Xorg/Xvfb display and XTest
+available:
+
+```sh
+cargo build --locked -p canvas-demo
+DISPLAY=:102 WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 XDG_RUNTIME_DIR=/tmp \
+  RPL_UI_SCREENSHOT_DIR=/tmp/bitchpixel-studio-ui \
+  python3 scripts/alpha-workflow-smoke.py
+```
+
+GitHub Actions runs the same workflow under `xvfb-run` with Mesa Vulkan. The
+current local execution used the dedicated Xorg display `:102` and llvmpipe GL;
+it validated software-rendered interaction, not physical pen pressure, pen tilt,
+Windows GUI behavior or hardware latency.

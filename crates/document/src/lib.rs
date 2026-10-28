@@ -36,6 +36,299 @@ pub enum StrokeMode {
         strength: f64,
     },
 }
+
+/// Transient radial/reflection drawing assistance. The normalized center and
+/// selected mode belong to the local workspace; symmetry itself is not stored
+/// in the native artwork file. Stroke transactions snapshot these settings so
+/// changing the panel cannot alter an in-flight stroke.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SymmetryMode {
+    #[default]
+    Off,
+    Vertical,
+    Horizontal,
+    VerticalAndHorizontal,
+    Radial,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Symmetry {
+    pub mode: SymmetryMode,
+    /// Radial axis count, bounded to keep work per sample predictable.
+    pub axes: u8,
+    /// Origin relative to the current document bounds, from 0 to 1.
+    pub center: [f64; 2],
+}
+
+impl Default for Symmetry {
+    fn default() -> Self {
+        Self {
+            mode: SymmetryMode::Off,
+            axes: 6,
+            center: [0.5, 0.5],
+        }
+    }
+}
+
+impl Symmetry {
+    pub fn validate(self) -> bool {
+        (2..=16).contains(&self.axes)
+            && self
+                .center
+                .iter()
+                .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+    }
+
+    fn sample_count(self) -> usize {
+        match self.mode {
+            SymmetryMode::Off => 1,
+            SymmetryMode::Vertical | SymmetryMode::Horizontal => 2,
+            SymmetryMode::VerticalAndHorizontal => 4,
+            SymmetryMode::Radial => usize::from(self.axes),
+        }
+    }
+
+    fn matrix(self, index: usize) -> [f64; 4] {
+        const IDENTITY: [f64; 4] = [1.0, 0.0, 0.0, 1.0];
+        match self.mode {
+            SymmetryMode::Off => IDENTITY,
+            SymmetryMode::Vertical => {
+                if index == 0 {
+                    IDENTITY
+                } else {
+                    [-1.0, 0.0, 0.0, 1.0]
+                }
+            }
+            SymmetryMode::Horizontal => {
+                if index == 0 {
+                    IDENTITY
+                } else {
+                    [1.0, 0.0, 0.0, -1.0]
+                }
+            }
+            SymmetryMode::VerticalAndHorizontal => match index {
+                0 => IDENTITY,
+                1 => [-1.0, 0.0, 0.0, 1.0],
+                2 => [1.0, 0.0, 0.0, -1.0],
+                _ => [-1.0, 0.0, 0.0, -1.0],
+            },
+            SymmetryMode::Radial => {
+                let angle = std::f64::consts::TAU * index as f64 / f64::from(self.axes);
+                let (sin, cos) = angle.sin_cos();
+                [cos, sin, -sin, cos]
+            }
+        }
+    }
+
+    fn transform_sample(
+        self,
+        mut sample: StrokeSample,
+        [a, b, c, d]: [f64; 4],
+        width: u32,
+        height: u32,
+    ) -> StrokeSample {
+        let center_x = self.center[0] * f64::from(width);
+        let center_y = self.center[1] * f64::from(height);
+        let [x, y] = sample.position_document.0;
+        sample.position_document.0 = [
+            center_x + a * (x - center_x) + c * (y - center_y),
+            center_y + b * (x - center_x) + d * (y - center_y),
+        ];
+
+        // Rotate a complete tilt vector along with radial copies. For a single
+        // available tilt component only axis-aligned reflections are exact;
+        // retain the missing-data distinction for rotations instead of
+        // fabricating the unsupported component.
+        match sample.tilt_degrees {
+            [Some(x), Some(y)] => {
+                let x = f64::from(x).to_radians().tan();
+                let y = f64::from(y).to_radians().tan();
+                sample.tilt_degrees = [
+                    Some((a * x + c * y).atan().to_degrees() as f32),
+                    Some((b * x + d * y).atan().to_degrees() as f32),
+                ];
+            }
+            [Some(x), None] if b == 0.0 && c == 0.0 => {
+                sample.tilt_degrees[0] = Some(x * a.signum() as f32);
+            }
+            [None, Some(y)] if b == 0.0 && c == 0.0 => {
+                sample.tilt_degrees[1] = Some(y * d.signum() as f32);
+            }
+            _ => {}
+        }
+        sample
+    }
+
+    /// Return clipped document-space guide segments for the current mode.
+    /// Radial guides use one bounded spoke per rotational copy.
+    pub fn guide_lines(self, width: u32, height: u32) -> Vec<[[f64; 2]; 2]> {
+        if !self.validate() || self.mode == SymmetryMode::Off || width == 0 || height == 0 {
+            return Vec::new();
+        }
+        let origin = [
+            self.center[0] * f64::from(width),
+            self.center[1] * f64::from(height),
+        ];
+        if self.mode == SymmetryMode::Radial {
+            return (0..self.axes)
+                .filter_map(|index| {
+                    let angle = std::f64::consts::TAU * f64::from(index) / f64::from(self.axes);
+                    clipped_guide_ray(origin, [angle.cos(), angle.sin()], width, height)
+                })
+                .collect();
+        }
+        let directions: Vec<[f64; 2]> = match self.mode {
+            SymmetryMode::Off => Vec::new(),
+            SymmetryMode::Vertical => vec![[0.0, 1.0]],
+            SymmetryMode::Horizontal => vec![[1.0, 0.0]],
+            SymmetryMode::VerticalAndHorizontal => vec![[1.0, 0.0], [0.0, 1.0]],
+            SymmetryMode::Radial => unreachable!("radial guides return bounded spokes above"),
+        };
+        directions
+            .into_iter()
+            .filter_map(|direction| clipped_guide_line(origin, direction, width, height))
+            .collect()
+    }
+}
+
+fn clipped_guide_ray(
+    origin: [f64; 2],
+    direction: [f64; 2],
+    width: u32,
+    height: u32,
+) -> Option<[[f64; 2]; 2]> {
+    let (width, height) = (f64::from(width), f64::from(height));
+    let mut distance = f64::INFINITY;
+    for (coordinate, delta, limit) in [
+        (origin[0], direction[0], width),
+        (origin[1], direction[1], height),
+    ] {
+        if delta > 1.0e-12 {
+            distance = distance.min((limit - coordinate) / delta);
+        } else if delta < -1.0e-12 {
+            distance = distance.min((0.0 - coordinate) / delta);
+        }
+    }
+    if !distance.is_finite() || distance <= 1.0e-9 {
+        return None;
+    }
+    let end = [
+        (origin[0] + direction[0] * distance).clamp(0.0, width),
+        (origin[1] + direction[1] * distance).clamp(0.0, height),
+    ];
+    Some([origin, end])
+}
+
+fn clipped_guide_line(
+    origin: [f64; 2],
+    direction: [f64; 2],
+    width: u32,
+    height: u32,
+) -> Option<[[f64; 2]; 2]> {
+    let (width, height) = (f64::from(width), f64::from(height));
+    let mut intersections = Vec::with_capacity(4);
+    for x in [0.0, width] {
+        if direction[0].abs() > 1.0e-9 {
+            let t = (x - origin[0]) / direction[0];
+            let y = origin[1] + t * direction[1];
+            if (-1.0e-9..=height + 1.0e-9).contains(&y) {
+                intersections.push([x, y.clamp(0.0, height)]);
+            }
+        }
+    }
+    for y in [0.0, height] {
+        if direction[1].abs() > 1.0e-9 {
+            let t = (y - origin[1]) / direction[1];
+            let x = origin[0] + t * direction[0];
+            if (-1.0e-9..=width + 1.0e-9).contains(&x) {
+                let point = [x.clamp(0.0, width), y];
+                if !intersections.iter().any(|other: &[f64; 2]| {
+                    (other[0] - point[0]).abs() < 1.0e-9 && (other[1] - point[1]).abs() < 1.0e-9
+                }) {
+                    intersections.push(point);
+                }
+            }
+        }
+    }
+    if intersections.len() < 2 {
+        return None;
+    }
+    let mut pair = (0, 1);
+    let mut longest = 0.0;
+    for left in 0..intersections.len() {
+        for right in left + 1..intersections.len() {
+            let distance = (intersections[left][0] - intersections[right][0])
+                .hypot(intersections[left][1] - intersections[right][1]);
+            if distance > longest {
+                pair = (left, right);
+                longest = distance;
+            }
+        }
+    }
+    (longest > 1.0e-9).then_some([intersections[pair.0], intersections[pair.1]])
+}
+
+#[cfg(test)]
+mod symmetry_transform_tests {
+    use super::{Symmetry, SymmetryMode};
+    use paint_input::{Buttons, SourceCounter, Tool};
+    use paint_stroke::{StrokeSample, coordinates::DocumentPoint};
+
+    fn sample(tilt_degrees: [Option<f32>; 2]) -> StrokeSample {
+        StrokeSample {
+            pointer_id: 91,
+            source_counter: Some(SourceCounter {
+                ticks: 42,
+                ticks_per_second: std::num::NonZeroU64::new(1_000).unwrap(),
+            }),
+            tool: Tool::Pen,
+            position_client_px: [17.0, 23.0],
+            position_document: DocumentPoint([32.0, 64.0]),
+            pressure: Some(0.37),
+            tilt_degrees,
+            buttons: Buttons {
+                primary: true,
+                barrel: true,
+                ..Default::default()
+            },
+            source_time_ms: 123,
+            time_ms: 125,
+        }
+    }
+
+    #[test]
+    fn rotated_copies_preserve_input_identity_pressure_and_unsupported_tilt() {
+        let symmetry = Symmetry {
+            mode: SymmetryMode::Radial,
+            axes: 4,
+            center: [0.5, 0.5],
+        };
+        let original = sample([Some(23.0), None]);
+        let copy = symmetry.transform_sample(original, symmetry.matrix(1), 128, 128);
+        assert_eq!(copy.position_document.0, [64.0, 32.0]);
+        assert_eq!(copy.pointer_id, original.pointer_id);
+        assert_eq!(copy.source_counter, original.source_counter);
+        assert_eq!(copy.pressure, original.pressure);
+        assert_eq!(copy.tilt_degrees, original.tilt_degrees);
+        assert_eq!(copy.buttons, original.buttons);
+        assert_eq!(copy.time_ms, original.time_ms);
+
+        let complete = sample([Some(10.0), Some(0.0)]);
+        let rotated = symmetry.transform_sample(complete, symmetry.matrix(1), 128, 128);
+        assert!(rotated.tilt_degrees[0].unwrap().abs() < 1.0e-5);
+        assert!((rotated.tilt_degrees[1].unwrap() - 10.0).abs() < 1.0e-5);
+
+        let reflection = Symmetry {
+            mode: SymmetryMode::Vertical,
+            ..symmetry
+        };
+        let reflected = reflection.transform_sample(original, reflection.matrix(1), 128, 128);
+        assert_eq!(reflected.tilt_degrees, [Some(-23.0), None]);
+    }
+}
+
 #[derive(Debug)]
 pub enum PaintError {
     Invalid,
@@ -224,7 +517,10 @@ struct Transaction {
     layer: u64,
     brush: Brush,
     mode: StrokeMode,
-    smudge_carry: Option<[u8; 4]>,
+    symmetry: Symmetry,
+    symmetry_transforms: [[f64; 4]; 16],
+    symmetry_count: usize,
+    smudge_carry: [Option<[u8; 4]>; 16],
     last: StrokeSample,
     remaining: f64,
     stabilizer: stabilization::StrokeStabilizer,
@@ -234,6 +530,7 @@ pub struct Engine {
     state: State,
     pub brush: Brush,
     active: BTreeMap<StrokeId, Transaction>,
+    symmetry: Symmetry,
     undo: VecDeque<State>,
     redo: VecDeque<State>,
     damage: BTreeSet<TileKey>,
@@ -251,6 +548,7 @@ impl Engine {
             state,
             brush,
             active: BTreeMap::new(),
+            symmetry: Symmetry::default(),
             undo: VecDeque::new(),
             redo: VecDeque::new(),
             damage: BTreeSet::new(),
@@ -271,6 +569,18 @@ impl Engine {
     }
     pub fn active_count(&self) -> usize {
         self.active.len()
+    }
+    pub fn symmetry(&self) -> Symmetry {
+        self.symmetry
+    }
+    /// Set symmetry for strokes that begin afterward. Active strokes retain
+    /// their captured settings and can finish or cancel normally.
+    pub fn set_symmetry(&mut self, symmetry: Symmetry) -> Result<(), PaintError> {
+        if !symmetry.validate() {
+            return Err(PaintError::Invalid);
+        }
+        self.symmetry = symmetry;
+        Ok(())
     }
     pub fn undo_count(&self) -> usize {
         self.undo.len()
@@ -508,11 +818,24 @@ impl Engine {
                 if sample.buttons.eraser || sample.buttons.inverted {
                     brush.kind = BrushKind::Eraser;
                 }
+                let symmetry = self.symmetry;
+                let symmetry_count = symmetry.sample_count();
+                let mut symmetry_transforms = [[0.0; 4]; 16];
+                for (index, transform) in symmetry_transforms
+                    .iter_mut()
+                    .enumerate()
+                    .take(symmetry_count)
+                {
+                    *transform = symmetry.matrix(index);
+                }
                 let mut t = Transaction {
                     layer: layer.id,
                     brush,
                     mode: effective_mode,
-                    smudge_carry: None,
+                    symmetry,
+                    symmetry_transforms,
+                    symmetry_count,
+                    smudge_carry: [None; 16],
                     last: sample,
                     remaining: 0.0,
                     stabilizer: stabilization::StrokeStabilizer::new(
@@ -521,11 +844,7 @@ impl Engine {
                     ),
                     tiles: BTreeMap::new(),
                 };
-                match effective_mode {
-                    StrokeMode::Paint => self.dab(&mut t, sample)?,
-                    StrokeMode::Smudge => self.smudge_dab(&mut t, sample, true)?,
-                    StrokeMode::ColorMix { .. } => self.color_mix_dab(&mut t, sample)?,
-                }
+                self.dab_with_reset(&mut t, sample, true)?;
                 self.active.insert(stroke_id, t);
             }
             StrokeCommand::BreakStrokeSegment { stroke_id, sample } => {
@@ -536,10 +855,7 @@ impl Engine {
                 t.remaining = 0.0;
                 t.stabilizer
                     .reset(sample.position_document.0, sample.time_ms);
-                let result = match t.mode {
-                    StrokeMode::Smudge => self.smudge_dab(&mut t, sample, true),
-                    _ => self.dab(&mut t, sample),
-                };
+                let result = self.dab_with_reset(&mut t, sample, true);
                 if let Err(error) = result {
                     self.damage.extend(t.tiles.keys());
                     return Err(error);
@@ -662,12 +978,49 @@ impl Engine {
         t.last = end;
         Ok(())
     }
-    fn dab(&mut self, t: &mut Transaction, s: StrokeSample) -> Result<(), PaintError> {
-        match t.mode {
-            StrokeMode::Smudge => return self.smudge_dab(t, s, false),
-            StrokeMode::ColorMix { .. } => return self.color_mix_dab(t, s),
-            StrokeMode::Paint => {}
+    fn dab(&mut self, t: &mut Transaction, sample: StrokeSample) -> Result<(), PaintError> {
+        self.dab_with_reset(t, sample, false)
+    }
+
+    fn dab_with_reset(
+        &mut self,
+        t: &mut Transaction,
+        sample: StrokeSample,
+        reset_smudge: bool,
+    ) -> Result<(), PaintError> {
+        // At most sixteen copies are accepted. A fixed stack buffer prevents
+        // per-sample heap allocation in the latency-sensitive dab path.
+        let mut visited_positions = [[0.0; 2]; 16];
+        let mut visited_count = 0;
+        for index in 0..t.symmetry_count {
+            let sample = t.symmetry.transform_sample(
+                sample,
+                t.symmetry_transforms[index],
+                self.state.width,
+                self.state.height,
+            );
+            let position = sample.position_document.0;
+            let duplicate = visited_positions[..visited_count].iter().any(|other| {
+                (other[0] - position[0]).abs() <= 1.0e-7 && (other[1] - position[1]).abs() <= 1.0e-7
+            });
+            if !duplicate {
+                visited_positions[visited_count] = position;
+                visited_count += 1;
+            }
+            match t.mode {
+                StrokeMode::Smudge => {
+                    self.smudge_dab(t, sample, reset_smudge, index, !duplicate)?
+                }
+                StrokeMode::ColorMix { .. } if !duplicate => self.color_mix_dab(t, sample)?,
+                StrokeMode::ColorMix { .. } => {}
+                StrokeMode::Paint if !duplicate => self.paint_dab(t, sample)?,
+                StrokeMode::Paint => {}
+            }
         }
+        Ok(())
+    }
+
+    fn paint_dab(&mut self, t: &mut Transaction, s: StrokeSample) -> Result<(), PaintError> {
         let [x, y] = s.position_document.0;
         if ![x, y].iter().all(|v| v.is_finite()) {
             return Err(PaintError::Invalid);
@@ -939,6 +1292,8 @@ impl Engine {
         t: &mut Transaction,
         s: StrokeSample,
         reset_carry: bool,
+        path_index: usize,
+        write_pixels: bool,
     ) -> Result<(), PaintError> {
         let [x, y] = s.position_document.0;
         if !x.is_finite() || !y.is_finite() {
@@ -1011,22 +1366,28 @@ impl Engine {
         } else {
             [0; 4]
         };
-        if reset_carry || t.smudge_carry.is_none() {
-            t.smudge_carry = Some(sampled);
+        let Some(carry_slot) = t.smudge_carry.get_mut(path_index) else {
+            return Err(PaintError::Invalid);
+        };
+        if reset_carry || carry_slot.is_none() {
+            *carry_slot = Some(sampled);
             return Ok(());
         }
         if total_weight == 0.0 {
             return Ok(());
         }
 
-        let mut carry = t.smudge_carry.unwrap_or(sampled);
+        let mut carry = carry_slot.unwrap_or(sampled);
         let pickup = (t.brush.flow * pressure_strength).clamp(0.0, 1.0);
         for channel in 0..4 {
             carry[channel] = mix_byte(carry[channel], sampled[channel], pickup);
         }
-        t.smudge_carry = Some(carry);
+        *carry_slot = Some(carry);
         let strength = (t.brush.opacity * pressure_strength).clamp(0.0, 1.0);
         if strength <= 0.0 {
+            return Ok(());
+        }
+        if !write_pixels {
             return Ok(());
         }
 

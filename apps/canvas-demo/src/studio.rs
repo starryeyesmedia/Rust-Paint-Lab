@@ -3201,6 +3201,68 @@ fn stroke_mode_for_tool(tool: EditTool, color_mix_strength: f64) -> paint_docume
     }
 }
 
+pub(crate) fn symmetry_panel_contents(
+    ui: &mut egui::Ui,
+    symmetry: &mut paint_document::Symmetry,
+    test_markers: bool,
+) -> bool {
+    let before = *symmetry;
+    ui.label("Mirrored strokes are one editable transaction.");
+    ui.horizontal_wrapped(|ui| {
+        for (mode, label) in [
+            (paint_document::SymmetryMode::Off, "Off"),
+            (paint_document::SymmetryMode::Vertical, "Vertical"),
+            (paint_document::SymmetryMode::Horizontal, "Horizontal"),
+            (
+                paint_document::SymmetryMode::VerticalAndHorizontal,
+                "Both axes",
+            ),
+            (paint_document::SymmetryMode::Radial, "Radial"),
+        ] {
+            let response = ui.selectable_value(&mut symmetry.mode, mode, label);
+            if test_markers {
+                crate::studio_log!(
+                    "UI_TEST_SYMMETRY_MODE_RECT: {label} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                    response.rect.left(),
+                    response.rect.top(),
+                    response.rect.width(),
+                    response.rect.height(),
+                    ui.ctx().pixels_per_point()
+                );
+            }
+        }
+    });
+    if symmetry.mode == paint_document::SymmetryMode::Radial {
+        ui.add(egui::Slider::new(&mut symmetry.axes, 2..=16).text("Radial axes"));
+    }
+    ui.label("Origin · normalized to the document");
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::DragValue::new(&mut symmetry.center[0])
+                .prefix("Origin X ")
+                .range(0.0..=1.0)
+                .speed(0.01),
+        );
+        ui.add(
+            egui::DragValue::new(&mut symmetry.center[1])
+                .prefix("Origin Y ")
+                .range(0.0..=1.0)
+                .speed(0.01),
+        );
+        if ui
+            .button("Center")
+            .on_hover_text("Reset symmetry origin to canvas center")
+            .clicked()
+        {
+            symmetry.center = [0.5, 0.5];
+        }
+    });
+    if ui.button("Turn symmetry off").clicked() {
+        symmetry.mode = paint_document::SymmetryMode::Off;
+    }
+    before != *symmetry
+}
+
 pub struct Studio {
     pub context: egui::Context,
     pub input: egui_winit::State,
@@ -3222,6 +3284,8 @@ pub struct Studio {
     saved_color_swatches: Vec<[u8; 3]>,
     favorite_brushes: Vec<BrushKind>,
     color_mix_strength: f64,
+    symmetry: paint_document::Symmetry,
+    symmetry_panel_open: bool,
     barrel_action: crate::barrel::BarrelAction,
     barrel_router: crate::barrel::BarrelRouter,
     brush_search: String,
@@ -3420,6 +3484,7 @@ impl Studio {
         let saved_color_swatches = preferences.saved_color_swatches.clone();
         let favorite_brushes = preferences.favorite_brushes.clone();
         let color_mix_strength = preferences.color_mix_strength;
+        let symmetry = preferences.symmetry;
         let barrel_action = preferences.barrel_action;
         let references: Vec<ReferenceImage> = preferences
             .references
@@ -3461,6 +3526,8 @@ impl Studio {
             saved_color_swatches,
             favorite_brushes,
             color_mix_strength,
+            symmetry,
+            symmetry_panel_open: false,
             barrel_action,
             barrel_router: crate::barrel::BarrelRouter::default(),
             brush_search: String::new(),
@@ -4766,6 +4833,16 @@ impl Studio {
         session.mouse(MouseEvent::Interrupted, 0);
         self.edit_pointer = None;
         self.edit_points.clear();
+        if key == 'y' {
+            self.symmetry_panel_open = !self.symmetry_panel_open;
+            if self.test_path_dialog {
+                crate::studio_log!(
+                    "UI_TEST_SYMMETRY_PANEL_TOGGLED: {}",
+                    self.symmetry_panel_open
+                );
+            }
+            return;
+        }
         if key == 'c' {
             self.color_flyout_open = !self.color_flyout_open;
             self.brush_flyout_open = false;
@@ -5122,6 +5199,7 @@ impl Studio {
             saved_color_swatches: self.saved_color_swatches.clone(),
             favorite_brushes: self.favorite_brushes.clone(),
             color_mix_strength: self.color_mix_strength,
+            symmetry: self.symmetry,
             barrel_action: self.barrel_action,
             canvas_zoom: self.navigation.zoom,
             canvas_pan: self.navigation.pan,
@@ -5601,6 +5679,7 @@ impl Studio {
                             ui.separator();
                             ui.label("Brush size [ / ] · fine adjustment: Shift+[ / Shift+]");
                             ui.label("B Brush · G Gradient · C Color · M / E selection");
+                            ui.label("Y Drawing symmetry and guides");
                             ui.label("K Lasso · I Eyedropper · S Smudge · X Color Mixer · L Line · R Rectangle · O Ellipse");
                             ui.label("Shift constrains line angles and shape proportions");
                             ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
@@ -6244,6 +6323,28 @@ impl Studio {
                         {
                             self.brush_flyout_open = false;
                             self.color_flyout_open = !self.color_flyout_open;
+                            ctx.request_repaint();
+                        }
+                        let symmetry_button = crate::studio_icons::button(
+                            ui,
+                            crate::studio_icons::Icon::Symmetry,
+                            "Drawing symmetry and guides",
+                            Some("Y"),
+                            self.symmetry_panel_open,
+                            [46.0, 46.0],
+                        );
+                        if self.test_path_dialog {
+                            crate::studio_log!(
+                                "UI_TEST_SYMMETRY_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                symmetry_button.rect.left(),
+                                symmetry_button.rect.top(),
+                                symmetry_button.rect.width(),
+                                symmetry_button.rect.height(),
+                                ctx.pixels_per_point()
+                            );
+                        }
+                        if symmetry_button.clicked() {
+                            self.symmetry_panel_open = !self.symmetry_panel_open;
                             ctx.request_repaint();
                         }
                         if !compact_palette {
@@ -8260,6 +8361,49 @@ impl Studio {
             if self.test_path_dialog && reference_visible_workspace {
                 crate::studio_log!("UI_TEST_REFERENCE_PANEL_COUNT: {}", self.references.len());
             }
+            if !self.welcome && !self.new_dialog && !self.manual_file_dialog {
+                let mut panel_open = self.symmetry_panel_open;
+                let mut symmetry_changed = false;
+                let screen = ctx.content_rect();
+                let default_pos = egui::pos2(
+                    (screen.right() - 292.0).max(screen.left() + 8.0),
+                    (screen.top() + 72.0).min(screen.bottom() - 180.0),
+                );
+                egui::Window::new("Drawing Symmetry")
+                    .id(egui::Id::new("Drawing Symmetry"))
+                    .open(&mut panel_open)
+                    .default_pos(default_pos)
+                    .default_width(264.0)
+                    .max_width((screen.width() - 16.0).max(220.0))
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        symmetry_changed =
+                            symmetry_panel_contents(ui, &mut self.symmetry, self.test_path_dialog);
+                    });
+                self.symmetry_panel_open = panel_open;
+                if symmetry_changed {
+                    workspace_changed = true;
+                    ctx.request_repaint();
+                    if self.test_path_dialog {
+                        crate::studio_log!(
+                            "UI_TEST_SYMMETRY_CHANGED: {:?} axes={} center={:.3},{:.3}",
+                            self.symmetry.mode,
+                            self.symmetry.axes,
+                            self.symmetry.center[0],
+                            self.symmetry.center[1]
+                        );
+                    }
+                }
+                if self.test_path_dialog && self.symmetry_panel_open {
+                    crate::studio_log!(
+                        "UI_TEST_SYMMETRY_PANEL: {:?} axes={} center={:.3},{:.3}",
+                        self.symmetry.mode,
+                        self.symmetry.axes,
+                        self.symmetry.center[0],
+                        self.symmetry.center[1]
+                    );
+                }
+            }
             if workspace_changed
                 && !ctx.input(|input| input.pointer.any_down())
                 && let Err(error) = self.persist_workspace()
@@ -9727,11 +9871,15 @@ impl Studio {
         let mut approved = false;
         let mut output = ctx.run(raw, |ctx| {
             self.widgets(ctx, session, &mut actions, &mut central, &mut approved);
+            self.paint_symmetry_guides(ctx, central, session, size);
             self.paint_placed_image_preview(ctx, central, session, size);
             self.placed_image_controls(ctx, session, &mut actions);
         });
         // Tool controls are edited inside the UI frame. Capture their latest
         // mode parameters before subsequent native pointer events arrive.
+        if let Err(error) = session.live_mut().project_mut().set_symmetry(self.symmetry) {
+            self.status = format!("Could not apply drawing symmetry: {error}");
+        }
         session
             .live_mut()
             .set_stroke_mode(stroke_mode_for_tool(self.tool, self.color_mix_strength));
@@ -9960,6 +10108,23 @@ impl Studio {
         self.workspace_center = [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0];
         if let Some(m) = self.mapping {
             session.live_mut().set_mapping(m);
+            if self.test_path_dialog {
+                let document = m.document_size();
+                if let (Ok(top_left), Ok(bottom_right)) = (
+                    m.document_to_client([0.0, 0.0]),
+                    m.document_to_client(document),
+                ) {
+                    crate::studio_log!(
+                        "UI_TEST_SYMMETRY_CANVAS: {:.2} {:.2} {:.2} {:.2} {:.2} {:.2}",
+                        top_left[0],
+                        top_left[1],
+                        bottom_right[0],
+                        bottom_right[1],
+                        document[0],
+                        document[1]
+                    );
+                }
+            }
         }
         if session.mode() == crate::interaction::Mode::Live
             && let Some(mapping) = self.mapping
@@ -10204,6 +10369,81 @@ impl Studio {
     pub fn home_surface_color(&self) -> Option<egui::Color32> {
         self.welcome
             .then(|| self.context.style().visuals.panel_fill)
+    }
+
+    fn paint_symmetry_guides(
+        &self,
+        ctx: &egui::Context,
+        central: egui::Rect,
+        session: &CanvasSession,
+        size: [u32; 2],
+    ) {
+        if session.mode() != crate::interaction::Mode::Live
+            || central.is_negative()
+            || self.symmetry.mode == paint_document::SymmetryMode::Off
+        {
+            return;
+        }
+        let state = session.live().project().state();
+        let scale = f64::from(ctx.pixels_per_point());
+        let rect = [
+            f64::from(central.min.x) * scale,
+            f64::from(central.min.y) * scale,
+            (f64::from(central.max.x) * scale).min(f64::from(size[0])),
+            (f64::from(central.max.y) * scale).min(f64::from(size[1])),
+        ];
+        let Some(mapping) = CanvasMapping::for_document(
+            size,
+            [f64::from(state.width), f64::from(state.height)],
+            rect,
+        )
+        .ok()
+        .and_then(|mapping| {
+            mapping
+                .navigated(self.navigation.zoom, self.navigation.pan)
+                .ok()
+        }) else {
+            return;
+        };
+        let to_screen = |document: [f64; 2]| {
+            mapping.to_clip(document).ok().map(|point| {
+                egui::pos2(
+                    (point[0] + 1.0) * size[0] as f32 / 2.0 / scale as f32,
+                    (1.0 - point[1]) * size[1] as f32 / 2.0 / scale as f32,
+                )
+            })
+        };
+        let guides = self.symmetry.guide_lines(state.width, state.height);
+        let painter = ctx
+            .layer_painter(egui::LayerId::new(
+                egui::Order::Middle,
+                egui::Id::new("drawing symmetry guides"),
+            ))
+            .with_clip_rect(central);
+        let color = egui::Color32::from_rgba_unmultiplied(209, 137, 255, 165);
+        for [[start_x, start_y], [end_x, end_y]] in &guides {
+            if let (Some(start), Some(end)) =
+                (to_screen([*start_x, *start_y]), to_screen([*end_x, *end_y]))
+            {
+                painter.line_segment([start, end], egui::Stroke::new(1.0, color));
+            }
+        }
+        if let Some(origin) = to_screen([
+            self.symmetry.center[0] * f64::from(state.width),
+            self.symmetry.center[1] * f64::from(state.height),
+        ]) {
+            painter.circle_filled(origin, 3.0, egui::Color32::from_rgb(223, 160, 255));
+            painter.circle_stroke(origin, 5.5, egui::Stroke::new(1.0, color));
+        }
+        if self.test_path_dialog {
+            crate::studio_log!(
+                "UI_TEST_SYMMETRY_GUIDES: {:?} {} {:.3} {:.3}",
+                self.symmetry.mode,
+                guides.len(),
+                self.symmetry.center[0],
+                self.symmetry.center[1]
+            );
+        }
     }
 
     fn paint_placed_image_preview(

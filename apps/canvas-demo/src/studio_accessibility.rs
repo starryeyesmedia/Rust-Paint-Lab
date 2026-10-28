@@ -181,6 +181,55 @@ mod tests {
     }
 
     #[test]
+    fn drawing_symmetry_controls_are_named_and_keyboard_exposed() {
+        let context = app_context();
+        context.enable_accesskit();
+        let mut symmetry = paint_document::Symmetry {
+            mode: paint_document::SymmetryMode::Radial,
+            axes: 8,
+            center: [0.4, 0.6],
+        };
+        let output = context.run(Default::default(), |ctx| {
+            egui::Window::new("Drawing Symmetry").show(ctx, |ui| {
+                crate::studio::symmetry_panel_contents(ui, &mut symmetry, false);
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("drawing symmetry emits its semantic controls");
+        let nodes = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in [
+            "Drawing Symmetry",
+            "Off",
+            "Vertical",
+            "Horizontal",
+            "Both axes",
+            "Radial",
+            "Radial axes",
+            "Origin X",
+            "Origin Y",
+            "Center",
+            "Turn symmetry off",
+        ] {
+            assert!(nodes.contains(label), "{label} missing from tree: {nodes}");
+        }
+        assert!(
+            nodes.contains("role: Slider"),
+            "radial axis count must be keyboard adjustable: {nodes}"
+        );
+        assert!(
+            nodes.contains("role: RadioButton") || nodes.contains("role: Button"),
+            "symmetry modes must have keyboard-activatable semantics: {nodes}"
+        );
+    }
+
+    #[test]
     fn color_field_has_a_semantic_name_and_keyboard_adjustable_components() {
         let context = app_context();
         context.enable_accesskit();

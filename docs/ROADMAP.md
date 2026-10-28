@@ -574,3 +574,27 @@ Linux application/recovery workflow passed, and the ordinary canvas, stylus,
 and UI screenshot artifacts were published. See the [Phase 8.3 progress
 log](PHASE8-STUDIO-PROGRESS.md). This does not complete the phase or validate
 additional physical Windows pen behavior.
+
+### Phase 9 raster drawing aid — symmetry and guides (local validation)
+
+The live document engine applies up to 16 reflected/radial raster copies from a
+workspace-only symmetry setting. A compact accessible palette panel and **Y**
+shortcut select Off, vertical, horizontal, combined reflection or radial copies,
+adjust radial count and move the normalized origin. Guides follow canvas zoom
+and pan and remain a UI overlay; the resulting pixels are a single reversible
+native raster edit. Stroke transactions snapshot their mode, cancelled copies
+never commit, and coincident copies do not accumulate additional opacity. `.rpl`
+v1 remains unchanged; settings are local workspace preferences.
+
+The focused document tests and a real Linux XTest workflow validate mirrored
+and radial pixels, cancellation, undo/redo, save/reopen, accessible control names
+and bounded guide geometry. On 2026-10-28, the full Xorg/XTest artwork and
+recovery suite passed locally with the symmetry interaction and generated
+53 screenshots; the symmetry panel capture was inspected. Full workspace
+validation passed: formatting, strict Clippy, all 317 workspace tests, workspace
+build, Windows GNU check/Clippy, and required llvmpipe GPU smoke. GitHub Actions
+for the current code checkpoint are pending. Physical Windows pen/symmetry
+combinations are not newly verified. See the
+[Phase 9 progress entry](PHASE8-STUDIO-PROGRESS.md). The next feature should be
+a complete selection-transform or QuickShape workflow; editable layer masks
+need a separate versioned-storage and recovery design first.

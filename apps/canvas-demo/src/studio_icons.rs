@@ -23,6 +23,7 @@ pub enum Icon {
     Save,
     Layers,
     Color,
+    Symmetry,
     Settings,
     Reference,
     DragHandle,
@@ -263,6 +264,12 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
                 painter.circle_filled(at(x, y), 1.0 * scale, color);
             }
         }
+        Icon::Symmetry => {
+            line((0.0, -8.0), (0.0, 8.0));
+            line((-8.0, 0.0), (8.0, 0.0));
+            path(&[(-5.0, -5.0), (-1.5, -1.5), (1.5, 1.5), (5.0, 5.0)]);
+            painter.circle_filled(center, 1.4 * scale, color);
+        }
         Icon::Settings => {
             painter.circle_stroke(center, 5.5 * scale, stroke);
             painter.circle_stroke(center, 2.2 * scale, stroke);
@@ -489,6 +496,7 @@ mod tests {
             Icon::Save,
             Icon::Layers,
             Icon::Color,
+            Icon::Symmetry,
             Icon::Settings,
             Icon::Reference,
             Icon::DragHandle,

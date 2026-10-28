@@ -96,6 +96,16 @@ or color-managed pigment model. Pressure toggles are available in the compact
 Dynamics menu. Concurrent contacts are ignored while its private layer
 transaction is active.
 
+Use **Y** or the symmetry icon in the primary tool palette to open Drawing
+Symmetry. Choose Off, Vertical, Horizontal, Both axes, or Radial; radial copies
+are bounded to 2–16. The X and Y origin controls are normalized to the current
+document and Center resets them. The purple guide is a workspace overlay that
+follows canvas zoom and pan and is never exported. Generated brush, Smudge and
+Color Mixer copies are ordinary pixels in one undoable stroke transaction, so
+Cancel/Undo removes all copies together. The selected mode and origin are local
+workspace preferences; they are not stored in the `.rpl` document. Shape and
+gradient operations are not mirrored yet.
+
 On Windows, **View → S Pen barrel button** assigns the native pen side button.
 The default **Hold for Eraser** splits an active brush/Smudge/Color Mixer contact
 at the button transition, commits the held eraser segment, then starts a fresh

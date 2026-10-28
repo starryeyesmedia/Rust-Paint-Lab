@@ -2572,10 +2572,59 @@ pending confirmation.
 
 ### Next development steps
 
-1. Confirm the new three-platform Actions run, including its Windows startup and
-   portable executable artifact and Linux placement/export diagnostics.
+1. Confirm the current three-platform Actions run, including its Windows startup
+   and portable executable artifact and Linux placement/export diagnostics.
 2. Advance Phase 9 with a completed selection-transform workflow or QuickShape;
-   keep the `.rpl` v1 format unchanged where the feature is transient/raster.
-3. Then develop symmetry/guides and brush dynamics. Design versioned mask storage
-   with v1 migration and recovery tests before adding editable masks. Phase 10
-   vector/text and Phase 11 timelapse/animation remain incomplete.
+   keep `.rpl` v1 unchanged where the feature is transient/raster.
+3. Design versioned mask storage with v1 migration and recovery tests before
+   adding editable masks. Phase 10 vector/text and Phase 11 timelapse/animation
+   remain incomplete.
+
+## Phase 9 — Symmetry and drawing guides (local checkpoint)
+
+The live raster engine now supports Off, vertical, horizontal, combined vertical
+and horizontal reflection, and bounded radial copies (2–16). Each stroke captures
+its symmetry mode and normalized origin at Begin, so changing the workspace
+setting cannot alter an active transaction. Original and generated dabs share a
+single provisional/commit/cancel transaction, selection clipping, layer guards,
+undo/redo, save/reopen and export behavior. Coincident copies on a reflection
+axis or radial origin are deduplicated, preventing repeated opacity buildup;
+smudge retains independent bounded pickup state per generated path. Transform
+matrices are cached once per transaction, and fixed 16-entry state buffers avoid
+per-sample allocations and repeated trigonometry in the dab loop.
+
+The canvas exposes a compact, accessible Drawing Symmetry panel from the primary
+palette and the **Y** shortcut. It offers the five modes, radial count and a
+document-normalized X/Y origin with a Center action. Purple symmetry guides are
+clipped to the paper and follow the current zoom/pan mapping. Symmetry settings
+are stored only in local workspace preferences. Generated copies become ordinary
+raster pixels; guides and settings are not serialized into `.rpl`, and no native
+format version or migration was needed. Shape/gradient transforms, ruler and
+perspective guides, QuickShape recognition, and editable/vector symmetry remain
+out of scope.
+
+Automated coverage checks exact mirrored and radial raster locations, one-step
+undo/redo, cancellation of all provisional copies, in-flight setting snapshots,
+coincident-dab opacity, bounded guide geometry, input identity/pressure/time
+preservation, unsupported tilt, invalid settings and the AccessKit tree. The
+actual Linux app workflow uses keyboard Y and the Vertical
+panel option, paints through winit → Processor → Router → raster engine, checks
+both original and reflected pixels in the saved native layer, then compares the
+full project bytes after Undo/Redo. Local Xorg/XTest/llvmpipe passed and captured
+`symmetry-panel-vertical.png`; that screenshot was visually inspected. The full
+artwork/recovery workflow passed with this behavior and **53 captures**. On the
+final worktree, formatting, strict workspace Clippy, **317 workspace tests**,
+workspace build, Windows GNU check/Clippy and required llvmpipe GPU smoke all
+passed. GitHub Actions is pending after the push. Older testing notes mention
+no local Xvfb; this session used the dedicated Xorg display `:102`. No new
+physical Windows S Pen test was performed. Existing basic S Pen drawing and
+Windows launch remain the previously owner-tested baseline; advanced
+symmetry/stylus combinations require future device testing.
+
+### Continuation
+
+After verifying the current Actions run, prioritize an end-to-end selection
+transform or QuickShape improvement, then design versioned non-destructive layer
+mask storage and migration. Keep the next commits focused on artist workflows.
+Phase 9 as a whole, Phase 8.3 acceptance, Phase 10 vector/text and Phase 11
+timelapse/animation are still active/incomplete.

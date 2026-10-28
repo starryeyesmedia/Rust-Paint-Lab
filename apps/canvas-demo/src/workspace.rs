@@ -212,6 +212,10 @@ pub struct WorkspacePreferences {
     /// native artwork and brush-preset schemas stay backward compatible.
     #[serde(default = "default_color_mix_strength")]
     pub color_mix_strength: f64,
+    /// Local, artwork-independent drawing assistance. Missing from legacy
+    /// preferences defaults to disabled and does not alter native documents.
+    #[serde(default)]
+    pub symmetry: paint_document::Symmetry,
     /// Native pen barrel-button assignment; absent in older preference files.
     #[serde(default)]
     pub barrel_action: crate::barrel::BarrelAction,
@@ -312,6 +316,7 @@ impl Default for WorkspacePreferences {
             saved_color_swatches: Vec::new(),
             favorite_brushes: Vec::new(),
             color_mix_strength: default_color_mix_strength(),
+            symmetry: paint_document::Symmetry::default(),
             barrel_action: crate::barrel::BarrelAction::default(),
             canvas_zoom: 1.0,
             canvas_pan: [0.0, 0.0],
@@ -359,6 +364,7 @@ impl WorkspacePreferences {
                 .all(|v| v.is_finite())
             || !self.workspace_controls_size.iter().all(|v| v.is_finite())
             || !self.color_mix_strength.is_finite()
+            || !self.symmetry.validate()
             || !self.canvas_pan.iter().all(|v| v.is_finite())
             || !self.new_document.validate()
         {
@@ -639,6 +645,7 @@ mod tests {
         assert_eq!(preferences.canvas_zoom, 1.0);
         assert_eq!(preferences.canvas_pan, [0.0, 0.0]);
         assert_eq!(preferences.color_mix_strength, 0.55);
+        assert_eq!(preferences.symmetry, paint_document::Symmetry::default());
         assert_eq!(preferences.inspector_tab, InspectorTab::Layers);
         assert!(!preferences.high_contrast);
         assert!(!preferences.reduced_motion);
@@ -812,6 +819,7 @@ mod tests {
         assert!(legacy.validate());
         assert!(legacy.favorite_brushes.is_empty());
         assert_eq!(legacy.color_mix_strength, 0.55);
+        assert_eq!(legacy.symmetry, paint_document::Symmetry::default());
     }
 
     #[test]
@@ -830,6 +838,30 @@ mod tests {
         assert!(loaded.validate());
         assert_eq!(loaded.color_mix_strength, 1.0);
         loaded.color_mix_strength = f64::NAN;
+        assert!(!loaded.validate());
+    }
+
+    #[test]
+    fn symmetry_origin_and_radial_axes_persist_and_reject_invalid_geometry() {
+        let symmetry = paint_document::Symmetry {
+            mode: paint_document::SymmetryMode::Radial,
+            axes: 12,
+            center: [0.32, 0.68],
+        };
+        let mut preferences = WorkspacePreferences {
+            symmetry,
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut loaded: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(loaded.validate());
+        assert_eq!(loaded.symmetry, symmetry);
+
+        loaded.symmetry.axes = 17;
+        assert!(!loaded.validate());
+        loaded.symmetry.axes = 6;
+        loaded.symmetry.center[1] = f64::NAN;
         assert!(!loaded.validate());
     }
 
