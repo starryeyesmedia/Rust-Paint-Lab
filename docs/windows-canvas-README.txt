@@ -3,10 +3,11 @@ BitchPixel — portable Windows creative studio
 Rust Paint Lab remains the repository and internal engineering name. This is an
 unsigned evaluation build; it is not an official release.
 
-Run canvas-demo.exe on Windows 10 x64. This unsigned development build needs no
-Rust or Visual Studio installation, installer, or administrator privileges. Use a
-compatible Direct3D 12 adapter/driver; system graphics components and GPU drivers
-remain required. Run it from PowerShell to retain startup diagnostics.
+Double-click canvas-demo.exe on Windows 10 x64. It is built as a Windows GUI
+application and does not open or depend on a command terminal. This unsigned
+development build needs no Rust or Visual Studio installation, installer, or
+administrator privileges. Use a compatible Direct3D 12 adapter/driver; system
+graphics components and GPU drivers remain required.
 
 The application opens on a welcome screen. Choose New Document to set a name,
 pixel or physical dimensions, DPI, preset, orientation, and background, or choose
@@ -46,13 +47,15 @@ Ctrl+Shift+O open OpenRaster, Ctrl+Shift+E export OpenRaster, F11 fullscreen. Es
 closes a contextual Brush/Color/Layers panel before closing the application. See
 USER-GUIDE.md for complete controls and limitations.
 
-If startup or rendering fails, run .\canvas-demo.exe from PowerShell and retain
-BUILD.txt. Include Windows version, GPU/driver, display scaling, and the error text
-when diagnosing graphics compatibility. Direct3D 12 support varies by driver.
-SmartScreen or organization policy may block unsigned development builds.
+If startup initialization fails, BitchPixel shows an error dialog and writes a
+bounded diagnostic log to %LOCALAPPDATA%\BitchPixel\logs\canvas-demo.log. To
+troubleshoot graphics compatibility, run .\canvas-demo.exe from PowerShell and
+retain that log plus BUILD.txt. Include Windows version, GPU/driver, display
+scaling, and the error text. Direct3D 12 support varies by driver. SmartScreen or
+organization policy may block unsigned development builds.
 
 The Studio creates its AccessKit adapter while the native window is hidden and
 shows the window only after GPU and UI initialization succeeds. A startup failure
-closes the hidden window and reports the error to the launching console. See
+closes the hidden window and reports the error in a BitchPixel dialog and log. See
 docs/windows-startup-smoke.md for what the automated Windows launch check verifies
 and its hosted-runner limitations.

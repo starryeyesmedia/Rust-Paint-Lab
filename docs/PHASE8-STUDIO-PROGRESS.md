@@ -1,5 +1,51 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Owner usability findings — Windows GUI packaging checkpoint (2026-10-28)
+
+The active continuation responds to the Galaxy Book2 Pro 360 evaluation. The
+owner-confirmed baseline remains the successful `b50e7ec` launch and basic S Pen
+drawing. Pressure/stabilization showed no obvious failure and palm rejection
+appeared effective in that short session; this is not exhaustive pen validation.
+
+Checkpoint A changes the Windows `canvas-demo` binary to the GUI subsystem, so
+Explorer launches without a console. Application diagnostics now use a
+best-effort stderr mirror plus a single 1 MiB-capped local log
+(`%LOCALAPPDATA%\BitchPixel\logs\canvas-demo.log`); fatal startup errors show a
+native Windows dialog. The hidden-window AccessKit creation and show-after-GPU
+initialization sequence is preserved. The release package CI inspects the PE
+header for `Windows GUI`, and the startup smoke reads the bounded application
+log so it can still detect the visible window/first rendered frame without a
+console. The stylus diagnostic is untouched.
+
+Local verification on pinned Rust 1.90: formatting, strict workspace Clippy,
+workspace build, **278 workspace tests**, Windows GNU workspace check/Clippy,
+and the required offscreen GPU smoke on llvmpipe/OpenGL passed. A direct invalid-
+argument run confirmed the error is written to the bounded log and exits
+nonzero. The environment has no Xvfb or active display, so the Linux Xorg/XTest
+workflow and screenshot review were not run locally. Windows packaged GUI and
+macOS first-frame behavior remain pending the next GitHub Actions result; PE
+inspection and Windows native dialog behavior are not established by GNU
+cross-checking.
+
+The ten owner findings are being addressed in priority order: startup A is
+implemented locally and awaits cross-platform CI; custom iconography, Home/New
+Canvas, coordinated workspace/Layers, side-button action, Smudge, and image
+placement remain active work. Custom window chrome remains a platform-sensitive
+investigation and will retain native window behavior unless a safe implementation
+is proven. No Phase 8.3 acceptance is claimed.
+
+### Exact continuation
+
+1. Push and verify the GUI-subsystem startup checkpoint. Then continue the
+recognizable tool/icon hierarchy and Home/New Canvas workflow before advancing
+to workspace usability and engine-connected Smudge/image placement.
+2. Keep the existing WM_POINTER pipeline intact; synthetic barrel-button tests
+must precede a configurable temporary tool action. Preserve the owner's
+successful Windows evaluation baseline and do not require a new demo between
+internal checkpoints.
+3. Continue documenting which owner findings are fixed, partial, blocked or
+pending, with actual tests and Actions runs; do not merge or release.
+
 ## Phase 8.1 — Studio refinement (active)
 
 The Phase 8.1 working slice is in progress on

@@ -171,6 +171,11 @@ jobs:
           $imports = & $dumpbin.FullName /dependents $exe
           if ($LASTEXITCODE -ne 0) { throw 'Canvas DLL inspection failed' }
           $imports | Write-Output
+          $headers = & $dumpbin.FullName /headers $exe
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas executable header inspection failed' }
+          if (($headers -join "`n") -notmatch '(?i)subsystem[^\r\n]*Windows GUI') {
+            throw 'Canvas executable is not configured for the Windows GUI subsystem'
+          }
           if ($imports -match '(?i)\b(vcruntime[^\s]*|msvcp[^\s]*|ucrtbase|api-ms-win-crt-[^\s]*)\.dll\b') {
             throw 'Canvas unexpectedly depends on a dynamic Visual C++ runtime'
           }
@@ -190,7 +195,8 @@ jobs:
           $rust = rustc --version
           if ($LASTEXITCODE -ne 0) { throw 'Cannot identify canvas toolchain' }
           @("Commit: $env:GITHUB_SHA", "Toolchain: $rust", 'Target: x86_64-pc-windows-msvc',
-            'Release; static CRT; unsigned; system FXC shader compiler', '', 'Direct DLL imports:', $imports) |
+            'Release; Windows GUI subsystem; static CRT; unsigned; system FXC shader compiler', '',
+            'Direct DLL imports:', $imports) |
             Set-Content "$package/BUILD.txt" -Encoding utf8
           $hash = (Get-FileHash "$package/canvas-demo.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  canvas-demo.exe" | Set-Content "$package/SHA256SUMS.txt" -Encoding ascii

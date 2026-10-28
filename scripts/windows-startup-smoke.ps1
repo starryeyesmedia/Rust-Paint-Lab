@@ -5,7 +5,8 @@ $logDirectory = Join-Path $env:RUNNER_TEMP 'rpl-windows-startup-smoke'
 New-Item -ItemType Directory -Force $logDirectory | Out-Null
 $stdout = Join-Path $logDirectory 'stdout.log'
 $stderr = Join-Path $logDirectory 'stderr.log'
-Remove-Item $stdout, $stderr -Force -ErrorAction SilentlyContinue
+$applicationLog = Join-Path $logDirectory 'canvas-demo.log'
+Remove-Item $stdout, $stderr, $applicationLog -Force -ErrorAction SilentlyContinue
 
 Add-Type -TypeDefinition @'
 using System;
@@ -44,17 +45,20 @@ public static class RplWindowProbe {
 }
 '@
 
-$process = Start-Process -FilePath $exe.Path -ArgumentList '--alpha-smoke' -PassThru `
-    -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-$deadline = [DateTime]::UtcNow.AddSeconds(90)
-$visibleTitle = $null
-$output = ''
+$previousLogDirectory = $env:RPL_LOG_DIR
+$env:RPL_LOG_DIR = $logDirectory
+$process = $null
 
 try {
+    $process = Start-Process -FilePath $exe.Path -ArgumentList '--alpha-smoke' -PassThru `
+        -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $deadline = [DateTime]::UtcNow.AddSeconds(90)
+    $visibleTitle = $null
+    $output = ''
     while ([DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 250
         $process.Refresh()
-        $output = (Get-Content $stdout, $stderr -Raw -ErrorAction SilentlyContinue) -join "`n"
+        $output = (Get-Content $stdout, $stderr, $applicationLog -Raw -ErrorAction SilentlyContinue) -join "`n"
         if (!$visibleTitle) {
             $visibleTitle = [RplWindowProbe]::FindVisibleStudioWindow($process.Id)
         }
@@ -73,7 +77,7 @@ try {
         throw "Timed out waiting for the visible first Studio frame. Logs: $logDirectory"
     }
 
-    $output = (Get-Content $stdout, $stderr -Raw -ErrorAction SilentlyContinue) -join "`n"
+    $output = (Get-Content $stdout, $stderr, $applicationLog -Raw -ErrorAction SilentlyContinue) -join "`n"
     if ($output -match 'No compatible graphics adapter:') {
         Write-Host 'WINDOW_STARTUP_SMOKE_INCONCLUSIVE: this Windows runner has no compatible wgpu adapter.'
         Write-Host $output
@@ -96,6 +100,10 @@ try {
     return 'PASSED'
 }
 finally {
-    $process.Refresh()
-    if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    if ($process) {
+        $process.Refresh()
+        if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    }
+    if ($null -eq $previousLogDirectory) { Remove-Item Env:RPL_LOG_DIR -ErrorAction SilentlyContinue }
+    else { $env:RPL_LOG_DIR = $previousLogDirectory }
 }

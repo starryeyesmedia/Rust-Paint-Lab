@@ -829,7 +829,7 @@ pub(crate) fn home_open_project_card(
         )
     });
     if test_mode {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_HOME_OPEN_CARD_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             rect.left(),
             rect.top(),
@@ -1119,7 +1119,7 @@ fn document_format_card_with_preview(
 }
 
 fn log_format_preview_rect(ui: &egui::Ui, label: &str, paper: egui::Rect) {
-    eprintln!(
+    crate::studio_log!(
         "UI_TEST_FORMAT_PREVIEW_RECT|{label}|{:.1} {:.1} {:.1} {:.1} {:.2}",
         paper.left(),
         paper.top(),
@@ -1130,7 +1130,7 @@ fn log_format_preview_rect(ui: &egui::Ui, label: &str, paper: egui::Rect) {
 }
 
 fn log_format_card_rect(ui: &egui::Ui, label: &str, rect: egui::Rect) {
-    eprintln!(
+    crate::studio_log!(
         "UI_TEST_FORMAT_CARD_RECT|{label}|{:.1} {:.1} {:.1} {:.1} {:.2}",
         rect.left(),
         rect.top(),
@@ -1400,7 +1400,7 @@ fn saved_color_palette_contents(
                 )
             });
             if test_mode {
-                eprintln!(
+                crate::studio_log!(
                     "UI_TEST_COLOR_PALETTE_ADD_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                     add.rect.left(),
                     add.rect.top(),
@@ -1411,7 +1411,7 @@ fn saved_color_palette_contents(
             }
             if add.clicked() {
                 if test_mode {
-                    eprintln!("UI_TEST_COLOR_PALETTE_ADD_CLICKED");
+                    crate::studio_log!("UI_TEST_COLOR_PALETTE_ADD_CLICKED");
                 }
                 if swatches.contains(current_color) {
                     *status = "That color is already in the saved palette".into();
@@ -1429,7 +1429,7 @@ fn saved_color_palette_contents(
     });
     if test_mode && !*ready_logged {
         *ready_logged = true;
-        eprintln!("UI_TEST_COLOR_PALETTE_READY: {}", swatches.len());
+        crate::studio_log!("UI_TEST_COLOR_PALETTE_READY: {}", swatches.len());
     }
     if swatches.is_empty() {
         ui.weak("Save colors here for reuse across projects.");
@@ -1449,7 +1449,7 @@ fn saved_color_palette_contents(
                     38.0,
                 );
                 if index == 0 && test_mode {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_COLOR_SWATCH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2} {} {} {}",
                         swatch.rect.left(),
                         swatch.rect.top(),
@@ -1462,7 +1462,7 @@ fn saved_color_palette_contents(
                     );
                 }
                 if test_mode && color == [35, 65, 180] {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_COLOR_ORIGINAL_SWATCH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                         swatch.rect.left(),
                         swatch.rect.top(),
@@ -1474,7 +1474,7 @@ fn saved_color_palette_contents(
                 if swatch.clicked() {
                     *current_color = color;
                     if test_mode {
-                        eprintln!("UI_TEST_COLOR_SWATCH_APPLIED: {}", hex);
+                        crate::studio_log!("UI_TEST_COLOR_SWATCH_APPLIED: {}", hex);
                     }
                 }
                 let remove = ui.add_sized([32.0, 38.0], egui::Button::new("×"));
@@ -1488,7 +1488,7 @@ fn saved_color_palette_contents(
                 });
                 let remove = remove.on_hover_text(&remove_label);
                 if index == 0 && test_mode {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_COLOR_PALETTE_REMOVE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                         remove.rect.left(),
                         remove.rect.top(),
@@ -1500,7 +1500,7 @@ fn saved_color_palette_contents(
                 if remove.clicked() {
                     remove_swatch = Some(index);
                     if test_mode {
-                        eprintln!("UI_TEST_COLOR_SWATCH_REMOVAL_REQUESTED: {hex}");
+                        crate::studio_log!("UI_TEST_COLOR_SWATCH_REMOVAL_REQUESTED: {hex}");
                     }
                 }
             });
@@ -2255,14 +2255,16 @@ fn layer_actions_menu(
     focus_rename: &mut bool,
 ) {
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_MENU_STATE: {} visible={} locked={}",
-            target.id, target.visible, target.locked
+            target.id,
+            target.visible,
+            target.locked
         );
     }
     let select = ui.button("Select layer");
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_SELECT_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             select.rect.left(),
             select.rect.top(),
@@ -2283,7 +2285,7 @@ fn layer_actions_menu(
     let mut visible = target.visible;
     let visibility = ui.checkbox(&mut visible, "Visible");
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_VISIBLE_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             visibility.rect.left(),
             visibility.rect.top(),
@@ -2294,9 +2296,10 @@ fn layer_actions_menu(
     }
     if visibility.changed() {
         if target.emit_test_markers {
-            eprintln!(
+            crate::studio_log!(
                 "UI_TEST_LAYER_VISIBILITY_CHANGED: {} {}",
-                target.id, visible
+                target.id,
+                visible
             );
         }
         actions.push(Action::Layer(
@@ -2311,7 +2314,7 @@ fn layer_actions_menu(
     let mut locked = target.locked;
     let locking = ui.checkbox(&mut locked, "Locked");
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_LOCKED_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             locking.rect.left(),
             locking.rect.top(),
@@ -2322,7 +2325,7 @@ fn layer_actions_menu(
     }
     if locking.changed() {
         if target.emit_test_markers {
-            eprintln!("UI_TEST_LAYER_LOCK_CHANGED: {} {}", target.id, locked);
+            crate::studio_log!("UI_TEST_LAYER_LOCK_CHANGED: {} {}", target.id, locked);
         }
         actions.push(Action::Layer(
             target.id,
@@ -2336,7 +2339,7 @@ fn layer_actions_menu(
     ui.separator();
     let duplicate = ui.button("Duplicate layer");
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_DUPLICATE_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             duplicate.rect.left(),
             duplicate.rect.top(),
@@ -2347,7 +2350,7 @@ fn layer_actions_menu(
     }
     if duplicate.clicked() {
         if target.emit_test_markers {
-            eprintln!("UI_TEST_LAYER_DUPLICATE_CLICKED: {}", target.id);
+            crate::studio_log!("UI_TEST_LAYER_DUPLICATE_CLICKED: {}", target.id);
         }
         actions.push(Action::DuplicateLayer(target.id));
         ui.close();
@@ -2367,7 +2370,7 @@ fn layer_actions_menu(
             "Copy selected pixels above this layer; the source remains unchanged"
         });
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_COPY_SELECTION_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             copy_selection.rect.left(),
             copy_selection.rect.top(),
@@ -2378,14 +2381,14 @@ fn layer_actions_menu(
     }
     if copy_selection.clicked() {
         if target.emit_test_markers {
-            eprintln!("UI_TEST_LAYER_COPY_SELECTION_CLICKED: {}", target.id);
+            crate::studio_log!("UI_TEST_LAYER_COPY_SELECTION_CLICKED: {}", target.id);
         }
         actions.push(Action::CopySelectionToLayer);
         ui.close();
     }
     let clear = ui.add_enabled(!target.locked, egui::Button::new("Clear layer contents"));
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_CLEAR_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             clear.rect.left(),
             clear.rect.top(),
@@ -2396,14 +2399,14 @@ fn layer_actions_menu(
     }
     if clear.clicked() {
         if target.emit_test_markers {
-            eprintln!("UI_TEST_LAYER_CLEAR_CLICKED: {}", target.id);
+            crate::studio_log!("UI_TEST_LAYER_CLEAR_CLICKED: {}", target.id);
         }
         actions.push(Action::ClearLayer(target.id));
         ui.close();
     }
     let delete = ui.add_enabled(target.layer_count > 1, egui::Button::new("Delete layer"));
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_DELETE_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             delete.rect.left(),
             delete.rect.top(),
@@ -2422,7 +2425,7 @@ fn layer_actions_menu(
         egui::Button::new("Bring forward"),
     );
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_BRING_FORWARD_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             bring_forward.rect.left(),
             bring_forward.rect.top(),
@@ -2433,14 +2436,14 @@ fn layer_actions_menu(
     }
     if bring_forward.clicked() {
         if target.emit_test_markers {
-            eprintln!("UI_TEST_LAYER_MOVE_MENU_CLICKED: {} 1", target.id);
+            crate::studio_log!("UI_TEST_LAYER_MOVE_MENU_CLICKED: {} 1", target.id);
         }
         actions.push(Action::MoveLayer(target.id, 1));
         ui.close();
     }
     let send_backward = ui.add_enabled(target.layer_index > 0, egui::Button::new("Send backward"));
     if target.emit_test_markers {
-        eprintln!(
+        crate::studio_log!(
             "UI_TEST_LAYER_SEND_BACKWARD_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
             send_backward.rect.left(),
             send_backward.rect.top(),
@@ -2451,7 +2454,7 @@ fn layer_actions_menu(
     }
     if send_backward.clicked() {
         if target.emit_test_markers {
-            eprintln!("UI_TEST_LAYER_MOVE_MENU_CLICKED: {} -1", target.id);
+            crate::studio_log!("UI_TEST_LAYER_MOVE_MENU_CLICKED: {} -1", target.id);
         }
         actions.push(Action::MoveLayer(target.id, -1));
         ui.close();
@@ -2529,7 +2532,7 @@ fn selected_layer_settings(
                             )
                         });
                         if test_mode {
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_LAYER_OPACITY_SLIDER_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                 opacity_control.rect.left(),
                                 opacity_control.rect.top(),
@@ -2557,7 +2560,7 @@ fn selected_layer_settings(
                                         format!("{mode:?}"),
                                     );
                                     if test_mode {
-                                        eprintln!(
+                                        crate::studio_log!(
                                             "UI_TEST_LAYER_BLEND_OPTION_RECT: {mode:?} {:.1} {:.1} {:.1} {:.1} {:.2}",
                                             option.rect.left(),
                                             option.rect.top(),
@@ -2569,7 +2572,7 @@ fn selected_layer_settings(
                                 }
                             });
                         if test_mode {
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_LAYER_BLEND_COMBO_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                 blend_control.response.rect.left(),
                                 blend_control.response.rect.top(),
@@ -2583,7 +2586,7 @@ fn selected_layer_settings(
                 );
             });
         if test_mode {
-            eprintln!(
+            crate::studio_log!(
                 "UI_TEST_LAYER_SETTINGS_HEADER_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
                 settings.body_returned.is_some(),
                 settings.header_response.rect.left(),
@@ -2628,9 +2631,12 @@ pub(crate) fn layer_flyout_contents(
             .refresh(ui.ctx(), thumbnail_context.document_epoch, project);
     if test_mode {
         for update in thumbnail_updates {
-            eprintln!(
+            crate::studio_log!(
                 "UI_TEST_LAYER_THUMBNAIL_UPDATED: {} {:016x} {} {}",
-                update.layer_id, update.fingerprint, update.covered_pixels, update.colored_pixels
+                update.layer_id,
+                update.fingerprint,
+                update.covered_pixels,
+                update.colored_pixels
             );
         }
     }
@@ -2782,7 +2788,7 @@ pub(crate) fn layer_flyout_contents(
                     );
                     drag_ui.handles.push((id, drag_handle.rect));
                     if test_mode {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_LAYER_DRAG_HANDLE_RECT: {} {} {:.1} {:.1} {:.1} {:.1} {:.2}",
                             row_index,
                             id,
@@ -2796,7 +2802,7 @@ pub(crate) fn layer_flyout_contents(
                     let thumbnail_rect =
                         layer_thumbnail(ui, thumbnail.as_ref(), id == selected, compact);
                     if test_mode && row_index == 0 {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_LAYER_THUMBNAIL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             thumbnail_rect.left(),
                             thumbnail_rect.top(),
@@ -2835,10 +2841,10 @@ pub(crate) fn layer_flyout_contents(
                         )
                     });
                     if test_mode && row_index == 0 && more.clicked() {
-                        eprintln!("UI_TEST_LAYER_ACTIONS_OPENED: {id}");
+                        crate::studio_log!("UI_TEST_LAYER_ACTIONS_OPENED: {id}");
                     }
                     if test_mode && row_index == 0 {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_LAYER_MORE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             more.rect.left(),
                             more.rect.top(),
@@ -2856,7 +2862,7 @@ pub(crate) fn layer_flyout_contents(
                         ),
                     );
                     if test_mode && row_index == 0 {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_LAYER_NAME_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             label.rect.left(),
                             label.rect.top(),
@@ -2867,14 +2873,14 @@ pub(crate) fn layer_flyout_contents(
                     }
                     if label.clicked() {
                         if test_mode {
-                            eprintln!("UI_TEST_LAYER_SELECTED: {id}");
+                            crate::studio_log!("UI_TEST_LAYER_SELECTED: {id}");
                         }
                         actions.push(Action::Select(id));
                     }
                     label
                 });
                 if test_mode {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_LAYER_ROW_RECT: {} {} {:.1} {:.1} {:.1} {:.1} {:.2}",
                         row_index,
                         id,
@@ -2886,7 +2892,7 @@ pub(crate) fn layer_flyout_contents(
                     );
                 }
                 if test_mode && row_index == 0 {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_LAYER_FRONT_ROW_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
                         id,
                         row.response.rect.left(),
@@ -2915,7 +2921,7 @@ pub(crate) fn layer_flyout_contents(
                     layer_actions_menu(ui, menu_target.clone(), actions, &mut focus_rename);
                 });
                 if test_mode && row_index == 0 && context_menu.is_some() {
-                    eprintln!("UI_TEST_LAYER_NATIVE_CONTEXT_OPENED");
+                    crate::studio_log!("UI_TEST_LAYER_NATIVE_CONTEXT_OPENED");
                 }
                 if focus_rename {
                     ui.ctx()
@@ -2959,7 +2965,7 @@ pub(crate) fn layer_flyout_contents(
                         (response.changed(), response.rect)
                     };
                     if test_mode && row_index == 0 {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_LAYER_VISIBILITY_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             visibility.1.left(),
                             visibility.1.top(),
@@ -2971,7 +2977,9 @@ pub(crate) fn layer_flyout_contents(
                     if visibility.0 {
                         layer_state_changed = true;
                         if test_mode {
-                            eprintln!("UI_TEST_LAYER_VISIBILITY_BUTTON_CHANGED: {id} {visible}");
+                            crate::studio_log!(
+                                "UI_TEST_LAYER_VISIBILITY_BUTTON_CHANGED: {id} {visible}"
+                            );
                         }
                     }
                     let locking = if compact {
@@ -3010,7 +3018,7 @@ pub(crate) fn layer_flyout_contents(
                         (response.changed(), response.rect)
                     };
                     if test_mode && row_index == 0 {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_LAYER_LOCK_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             locking.1.left(),
                             locking.1.top(),
@@ -3022,7 +3030,7 @@ pub(crate) fn layer_flyout_contents(
                     if locking.0 {
                         layer_state_changed = true;
                         if test_mode {
-                            eprintln!("UI_TEST_LAYER_LOCK_BUTTON_CHANGED: {id} {locked}");
+                            crate::studio_log!("UI_TEST_LAYER_LOCK_BUTTON_CHANGED: {id} {locked}");
                         }
                     }
                 });
@@ -3347,7 +3355,7 @@ impl Studio {
             .filter_map(|layout| load_reference_texture(&context, layout).ok())
             .collect();
         if test_path_dialog {
-            eprintln!("UI_TEST_REFERENCE_COUNT: {}", references.len());
+            crate::studio_log!("UI_TEST_REFERENCE_COUNT: {}", references.len());
         }
         let appearance_mode = preferences.effective_appearance_mode();
         let custom_accent_rgb = preferences.custom_accent_rgb;
@@ -3787,7 +3795,7 @@ impl Studio {
                             == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter))
             );
         if test_dialog_enter {
-            eprintln!("TEST_PATH_DIALOG: Enter received at winit boundary");
+            crate::studio_log!("TEST_PATH_DIALOG: Enter received at winit boundary");
             self.manual_file_submit = true;
             window.request_redraw();
             return (true, true);
@@ -3833,7 +3841,7 @@ impl Studio {
             self.layer_drag_moved = false;
             self.layer_drag_target = None;
             if self.test_path_dialog {
-                eprintln!("UI_TEST_LAYER_DRAG_STARTED: {id}");
+                crate::studio_log!("UI_TEST_LAYER_DRAG_STARTED: {id}");
             }
             window.request_redraw();
             return (true, true);
@@ -3879,7 +3887,9 @@ impl Studio {
                 {
                     self.pending_layer_move = Some((source, target_index));
                     if self.test_path_dialog {
-                        eprintln!("UI_TEST_LAYER_DRAG_DROP: {source} {target_index} {target}");
+                        crate::studio_log!(
+                            "UI_TEST_LAYER_DRAG_DROP: {source} {target_index} {target}"
+                        );
                     }
                 }
                 self.layer_drag_source = None;
@@ -4299,7 +4309,7 @@ impl Studio {
             self.edit_pointer = None;
             self.edit_points.clear();
             if self.test_path_dialog && gradient_tool {
-                eprintln!("UI_TEST_GRADIENT_CANCELLED: pointer");
+                crate::studio_log!("UI_TEST_GRADIENT_CANCELLED: pointer");
             }
             return true;
         }
@@ -4355,9 +4365,12 @@ impl Studio {
                         self.status = match result {
                             Ok(()) => {
                                 if self.test_path_dialog {
-                                    eprintln!(
+                                    crate::studio_log!(
                                         "UI_TEST_SHAPE_COMMITTED: {kind:?} {:.2} {:.2} {:.2} {:.2}",
-                                        start[0], start[1], position[0], position[1]
+                                        start[0],
+                                        start[1],
+                                        position[0],
+                                        position[1]
                                     );
                                 }
                                 format!("{kind:?} committed · Ctrl+Z to undo")
@@ -4380,7 +4393,7 @@ impl Studio {
                         self.status = match result {
                             Ok(()) => {
                                 if self.test_path_dialog {
-                                    eprintln!(
+                                    crate::studio_log!(
                                         "UI_TEST_GRADIENT_COMMITTED: {:?} {:.2} {:.2} {:.2} {:.2}",
                                         self.gradient_kind,
                                         start[0],
@@ -4424,7 +4437,7 @@ impl Studio {
                         Err(e) => e.to_string(),
                     };
                     if self.test_path_dialog {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_SELECTION_COMMITTED: {} {}",
                             session.live().project().state().selection.is_some(),
                             self.status
@@ -4476,7 +4489,7 @@ impl Studio {
             self.color_flyout_open = !self.color_flyout_open;
             self.brush_flyout_open = false;
             if self.test_path_dialog && self.color_flyout_open {
-                eprintln!("UI_TEST_COLOR_FLYOUT_OPENED: shortcut");
+                crate::studio_log!("UI_TEST_COLOR_FLYOUT_OPENED: shortcut");
             }
             return;
         }
@@ -4507,7 +4520,7 @@ impl Studio {
             self.color_flyout_open = false;
         }
         if self.test_path_dialog {
-            eprintln!("UI_TEST_ACTIVE_TOOL: {:?}", self.tool);
+            crate::studio_log!("UI_TEST_ACTIVE_TOOL: {:?}", self.tool);
         }
     }
     pub fn adjust_brush_size(&mut self, increase: bool, fine: bool, session: &mut CanvasSession) {
@@ -4515,7 +4528,7 @@ impl Studio {
         brush.size = brush_size_after_shortcut(brush.size, increase, fine);
         self.status = format!("Brush size {:.1} px", brush.size);
         if self.test_path_dialog {
-            eprintln!("UI_TEST_BRUSH_SIZE: {:.3}", brush.size);
+            crate::studio_log!("UI_TEST_BRUSH_SIZE: {:.3}", brush.size);
         }
     }
     fn remember(&mut self, path: &std::path::Path) {
@@ -4575,7 +4588,7 @@ impl Studio {
             self.brush_flyout_open = !self.brush_flyout_open;
             self.color_flyout_open = false;
             if self.test_path_dialog && self.brush_flyout_open {
-                eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: shortcut");
+                crate::studio_log!("UI_TEST_BRUSH_FLYOUT_OPENED: shortcut");
             }
             return;
         }
@@ -4648,7 +4661,7 @@ impl Studio {
                 self.status = error.to_string();
             }
             if self.test_path_dialog {
-                eprintln!(
+                crate::studio_log!(
                     "UI_TEST_LAYERS_ADDED: {}",
                     session.live().project().state().layers.len()
                 );
@@ -4689,7 +4702,7 @@ impl Studio {
         if egui::Popup::is_any_open(&self.context) {
             egui::Popup::close_all(&self.context);
             if self.test_path_dialog {
-                eprintln!("UI_TEST_ESCAPE_DISMISSED: menu");
+                crate::studio_log!("UI_TEST_ESCAPE_DISMISSED: menu");
             }
             return true;
         }
@@ -4702,9 +4715,9 @@ impl Studio {
             };
             if self.test_path_dialog {
                 if self.tool == EditTool::Gradient {
-                    eprintln!("UI_TEST_GRADIENT_CANCELLED: escape");
+                    crate::studio_log!("UI_TEST_GRADIENT_CANCELLED: escape");
                 } else {
-                    eprintln!("UI_TEST_SHAPE_CANCELLED");
+                    crate::studio_log!("UI_TEST_SHAPE_CANCELLED");
                 }
             }
             return true;
@@ -4728,7 +4741,7 @@ impl Studio {
             self.workspace_needs_save = true;
         }
         if self.test_path_dialog {
-            eprintln!("UI_TEST_ESCAPE_DISMISSED: {dismissed}");
+            crate::studio_log!("UI_TEST_ESCAPE_DISMISSED: {dismissed}");
         }
         dismissed != "none"
     }
@@ -4841,7 +4854,7 @@ impl Studio {
             ..Default::default()
         };
         if self.test_path_dialog {
-            eprintln!(
+            crate::studio_log!(
                 "UI_TEST_WORKSPACE_SAVE: references={}",
                 preferences.references.len()
             );
@@ -5330,7 +5343,7 @@ impl Studio {
                                                 brush_display_name(kind),
                                             );
                                             if self.test_path_dialog {
-                                                eprintln!(
+                                                crate::studio_log!(
                                                     "UI_TEST_QUICK_PRESET_RECT: {kind:?} {:.1} {:.1} {:.1} {:.1} {:.2}",
                                                     preset.rect.left(),
                                                     preset.rect.top(),
@@ -5342,7 +5355,7 @@ impl Studio {
                                             if preset.clicked() {
                                                 activate_brush_preset(&mut project.brush, kind);
                                                 if self.test_path_dialog {
-                                                    eprintln!("UI_TEST_QUICK_BRUSH_SELECTED: {kind:?}");
+                                                    crate::studio_log!("UI_TEST_QUICK_BRUSH_SELECTED: {kind:?}");
                                                 }
                                                 ui.close();
                                             }
@@ -5350,7 +5363,7 @@ impl Studio {
                                     },
                                     );
                                     if self.test_path_dialog {
-                                        eprintln!(
+                                        crate::studio_log!(
                                             "UI_TEST_QUICK_BRUSH_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                             preset_picker.response.rect.left(),
                                             preset_picker.response.rect.top(),
@@ -5430,7 +5443,7 @@ impl Studio {
                                         "Linear",
                                     );
                                     if self.test_path_dialog {
-                                        eprintln!(
+                                        crate::studio_log!(
                                             "UI_TEST_GRADIENT_LINEAR_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                             linear.rect.left(),
                                             linear.rect.top(),
@@ -5445,7 +5458,7 @@ impl Studio {
                                         "Radial",
                                     );
                                     if self.test_path_dialog {
-                                        eprintln!(
+                                        crate::studio_log!(
                                             "UI_TEST_GRADIENT_RADIAL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                             radial.rect.left(),
                                             radial.rect.top(),
@@ -5453,7 +5466,7 @@ impl Studio {
                                             radial.rect.height(),
                                             ui.ctx().pixels_per_point()
                                         );
-                                        eprintln!("UI_TEST_GRADIENT_MODE: {:?}", self.gradient_kind);
+                                        crate::studio_log!("UI_TEST_GRADIENT_MODE: {:?}", self.gradient_kind);
                                     }
                                     let project = session.live_mut().project_mut();
                                     let start_color = project.brush.color;
@@ -5634,7 +5647,7 @@ impl Studio {
                                 ];
                                 if self.test_palette_grip_rect_logged != Some(marker) {
                                     self.test_palette_grip_rect_logged = Some(marker);
-                                    eprintln!(
+                                    crate::studio_log!(
                                         "UI_TEST_PALETTE_GRIP_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                         rect.left(),
                                         rect.top(),
@@ -5673,7 +5686,7 @@ impl Studio {
                                 ];
                                 if self.test_palette_toggle_logged != Some(marker) {
                                     self.test_palette_toggle_logged = Some(marker);
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_PALETTE_TOGGLE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     rect.left(),
                                     rect.top(),
@@ -5687,7 +5700,7 @@ impl Studio {
                                 self.palette_collapsed = expanded;
                                 workspace_changed = true;
                                 if self.test_path_dialog {
-                                    eprintln!(
+                                    crate::studio_log!(
                                         "UI_TEST_PALETTE_STATE: collapsed={}",
                                         self.palette_collapsed
                                     );
@@ -5783,7 +5796,7 @@ impl Studio {
                             {
                                 self.test_brush_rect_logged = true;
                                 let rect = response.rect;
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_BRUSH_RECT: {:.2} {:.2} {:.2} {:.2} {:.2}",
                                     rect.left(),
                                     rect.top(),
@@ -5800,7 +5813,7 @@ impl Studio {
                                     self.brush_flyout_open = true;
                                     ctx.request_repaint();
                                     if self.test_path_dialog {
-                                        eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: palette");
+                                        crate::studio_log!("UI_TEST_BRUSH_FLYOUT_OPENED: palette");
                                     }
                                     workspace_changed = true;
                                 } else {
@@ -5957,7 +5970,7 @@ impl Studio {
                 &compact_panel_sizes,
             );
             if self.test_path_dialog && compact_workspace {
-                eprintln!(
+                crate::studio_log!(
                     "UI_TEST_COMPACT_PLAN: viewport={:.1}x{:.1} palette={:.1},{:.1},{:.1},{:.1} panels={:?}",
                     screen.width(),
                     screen.height(),
@@ -5969,7 +5982,7 @@ impl Studio {
                 );
             }
             if self.test_path_dialog && compact_workspace && self.brush_flyout_open {
-                eprintln!(
+                crate::studio_log!(
                     "UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden={} references_hidden={}",
                     self.layers_flyout_open,
                     self.references.len(),
@@ -5986,7 +5999,7 @@ impl Studio {
                 ];
                 if self.test_palette_rect_logged != Some(marker) {
                     self.test_palette_rect_logged = Some(marker);
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_PALETTE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                         rect.left(),
                         rect.top(),
@@ -5994,7 +6007,7 @@ impl Studio {
                         rect.height(),
                         scale
                     );
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_PALETTE_CHROME_CLEARANCE: {:.1} {:.1}",
                         rect.top(),
                         contextual_options.response.rect.bottom(),
@@ -6006,7 +6019,7 @@ impl Studio {
                 && !self.test_palette_clearance_logged
             {
                 self.test_palette_clearance_logged = true;
-                eprintln!(
+                crate::studio_log!(
                     "UI_TEST_TOP_PALETTE_CLEARANCE: {:.1} {:.1}",
                     rect.top(),
                     contextual_options.response.rect.bottom(),
@@ -6166,7 +6179,7 @@ impl Studio {
                                 let response =
                                     ui.selectable_label(self.inspector_tab == tab, label);
                                 if self.test_path_dialog && label == "Brush" {
-                                    eprintln!(
+                                    crate::studio_log!(
                                         "UI_TEST_WORKSPACE_BRUSH_TAB_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                         response.rect.left(),
                                         response.rect.top(),
@@ -6182,7 +6195,7 @@ impl Studio {
                             }
                         });
                         if self.test_path_dialog {
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_WORKSPACE_CONTROLS_ACTIVE: {:?}",
                                 self.inspector_tab
                             );
@@ -6201,7 +6214,7 @@ impl Studio {
                             ui.label("Quick size and opacity stay above the canvas. Presets and advanced behavior live together in the Brush Library.");
                             let launch = ui.button("Open Brush Library");
                             if self.test_path_dialog {
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_WORKSPACE_OPEN_BRUSH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     launch.rect.left(), launch.rect.top(), launch.rect.width(),
                                     launch.rect.height(), ui.ctx().pixels_per_point(),
@@ -6331,7 +6344,7 @@ impl Studio {
                             ui.label("Previews, visibility, ordering, opacity, blend mode and layer actions stay together in the floating Layers panel.");
                             let launch = ui.button("Open Layers panel");
                             if self.test_path_dialog {
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_WORKSPACE_OPEN_LAYERS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     launch.rect.left(), launch.rect.top(), launch.rect.width(),
                                     launch.rect.height(), ui.ctx().pixels_per_point(),
@@ -6349,8 +6362,8 @@ impl Studio {
                     self.show_controls = false;
                     workspace_changed = true;
                     if self.test_path_dialog {
-                        eprintln!("UI_TEST_LAYERS_FLYOUT_OPENED: workspace controls");
-                        eprintln!("UI_TEST_WORKSPACE_LAUNCHED: Layers");
+                        crate::studio_log!("UI_TEST_LAYERS_FLYOUT_OPENED: workspace controls");
+                        crate::studio_log!("UI_TEST_WORKSPACE_LAUNCHED: Layers");
                     }
                 }
                 if open_brush_from_controls {
@@ -6358,8 +6371,8 @@ impl Studio {
                     self.show_controls = false;
                     workspace_changed = true;
                     if self.test_path_dialog {
-                        eprintln!("UI_TEST_BRUSH_FLYOUT_OPENED: workspace controls");
-                        eprintln!("UI_TEST_WORKSPACE_LAUNCHED: Brush");
+                        crate::studio_log!("UI_TEST_BRUSH_FLYOUT_OPENED: workspace controls");
+                        crate::studio_log!("UI_TEST_WORKSPACE_LAUNCHED: Brush");
                     }
                 }
                 if let Some(controls_window) = controls_window {
@@ -6368,7 +6381,7 @@ impl Studio {
                         controls_window.response.rect.top(),
                     ];
                     if self.test_path_dialog {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_WORKSPACE_CONTROLS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             panel_position[0],
                             panel_position[1],
@@ -6516,7 +6529,7 @@ impl Studio {
                     let position = [rect.left(), rect.top()];
                     let size = [rect.width(), rect.height()];
                     if self.test_path_dialog {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_LAYERS_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             rect.left(),
                             rect.top(),
@@ -6537,7 +6550,7 @@ impl Studio {
                 self.layers_flyout_open = open;
             }
             if self.test_path_dialog {
-                eprintln!("UI_TEST_LAYERS_PANEL_STATE: {}", self.layers_flyout_open);
+                crate::studio_log!("UI_TEST_LAYERS_PANEL_STATE: {}", self.layers_flyout_open);
             }
 
             if self.brush_flyout_open && !self.welcome && !self.new_dialog && !self.recovery_manager
@@ -6660,7 +6673,7 @@ impl Studio {
                             );
                             if self.test_path_dialog && !self.test_brush_preview_logged {
                                 self.test_brush_preview_logged = true;
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_BRUSH_PREVIEW_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     response.rect.left(),
                                     response.rect.top(),
@@ -6726,7 +6739,7 @@ impl Studio {
                                             && visible_card.height() >= 60.0
                                         {
                                             self.test_brush_narrow_card_logged = true;
-                                            eprintln!(
+                                            crate::studio_log!(
                                                 "UI_TEST_BRUSH_NARROW_CARD_VISIBLE: {:.1} {:.1} {:.1} {:.1} {:.1}",
                                                 card_rect.left(),
                                                 card_rect.top(),
@@ -6807,7 +6820,7 @@ impl Studio {
                         {
                             self.test_brush_narrow_visible_card_count =
                                 Some(fully_visible_narrow_cards);
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_BRUSH_NARROW_VISIBLE_CARDS: {fully_visible_narrow_cards}"
                             );
                         }
@@ -6834,7 +6847,7 @@ impl Studio {
                             );
                             if self.test_path_dialog && !self.test_brush_preview_logged {
                                 self.test_brush_preview_logged = true;
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_BRUSH_PREVIEW_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     response.rect.left(),
                                     response.rect.top(),
@@ -6846,7 +6859,7 @@ impl Studio {
                         }
                         if self.test_path_dialog && !self.test_brush_preset_previews_logged {
                             self.test_brush_preset_previews_logged = true;
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_BRUSH_PRESET_PREVIEWS: {}",
                                 self.brush_preset_previews.len()
                             );
@@ -6902,7 +6915,7 @@ impl Studio {
                 if let Some(panel) = panel {
                     if self.test_path_dialog && !self.test_brush_panel_visible {
                         self.test_brush_panel_visible = true;
-                        eprintln!("UI_TEST_BRUSH_PANEL_VISIBLE");
+                        crate::studio_log!("UI_TEST_BRUSH_PANEL_VISIBLE");
                     }
                     if self.test_path_dialog
                         && screen.width() < 760.0
@@ -6911,7 +6924,7 @@ impl Studio {
                         self.test_brush_narrow_layout_logged = true;
                         let panel_rect = panel.response.rect;
                         let palette_rect = palette_response.response.rect;
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_BRUSH_NARROW_LAYOUT: {:.1} {:.1} {:.1} {:.1} {:.1} {:.1} {:.1} {:.1} {:.2}",
                             panel_rect.left(),
                             panel_rect.top(),
@@ -6926,7 +6939,7 @@ impl Studio {
                     }
                     if self.test_path_dialog && !self.test_brush_window_logged {
                         self.test_brush_window_logged = true;
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_BRUSH_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2} open={}",
                             panel.response.rect.left(),
                             panel.response.rect.top(),
@@ -6938,7 +6951,7 @@ impl Studio {
                     }
                     if self.test_path_dialog && !self.test_brush_layout_logged {
                         self.test_brush_layout_logged = true;
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_BRUSH_PANEL: screen={:.0}x{:.0} palette={:?} previous={:?} size={:?} desired={:?} actual={:?} reanchor={}",
                             screen.width(),
                             screen.height(),
@@ -7061,7 +7074,7 @@ impl Studio {
                                 wheel_hue = selected_hue;
                                 if self.test_path_dialog {
                                     let rect = wheel_response.rect;
-                                    eprintln!(
+                                    crate::studio_log!(
                                         "UI_TEST_HUE_WHEEL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                         rect.left(),
                                         rect.top(),
@@ -7254,9 +7267,12 @@ impl Studio {
                             }
                             self.gradient_preview_key = Some(key);
                             if self.test_path_dialog {
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_GRADIENT_PREVIEW: {:?} {} {} {}",
-                                    self.gradient_kind, start[0], start[1], end[0]
+                                    self.gradient_kind,
+                                    start[0],
+                                    start[1],
+                                    end[0]
                                 );
                             }
                         }
@@ -7364,13 +7380,14 @@ impl Studio {
                     .and_then(|rects| rects.get(compact_index).copied());
                 let compact = compact_rect.is_some();
                 if self.test_path_dialog && compact_workspace {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_COMPACT_REFERENCE_ACTIVE: {} {}",
-                        index, reference_count
+                        index,
+                        reference_count
                     );
                 }
                 if self.test_path_dialog && screen_viewport.width() < 760.0 {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_REFERENCE_COMPACT_TARGET: {} compact={} target={:?} current={:?}",
                         index,
                         compact,
@@ -7505,7 +7522,7 @@ impl Studio {
                                 compact_reference_request = Some((index + 1) % reference_count);
                             }
                             if self.test_path_dialog {
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_REFERENCE_COMPACT_NAV: {} {} {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     index,
                                     reference_count,
@@ -7577,7 +7594,7 @@ impl Studio {
                             ui.separator();
                             let center_image = ui.button("Center image");
                             if self.test_path_dialog {
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_REFERENCE_CENTER_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     center_image.rect.left(),
                                     center_image.rect.top(),
@@ -7629,7 +7646,7 @@ impl Studio {
                         let settings_rect = settings.response.rect;
                         settings.response.on_hover_text("Reference settings");
                         if self.test_path_dialog {
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_REFERENCE_SETTINGS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                 settings_rect.left(),
                                 settings_rect.top(),
@@ -7703,7 +7720,7 @@ impl Studio {
                             && visible_image_rect.is_positive()
                         {
                             if compact_workspace {
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_REFERENCE_COMPACT_IMAGE_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     index,
                                     visible_image_rect.left(),
@@ -7713,7 +7730,7 @@ impl Studio {
                                     ctx.pixels_per_point(),
                                 );
                             }
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_REFERENCE_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                 visible_image_rect.left(),
                                 visible_image_rect.top(),
@@ -7722,7 +7739,7 @@ impl Studio {
                                 ctx.pixels_per_point(),
                             );
                             if index == last_reference_index {
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_REFERENCE_LAST_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                     visible_image_rect.left(),
                                     visible_image_rect.top(),
@@ -7745,7 +7762,7 @@ impl Studio {
                             && !self.test_reference_preview_logged
                         {
                             self.test_reference_preview_logged = true;
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_REFERENCE_IMAGE_VISIBLE: {}x{}",
                                 reference.source_size[0], reference.source_size[1]
                             );
@@ -7760,7 +7777,7 @@ impl Studio {
                 if let Some(response) = response {
                     let rect = response.response.rect;
                     if self.test_path_dialog && reference_visible_workspace {
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_REFERENCE_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             rect.left(),
                             rect.top(),
@@ -7768,7 +7785,7 @@ impl Studio {
                             rect.height(),
                             ctx.pixels_per_point(),
                         );
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_REFERENCE_LAYOUT_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
                             index,
                             rect.left(),
@@ -7778,7 +7795,7 @@ impl Studio {
                             ctx.pixels_per_point(),
                         );
                         if index == last_reference_index {
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_REFERENCE_LAST_WINDOW_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                 rect.left(),
                                 rect.top(),
@@ -7824,7 +7841,7 @@ impl Studio {
             {
                 self.compact_reference_index = next_reference;
                 if self.test_path_dialog {
-                    eprintln!("UI_TEST_REFERENCE_COMPACT_ACTIVE: {next_reference}");
+                    crate::studio_log!("UI_TEST_REFERENCE_COMPACT_ACTIVE: {next_reference}");
                 }
                 ctx.request_repaint();
             }
@@ -7839,7 +7856,7 @@ impl Studio {
             self.references
                 .retain(|reference| reference.layout.opacity >= 0.05);
             if self.test_path_dialog && reference_visible_workspace {
-                eprintln!("UI_TEST_REFERENCE_PANEL_COUNT: {}", self.references.len());
+                crate::studio_log!("UI_TEST_REFERENCE_PANEL_COUNT: {}", self.references.len());
             }
             if workspace_changed
                 && !ctx.input(|input| input.pointer.any_down())
@@ -7932,7 +7949,7 @@ impl Studio {
                                             {
                                                 self.test_home_content_bounds_logged = true;
                                                 let rect = ui.available_rect_before_wrap();
-                                                eprintln!(
+                                                crate::studio_log!(
                                                     "UI_TEST_HOME_CONTENT_BOUNDS: {:.1} {:.1} {:.1} {:.1}",
                                                     rect.left(), rect.top(), rect.width(), rect.height(),
                                                 );
@@ -7993,8 +8010,8 @@ impl Studio {
                                                         };
                                                         if !*logged {
                                                             *logged = true;
-                                                            eprintln!("UI_TEST_HOME_HEADLINE_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, contrast);
-                                                            eprintln!("UI_TEST_HOME_SLOGAN_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, slogan_contrast);
+                                                            crate::studio_log!("UI_TEST_HOME_HEADLINE_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, contrast);
+                                                            crate::studio_log!("UI_TEST_HOME_SLOGAN_CONTRAST: {} {:.2}", if dark_mode { "dark" } else { "light" }, slogan_contrast);
                                                         }
                                                     }
                                                     ui.label(crate::ui_tokens::type_text(
@@ -8059,7 +8076,7 @@ impl Studio {
                                                         && !self.test_home_preview_logged
                                                     {
                                                         self.test_home_preview_logged = true;
-                                                        eprintln!("UI_TEST_HOME_RECENT_PREVIEW_VISIBLE");
+                                                        crate::studio_log!("UI_TEST_HOME_RECENT_PREVIEW_VISIBLE");
                                                     }
                                                 } else if !compact {
                                                     // A first-run Home still uses its generous
@@ -8102,7 +8119,7 @@ impl Studio {
                                                             && !self.test_home_quick_start_logged
                                                         {
                                                             self.test_home_quick_start_logged = true;
-                                                            eprintln!("UI_TEST_HOME_QUICK_START_VISIBLE");
+                                                            crate::studio_log!("UI_TEST_HOME_QUICK_START_VISIBLE");
                                                         }
                                                     });
                                                 }
@@ -8226,7 +8243,7 @@ impl Studio {
                                                                     && index == 0
                                                                 {
                                                                     let rect = image_frame.response.rect;
-                                                                    eprintln!(
+                                                                    crate::studio_log!(
                                                                         "UI_TEST_HOME_RECENT_THUMBNAIL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                                                         rect.left(),
                                                                         rect.top(),
@@ -8260,7 +8277,7 @@ impl Studio {
                                                                     });
                                                                 if index == 0 {
                                                                     let rect = badge.response.rect;
-                                                                    eprintln!(
+                                                                    crate::studio_log!(
                                                                         "UI_TEST_HOME_FIXTURE_BADGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                                                                         rect.left(),
                                                                         rect.top(),
@@ -8288,7 +8305,7 @@ impl Studio {
                                                     if self.test_path_dialog
                                                         && screen.width() >= 1800.0
                                                     {
-                                                        eprintln!(
+                                                        crate::studio_log!(
                                                             "UI_TEST_HOME_RECENT_CARD_GEOMETRY: {:.1} {:.1} {:.1} {:.1} {:.1}",
                                                             card.response.rect.left(),
                                                             card.response.rect.top(),
@@ -8444,13 +8461,13 @@ impl Studio {
                             );
                             if self.test_path_dialog && !self.test_recovery_label_logged {
                                 self.test_recovery_label_logged = true;
-                                eprintln!("UI_TEST_RECOVERY_LABEL: {name}");
+                                crate::studio_log!("UI_TEST_RECOVERY_LABEL: {name}");
                                 if index == 0 {
                                 let contrast = crate::appearance::contrast_ratio(
                                     recovery_label_color,
                                     recovery_surface,
                                 );
-                                eprintln!(
+                                crate::studio_log!(
                                     "UI_TEST_RECOVERY_LABEL_CONTRAST: {} {:.2}",
                                     if ui.visuals().dark_mode { "dark" } else { "light" },
                                     contrast,
@@ -8516,8 +8533,8 @@ impl Studio {
                                                 && !self.test_recovery_preview_logged
                                             {
                                                 self.test_recovery_preview_logged = true;
-                                                eprintln!("UI_TEST_RECOVERY_PREVIEW_VISIBLE");
-                                                eprintln!(
+                                                crate::studio_log!("UI_TEST_RECOVERY_PREVIEW_VISIBLE");
+                                                crate::studio_log!(
                                                     "UI_TEST_RECOVERY_PREVIEW_IMAGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2} {:.1}",
                                                     response.rect.left(),
                                                     response.rect.top(),
@@ -8532,7 +8549,7 @@ impl Studio {
                                         } else {
                                             let response = ui.button("Preview");
                                             if self.test_path_dialog && index == 0 {
-                                                eprintln!(
+                                                crate::studio_log!(
                                                     "UI_TEST_RECOVERY_PREVIEW_TARGET: {:.1} {:.1} {:.1} {:.1} {:.2} {:.1}",
                                                     response.rect.left(),
                                                     response.rect.top(),
@@ -8547,7 +8564,7 @@ impl Studio {
                                                     && !self.test_recovery_preview_hover_logged
                                                 {
                                                     self.test_recovery_preview_hover_logged = true;
-                                                    eprintln!("UI_TEST_RECOVERY_PREVIEW_HOVERED");
+                                                    crate::studio_log!("UI_TEST_RECOVERY_PREVIEW_HOVERED");
                                                 } else if !response.hovered() {
                                                     self.test_recovery_preview_hover_logged = false;
                                                 }
@@ -8615,7 +8632,7 @@ impl Studio {
             });
             if self.test_path_dialog {
                 let rect = modal_content_rect;
-                eprintln!(
+                crate::studio_log!(
                     "UI_TEST_RECOVERY_MODAL_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.1} {:.1}",
                     rect.left(),
                     rect.top(),
@@ -8654,7 +8671,7 @@ impl Studio {
         } else if self.new_dialog {
             if self.test_path_dialog && !self.test_new_artwork_logged {
                 self.test_new_artwork_logged = true;
-                eprintln!("UI_TEST_NEW_ARTWORK_VISIBLE");
+                crate::studio_log!("UI_TEST_NEW_ARTWORK_VISIBLE");
             }
             egui::Modal::new(egui::Id::new("new document")).show(ctx, |ui| {
                 let dialog_width = (ctx.content_rect().width() - 32.0).clamp(280.0, 880.0);
@@ -8965,7 +8982,7 @@ impl Studio {
                     let cancel = ui.button("Cancel");
                     if self.test_path_dialog {
                         let rect = cancel.rect;
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_FILE_PICKER_CANCEL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
                             rect.left(),
                             rect.top(),
@@ -8976,7 +8993,7 @@ impl Studio {
                     }
                     if cancel.clicked() {
                         if self.test_path_dialog {
-                            eprintln!("UI_TEST_FILE_PICKER_CANCELLED");
+                            crate::studio_log!("UI_TEST_FILE_PICKER_CANCELLED");
                         }
                         self.manual_file_action = None;
                         self.manual_file_dialog = false;
@@ -9066,7 +9083,7 @@ impl Studio {
         if self.test_path_dialog && !self.test_strong_text_contrast_logged {
             self.test_strong_text_contrast_logged = true;
             let visuals = self.context.style().visuals.clone();
-            eprintln!(
+            crate::studio_log!(
                 "UI_TEST_STRONG_TEXT_CONTRAST: {} {:.2}",
                 if visuals.dark_mode { "dark" } else { "light" },
                 crate::appearance::contrast_ratio(visuals.strong_text_color(), visuals.panel_fill,)
@@ -9092,7 +9109,7 @@ impl Studio {
             self.manual_file_submit = false;
             self.manual_file_dialog = false;
             if let Some(action) = self.manual_file_action.take() {
-                eprintln!("TEST_PATH_DIALOG: queued action for deterministic submission");
+                crate::studio_log!("TEST_PATH_DIALOG: queued action for deterministic submission");
                 actions.push(action);
             }
         }
@@ -9219,9 +9236,12 @@ impl Studio {
                         reference.layout.position = [position.x, position.y];
                         reference.layout.size = size;
                         if self.test_path_dialog {
-                            eprintln!(
+                            crate::studio_log!(
                                 "UI_TEST_REFERENCE_INITIAL_POSITION: {:.1} {:.1} {:.1} {:.1}",
-                                position.x, position.y, size[0], size[1]
+                                position.x,
+                                position.y,
+                                size[0],
+                                size[1]
                             );
                         }
                         reference_imported += 1;
@@ -9263,9 +9283,11 @@ impl Studio {
             && previous != brush_color
         {
             if self.test_path_dialog {
-                eprintln!(
+                crate::studio_log!(
                     "UI_TEST_COLOR_CURRENT_RGB: {} {} {}",
-                    brush_color[0], brush_color[1], brush_color[2]
+                    brush_color[0],
+                    brush_color[1],
+                    brush_color[2]
                 );
             }
             crate::workspace::remember_brush_color(&mut self.recent_brush_colors, brush_color);
@@ -9394,7 +9416,7 @@ impl Studio {
                                     bounds.extend_with(*point);
                                     bounds
                                 });
-                        eprintln!(
+                        crate::studio_log!(
                             "UI_TEST_SHAPE_PREVIEW_BOUNDS: {:.2} {:.2} {:.2} {:.2} {:.2}",
                             bounds.left(),
                             bounds.top(),
@@ -9504,13 +9526,19 @@ impl Studio {
                 match result {
                     Ok(()) => {
                         if self.test_path_dialog {
-                            eprintln!("UI_TEST_RECOVERY_COMPLETE: {}", self.last_submitted);
+                            crate::studio_log!(
+                                "UI_TEST_RECOVERY_COMPLETE: {}",
+                                self.last_submitted
+                            );
                         }
                         self.status = "Recovery checkpoint complete".into();
                     }
                     Err(e) => {
                         if self.test_path_dialog {
-                            eprintln!("UI_TEST_RECOVERY_FAILED: {} {e}", self.last_submitted);
+                            crate::studio_log!(
+                                "UI_TEST_RECOVERY_FAILED: {} {e}",
+                                self.last_submitted
+                            );
                         }
                         self.last_submitted = u64::MAX;
                         self.autosave_schedule.retry_later(now);
@@ -9529,7 +9557,7 @@ impl Studio {
                     self.autosave_schedule.submitted();
                     self.recovery_saving = true;
                     if self.test_path_dialog {
-                        eprintln!("UI_TEST_RECOVERY_SUBMITTED: {}", self.last_submitted);
+                        crate::studio_log!("UI_TEST_RECOVERY_SUBMITTED: {}", self.last_submitted);
                     }
                 } else {
                     self.autosave_schedule.retry_later(now);
@@ -9598,14 +9626,14 @@ impl Studio {
                         .find(|layer| layer.id == selected)
                         .map(|layer| layer.opacity)
                         .unwrap_or(0);
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_HISTORY_UNDO: {} {} {} {}",
                         project.revision,
                         selected,
                         project.state().layers.len(),
                         opacity
                     );
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_HISTORY_LAYER_COUNT: {}",
                         project.state().layers.len()
                     );
@@ -9622,7 +9650,7 @@ impl Studio {
                         .find(|layer| layer.id == selected)
                         .map(|layer| layer.opacity)
                         .unwrap_or(0);
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_HISTORY_REDO: {} {} {} {}",
                         project.revision,
                         selected,
@@ -9638,7 +9666,7 @@ impl Studio {
                 project.select(id);
                 project.duplicate_layer()?;
                 if self.test_path_dialog {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_LAYER_CONTEXT_DUPLICATED: {} {}",
                         project.state().layers.len(),
                         project.state().selected,
@@ -9655,7 +9683,7 @@ impl Studio {
                         .iter()
                         .find(|layer| layer.id == copied_id)
                         .ok_or(paint_document::PaintError::Invalid)?;
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_LAYER_SELECTION_COPIED: {source_id} {copied_id} {}",
                         layer.tiles.len()
                     );
@@ -9665,7 +9693,7 @@ impl Studio {
                 project.select(id);
                 project.delete_layer()?;
                 if self.test_path_dialog {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_LAYER_CONTEXT_DELETED: {} {}",
                         project.state().layers.len(),
                         project.state().selected,
@@ -9675,7 +9703,7 @@ impl Studio {
             Action::ClearLayer(id) => {
                 project.clear_layer_by_id(id)?;
                 if self.test_path_dialog {
-                    eprintln!("UI_TEST_LAYER_CONTEXT_CLEARED: {id}");
+                    crate::studio_log!("UI_TEST_LAYER_CONTEXT_CLEARED: {id}");
                 }
             }
             Action::Clear => project.clear_layer()?,
@@ -9709,7 +9737,7 @@ impl Studio {
                         .iter()
                         .position(|layer| layer.id == id)
                         .unwrap_or(usize::MAX);
-                    eprintln!("UI_TEST_LAYER_CONTEXT_MOVED: {id} {index}");
+                    crate::studio_log!("UI_TEST_LAYER_CONTEXT_MOVED: {id} {index}");
                 }
             }
             Action::MoveLayerTo(id, target_index) => {
@@ -9732,7 +9760,9 @@ impl Studio {
                         .iter()
                         .position(|layer| layer.id == id)
                         .unwrap_or(usize::MAX);
-                    eprintln!("UI_TEST_LAYER_DRAG_REORDERED: {id} {target_index} {final_index}");
+                    crate::studio_log!(
+                        "UI_TEST_LAYER_DRAG_REORDERED: {id} {target_index} {final_index}"
+                    );
                 }
             }
             Action::Layer(id, name, visible, locked, opacity, blend) => {
@@ -9752,13 +9782,17 @@ impl Studio {
                 if self.test_path_dialog
                     && let Some(layer) = project.state().layers.iter().find(|layer| layer.id == id)
                 {
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_LAYER_STATE_APPLIED: {} visible={} locked={}",
-                        id, layer.visible, layer.locked
+                        id,
+                        layer.visible,
+                        layer.locked
                     );
-                    eprintln!(
+                    crate::studio_log!(
                         "UI_TEST_LAYER_COMPOSITING_APPLIED: {} opacity={} blend={:?}",
-                        id, layer.opacity, layer.blend
+                        id,
+                        layer.opacity,
+                        layer.blend
                     );
                 }
             }

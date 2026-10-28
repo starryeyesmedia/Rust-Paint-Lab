@@ -12,9 +12,16 @@ the following before it passes:
    alpha smoke completion marker without the AccessKit visibility panic.
 4. The process exits successfully.
 
-The smoke runs in the GitHub runner's Windows session. It exercises window
-creation, the AccessKit ordering, GPU adapter/surface initialization, and the
-first UI render. It does not establish that a person can see the window on a
+The Windows package sets the GUI executable subsystem, so Explorer launches
+the studio without allocating or depending on a console. Application output is
+best-effort to an inherited stderr handle and is also written to a single
+1 MiB-capped local log: `%LOCALAPPDATA%\BitchPixel\logs\canvas-demo.log`.
+Fatal initialization errors are shown in a native Windows error dialog. The
+separate stylus diagnostic remains a console utility.
+
+The smoke runs the packaged release binary in the GitHub runner's Windows
+session. It checks the PE header's GUI subsystem and exercises window creation,
+the AccessKit ordering, GPU adapter/surface initialization, and the first UI render. It does not establish that a person can see the window on a
 physical monitor, inspect the screenshot visually, validate a particular GPU
 driver, or exercise a physical stylus. If the runner reports that no compatible
 wgpu adapter exists, CI records the GUI smoke as inconclusive; it does not count

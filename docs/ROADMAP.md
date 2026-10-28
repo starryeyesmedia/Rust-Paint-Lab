@@ -13,6 +13,17 @@ Artwork preservation and cross-platform validation apply to every track.
 - **Open implementation tasks:** design system and accessible visual treatment; name/metadata/application-ID/binary migration plan; trademark/domain due diligence; distribution license. See [product identity issue](https://github.com/starryeyesmedia/Rust-Paint-Lab/issues/1).
 - **Scope:** Continue Phase 8.3 reliability and accessibility work; do not make unreviewed breaking package/format/identifier changes or merge the development branch solely for branding.
 
+## Owner evaluation follow-up — Phase 8.3 active
+
+The owner-confirmed hardware baseline is a successful Windows launch and basic
+S Pen drawing on the Galaxy Book2 Pro 360. The latest findings prioritize a
+console-free Windows GUI package, clearer tool iconography, faster Home-to-canvas
+creation, a canvas-first coordinated workspace, configurable S Pen barrel action,
+a real raster Smudge tool, and a deliberate Place Image workflow. The GUI
+subsystem startup change is under local verification from `df0635a`; see
+`PHASE8-STUDIO-PROGRESS.md` for current test results and next actions. Keep the
+WM_POINTER and stabilization paths unchanged absent a reproduced defect.
+
 ## Experience and accessibility
 
 - **Phase 8.3 — Studio and accessibility foundation:** unified movable/dockable

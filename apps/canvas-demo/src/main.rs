@@ -1,4 +1,5 @@
 #![deny(unsafe_code)]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 // The shared library is still forbid(unsafe_code). Only this small HWND observer
 // needs FFI; it owns no input loop and does not manipulate capture.
 #[cfg(windows)]
@@ -78,7 +79,7 @@ impl Graphics {
         let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: Some(&surface), power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default()
         }).await.map_err(|e| format!("No compatible graphics adapter: {e}. Update the graphics driver or try WGPU_BACKEND=vulkan."))?;
-        eprintln!("Canvas adapter: {:?}", adapter.get_info());
+        canvas_demo::studio_log!("Canvas adapter: {:?}", adapter.get_info());
         let size = window.inner_size();
         let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
@@ -121,7 +122,7 @@ impl Graphics {
         // still fail, then expose it and explicitly schedule the first frame.
         this.window.set_visible(true);
         if this.startup_smoke_enabled {
-            eprintln!("WINDOW_STARTUP_SMOKE_VISIBLE");
+            canvas_demo::studio_log!("WINDOW_STARTUP_SMOKE_VISIBLE");
         }
         this.window.request_redraw();
         Ok(this)
@@ -195,7 +196,7 @@ impl Graphics {
                 && !self.home_clear_logged
             {
                 self.home_clear_logged = true;
-                eprintln!("UI_TEST_HOME_SURFACE_CLEAR: enabled");
+                canvas_demo::studio_log!("UI_TEST_HOME_SURFACE_CLEAR: enabled");
             }
             if let Some(color) = home_surface {
                 let [red, green, blue, alpha] = color.to_array();
@@ -256,7 +257,7 @@ impl Graphics {
         frame.present();
         if self.startup_smoke_enabled && !self.startup_smoke_first_frame {
             self.startup_smoke_first_frame = true;
-            eprintln!("WINDOW_STARTUP_SMOKE_FIRST_FRAME");
+            canvas_demo::studio_log!("WINDOW_STARTUP_SMOKE_FIRST_FRAME");
         }
         self.recoveries = 0;
         if suboptimal {
@@ -363,7 +364,7 @@ impl Graphics {
         let destination = directory.join(format!("{name}.rplcap"));
         std::fs::write(&temporary, capture)?;
         std::fs::rename(temporary, destination)?;
-        eprintln!("UI_SCREENSHOT_GPU_CAPTURED: {name} {width}x{height}");
+        canvas_demo::studio_log!("UI_SCREENSHOT_GPU_CAPTURED: {name} {width}x{height}");
         Ok(())
     }
 }
@@ -388,7 +389,7 @@ struct App {
 impl App {
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: impl std::fmt::Display) {
         self.failure = Some(error.to_string());
-        eprintln!("Canvas failed: {error}");
+        canvas_demo::studio_log!("Canvas failed: {error}");
         event_loop.exit();
     }
     fn time_ms(&self) -> u64 {
@@ -402,7 +403,7 @@ impl App {
         self.session.mouse(event, self.time_ms());
         let live = self.session.live();
         if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some() && !active && live.active() {
-            eprintln!(
+            canvas_demo::studio_log!(
                 "UI_TEST_MOUSE_STROKE_STARTED: {}",
                 live.scene().sample_count()
             );
@@ -833,7 +834,9 @@ impl ApplicationHandler<AppEvent> for App {
                             self.frames += 1;
                         }
                         if self.exit_after_demo && self.alpha && self.frames > 10 && presented {
-                            eprintln!("ALPHA_WINDOW_SMOKE: presented controls and raster document");
+                            canvas_demo::studio_log!(
+                                "ALPHA_WINDOW_SMOKE: presented controls and raster document"
+                            );
                             event_loop.exit();
                         }
                         if self.exit_after_demo
@@ -841,7 +844,7 @@ impl ApplicationHandler<AppEvent> for App {
                             && self.session.replay_finished()
                             && presented
                         {
-                            eprintln!(
+                            canvas_demo::studio_log!(
                                 "WINDOW_SMOKE: rendered {} frames and completed replay",
                                 self.frames
                             );
@@ -924,7 +927,30 @@ impl ApplicationHandler<AppEvent> for App {
         }
     }
 }
-fn main() -> Result<(), Failure> {
+fn main() {
+    canvas_demo::diagnostics::initialize();
+    std::panic::set_hook(Box::new(|panic| {
+        canvas_demo::diagnostics::write(format_args!("Application panic: {panic}"));
+    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run));
+    let error = match result {
+        Ok(Ok(())) => return,
+        Ok(Err(error)) => format!("BitchPixel could not start or continue: {error}"),
+        Err(panic) => format!(
+            "BitchPixel stopped unexpectedly. Details were written to the application log.\n\n{panic:?}"
+        ),
+    };
+    canvas_demo::studio_log!("FATAL: {error}");
+    #[cfg(target_os = "windows")]
+    if std::env::var_os("RPL_STARTUP_SMOKE").is_none() {
+        windows_startup_error::show(&error);
+    }
+    #[cfg(not(target_os = "windows"))]
+    canvas_demo::studio_log!("BitchPixel stopped: {error}");
+    std::process::exit(1);
+}
+
+fn run() -> Result<(), Failure> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args
         .iter()
@@ -967,4 +993,31 @@ fn main() -> Result<(), Failure> {
         return Err(error.into());
     }
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+mod windows_startup_error {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+
+    pub fn show(message: &str) {
+        let title = wide("BitchPixel");
+        let body = wide(message);
+        // SAFETY: Both strings are NUL-terminated UTF-16 buffers kept alive for
+        // the duration of this synchronous system dialog call.
+        unsafe {
+            MessageBoxW(
+                std::ptr::null_mut(),
+                body.as_ptr(),
+                title.as_ptr(),
+                MB_OK | MB_ICONERROR,
+            );
+        }
+    }
+
+    fn wide(value: &str) -> Vec<u16> {
+        OsStr::new(value).encode_wide().chain(Some(0)).collect()
+    }
 }
