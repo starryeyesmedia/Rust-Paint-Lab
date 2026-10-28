@@ -67,12 +67,15 @@ painting, configurable pen barrel behavior and transformed image placement.
   route hold-to-erase/restore, eyedropper or pan without changing the WM_POINTER
   adapter. The current continuation adds PNG/JPEG Place Image with an isolated
   transform preview and one-transaction raster-layer commit; it also optimizes
-  OpenRaster layer export to convert sparse tiles directly. Local unit/build,
-  strict lint, Windows GNU cross-checks and GPU smoke pass, while the real Linux
-  Xvfb workflow is pending after run `40721752674` exposed a 15-second
-  OpenRaster test wait. Next: verify Actions and placement interaction, then add
-  Move Selection to New Layer, selection transforms, QuickShape, fills,
-  symmetry/guides and brush expansion. Design a format migration before masks.
+  OpenRaster layer export to convert sparse tiles directly. Move Selection to
+  New Layer is integrated in the real Layer Actions menu, preserves opacity/blend
+  and composite pixels, is undoable and uses the v1 project representation.
+  Local unit/build, strict lint, Windows GNU cross-checks and GPU smoke pass; the
+  Xvfb click/save screenshot workflow is pending. Run `40721752674` exposed a
+  15-second OpenRaster test wait; run `40728078333` for the placement/export fix
+  was queued at last inspection. Next: verify Actions and both artist workflows,
+  then add selection transforms, QuickShape, fills, symmetry/guides and brush
+  expansion. Design a format migration before masks.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
   non-destructive effects, and natural-media foundations.
 - Phase 11 — frame animation, onion skin, automatic per-action timelapse, and

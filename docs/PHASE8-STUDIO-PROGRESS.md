@@ -2503,3 +2503,31 @@ WM_POINTER hardware or change the owner-confirmed basic S Pen baseline.
 3. Then expand selection transforms and symmetry/guides; defer masks until a
    compatible persistence migration and recovery strategy are designed. Phase 10
    editable vector/text and Phase 11 timelapse/animation remain unimplemented.
+
+## Phase 9 continuation — Move Selection to New Layer
+
+The next local vertical slice adds **Move selected pixels to new layer** beside
+the existing non-destructive Copy command in the selected layer's accessible
+Actions menu. Move clears only selected nontransparent pixel centers from its
+visible, unlocked source, removes emptied sparse tiles, and inserts those pixels
+immediately above the source while inheriting opacity and blend mode. Selection
+state is retained, the visible composite is unchanged, and the operation is one
+ordinary undo transaction. Existing v1 storage is sufficient.
+
+Tests compare source/destination premultiplied pixel bytes, retain unselected
+pixels, verify exact composite equality for Normal/Multiply/Screen/Overlay, and
+exercise native save/reopen, undo/redo, empty/locked failures and final tile-budget
+rejection. The Linux XTest path invokes the real Layers Actions menu after Copy,
+saves and verifies that the source copy becomes empty while the moved layer gets
+the exact same bytes, then undoes to the byte-identical copied document. It adds a
+populated moved-layer capture. Local formatting, strict Clippy, the **310-test
+workspace suite**, workspace build, Windows GNU check/Clippy and llvmpipe/OpenGL
+GPU smoke pass. A local Xvfb desktop is unavailable, so XTest and screenshot
+inspection await Actions.
+
+The transformed-image commit `75418d1` is pushed. Its GitHub Actions run was still
+queued when this note was written; the later Move integration reruns the complete
+workflow. Keep the prior failure visible in reporting until the new OpenRaster
+markers confirm the outcome. Next after CI: selection transforms and symmetry /
+guides, then evaluate brush dynamics; layer masks require a separately designed
+document migration.

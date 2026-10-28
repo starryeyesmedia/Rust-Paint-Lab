@@ -396,6 +396,13 @@ stack metadata. The merged image is still rendered from the complete document.
 This avoids constructing and revalidating a cloned document for every layer while
 exporting; validation remains once at the start of the transaction.
 
+Move Selection to New Layer shares the pixel-center selection geometry with Copy.
+It clears selected nontransparent pixels from the active visible/unlocked source,
+removes empty source tiles, and inserts the moved raster pixels immediately above
+the source with the source opacity and blend mode. The editor's transaction snapshot
+keeps undo exact; the final document tile count is checked before commit. No project
+schema change is required.
+
 Normal-close persistence stores a dirty named project through its existing
 `Store`, preserving the content-hash conflict check, atomic replacement, and `.bak`
 behavior. An unnamed project is encoded as a regular editable `.rpl` in a separate

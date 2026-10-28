@@ -1,5 +1,5 @@
 use paint_document::{
-    Engine,
+    Blend, Engine,
     editing::{Selection, SelectionKind as K},
 };
 fn rect(kind: K) -> Selection {
@@ -185,6 +185,103 @@ fn copy_selection_to_new_layer_preserves_source_and_copies_pixel_center_masks() 
 }
 
 #[test]
+fn move_selection_to_new_layer_preserves_composite_and_layer_style() {
+    for blend in [
+        Blend::Normal,
+        Blend::Multiply,
+        Blend::Screen,
+        Blend::Overlay,
+    ] {
+        let mut engine = Engine::new(8, 8, 300).unwrap();
+        engine.brush.color = [218, 68, 142];
+        engine.fill_selection(false).unwrap();
+        let selection = Selection::new(K::Rectangle, vec![[2.0, 2.0], [6.0, 6.0]]).unwrap();
+        engine.set_selection(Some(selection.clone())).unwrap();
+        engine
+            .edit(|state| {
+                state.background = Some([32, 96, 174]);
+                state.layers[0].opacity = 143;
+                state.layers[0].blend = blend;
+                Ok(())
+            })
+            .unwrap();
+
+        let source_id = engine.state().selected;
+        let source_before = engine.state().layers[0].tiles.clone();
+        let composite_before = engine.rgba();
+        let undo_before = engine.undo_count();
+        let moved_id = engine.move_selection_to_new_layer().unwrap();
+        assert_eq!(engine.undo_count(), undo_before + 1);
+        assert_eq!(engine.state().layers.len(), 2);
+        assert_eq!(engine.state().selected, moved_id);
+        assert_eq!(engine.state().layers[1].name, "Paint 1 moved");
+        assert_eq!(engine.state().layers[1].opacity, 143);
+        assert_eq!(engine.state().layers[1].blend, blend);
+        assert_eq!(engine.state().selection.as_ref(), Some(&selection));
+        assert_eq!(engine.rgba(), composite_before, "blend mode: {blend:?}");
+
+        for y in 0..8 {
+            for x in 0..8 {
+                let original: [u8; 4] = source_before.get(&(0, 0)).map_or([0; 4], |tile| {
+                    let offset = (y * 64 + x) * 4;
+                    tile[offset..offset + 4].try_into().unwrap()
+                });
+                if selection.contains([x as f64 + 0.5, y as f64 + 0.5]) {
+                    assert_eq!(layer_pixel(&engine, source_id, x, y), [0; 4]);
+                    assert_eq!(layer_pixel(&engine, moved_id, x, y), original);
+                } else {
+                    assert_eq!(layer_pixel(&engine, source_id, x, y), original);
+                    assert_eq!(layer_pixel(&engine, moved_id, x, y), [0; 4]);
+                }
+            }
+        }
+
+        let saved = paint_document::storage::encode(engine.state()).unwrap();
+        let reopened =
+            Engine::from_state(paint_document::storage::decode(&saved).unwrap()).unwrap();
+        assert_eq!(reopened.rgba(), composite_before);
+        assert_eq!(reopened.state().selected, moved_id);
+        assert!(engine.undo());
+        assert_eq!(engine.rgba(), composite_before);
+        assert_eq!(engine.state().layers[0].tiles, source_before);
+        assert!(engine.redo());
+        assert_eq!(engine.rgba(), composite_before);
+    }
+}
+
+#[test]
+fn move_selection_rejects_empty_or_locked_sources_atomically() {
+    let mut engine = empty();
+    let before = engine.rgba();
+    let undo_before = engine.undo_count();
+    assert!(engine.move_selection_to_new_layer().is_err());
+    assert_eq!(engine.rgba(), before);
+    assert_eq!(engine.undo_count(), undo_before);
+
+    engine.set_selection(Some(rect(K::Rectangle))).unwrap();
+    assert!(engine.move_selection_to_new_layer().is_err());
+    assert_eq!(engine.rgba(), before);
+    assert_eq!(engine.state().layers.len(), 1);
+
+    engine.fill_selection(false).unwrap();
+    engine
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    let locked_pixels = engine.rgba();
+    let locked_history = engine.undo_count();
+    assert!(matches!(
+        engine.move_selection_to_new_layer(),
+        Err(paint_document::PaintError::Locked)
+    ));
+    assert_eq!(engine.rgba(), locked_pixels);
+    assert_eq!(engine.state().layers.len(), 1);
+    assert_eq!(engine.undo_count(), locked_history);
+}
+
+#[test]
 fn copy_selection_rejects_missing_empty_hidden_or_locked_sources_atomically() {
     let mut engine = empty();
     let before = engine.rgba();
@@ -257,14 +354,15 @@ fn copy_selection_obeys_layer_and_tile_budgets_without_losing_source_art() {
     let shared = Arc::new({
         let mut tile = vec![0; paint_document::TILE_BYTES];
         tile[..4].copy_from_slice(&[10, 20, 30, 255]);
+        tile[4..8].copy_from_slice(&[40, 50, 60, 255]);
         tile
     });
     let mut state = paint_document::State::new(4096, 4096, 300).unwrap();
     state.background = None;
     state.selection = Some(Selection::new(K::Rectangle, vec![[0.0, 0.0], [1.0, 1.0]]).unwrap());
-    for layer_index in 0..paint_document::MAX_LAYERS {
+    for layer_index in 0..2 {
         let mut tiles = BTreeMap::new();
-        for tile_y in 0..4 {
+        for tile_y in 0..64 {
             for tile_x in 0..64 {
                 tiles.insert((tile_x, tile_y), shared.clone());
             }
@@ -283,7 +381,7 @@ fn copy_selection_obeys_layer_and_tile_budgets_without_losing_source_art() {
             });
         }
     }
-    state.selected = paint_document::MAX_LAYERS as u64;
+    state.selected = 2;
     let mut full_tiles = Engine::from_state(state).unwrap();
     let original_tile_count = full_tiles.state().tile_count();
     let original_layers = full_tiles.state().layers.len();
@@ -296,6 +394,15 @@ fn copy_selection_obeys_layer_and_tile_budgets_without_losing_source_art() {
     assert_eq!(full_tiles.state().tile_count(), original_tile_count);
     assert_eq!(full_tiles.state().layers.len(), original_layers);
     assert_eq!(full_tiles.state().selection, original_selection);
+    let history_before_move = full_tiles.undo_count();
+    assert!(matches!(
+        full_tiles.move_selection_to_new_layer(),
+        Err(paint_document::PaintError::Limit)
+    ));
+    assert_eq!(full_tiles.state().tile_count(), original_tile_count);
+    assert_eq!(full_tiles.state().layers.len(), original_layers);
+    assert_eq!(full_tiles.state().selection, original_selection);
+    assert_eq!(full_tiles.undo_count(), history_before_move);
 }
 #[test]
 fn crop_keeps_all_editable_layers_and_is_undoable() {

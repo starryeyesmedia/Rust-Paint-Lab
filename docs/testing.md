@@ -706,6 +706,15 @@ Tests verify exact tile pixels, selection masks, unchanged source/composite,
 undo/redo, native save/reopen, empty/hidden/locked rejection, and both layer and
 tile limits.
 
+`Engine::move_selection_to_new_layer` is tested separately from Copy for all four
+supported blend modes. It preserves the composite and source opacity/blend metadata,
+clears only selected source pixels, retains unselected pixels/selection, and supports
+one-step undo/redo plus native save/reopen. Empty and locked source failures are
+atomic. The real Layers Actions workflow moves the pixels copied earlier in the
+same session, verifies exact premultiplied tile bytes and the empty original copy
+layer in the saved `.rpl`, then undoes to byte-identical prior artwork. CI screenshot
+coverage includes the populated moved-layer state; Actions verification is pending.
+
 The selected-layer panel now lays out its opacity slider across the available
 settings width and labels the accessible value. Opacity and Normal/Multiply/
 Screen/Overlay controls continue to update the selected document layer. Pixel

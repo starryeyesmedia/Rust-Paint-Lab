@@ -429,6 +429,18 @@ impl Engine {
     /// unchanged; the new layer becomes active. This is one bounded document
     /// transaction and never changes the native format.
     pub fn copy_selection_to_new_layer(&mut self) -> Result<u64, PaintError> {
+        self.selection_to_new_layer(false)
+    }
+
+    /// Move the selected pixels from the active, visible, unlocked layer into a
+    /// new layer immediately above it. The source keeps unselected pixels; the
+    /// new layer inherits its opacity and blend mode so the composited image is
+    /// unchanged. The operation and its inverse are one normal history entry.
+    pub fn move_selection_to_new_layer(&mut self) -> Result<u64, PaintError> {
+        self.selection_to_new_layer(true)
+    }
+
+    fn selection_to_new_layer(&mut self, move_pixels: bool) -> Result<u64, PaintError> {
         let mut created_id = None;
         self.edit(|state| {
             if state.layers.len() >= crate::MAX_LAYERS {
@@ -444,6 +456,8 @@ impl Engine {
             if source.locked || !source.visible {
                 return Err(PaintError::Locked);
             }
+            let source_opacity = source.opacity;
+            let source_blend = source.blend;
             let id = state
                 .layers
                 .iter()
@@ -453,13 +467,17 @@ impl Engine {
                 .checked_add(1)
                 .filter(|id| *id <= u64::from(u32::MAX))
                 .ok_or(PaintError::Limit)?;
-            let mut name = format!("{} copy", source.name);
+            let mut name = format!(
+                "{} {}",
+                source.name,
+                if move_pixels { "moved" } else { "copy" }
+            );
             while name.len() > 256 {
                 name.pop();
             }
 
             let mut tiles = TileMap::new();
-            let mut total_tiles = state.tile_count();
+            let mut total_tiles = if move_pixels { 0 } else { state.tile_count() };
             let mut copied_pixels = 0usize;
             let [_, top, _, bottom] = selection.bounds();
             let first_row = (top - 0.5).ceil().clamp(0.0, f64::from(state.height)) as u32;
@@ -481,13 +499,41 @@ impl Engine {
             if copied_pixels == 0 {
                 return Err(PaintError::Invalid);
             }
+            if move_pixels {
+                let document_width = state.width;
+                let mut existing_tiles = state.tile_count();
+                let source_tiles = &mut state.layers[source_index].tiles;
+                for y in first_row..end_row {
+                    for (left, right) in
+                        selection_row_spans(Some(&selection), f64::from(y) + 0.5, document_width)
+                    {
+                        for x in left..right {
+                            if read(source_tiles, x, y)[3] != 0 {
+                                write(source_tiles, x, y, [0; 4], &mut existing_tiles)?;
+                            }
+                        }
+                    }
+                }
+                source_tiles.retain(|_, tile| tile.chunks_exact(4).any(|pixel| pixel[3] != 0));
+                if state
+                    .tile_count()
+                    .checked_add(tiles.len())
+                    .is_none_or(|count| count > crate::MAX_TILES)
+                {
+                    return Err(PaintError::Limit);
+                }
+            }
             let copied_layer = crate::Layer {
                 id,
                 name,
                 visible: true,
                 locked: false,
-                opacity: 255,
-                blend: Blend::Normal,
+                opacity: if move_pixels { source_opacity } else { 255 },
+                blend: if move_pixels {
+                    source_blend
+                } else {
+                    Blend::Normal
+                },
                 tiles,
             };
             state.layers.insert(source_index + 1, copied_layer);

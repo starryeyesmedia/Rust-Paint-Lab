@@ -114,6 +114,11 @@ use Raise/Lower to reorder, and expand Layer settings to rename or adjust opacit
 and blend mode. Delete is disabled when only one layer remains. Bottom-to-top
 composition follows layer order. Use Undo/Redo for committed strokes and supported
 layer/background changes.
+From the selected layer's Actions menu, **Copy selected pixels to new layer** leaves
+the source intact; **Move selected pixels to new layer** clears those pixel centers
+from the source and puts them on a new layer immediately above. The moved layer
+inherits opacity and blend mode, preserving the composite for the selected pixels.
+Both actions are one undoable operation and retain the selection.
 Locked/hidden layers reject drawing. Transparency shows a checkerboard. History is
 session-only and bounded (up to 32 snapshots, 128 MiB unique tile payload per history queue);
 large documents with many changed tiles can retain fewer steps. Limits produce an error, never silently

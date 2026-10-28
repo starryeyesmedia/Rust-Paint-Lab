@@ -2235,6 +2235,7 @@ pub(crate) enum Action {
     Delete,
     DuplicateLayer(u64),
     CopySelectionToLayer,
+    MoveSelectionToLayer,
     DeleteLayer(u64),
     ClearLayer(u64),
     Clear,
@@ -2403,6 +2404,31 @@ fn layer_actions_menu(
             crate::studio_log!("UI_TEST_LAYER_COPY_SELECTION_CLICKED: {}", target.id);
         }
         actions.push(Action::CopySelectionToLayer);
+        ui.close();
+    }
+    let move_selection = ui
+        .add_enabled(
+            target.selected && target.has_selection && target.visible && !target.locked,
+            egui::Button::new("Move selected pixels to new layer"),
+        )
+        .on_hover_text(
+            "Move selected pixels above this layer; opacity and blend mode are retained",
+        );
+    if target.emit_test_markers {
+        crate::studio_log!(
+            "UI_TEST_LAYER_MOVE_SELECTION_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            move_selection.rect.left(),
+            move_selection.rect.top(),
+            move_selection.rect.width(),
+            move_selection.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    if move_selection.clicked() {
+        if target.emit_test_markers {
+            crate::studio_log!("UI_TEST_LAYER_MOVE_SELECTION_CLICKED: {}", target.id);
+        }
+        actions.push(Action::MoveSelectionToLayer);
         ui.close();
     }
     let clear = ui.add_enabled(!target.locked, egui::Button::new("Clear layer contents"));
@@ -10383,6 +10409,28 @@ impl Studio {
                         .ok_or(paint_document::PaintError::Invalid)?;
                     crate::studio_log!(
                         "UI_TEST_LAYER_SELECTION_COPIED: {source_id} {copied_id} {}",
+                        layer.tiles.len()
+                    );
+                }
+            }
+            Action::MoveSelectionToLayer => {
+                let source_id = project.state().selected;
+                let moved_id = project.move_selection_to_new_layer()?;
+                if self.test_path_dialog {
+                    let layer = project
+                        .state()
+                        .layers
+                        .iter()
+                        .find(|layer| layer.id == moved_id)
+                        .ok_or(paint_document::PaintError::Invalid)?;
+                    let source_tiles = project
+                        .state()
+                        .layers
+                        .iter()
+                        .find(|layer| layer.id == source_id)
+                        .map_or(0, |layer| layer.tiles.len());
+                    crate::studio_log!(
+                        "UI_TEST_LAYER_SELECTION_MOVED: {source_id} {moved_id} {} {source_tiles}",
                         layer.tiles.len()
                     );
                 }

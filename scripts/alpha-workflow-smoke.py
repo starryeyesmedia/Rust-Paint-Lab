@@ -462,6 +462,9 @@ def layer_menu_action_rect(action):
 def layer_copy_selection_menu_rect():
     return layer_menu_action_rect('COPY_SELECTION')
 
+def layer_move_selection_menu_rect():
+    return layer_menu_action_rect('MOVE_SELECTION')
+
 def layer_settings_header():
     marker=stable_marker('UI_TEST_LAYER_SETTINGS_HEADER_RECT')
     return tuple(marker.split()) if marker else None
@@ -1939,6 +1942,35 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda: project.read_bytes()==copy_bytes,
                  'Redo restores the copied layer and its selected pixels exactly')
+
+            more=wait(layer_more_button_rect,
+                      'the copied layer exposes the selection move action')
+            opened=layer_actions_open_count()
+            click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
+            wait(lambda: layer_actions_open_count()>opened,
+                 'the copied layer Actions menu opens before moving pixels')
+            move_action=wait(layer_move_selection_menu_rect,
+                             'layer Actions exposes Move selected pixels to new layer')
+            click_at((move_action[0]+move_action[2]/2)*move_action[4],
+                     (move_action[1]+move_action[3]/2)*move_action[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_SELECTION_MOVED') is not None,
+                 'the document engine moves the selected pixels transactionally')
+            ctrl('s')
+            wait(lambda: valid_project(project) and project.read_bytes()!=copy_bytes
+                 and '*' not in title(window),
+                 'moved pixels are saved to the native project')
+            move_bytes=project.read_bytes()
+            move_state=native_state_bytes(move_bytes)
+            moved_id=move_state['selected']
+            moved_tiles=native_layer_tiles_bytes(move_bytes)
+            assert moved_id!=copied_id and len(move_state['layers'])==len(copy_state['layers'])+1
+            assert not moved_tiles.get(copied_id,{}), \
+                'moving the selected copied pixels must clear their original layer'
+            assert moved_tiles.get(moved_id,{})==copied_tiles, \
+                'the moved layer must preserve the exact premultiplied source pixels'
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==copy_bytes,
+                 'Undo restores the original copied-layer pixels and ordering exactly')
 
             header=scroll_layers_marker_into_view(
                 layer_settings_header,
