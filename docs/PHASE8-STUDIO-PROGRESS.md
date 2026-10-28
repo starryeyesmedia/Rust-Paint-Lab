@@ -18,14 +18,27 @@ log so it can still detect the visible window/first rendered frame without a
 console. The stylus diagnostic is untouched.
 
 Local verification on pinned Rust 1.90: formatting, strict workspace Clippy,
-workspace build, **278 workspace tests**, Windows GNU workspace check/Clippy,
-and the required offscreen GPU smoke on llvmpipe/OpenGL passed. A direct invalid-
-argument run confirmed the error is written to the bounded log and exits
-nonzero. The environment has no Xvfb or active display, so the Linux Xorg/XTest
-workflow and screenshot review were not run locally. Windows packaged GUI and
-macOS first-frame behavior remain pending the next GitHub Actions result; PE
-inspection and Windows native dialog behavior are not established by GNU
-cross-checking.
+workspace build, **280 workspace tests**, Windows GNU workspace check/Clippy,
+and the required offscreen GPU smoke on llvmpipe/OpenGL passed. A direct
+invalid-argument run confirmed the error is written to the bounded log and exits
+nonzero. A local dummy Xorg server was started on `:102`; the full Xorg/XTest
+artwork workflow passed after the marker-format correction with **47 rendered
+screenshots**. Windows packaged GUI and macOS first-frame behavior remain pending
+GitHub Actions; PE inspection and Windows native dialog behavior are not
+established by GNU cross-checking.
+
+The first local Xorg run caught a compatibility issue in the replacement logger:
+prefixing messages with timestamps made existing workflow markers cease to begin
+at column zero. The logger now preserves the exact line format while retaining
+the 1 MiB cap, and a regression test protects marker parsing. The workflow after
+the correction exercised actual save/reopen pixels, gradients, layers,
+PNG/OpenRaster, references and journal recovery. I inspected Home at normal and
+narrow sizes, New Artwork, the workspace toolbar, and populated Layers/Reference
+at 640 × 480. The selected-versus-painted rectangle and ellipse icons are
+distinguishable, and the narrow panels remain within bounds. Screenshots are
+local-only at `/tmp/bp-screens`; Actions must rerun the workflow on pushed code
+before cross-platform validation. Commit `d37e10b` was still under Actions when
+this note was written.
 
 The ten owner findings are being addressed in priority order: startup A is
 implemented locally and awaits cross-platform CI; custom iconography, Home/New

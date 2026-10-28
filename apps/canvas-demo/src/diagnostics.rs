@@ -10,7 +10,6 @@ use std::{
     io::Write as IoWrite,
     path::PathBuf,
     sync::{Mutex, OnceLock},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
@@ -73,11 +72,10 @@ pub fn write(arguments: std::fmt::Arguments<'_>) {
     let mut message = String::with_capacity(256);
     let _ = message.write_fmt(arguments);
     let message = bounded_message(message);
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let line = format!("{timestamp} {message}\n");
+    // Keep marker lines machine-readable for the existing XTest and startup
+    // smoke workflows; the file is truncated once per process, so timestamps
+    // are not needed to establish order.
+    let line = log_line(&message);
     let _ = std::io::stderr().lock().write_all(line.as_bytes());
 
     if let Some(file) = LOG_FILE.get()
@@ -102,6 +100,10 @@ fn bounded_message(mut message: String) -> String {
         message.truncate(boundary);
     }
     message
+}
+
+fn log_line(message: &str) -> String {
+    format!("{message}\n")
 }
 
 fn utf8_prefix_len(value: &str, limit: usize) -> usize {
@@ -141,5 +143,12 @@ mod tests {
         }
         assert_eq!(utf8_prefix_len(value, 2), 2);
         assert_eq!(utf8_prefix_len(value, value.len() + 5), value.len());
+    }
+
+    #[test]
+    fn log_lines_keep_test_markers_at_column_zero() {
+        let line = log_line("UI_TEST_HOME_SLOGAN_CONTRAST: light 7.00");
+        assert!(line.starts_with("UI_TEST_HOME_SLOGAN_CONTRAST: light "));
+        assert!(line.ends_with('\n'));
     }
 }
