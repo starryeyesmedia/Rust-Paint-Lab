@@ -2411,6 +2411,128 @@ enum LassoAppend {
     LimitReached,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct QuickShapeRecognition {
+    kind: ShapeKind,
+    start: [f64; 2],
+    end: [f64; 2],
+}
+
+/// Recognize deliberately simple single-stroke lines and closed shapes. The
+/// returned geometry is rendered by the normal raster shape operation; noisy
+/// or incomplete gestures are rejected rather than guessed.
+fn recognize_quick_shape(points: &[[f64; 2]]) -> Option<QuickShapeRecognition> {
+    use paint_document::editing::MAX_SELECTION_POINTS;
+    if points.len() < 3
+        || points.len() > MAX_SELECTION_POINTS
+        || points
+            .iter()
+            .flatten()
+            .any(|value| !value.is_finite() || !(0.0..=4096.0).contains(value))
+    {
+        return None;
+    }
+    let first = points[0];
+    let last = *points.last()?;
+    let bounds = points
+        .iter()
+        .fold([first[0], first[1], first[0], first[1]], |bounds, point| {
+            [
+                bounds[0].min(point[0]),
+                bounds[1].min(point[1]),
+                bounds[2].max(point[0]),
+                bounds[3].max(point[1]),
+            ]
+        });
+    let width = bounds[2] - bounds[0];
+    let height = bounds[3] - bounds[1];
+    let diagonal = width.hypot(height);
+    if diagonal < 8.0 {
+        return None;
+    }
+    let closed = (first[0] - last[0]).hypot(first[1] - last[1]) <= (diagonal * 0.15).max(6.0);
+    if !closed {
+        let delta = [last[0] - first[0], last[1] - first[1]];
+        let length = delta[0].hypot(delta[1]);
+        if length < 8.0 {
+            return None;
+        }
+        let max_deviation = points[1..points.len() - 1]
+            .iter()
+            .map(|point| {
+                ((point[0] - first[0]) * delta[1] - (point[1] - first[1]) * delta[0]).abs() / length
+            })
+            .fold(0.0_f64, f64::max);
+        return (max_deviation <= (length * 0.06).max(2.0)).then_some(QuickShapeRecognition {
+            kind: ShapeKind::Line,
+            start: first,
+            end: last,
+        });
+    }
+    let tolerance = (width.min(height) * 0.09).max(2.0);
+    if width < 8.0 || height < 8.0 {
+        return None;
+    }
+    let mut edge_counts = [0_usize; 4];
+    let mut near_edge = 0_usize;
+    let mut radial_error = 0.0;
+    let mut radial_max = 0.0_f64;
+    let center = [(bounds[0] + bounds[2]) * 0.5, (bounds[1] + bounds[3]) * 0.5];
+    for point in points {
+        let distances = [
+            (point[0] - bounds[0]).abs(),
+            (point[1] - bounds[1]).abs(),
+            (point[0] - bounds[2]).abs(),
+            (point[1] - bounds[3]).abs(),
+        ];
+        let (edge, distance) = distances
+            .iter()
+            .copied()
+            .enumerate()
+            .min_by(|left, right| left.1.total_cmp(&right.1))?;
+        if distance <= tolerance {
+            near_edge += 1;
+            edge_counts[edge] += 1;
+        }
+        let normalized_x = (point[0] - center[0]) / (width * 0.5);
+        let normalized_y = (point[1] - center[1]) / (height * 0.5);
+        let error = (normalized_x.hypot(normalized_y) - 1.0).abs();
+        radial_error += error;
+        radial_max = radial_max.max(error);
+    }
+    let four_sides = edge_counts.into_iter().filter(|count| *count > 0).count();
+    let (aligned_segments, segment_count) =
+        points
+            .windows(2)
+            .fold((0_usize, 0_usize), |(aligned, count), pair| {
+                let dx = (pair[1][0] - pair[0][0]).abs();
+                let dy = (pair[1][1] - pair[0][1]).abs();
+                let length = dx.hypot(dy);
+                (
+                    aligned
+                        + usize::from(length > 0.0 && (dx <= length * 0.15 || dy <= length * 0.15)),
+                    count + usize::from(length > 0.0),
+                )
+            });
+    if four_sides >= 3
+        && near_edge * 100 >= points.len() * 72
+        && segment_count > 0
+        && aligned_segments * 100 >= segment_count * 75
+    {
+        return Some(QuickShapeRecognition {
+            kind: ShapeKind::Rectangle,
+            start: [bounds[0], bounds[1]],
+            end: [bounds[2], bounds[3]],
+        });
+    }
+    radial_error /= points.len() as f64;
+    (radial_error <= 0.1 && radial_max <= 0.25).then_some(QuickShapeRecognition {
+        kind: ShapeKind::Ellipse,
+        start: [bounds[0], bounds[1]],
+        end: [bounds[2], bounds[3]],
+    })
+}
+
 fn append_lasso_point(points: &mut Vec<[f64; 2]>, position: [f64; 2]) -> LassoAppend {
     let Some(last) = points.last().copied() else {
         return LassoAppend::LimitReached;
@@ -3429,6 +3551,7 @@ enum EditTool {
     ShapeLine,
     ShapeRectangle,
     ShapeEllipse,
+    QuickShape,
     Gradient,
 }
 
@@ -3699,6 +3822,7 @@ pub struct Studio {
     edit_points: Vec<[f64; 2]>,
     selection_transform: Option<SelectionTransformDrag>,
     test_selection_handles_logged: bool,
+    test_shape_preview_bounds_logged: Option<[f32; 4]>,
     transform_offset: [f64; 2],
     transform_scale: f64,
     transform_angle: f64,
@@ -3951,6 +4075,7 @@ impl Studio {
             edit_points: Vec::new(),
             selection_transform: None,
             test_selection_handles_logged: false,
+            test_shape_preview_bounds_logged: None,
             transform_offset: [0.0; 2],
             transform_scale: 1.0,
             transform_angle: 0.0,
@@ -5188,9 +5313,13 @@ impl Studio {
             }
             return true;
         }
+        let quick_shape_tool = self.tool == EditTool::QuickShape;
         let shape_tool = matches!(
             self.tool,
-            EditTool::ShapeLine | EditTool::ShapeRectangle | EditTool::ShapeEllipse
+            EditTool::ShapeLine
+                | EditTool::ShapeRectangle
+                | EditTool::ShapeEllipse
+                | EditTool::QuickShape
         );
         let gradient_tool = self.tool == EditTool::Gradient;
         if matches!(
@@ -5263,6 +5392,7 @@ impl Studio {
         }
         match phase {
             Phase::Down if self.edit_pointer.is_none() => {
+                self.test_shape_preview_bounds_logged = None;
                 session.mouse(MouseEvent::Interrupted, 0);
                 if self.tool == EditTool::Eyedropper {
                     match session.live().project().eyedropper(position) {
@@ -5313,11 +5443,61 @@ impl Studio {
                     }
                 } else {
                     self.edit_pointer = Some(id);
-                    self.edit_points = vec![position, position];
+                    self.edit_points = if quick_shape_tool {
+                        vec![position]
+                    } else {
+                        vec![position, position]
+                    };
                 }
             }
             Phase::Move | Phase::Up if captured => {
-                if shape_tool {
+                if quick_shape_tool {
+                    match append_lasso_point(&mut self.edit_points, position) {
+                        LassoAppend::LimitReached => {
+                            self.edit_pointer = None;
+                            self.edit_points.clear();
+                            self.status = "QuickShape cancelled: simplify the gesture to 1024 points or fewer".into();
+                            return true;
+                        }
+                        LassoAppend::Unchanged | LassoAppend::Added => {}
+                    }
+                    if phase == Phase::Up {
+                        let recognized = recognize_quick_shape(&self.edit_points);
+                        self.edit_pointer = None;
+                        self.edit_points.clear();
+                        self.status = if let Some(shape) = recognized {
+                            match session.live_mut().project_mut().draw_shape(
+                                shape.kind,
+                                shape.start,
+                                shape.end,
+                                self.shape_filled && shape.kind != ShapeKind::Line,
+                            ) {
+                                Ok(()) => {
+                                    if self.test_path_dialog {
+                                        crate::studio_log!(
+                                            "UI_TEST_QUICKSHAPE_COMMITTED: {:?} {:.2} {:.2} {:.2} {:.2}",
+                                            shape.kind,
+                                            shape.start[0],
+                                            shape.start[1],
+                                            shape.end[0],
+                                            shape.end[1]
+                                        );
+                                    }
+                                    format!(
+                                        "QuickShape {:?} committed · Ctrl+Z to undo",
+                                        shape.kind
+                                    )
+                                }
+                                Err(error) => error.to_string(),
+                            }
+                        } else {
+                            if self.test_path_dialog {
+                                crate::studio_log!("UI_TEST_QUICKSHAPE_REJECTED: true");
+                            }
+                            "QuickShape not recognized · draw a straight line or close a line, rectangle or ellipse".into()
+                        };
+                    }
+                } else if shape_tool {
                     let start = self.edit_points[0];
                     let position = self.constrain_shape_endpoint(start, position);
                     self.edit_points[1] = position;
@@ -5498,6 +5678,7 @@ impl Studio {
             'l' => EditTool::ShapeLine,
             'r' => EditTool::ShapeRectangle,
             'o' => EditTool::ShapeEllipse,
+            'q' => EditTool::QuickShape,
             'g' => EditTool::Gradient,
             _ => EditTool::Brush,
         };
@@ -5509,6 +5690,7 @@ impl Studio {
             EditTool::ShapeLine
                 | EditTool::ShapeRectangle
                 | EditTool::ShapeEllipse
+                | EditTool::QuickShape
                 | EditTool::Gradient
         ) {
             self.brush_flyout_open = false;
@@ -6551,6 +6733,27 @@ impl Studio {
                                         self.brush_flyout_open = false;
                                     }
                                     ui.label("Shift constrains angle or proportions");
+                                } else if self.tool == EditTool::QuickShape {
+                                    ui.strong("QuickShape");
+                                    let project = session.live_mut().project_mut();
+                                    ui.add_sized(
+                                        [176.0, 34.0],
+                                        egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
+                                            .text("Stroke width"),
+                                    );
+                                    ui.checkbox(&mut self.shape_filled, "Fill closed shapes");
+                                    let color = project.brush.color;
+                                    if color_swatch(
+                                        ui,
+                                        color,
+                                        "QuickShape color · open color controls",
+                                        false,
+                                        32.0,
+                                    ) {
+                                        self.color_flyout_open = !self.color_flyout_open;
+                                        self.brush_flyout_open = false;
+                                    }
+                                    ui.label("Q · draw a straight line or close a loop");
                                 } else if self.tool == EditTool::Gradient {
                                     ui.strong("Gradient");
                                     let linear = ui.selectable_value(
@@ -6634,6 +6837,7 @@ impl Studio {
                                         EditTool::ShapeLine
                                         | EditTool::ShapeRectangle
                                         | EditTool::ShapeEllipse
+                                        | EditTool::QuickShape
                                         | EditTool::Gradient => unreachable!("handled above"),
                                     });
                                     if has_selection
@@ -6881,6 +7085,13 @@ impl Studio {
                                 2,
                             ),
                             (
+                                EditTool::QuickShape,
+                                crate::studio_icons::Icon::QuickShape,
+                                "QuickShape recognition",
+                                "Q",
+                                2,
+                            ),
+                            (
                                 EditTool::Gradient,
                                 crate::studio_icons::Icon::Gradient,
                                 "Gradient",
@@ -6967,6 +7178,7 @@ impl Studio {
                                         EditTool::ShapeLine
                                             | EditTool::ShapeRectangle
                                             | EditTool::ShapeEllipse
+                                            | EditTool::QuickShape
                                             | EditTool::Gradient
                                     ) {
                                         self.color_flyout_open = false;
@@ -10814,43 +11026,14 @@ impl Studio {
         if session.mode() == crate::interaction::Mode::Live
             && let Some(mapping) = self.mapping
         {
-            let shape_tool = matches!(
-                self.tool,
-                EditTool::ShapeLine | EditTool::ShapeRectangle | EditTool::ShapeEllipse
-            );
-            if self.edit_pointer.is_some() && shape_tool && self.edit_points.len() == 2 {
-                let from = self.edit_points[0];
-                let to = self.edit_points[1];
-                let shape_kind = match self.tool {
-                    EditTool::ShapeLine => ShapeKind::Line,
-                    EditTool::ShapeRectangle => ShapeKind::Rectangle,
-                    EditTool::ShapeEllipse => ShapeKind::Ellipse,
-                    _ => unreachable!("shape tool checked"),
-                };
-                let [left, top, right, bottom] = [
-                    from[0].min(to[0]),
-                    from[1].min(to[1]),
-                    from[0].max(to[0]),
-                    from[1].max(to[1]),
-                ];
-                let document_points: Vec<_> = match shape_kind {
-                    ShapeKind::Line => vec![from, to],
-                    ShapeKind::Rectangle => {
-                        vec![[left, top], [right, top], [right, bottom], [left, bottom]]
-                    }
-                    ShapeKind::Ellipse => (0..64)
-                        .map(|index| {
-                            let angle = index as f64 * std::f64::consts::TAU / 64.0;
-                            [
-                                (left + right) / 2.0 + angle.cos() * (right - left) / 2.0,
-                                (top + bottom) / 2.0 + angle.sin() * (bottom - top) / 2.0,
-                            ]
-                        })
-                        .collect(),
-                };
-                let points: Vec<_> = document_points
-                    .into_iter()
-                    .filter_map(|point| mapping.to_clip(point).ok())
+            if self.edit_pointer.is_some()
+                && self.tool == EditTool::QuickShape
+                && self.edit_points.len() >= 2
+            {
+                let points: Vec<_> = self
+                    .edit_points
+                    .iter()
+                    .filter_map(|point| mapping.to_clip(*point).ok())
                     .map(|point| {
                         egui::pos2(
                             (point[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
@@ -10858,159 +11041,235 @@ impl Studio {
                         )
                     })
                     .collect();
-                if self.shape_filled && shape_kind != ShapeKind::Line {
+                if points.len() >= 2 {
                     output.shapes.push(egui::epaint::ClippedShape {
                         clip_rect: central,
-                        shape: egui::Shape::convex_polygon(
-                            points.clone(),
-                            egui::Color32::from_rgba_unmultiplied(168, 93, 255, 72),
-                            egui::Stroke::NONE,
+                        shape: egui::Shape::line(
+                            points,
+                            egui::Stroke::new(2.0, egui::Color32::from_rgb(194, 125, 255)),
                         ),
                     });
                 }
-                if points.len() >= 2 {
-                    let outline = |color, width| {
-                        if shape_kind == ShapeKind::Line {
-                            egui::Shape::line(points.clone(), egui::Stroke::new(width, color))
-                        } else {
-                            egui::Shape::closed_line(
-                                points.clone(),
-                                egui::Stroke::new(width, color),
-                            )
-                        }
-                    };
-                    for (width, color) in [(4.0, egui::Color32::BLACK), (1.5, egui::Color32::WHITE)]
-                    {
-                        output.shapes.push(egui::epaint::ClippedShape {
-                            clip_rect: central,
-                            shape: outline(color, width),
-                        });
-                    }
-                    if self.test_path_dialog {
-                        let bounds =
-                            points
-                                .iter()
-                                .fold(egui::Rect::NOTHING, |mut bounds, point| {
-                                    bounds.extend_with(*point);
-                                    bounds
-                                });
-                        crate::studio_log!(
-                            "UI_TEST_SHAPE_PREVIEW_BOUNDS: {:.2} {:.2} {:.2} {:.2} {:.2}",
-                            bounds.left(),
-                            bounds.top(),
-                            bounds.right(),
-                            bounds.bottom(),
-                            output.pixels_per_point,
-                        );
-                    }
-                }
             } else {
-                let (selection, preview_outline) = if let Some(drag) = &self.selection_transform {
-                    (
-                        Some(drag.selection.clone()),
-                        Some(transform_selection_outline(&drag.selection, drag.transform)),
-                    )
-                } else if self.edit_pointer.is_some() {
-                    let kind = match self.tool {
-                        EditTool::Ellipse => SelectionKind::Ellipse,
-                        EditTool::Lasso => SelectionKind::Lasso,
-                        _ => SelectionKind::Rectangle,
+                let shape_tool = matches!(
+                    self.tool,
+                    EditTool::ShapeLine | EditTool::ShapeRectangle | EditTool::ShapeEllipse
+                );
+                if self.edit_pointer.is_some() && shape_tool && self.edit_points.len() == 2 {
+                    let from = self.edit_points[0];
+                    let to = self.edit_points[1];
+                    let shape_kind = match self.tool {
+                        EditTool::ShapeLine => ShapeKind::Line,
+                        EditTool::ShapeRectangle => ShapeKind::Rectangle,
+                        EditTool::ShapeEllipse => ShapeKind::Ellipse,
+                        _ => unreachable!("shape tool checked"),
                     };
-                    (Selection::new(kind, self.edit_points.clone()).ok(), None)
-                } else {
-                    (session.live().project().state().selection.clone(), None)
-                };
-                if let Some(selection) = selection {
-                    let to_screen = |p: [f64; 2]| {
-                        mapping.to_clip(p).ok().map(|p| {
+                    let [left, top, right, bottom] = [
+                        from[0].min(to[0]),
+                        from[1].min(to[1]),
+                        from[0].max(to[0]),
+                        from[1].max(to[1]),
+                    ];
+                    let document_points: Vec<_> = match shape_kind {
+                        ShapeKind::Line => vec![from, to],
+                        ShapeKind::Rectangle => {
+                            vec![[left, top], [right, top], [right, bottom], [left, bottom]]
+                        }
+                        ShapeKind::Ellipse => (0..64)
+                            .map(|index| {
+                                let angle = index as f64 * std::f64::consts::TAU / 64.0;
+                                [
+                                    (left + right) / 2.0 + angle.cos() * (right - left) / 2.0,
+                                    (top + bottom) / 2.0 + angle.sin() * (bottom - top) / 2.0,
+                                ]
+                            })
+                            .collect(),
+                    };
+                    let points: Vec<_> = document_points
+                        .into_iter()
+                        .filter_map(|point| mapping.to_clip(point).ok())
+                        .map(|point| {
                             egui::pos2(
-                                (p[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
-                                (1.0 - p[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
+                                (point[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
+                                (1.0 - point[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
                             )
                         })
-                    };
-                    let points =
-                        preview_outline.unwrap_or_else(|| selection_outline_points(&selection));
-                    let points: Vec<_> = points.into_iter().filter_map(to_screen).collect();
-                    for (width, color) in [(3.0, egui::Color32::BLACK), (1.0, egui::Color32::WHITE)]
-                    {
+                        .collect();
+                    if self.shape_filled && shape_kind != ShapeKind::Line {
                         output.shapes.push(egui::epaint::ClippedShape {
                             clip_rect: central,
-                            shape: egui::Shape::closed_line(
+                            shape: egui::Shape::convex_polygon(
                                 points.clone(),
-                                egui::Stroke::new(width, color),
+                                egui::Color32::from_rgba_unmultiplied(168, 93, 255, 72),
+                                egui::Stroke::NONE,
                             ),
                         });
                     }
-
-                    let show_handles = self.selection_transform.is_none()
-                        && self.edit_pointer.is_none()
-                        && matches!(
-                            self.tool,
-                            EditTool::Rectangle | EditTool::Ellipse | EditTool::Lasso
-                        );
-                    if show_handles
-                        && let Some([[scale_x, scale_y], [rotate_x, rotate_y]]) =
-                            selection_transform_handles(
-                                mapping,
-                                &selection,
-                                output.pixels_per_point,
-                            )
-                        && let Some(top_center) = to_screen([
-                            (selection.bounds()[0] + selection.bounds()[2]) / 2.0,
-                            selection.bounds()[1],
-                        ])
-                    {
-                        let scale_point = egui::pos2(
-                            scale_x as f32 / output.pixels_per_point,
-                            scale_y as f32 / output.pixels_per_point,
-                        );
-                        let rotate_point = egui::pos2(
-                            rotate_x as f32 / output.pixels_per_point,
-                            rotate_y as f32 / output.pixels_per_point,
-                        );
-                        for shape in [
-                            egui::Shape::line_segment(
-                                [top_center, rotate_point],
-                                egui::Stroke::new(1.5, egui::Color32::from_rgb(179, 87, 255)),
-                            ),
-                            egui::Shape::rect_filled(
-                                egui::Rect::from_center_size(scale_point, egui::vec2(12.0, 12.0)),
-                                2.0,
-                                egui::Color32::from_rgb(179, 87, 255),
-                            ),
-                            egui::Shape::rect_stroke(
-                                egui::Rect::from_center_size(scale_point, egui::vec2(12.0, 12.0)),
-                                2.0,
-                                egui::Stroke::new(1.5, egui::Color32::WHITE),
-                                egui::StrokeKind::Inside,
-                            ),
-                            egui::Shape::circle_filled(
-                                rotate_point,
-                                6.0,
-                                egui::Color32::from_rgb(179, 87, 255),
-                            ),
-                            egui::Shape::circle_stroke(
-                                rotate_point,
-                                6.0,
-                                egui::Stroke::new(1.5, egui::Color32::WHITE),
-                            ),
-                        ] {
+                    if points.len() >= 2 {
+                        let outline = |color, width| {
+                            if shape_kind == ShapeKind::Line {
+                                egui::Shape::line(points.clone(), egui::Stroke::new(width, color))
+                            } else {
+                                egui::Shape::closed_line(
+                                    points.clone(),
+                                    egui::Stroke::new(width, color),
+                                )
+                            }
+                        };
+                        for (width, color) in
+                            [(4.0, egui::Color32::BLACK), (1.5, egui::Color32::WHITE)]
+                        {
                             output.shapes.push(egui::epaint::ClippedShape {
                                 clip_rect: central,
-                                shape,
+                                shape: outline(color, width),
                             });
                         }
-                        if self.test_path_dialog && !self.test_selection_handles_logged {
-                            self.test_selection_handles_logged = true;
-                            crate::studio_log!(
-                                "UI_TEST_SELECTION_TRANSFORM_HANDLES: {:.2} {:.2} {:.2} {:.2} {:.2}",
-                                scale_x,
-                                scale_y,
-                                rotate_x,
-                                rotate_y,
-                                output.pixels_per_point,
+                        if self.test_path_dialog {
+                            let bounds =
+                                points
+                                    .iter()
+                                    .fold(egui::Rect::NOTHING, |mut bounds, point| {
+                                        bounds.extend_with(*point);
+                                        bounds
+                                    });
+                            let current =
+                                [bounds.left(), bounds.top(), bounds.right(), bounds.bottom()];
+                            let changed =
+                                self.test_shape_preview_bounds_logged
+                                    .is_none_or(|previous| {
+                                        current.iter().zip(previous).any(|(current, previous)| {
+                                            (current - previous).abs() > 1.0
+                                        })
+                                    });
+                            if changed {
+                                self.test_shape_preview_bounds_logged = Some(current);
+                                crate::studio_log!(
+                                    "UI_TEST_SHAPE_PREVIEW_BOUNDS: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                    current[0],
+                                    current[1],
+                                    current[2],
+                                    current[3],
+                                    output.pixels_per_point,
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    let (selection, preview_outline) = if let Some(drag) = &self.selection_transform
+                    {
+                        (
+                            Some(drag.selection.clone()),
+                            Some(transform_selection_outline(&drag.selection, drag.transform)),
+                        )
+                    } else if self.edit_pointer.is_some() {
+                        let kind = match self.tool {
+                            EditTool::Ellipse => SelectionKind::Ellipse,
+                            EditTool::Lasso => SelectionKind::Lasso,
+                            _ => SelectionKind::Rectangle,
+                        };
+                        (Selection::new(kind, self.edit_points.clone()).ok(), None)
+                    } else {
+                        (session.live().project().state().selection.clone(), None)
+                    };
+                    if let Some(selection) = selection {
+                        let to_screen = |p: [f64; 2]| {
+                            mapping.to_clip(p).ok().map(|p| {
+                                egui::pos2(
+                                    (p[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
+                                    (1.0 - p[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
+                                )
+                            })
+                        };
+                        let points =
+                            preview_outline.unwrap_or_else(|| selection_outline_points(&selection));
+                        let points: Vec<_> = points.into_iter().filter_map(to_screen).collect();
+                        for (width, color) in
+                            [(3.0, egui::Color32::BLACK), (1.0, egui::Color32::WHITE)]
+                        {
+                            output.shapes.push(egui::epaint::ClippedShape {
+                                clip_rect: central,
+                                shape: egui::Shape::closed_line(
+                                    points.clone(),
+                                    egui::Stroke::new(width, color),
+                                ),
+                            });
+                        }
+
+                        let show_handles = self.selection_transform.is_none()
+                            && self.edit_pointer.is_none()
+                            && matches!(
+                                self.tool,
+                                EditTool::Rectangle | EditTool::Ellipse | EditTool::Lasso
                             );
+                        if show_handles
+                            && let Some([[scale_x, scale_y], [rotate_x, rotate_y]]) =
+                                selection_transform_handles(
+                                    mapping,
+                                    &selection,
+                                    output.pixels_per_point,
+                                )
+                            && let Some(top_center) = to_screen([
+                                (selection.bounds()[0] + selection.bounds()[2]) / 2.0,
+                                selection.bounds()[1],
+                            ])
+                        {
+                            let scale_point = egui::pos2(
+                                scale_x as f32 / output.pixels_per_point,
+                                scale_y as f32 / output.pixels_per_point,
+                            );
+                            let rotate_point = egui::pos2(
+                                rotate_x as f32 / output.pixels_per_point,
+                                rotate_y as f32 / output.pixels_per_point,
+                            );
+                            for shape in [
+                                egui::Shape::line_segment(
+                                    [top_center, rotate_point],
+                                    egui::Stroke::new(1.5, egui::Color32::from_rgb(179, 87, 255)),
+                                ),
+                                egui::Shape::rect_filled(
+                                    egui::Rect::from_center_size(
+                                        scale_point,
+                                        egui::vec2(12.0, 12.0),
+                                    ),
+                                    2.0,
+                                    egui::Color32::from_rgb(179, 87, 255),
+                                ),
+                                egui::Shape::rect_stroke(
+                                    egui::Rect::from_center_size(
+                                        scale_point,
+                                        egui::vec2(12.0, 12.0),
+                                    ),
+                                    2.0,
+                                    egui::Stroke::new(1.5, egui::Color32::WHITE),
+                                    egui::StrokeKind::Inside,
+                                ),
+                                egui::Shape::circle_filled(
+                                    rotate_point,
+                                    6.0,
+                                    egui::Color32::from_rgb(179, 87, 255),
+                                ),
+                                egui::Shape::circle_stroke(
+                                    rotate_point,
+                                    6.0,
+                                    egui::Stroke::new(1.5, egui::Color32::WHITE),
+                                ),
+                            ] {
+                                output.shapes.push(egui::epaint::ClippedShape {
+                                    clip_rect: central,
+                                    shape,
+                                });
+                            }
+                            if self.test_path_dialog && !self.test_selection_handles_logged {
+                                self.test_selection_handles_logged = true;
+                                crate::studio_log!(
+                                    "UI_TEST_SELECTION_TRANSFORM_HANDLES: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                    scale_x,
+                                    scale_y,
+                                    rotate_x,
+                                    rotate_y,
+                                    output.pixels_per_point,
+                                );
+                            }
                         }
                     }
                 }
@@ -11824,14 +12083,14 @@ impl Studio {
 mod tests {
     use super::{
         CanvasMapping, FormatIllustration, LassoAppend, LayerMenuTarget, Selection,
-        SelectionTransformKind, activate_brush_preset, append_lasso_point,
+        SelectionTransformKind, ShapeKind, activate_brush_preset, append_lasso_point,
         brush_size_after_shortcut, document_format_card_height, document_format_grid,
         fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
         home_sections_stacked, layer_actions_menu, native_project_path, quick_document_card_layout,
         recent_artwork_preview_height, recent_gallery_layout, recent_project_matches,
-        recovery_checkpoint_label, recovery_source_label, selection_move_offset,
-        selection_transform_handle_at, selection_transform_handles, selection_transform_matrix,
-        symmetry_origin_from_client, transform_selection_outline,
+        recognize_quick_shape, recovery_checkpoint_label, recovery_source_label,
+        selection_move_offset, selection_transform_handle_at, selection_transform_handles,
+        selection_transform_matrix, symmetry_origin_from_client, transform_selection_outline,
     };
     use paint_document::brush::{Brush, BrushKind};
     use std::path::{Path, PathBuf};
@@ -11856,6 +12115,62 @@ mod tests {
             LassoAppend::LimitReached
         );
         assert_eq!(points.len(), count);
+    }
+
+    #[test]
+    fn quick_shape_recognizes_lines_rectangles_and_ellipses() {
+        let line = recognize_quick_shape(&[[20.0, 30.0], [40.0, 31.0], [60.0, 29.0], [80.0, 30.0]])
+            .unwrap();
+        assert_eq!(line.kind, ShapeKind::Line);
+        assert_eq!(line.start, [20.0, 30.0]);
+        assert_eq!(line.end, [80.0, 30.0]);
+
+        let rectangle = recognize_quick_shape(&[
+            [10.0, 10.0],
+            [40.0, 10.5],
+            [80.0, 10.0],
+            [80.0, 40.0],
+            [79.5, 80.0],
+            [40.0, 80.0],
+            [10.0, 80.0],
+            [10.0, 40.0],
+            [10.0, 10.0],
+        ])
+        .unwrap();
+        assert_eq!(rectangle.kind, ShapeKind::Rectangle);
+        assert_eq!(rectangle.start, [10.0, 10.0]);
+        assert_eq!(rectangle.end, [80.0, 80.0]);
+
+        let ellipse_points: Vec<_> = (0..=48)
+            .map(|index| {
+                let angle = index as f64 * std::f64::consts::TAU / 48.0;
+                [50.0 + angle.cos() * 30.0, 60.0 + angle.sin() * 20.0]
+            })
+            .collect();
+        let ellipse = recognize_quick_shape(&ellipse_points).unwrap();
+        assert_eq!(ellipse.kind, ShapeKind::Ellipse);
+        assert_eq!(ellipse.start, [20.0, 40.0]);
+        assert_eq!(ellipse.end, [80.0, 80.0]);
+    }
+
+    #[test]
+    fn quick_shape_rejects_incomplete_small_nonfinite_and_unbounded_gestures() {
+        assert!(recognize_quick_shape(&[[10.0, 10.0], [50.0, 12.0]]).is_none());
+        assert!(
+            recognize_quick_shape(&[
+                [0.0, 0.0],
+                [40.0, 40.0],
+                [0.0, 40.0],
+                [40.0, 0.0],
+                [0.0, 0.0]
+            ])
+            .is_none()
+        );
+        assert!(recognize_quick_shape(&[[1.0, 1.0], [2.0, 1.0], [3.0, 1.0], [4.0, 1.0]]).is_none());
+        assert!(recognize_quick_shape(&[[10.0, 10.0], [20.0, 10.0], [30.0, f64::NAN]]).is_none());
+        let mut too_many = vec![[10.0, 10.0]; paint_document::editing::MAX_SELECTION_POINTS + 1];
+        too_many[1] = [20.0, 10.0];
+        assert!(recognize_quick_shape(&too_many).is_none());
     }
 
     #[test]

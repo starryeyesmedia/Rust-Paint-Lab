@@ -8,6 +8,7 @@ pub enum Icon {
     ColorMixer,
     Eraser,
     Line,
+    QuickShape,
     Gradient,
     Rectangle,
     Ellipse,
@@ -92,6 +93,19 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
             line((-7.0, 7.0), (7.0, -7.0));
             painter.circle_filled(at(-7.0, 7.0), 1.7 * scale, color);
             painter.circle_filled(at(7.0, -7.0), 1.7 * scale, color);
+        }
+        Icon::QuickShape => {
+            path(&[
+                (-8.0, 2.0),
+                (-5.0, -5.0),
+                (1.0, -7.0),
+                (6.0, -3.0),
+                (7.0, 3.0),
+                (2.0, 7.0),
+                (-5.0, 6.0),
+                (-8.0, 2.0),
+            ]);
+            line((-5.0, 1.0), (5.0, 1.0));
         }
         Icon::Gradient => {
             line((-7.0, -5.0), (7.0, -5.0));
@@ -482,6 +496,7 @@ mod tests {
         let icons = [
             Icon::Brush,
             Icon::Eraser,
+            Icon::QuickShape,
             Icon::Rectangle,
             Icon::Ellipse,
             Icon::RectangleSelection,

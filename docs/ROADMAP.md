@@ -662,6 +662,24 @@ strict Clippy, **322 workspace tests**, build, Windows GNU checks, required GPU
 smoke and the complete artwork/export/recovery workflow passed locally. I
 inspected the populated selection-transform screenshot. This does not add new
 physical S Pen validation. Cross-platform Actions for this checkpoint are
-pending push. Next, implement a complete QuickShape workflow or first specify
-the versioned document migration required for editable layer masks. Phase 8.3,
-Phase 9, Phase 10 and Phase 11 remain active; none is declared complete.
+complete in Actions run
+[`40747903490`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40747903490),
+including the existing Windows canvas and stylus artifact jobs. Next, implement
+a complete QuickShape workflow or specify the versioned document migration
+required for editable layer masks. Phase 8.3, Phase 9, Phase 10 and Phase 11
+remain active; none is declared complete.
+
+### QuickShape recognition — implementation checkpoint
+
+The shared raster geometry workflow now has a QuickShape tool for recognizing
+lines, closed axis-aligned rectangles, and ellipses from a bounded pointer
+path. It previews provisionally and commits one existing raster transaction
+only after recognition; cancellation and invalid gestures leave artwork alone.
+The tool is tested with deterministic recognizer cases and is included in the
+real application workflow for native save, pixel-level verification, Undo and
+Redo. Local formatting, strict Clippy, build, Windows GNU checks, 324 workspace
+tests, and required software-GPU smoke pass. The current container lacks Xvfb,
+so this checkpoint's full XTest/screenshot run and cross-platform hosted CI are
+pending; no physical stylus result is claimed. Phase 9 remains active. Next is
+versioned, v1-compatible layer-mask storage and compositing design; Phase 10
+vector/text and Phase 11 timelapse/animation remain open work.

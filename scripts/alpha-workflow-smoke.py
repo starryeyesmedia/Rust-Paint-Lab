@@ -36,6 +36,9 @@ flush = api(x, 'XFlush', I, D)
 translate = api(x, 'XTranslateCoordinates', I, D, W, W, I, I, c.POINTER(I), c.POINTER(I), c.POINTER(W))
 focus = api(x, 'XSetInputFocus', I, D, W, I, W)
 resize = api(x, 'XResizeWindow', I, D, W, U, U)
+move_resize = api(x, 'XMoveResizeWindow', I, D, W, I, I, U, U)
+get_geometry = api(x, 'XGetGeometry', I, D, W, c.POINTER(W), c.POINTER(I), c.POINTER(I),
+                   c.POINTER(U), c.POINTER(U), c.POINTER(U), c.POINTER(U))
 keysym = api(x, 'XStringToKeysym', W, c.c_char_p)
 keycode = api(x, 'XKeysymToKeycode', U, D, W)
 motion = api(t, 'XTestFakeMotionEvent', I, D, I, I, I, W)
@@ -70,9 +73,10 @@ def find_window():
     parent, ancestor, count, children = W(), W(), U(), c.POINTER(W)()
     if not query(display, root, c.byref(ancestor), c.byref(parent), c.byref(children), c.byref(count)):
         return 0
+    marker=os.environ.get('RPL_UI_TEST_WINDOW_TOKEN','RPL_UI_TEST_WINDOW')
     try:
         return next((children[i] for i in range(count.value)
-                     if 'RPL_UI_TEST_WINDOW' in title(children[i])), 0)
+                     if marker in title(children[i])), 0)
     finally:
         if children:
             free(children)
@@ -567,6 +571,10 @@ def top_palette_clearance():
            if line.startswith('UI_TEST_TOP_PALETTE_CLEARANCE: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
+def visible_shape_preview_bounds():
+    bounds=window_rect_marker('UI_TEST_SHAPE_PREVIEW_BOUNDS')
+    return bounds if bounds and bounds[2]-bounds[0]>=12 and bounds[3]-bounds[1]>=12 else None
+
 def send():
     flush(display)
     time.sleep(0.06)
@@ -632,6 +640,16 @@ def drag_at(start_x, start_y, end_x, end_y):
     move(round((start_x+end_x)/2),round((start_y+end_y)/2))
     move(round(end_x),round(end_y))
     time.sleep(0.12)
+    click_button(1,False)
+
+def drag_path(points):
+    assert len(points)>=2
+    move(round(points[0][0]),round(points[0][1]))
+    click_button(1,True)
+    time.sleep(0.12)
+    for x,y in points[1:]:
+        move(round(x),round(y))
+    time.sleep(0.1)
     click_button(1,False)
 
 def right_click_at(px, py):
@@ -747,6 +765,35 @@ def native_layer_tiles_bytes(data):
         layers.setdefault(layer_id,{})[(tile_x,tile_y)]=tile
     assert offset==len(data)-32, 'native layer tile table does not match the document length'
     return layers
+
+def native_layer_changed_pixels(before_data, after_data, bounds):
+    """Count nontransparent changed pixels in a saved native layer region."""
+    before_state=native_state_bytes(before_data)
+    after_state=native_state_bytes(after_data)
+    assert before_state['selected']==after_state['selected'], \
+        'the active layer must remain stable while checking a raster edit'
+    layer_id=after_state['selected']
+    before_tiles=native_layer_tiles_bytes(before_data).get(layer_id,{})
+    after_tiles=native_layer_tiles_bytes(after_data).get(layer_id,{})
+    left,top,right,bottom=bounds
+    x_start=max(0,math.floor(left)); y_start=max(0,math.floor(top))
+    x_end=max(x_start,math.ceil(right)); y_end=max(y_start,math.ceil(bottom))
+    changed=0
+    for tile_y in range(y_start//64,(y_end-1)//64+1):
+        for tile_x in range(x_start//64,(x_end-1)//64+1):
+            after=after_tiles.get((tile_x,tile_y))
+            if after is None:
+                continue
+            before=before_tiles.get((tile_x,tile_y),bytes(16384))
+            x0=max(x_start,tile_x*64); x1=min(x_end,(tile_x+1)*64)
+            y0=max(y_start,tile_y*64); y1=min(y_end,(tile_y+1)*64)
+            for y in range(y0,y1):
+                row=(y-tile_y*64)*64
+                for x in range(x0,x1):
+                    offset=(row+x-tile_x*64)*4
+                    if after[offset+3] and after[offset:offset+4]!=before[offset:offset+4]:
+                        changed+=1
+    return changed
 
 def png_chunk(kind, data):
     body=kind+data
@@ -1059,9 +1106,28 @@ def capture_window(window, name):
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 
 def resize_window(window, width, height):
-    assert resize(display, window, width, height)
-    sync(display, 0)
-    time.sleep(0.35)
+    def actual_size():
+        root_return=W();x_return=I();y_return=I()
+        width_return=U();height_return=U();border_return=U();depth_return=U()
+        if not get_geometry(display,window,c.byref(root_return),c.byref(x_return),c.byref(y_return),
+                            c.byref(width_return),c.byref(height_return),c.byref(border_return),
+                            c.byref(depth_return)):
+            return None
+        return width_return.value,height_return.value
+    for attempt in range(4):
+        if attempt == 0:
+            resize(display,window,width,height)
+        else:
+            # Some X11 window managers defer or drop resize-only requests.
+            # Reissue with position and size, then verify the server's result.
+            move_resize(display,window,24,24,width,height)
+        sync(display,0)
+        time.sleep(0.12)
+        if actual_size()==(width,height):
+            return
+    raise AssertionError(
+        f'X11 refused requested window size {width}x{height}; actual size is {actual_size()}'
+    )
 def decode_rgba_png(data):
     assert data[:8]==b'\x89PNG\r\n\x1a\n'
     offset=8;width=height=bit_depth=color_type=None;compressed=bytearray()
@@ -1103,7 +1169,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
     if os.environ.get('RPL_KEEP_ALPHA_TEMP'):
         print(f'ALPHA_WORKFLOW_TEMP: {directory}', flush=True)
     executable=Path(__file__).resolve().parent.parent/'target/debug/canvas-demo'
-    env={**os.environ,'XDG_STATE_HOME':str(directory/'state'),'RPL_TEST_PATH_DIALOG':'1','RPL_TEST_DOCUMENT_NAME':'artwork'}
+    window_token=f'RPL_UI_TEST_WINDOW_{directory.name}'
+    os.environ['RPL_UI_TEST_WINDOW_TOKEN']=window_token
+    env={**os.environ,'XDG_STATE_HOME':str(directory/'state'),'RPL_TEST_PATH_DIALOG':'1',
+         'RPL_TEST_DOCUMENT_NAME':'artwork','RPL_UI_TEST_WINDOW_TOKEN':window_token}
     # Load a persisted, colorful reference-board illustration. The magenta
     # sentinel at its first pixel must never leak into exported artwork.
     reference=directory/'reference.png'
@@ -1167,8 +1236,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,1280,800)
             preset=wait(lambda: settled_home_preset_card_rect('Portrait'),
                         'Home exposes a measured standard Portrait canvas preset')
-            click_at((preset[0]+preset[2]/2)*preset[4],
-                     (preset[1]+preset[3]/2)*preset[4])
+            preset_target=((preset[0]+preset[2]/2)*preset[4],
+                           (preset[1]+preset[3]/2)*preset[4])
+            title_before_preset=title(window)
+            click_at(*preset_target)
+            time.sleep(0.25)
+            print(f'UI_TEST_HOME_PRESET_CLICK: target={preset_target} bounds={preset} '
+                  f'title={title_before_preset!r}->{title(window)!r}',flush=True)
             wait(lambda: 'UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1' in
                  (directory/'application.log').read_text(),
                  'selecting the Home Portrait preset creates a named 1800x2400 painting document directly')
@@ -2285,9 +2359,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('r');wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='ShapeRectangle',
                            'R selects the document-backed rectangle shape tool')
             move(480,180);click_button(1,True);move(560,260)
-            preview_bounds=tuple(map(float,wait(
-                lambda: stable_marker('UI_TEST_SHAPE_PREVIEW_BOUNDS'),
-                'active shape drag reports its clipped preview geometry').split()))
+            preview_bounds=wait(
+                visible_shape_preview_bounds,
+                'active shape drag reports its clipped preview geometry')
             capture_window(window,'shape-preview-rectangle')
             preview_width,preview_height,preview_pixels=decode_rgba_png(
                 (Path(os.environ['RPL_UI_SCREENSHOT_DIR'])/'shape-preview-rectangle.png').read_bytes())
@@ -2335,6 +2409,59 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 ctrl('y');ctrl('s')
                 wait(lambda: imported.read_bytes()==shape_bytes and '*' not in title(window),
                      f'{kind} redo restores the saved shape pixels exactly')
+            quickshape_markers=lambda: [line.partition(': ')[2].split()
+                                        for line in (directory/'application.log').read_text().splitlines()
+                                        if line.startswith('UI_TEST_QUICKSHAPE_COMMITTED: ')]
+            quickshape_rejections=sum(
+                line.startswith('UI_TEST_QUICKSHAPE_REJECTED: ')
+                for line in (directory/'application.log').read_text().splitlines())
+            quickshape_base=imported.read_bytes()
+            key('q');wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='QuickShape',
+                           'Q selects the accessible QuickShape tool')
+            move(480,290);click_button(1,True);move(520,310);key('Escape');click_button(1,False)
+            assert imported.read_bytes()==quickshape_base, \
+                'Escape during a QuickShape gesture must not mutate document pixels'
+            drag_path([(480,300),(520,340),(480,340)])
+            wait(lambda: sum(line.startswith('UI_TEST_QUICKSHAPE_REJECTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>
+                 quickshape_rejections,
+                 'unrecognized open polygon is safely rejected without document mutation')
+            assert imported.read_bytes()==quickshape_base, \
+                'unrecognized gesture must not create a document transaction'
+            for shape_name,points in [
+                ('Rectangle',[(700,180),(740,180),(780,180),(780,220),(780,260),
+                              (740,260),(700,260),(700,220),(700,180)]),
+                ('Ellipse',[(650+40*math.cos(i*math.tau/16),330+40*math.sin(i*math.tau/16))
+                            for i in range(17)]),
+                ('Line',[(700,500),(740,502),(780,499)]),
+            ]:
+                before_quickshape=imported.read_bytes()
+                prior_quickshape_count=len(quickshape_markers())
+                drag_path(points)
+                wait(lambda: len(quickshape_markers())>prior_quickshape_count,
+                     f'QuickShape recognizes a freehand {shape_name.lower()} gesture')
+                marker=quickshape_markers()[-1]
+                assert marker[0]==shape_name, f'QuickShape misclassified the gesture: {marker}'
+                ctrl('s')
+                wait(lambda: imported.read_bytes()!=before_quickshape and '*' not in title(window),
+                     f'QuickShape {shape_name.lower()} commits and saves real layer pixels')
+                changed_quickshape=imported.read_bytes()
+                sx,sy,ex,ey=map(float,marker[1:])
+                changed_pixels=native_layer_changed_pixels(
+                    before_quickshape,changed_quickshape,(sx,sy,ex,ey))
+                assert changed_pixels>0, \
+                    f'QuickShape {shape_name.lower()} changes saved native-layer pixels inside its document bounds'
+                if shape_name=='Rectangle':
+                    capture_window(window,'quick-shape-workspace')
+                ctrl('z');ctrl('s')
+                wait(lambda: imported.read_bytes()==before_quickshape,
+                     f'QuickShape {shape_name.lower()} is one exact undoable transaction')
+                ctrl('y');ctrl('s')
+                wait(lambda: imported.read_bytes()==changed_quickshape,
+                     f'QuickShape {shape_name.lower()} redo restores saved pixels exactly')
+                ctrl('z');ctrl('s')
+                wait(lambda: imported.read_bytes()==before_quickshape,
+                     f'QuickShape {shape_name.lower()} cleanup restores prior artwork')
             # Linear and radial gradients use the actual pointer lifecycle,
             # transient GPU preview, document transaction, native save and
             # undo/redo path. Escape must discard only the preview.
@@ -2823,7 +2950,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -2839,7 +2966,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; canvas scale/rotation handles with cancelled previews, pixel changes, save and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; QuickShape line/rectangle/ellipse recognition, incomplete-gesture rejection, cancellation and exact undo/redo; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; canvas scale/rotation handles with cancelled previews, pixel changes, save and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

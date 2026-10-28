@@ -2697,8 +2697,10 @@ software-rendered Linux validation only; native WM_POINTER integration is kept,
 but no new physical S Pen or Windows capture-loss test was performed. Actions
 run [`40741970797`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40741970797)
 has now passed Windows, Linux, and macOS for the preceding `f2046e3` symmetry
-origin checkpoint. It completed with both Windows artifacts present; this
-selected-move implementation still needs its own hosted validation after push.
+origin checkpoint. The selected-move Actions run
+[`40744882686`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40744882686)
+also passed Windows, Linux and macOS in 17m 41s for `9f6614a`, with separate
+canvas and stylus Windows artifacts.
 
 ### Continue here
 
@@ -2737,7 +2739,9 @@ Formatting, strict workspace Clippy, workspace build, Windows GNU workspace
 check/Clippy, GPU-required llvmpipe/OpenGL smoke, Python syntax and **322
 workspace tests** passed locally. The full Linux Xorg/XTest artwork workflow
 passed. The new commit's hosted Windows/Linux/macOS CI and Windows artifacts
-are pending push. No new physical S Pen pressure/tilt or transform testing was
+passed in Actions run [`40747903490`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40747903490).
+The run completed on Windows, Linux and macOS with the separate canvas and
+stylus artifacts. No new physical S Pen pressure/tilt or transform testing was
 performed; native WM_POINTER continues through the same pointer lifecycle.
 
 Next, prioritize a complete QuickShape workflow or the versioned mask-storage
@@ -2745,3 +2749,44 @@ design and v1 migration tests before implementing editable layer masks. Keep
 image placement and configurable S Pen barrel action on the Phase 9 list.
 Phase 8.3 acceptance, Phase 9, Phase 10 vector/text, and Phase 11
 timelapse/animation remain active and incomplete.
+
+## Phase 9 — QuickShape recognition and raster transactions (2026-10-28)
+
+The primary tool palette now provides a QuickShape recognition tool (`Q`).
+During a bounded pointer gesture it shows a transient path preview; on release
+it recognizes a near-straight line, a closed axis-aligned rectangle, or a
+closed ellipse and commits the result through the existing raster shape
+transaction. The gesture retains the active brush size, color and fill choice.
+Escape and interrupted pointer lifecycles discard the preview, and
+unrecognized gestures are rejected without a document edit. The application
+still uses the existing document format; no geometry is mislabeled as editable
+vector content.
+
+Automated recognizer tests cover each supported shape and rejection of short,
+self-crossing, non-finite, too-small and over-limit gestures. In the real
+application XTest workflow, QuickShape is exercised for cancellation,
+unrecognized input, line/rectangle/ellipse commits, native saved-layer pixels,
+and exact Undo/Redo. The pixel assertion compares changed nontransparent
+pixels across each gesture's bounded document region; checking a single edge
+coordinate proved brittle where earlier artwork had already painted that
+sample. The preserved failed run's project data confirmed 1,254 changed
+nontransparent pixels in the rectangle's region, and the corrected regression
+helper reports that result.
+
+On the current tree, Rust 1.90 formatting, strict workspace Clippy, workspace
+build, Windows GNU workspace check/Clippy, **324 workspace tests**, and the
+required llvmpipe/OpenGL GPU smoke pass. The full Linux Xorg/XTest workflow
+cannot run in this container because Xvfb is absent and the system package
+mirror denies access; the QuickShape interaction and screenshot review are
+therefore awaiting the hosted Linux CI run. No physical Windows QuickShape or
+new S Pen behavior is claimed. The new commit's three-platform Actions run and
+canvas/stylus artifacts must be checked after push.
+
+### Continue here
+
+1. Confirm the Actions Linux artwork workflow completes below its 10-minute
+   limit, inspect its QuickShape screenshot and verify both Windows artifacts.
+2. Design bounded editable raster-mask storage and an explicit v1-compatible
+   migration before implementing mask painting/compositing/undo.
+3. Keep Phase 10 vector/text and Phase 11 timelapse/animation active; do not
+   defer them until every Phase 8.3 visual item is closed.

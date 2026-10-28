@@ -664,6 +664,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 PhysicalKey::Code(KeyCode::Digit0) => Some('0'),
                                 PhysicalKey::Code(KeyCode::KeyB) => Some('b'),
                                 PhysicalKey::Code(KeyCode::KeyM) => Some('m'),
+                                PhysicalKey::Code(KeyCode::KeyQ) => Some('q'),
                                 PhysicalKey::Code(KeyCode::KeyE) => {
                                     Some(if self.modifiers.shift_key() { 'q' } else { 'e' })
                                 }
@@ -850,7 +851,9 @@ impl ApplicationHandler<AppEvent> for App {
                             title
                         };
                         let title = if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some() {
-                            format!("{title} | RPL_UI_TEST_WINDOW")
+                            let marker = std::env::var("RPL_UI_TEST_WINDOW_TOKEN")
+                                .unwrap_or_else(|_| "RPL_UI_TEST_WINDOW".into());
+                            format!("{title} | {marker}")
                         } else {
                             title
                         };
