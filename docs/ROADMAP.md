@@ -20,9 +20,11 @@ S Pen drawing on the Galaxy Book2 Pro 360. The latest findings prioritize a
 console-free Windows GUI package, clearer tool iconography, faster Home-to-canvas
 creation, a canvas-first coordinated workspace, configurable S Pen barrel action,
 a real raster Smudge tool, and a deliberate Place Image workflow. The GUI
-subsystem startup change is under local verification from `df0635a`; see
-`PHASE8-STUDIO-PROGRESS.md` for current test results and next actions. Keep the
-WM_POINTER and stabilization paths unchanged absent a reproduced defect.
+subsystem change and current Home/New Artwork integration are locally verified
+through code commit `2979c02`. Local Windows GNU checks pass, but packaged Windows
+startup and the post-`2979c02` GitHub Actions results are pending. See
+`PHASE8-STUDIO-PROGRESS.md` for exact tests and status. Keep the WM_POINTER and
+stabilization paths unchanged absent a reproduced defect.
 
 ## Experience and accessibility
 
@@ -62,6 +64,23 @@ WM_POINTER and stabilization paths unchanged absent a reproduced defect.
   vector, animation, or other persistent content types.
 
 ## Current status
+
+### Latest Phase 8.3 snapshot — 2026-10-28
+
+Code commit `2979c02` locally passes formatting, strict Clippy, the workspace
+build, **282 workspace tests** (including the llvmpipe/OpenGL offscreen GPU
+smoke), Windows GNU workspace check/Clippy, and the complete local Xorg/XTest
+artwork workflow. The latter verified save/reopen pixels, layer operations,
+shapes, gradients, export/import, reference isolation and forced-crash journal
+recovery; it captured 50 screenshots that were locally inspected in representative
+light/dark, narrow, populated-panel and high-contrast states. The hidden Reference
+wheel crash on the dark narrow New Artwork screen is fixed and covered by that
+workflow. GitHub Actions for `2979c02` is pending; the preceding run failed only
+because a macOS log-directory assertion assumed a Linux/Windows path, and the
+assertion now accounts for macOS `~/Library/Logs/BitchPixel`. Phase 8.3 remains
+active. The Layers/Reference pair is bounded and non-overlapping at 640 × 480 but
+still leaves too little canvas; side-button configuration, Smudge, transformed
+Place Image and safe custom window chrome are incomplete.
 
 Phase 8.2 is implemented through code commit `1ad2b62` with successful
 three-platform CI. Phase 8.3 remains active on

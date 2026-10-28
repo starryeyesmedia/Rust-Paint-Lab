@@ -1,80 +1,87 @@
 # Phase 8 — Creative Studio Overdrive progress
 
-## Owner usability findings — Windows GUI packaging checkpoint (2026-10-28)
+## Latest owner-usability checkpoint — local validation passed, Actions pending (2026-10-28)
 
-The active continuation responds to the Galaxy Book2 Pro 360 evaluation. The
-owner-confirmed baseline remains the successful `b50e7ec` launch and basic S Pen
-drawing. Pressure/stabilization showed no obvious failure and palm rejection
-appeared effective in that short session; this is not exhaustive pen validation.
+The active continuation starts from the successful owner-tested `b50e7ec`
+Windows launch and basic S Pen drawing. It preserves that hardware result as the
+baseline; no new physical pen or laptop demo was requested or performed. The
+latest implementation commit is `2979c02` on
+`feature/studio-overdrive-phase-8`.
 
-Checkpoint A changes the Windows `canvas-demo` binary to the GUI subsystem, so
-Explorer launches without a console. Application diagnostics now use a
-best-effort stderr mirror plus a single 1 MiB-capped local log
-(`%LOCALAPPDATA%\BitchPixel\logs\canvas-demo.log`); fatal startup errors show a
-native Windows dialog. The hidden-window AccessKit creation and show-after-GPU
-initialization sequence is preserved. The release package CI inspects the PE
-header for `Windows GUI`, and the startup smoke reads the bounded application
-log so it can still detect the visible window/first rendered frame without a
-console. The stylus diagnostic is untouched.
+The Windows canvas executable is configured as a GUI application, with bounded
+local diagnostics and a native startup error dialog. AccessKit is still created
+before the window is shown, and GPU initialization completes before the visible
+window appears. The independent stylus diagnostic and WM_POINTER pipeline are
+unchanged. Windows packaged startup/artifact verification must be confirmed by
+the new Actions run; the earlier run `40611993952` exposed a macOS-only test
+assumption about `~/Library/Logs/BitchPixel`. The diagnostics test now accepts
+that standard macOS location while remaining constrained on other platforms.
 
-Local verification on pinned Rust 1.90: formatting, strict workspace Clippy,
-workspace build, **280 workspace tests**, Windows GNU workspace check/Clippy,
-and the required offscreen GPU smoke on llvmpipe/OpenGL passed. A direct
-invalid-argument run confirmed the error is written to the bounded log and exits
-nonzero. A local dummy Xorg server was started on `:102`; the full Xorg/XTest
-artwork workflow passed after the marker-format correction with **47 rendered
-screenshots**. Windows packaged GUI and macOS first-frame behavior remain pending
-GitHub Actions; PE inspection and Windows native dialog behavior are not
-established by GNU cross-checking.
+Home now uses an action-oriented “Create, open, or continue artwork.” heading,
+the exact “No limits. No bullshit.” line with a sampled contrast-safe purple to
+magenta text treatment, and direct Portrait/Square/Landscape document creation.
+The standard New Artwork dialog puts the name field immediately below its
+heading, keeps the primary flow visible at 1280 × 800, and provides scrolling at
+640 × 480. Home preset bounds are logged only when responsive geometry changes,
+so the XTest harness clicks the current visible card after resize rather than a
+stale position. The established keyboard-accessible, illustrated format cards
+and advanced precision settings remain available.
 
-The first local Xorg run caught a compatibility issue in the replacement logger:
-prefixing messages with timestamps made existing workflow markers cease to begin
-at column zero. The logger now preserves the exact line format while retaining
-the 1 MiB cap, and a regression test protects marker parsing. The workflow after
-the correction exercised actual save/reopen pixels, gradients, layers,
-PNG/OpenRaster, references and journal recovery. I inspected Home at normal and
-narrow sizes, New Artwork, the workspace toolbar, and populated Layers/Reference
-at 640 × 480. The selected-versus-painted rectangle and ellipse icons are
-distinguishable, and the narrow panels remain within bounds. Screenshots are
-local-only at `/tmp/bp-screens`; Actions must rerun the workflow on pushed code
-before cross-platform validation. Commit `d37e10b` was still under Actions when
-this note was written.
+The hidden Reference scroll crash found during the dark narrow-dialog test is
+fixed. A stale saved reference area can outlive a hidden panel; wheel input at
+that position is now forwarded to egui's visible modal instead of unwrapping a
+missing reference viewport or being swallowed. The XTest regression checks the
+stale-reference path, application survival, and that Create scrolls into view.
 
-### Tool discoverability — local icon/toolbar slice
+On pinned Rust 1.90, `cargo fmt --all -- --check`, strict workspace Clippy,
+workspace build, Windows GNU workspace check/Clippy, all **282 workspace tests**
+and the llvmpipe/OpenGL offscreen GPU smoke pass. The complete local Xorg/XTest
+workflow passes actual painting, selection/fill, shapes, linear/radial gradients,
+layer reorder/copy/visibility/opacity/Multiply with save and undo/redo checks,
+PNG/OpenRaster export/import, save/reopen, and forced process termination with
+journal recovery. It captured **50** rendered screenshots. I inspected light and
+dark Home, recent artwork, normal and narrow New Artwork, committed gradient,
+populated dark Layers/References and Recovery, and high contrast. The populated
+640 × 480 Layers/Reference panels do not overlap and remain in bounds, but leave
+too little open canvas; compact panel ergonomics remain an identified defect.
+The screenshots and logs are local under `/tmp/bp-screens-phase8c-final` and
+`/tmp/rpl-alpha-window-8sh83476`.
 
-The primary palette now groups painting, selection, shape, and color tools with
-compact separators. Rectangle and ellipse selection use separate marching-
-boundary/corner-marker icons rather than reusing the solid geometry icons for
-drawn shapes. Accessibility labels and existing shortcuts remain attached to
-their original working actions. New icon tests confirm both variants emit
-distinct vector geometry. On the rendered 1280 × 800 workspace screenshot, the
-selection pair is visibly distinct from the line/rectangle/ellipse drawing
-group. This is a partial iconography pass; other custom icon silhouettes and
-the toolbar's overall density still need broader review. The full suite passes
-**280 tests**, and format, strict Clippy, workspace build, Windows GNU check and
-Clippy, llvmpipe GPU smoke and the 47-image local Xorg workflow all include
-these changes. A three-platform Actions result for the pushed startup/logger
-checkpoint is still pending; no cross-platform validation is claimed for this
-uncommitted icon slice.
+### Ten owner findings — current status
 
-The ten owner findings are being addressed in priority order: startup A is
-implemented locally and awaits cross-platform CI; custom iconography, Home/New
-Canvas, coordinated workspace/Layers, side-button action, Smudge, and image
-placement remain active work. Custom window chrome remains a platform-sensitive
-investigation and will retain native window behavior unless a safe implementation
-is proven. No Phase 8.3 acceptance is claimed.
+- **1. Console-free Windows launch — implemented, packaged GUI/startup CI pending.**
+- **2. Tool icons — partially addressed.** Selection silhouettes are distinct;
+  the full icon discoverability and toolbar-density review remains.
+- **3. Home/New Canvas — partially addressed.** Direct standard presets, visual
+  hierarchy, top-positioned name, and responsive Create action are working;
+  broader populated/missing-file/recovery Home composition still needs review.
+- **4. Workspace controls and Layers — partially addressed.** Existing layer
+  editing is exercised end to end. The constrained two-panel layout is bounded
+  but too cramped, and the unified workspace redesign remains incomplete.
+- **5. Full artist workflow — automated slice passes** through paint, edits,
+  layers, save/reopen, export and recovery; this does not establish all owner
+  workflows or physical-device performance.
+- **6. S Pen side button — pending.** Barrel-button capture is preserved; no
+  configurable temporary tool action has been implemented.
+- **7. Smudge — pending.** There is no pixel-smearing tool yet.
+- **8. Place Image — pending.** PNG layer import exists, but interactive move,
+  scale, rotate and fit controls are not implemented.
+- **9. Custom frame — deferred.** The reliable native frame remains; no safe
+  Windows custom-frame behavior has been demonstrated.
+- **10. Native Windows startup and hardware validation — pending new CI and owner
+  evaluation.** The existing b50e7ec launch/basic S Pen result remains the only
+  physical validation claimed.
 
 ### Exact continuation
 
-1. Push and verify the GUI-subsystem startup checkpoint. Then continue the
-recognizable tool/icon hierarchy and Home/New Canvas workflow before advancing
-to workspace usability and engine-connected Smudge/image placement.
-2. Keep the existing WM_POINTER pipeline intact; synthetic barrel-button tests
-must precede a configurable temporary tool action. Preserve the owner's
-successful Windows evaluation baseline and do not require a new demo between
-internal checkpoints.
-3. Continue documenting which owner findings are fixed, partial, blocked or
-pending, with actual tests and Actions runs; do not merge or release.
+1. Push `2979c02` and this progress update; verify Windows GUI startup/artifact,
+   Linux UI/artwork, and macOS first-frame/diagnostics Actions results.
+2. Continue reducing small-window panel obstruction and complete a compact
+   canvas-first Layers workflow without weakening current document tests.
+3. Then implement the configurable WM_POINTER barrel action and a real
+   transaction-safe Smudge tool, followed by transformed Place Image.
+   Preserve native-window behavior unless a safe custom frame is proven.
+4. Keep Phase 8.3 active; do not merge or release.
 
 ## Phase 8.1 — Studio refinement (active)
 
