@@ -128,7 +128,7 @@ Use the pinned Rust toolchain and Cargo workspace. Prefer safe Rust, small
 interfaces, established maintained dependencies, and explicit errors. Keep
 platform dependencies target-gated. Add dependencies only for current needs;
 update Cargo.lock and `docs/dependencies.md` with versions/licenses and notices.
-Do not select a project distribution license without the owner's decision.
+Project-level GPLv3 licensing and copyright notices are being reviewed in separate draft pull requests. Do not change or merge legal notices, assign copyright, or remove third-party attributions without the owner's approval.
 Follow the owner-approved BitchPixel visual direction in the latest concept and
 living progress record: purple-led Midnight Violet surfaces, readable coordinated
 light/high-contrast variants, Outfit 700/800/900 display faces and Manrope UI
@@ -156,9 +156,31 @@ Keep tests independent of real devices; document hardware tests separately in
 touch, latency, or GPU compatibility based on compilation or synthetic tests.
 Record commands, outcomes, and unrun checks honestly.
 
-## Git
-Work on feature branches, never directly on main. Preserve existing work. Do not
-merge or create releases unless separately requested. Keep commits reviewable.
+## Git and PR workflow
+The existing `feature/studio-overdrive-phase-8` branch is currently the
+integration target for BitchPixel application development; `main` is reserved
+for owner-approved stable work. For all **new** feature and bug-fix work:
+- Fetch the latest integration HEAD and branch into short-lived `feat/*`,
+  `fix/*`, `docs/*`, or `chore/*` work branches before making changes.
+- Do **not** commit or push directly to `main` or the integration branch.
+  Preserve existing commits and concurrent in-progress work; never force-push
+  another contributor's branch.
+- Commit, push and validate meaningful checkpoints on the work branch.
+  Multi-hour Codex sessions may contain several checkpoints on one coherent PR
+  branch; a separate PR for every tiny commit is unnecessary.
+- Open a **draft pull request** targeting the integration branch when work is
+  meaningfully underway. Populate the PR template with changed behavior, CI
+  results, native-format/recovery risks, screenshot review where applicable,
+  and explicit device-testing limitations. Keep updating the same PR branch.
+- Diagnose failed CI and fix it on the PR branch; do not bypass test failures
+  by weakening meaningful checks. Require successful Windows, Linux and macOS
+  jobs before proposing a merge. An automated pass does not replace owner
+  review or physical S Pen/accessibility testing.
+- Codex must **never self-merge**, merge development into `main`, create
+  releases, or change protected branch settings without explicit owner approval.
+  Leave blocked or unfinished work as a draft PR with a precise continuation.
+- Follow `docs/DEVELOPMENT-WORKFLOW.md`. GitHub protection/rulesets must be
+  separately enabled by a repository administrator to enforce this policy.
 
 ## Overdrive protocol
 Maintain `docs/PHASE8-STUDIO-PROGRESS.md` with tested checkpoints, partial/missing
