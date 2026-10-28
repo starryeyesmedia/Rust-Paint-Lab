@@ -598,3 +598,23 @@ combinations are not newly verified. See the
 [Phase 9 progress entry](PHASE8-STUDIO-PROGRESS.md). The next feature should be
 a complete selection-transform or QuickShape workflow; editable layer masks
 need a separate versioned-storage and recovery design first.
+
+### Place symmetry origin directly on canvas — local checkpoint
+
+The Drawing Symmetry panel can now arm a one-contact mouse or native pen origin
+placement. The pointer is converted with the current canvas/document mapping,
+consumed through its terminal event, and never reaches painting. Escape, window
+deactivation, resize, close and capture loss clear the transient picker state.
+The normalized origin persists only in local workspace preferences.
+
+The live Xorg/XTest suite placed the origin at 50%, 68%, confirmed the preference
+and unchanged artwork/no paint-start, checked mirrored pixels around the custom
+origin, verified exact undo/redo, and cancelled a second placement with Escape.
+All **318 workspace tests**, strict Clippy, format, build, Windows GNU checks,
+required llvmpipe/OpenGL smoke and the full Linux artwork/recovery workflow passed.
+The populated custom-origin screenshot and representative Home/New Artwork/narrow
+Layers/Reference screens were inspected. The narrow multi-panel state still
+obstructs most of the artboard, so coordinated compact panels remain open work.
+Actions run [`40738225142`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40738225142)
+passed the prior symmetry commit; the origin-placement follow-up requires its own
+cross-platform run. This is one Phase 9 slice; Phase 8.3 and Phase 9 remain active.

@@ -2621,6 +2621,38 @@ physical Windows S Pen test was performed. Existing basic S Pen drawing and
 Windows launch remain the previously owner-tested baseline; advanced
 symmetry/stylus combinations require future device testing.
 
+## Phase 9 continuation — place symmetry origin directly on canvas
+
+The Drawing Symmetry panel now has a keyboard-accessible **Place origin on
+canvas** toggle. With it armed, a mouse click or native pen contact on the
+artboard maps through the current zoomed document viewport and sets the
+normalized workspace origin. The initiating contact and its remaining pointer
+stream are consumed, so choosing an origin cannot paint. Escape, focus loss,
+resize, close, mode change, and native capture-loss clear the temporary state;
+placement and cancellation never alter the document. The origin remains a local
+workspace preference and `.rpl` v1 is unchanged.
+
+The full Xorg/XTest app workflow placed a non-centered origin at 50%, 68%,
+verified workspace persistence, unchanged native artwork bytes and no new paint
+stroke, then verified original/mirrored pixels and byte-exact Undo/Redo around
+that custom origin. A second armed gesture was cancelled with Escape and checked
+to leave the prior origin and artwork unchanged. The updated UI suite passed and
+the `symmetry-panel-custom-origin.png` render was inspected alongside wide Home,
+New Artwork, and narrow populated Layers/Reference screens. The latter still
+leaves only a small strip of exposed canvas at 640 × 480 when both large panels
+are open; coordinated compact panel behavior remains a follow-up.
+
+On the final code worktree, formatting, strict Clippy, workspace build, Windows
+GNU workspace check and Clippy, required llvmpipe/OpenGL GPU smoke, Python syntax
+and the full **318-test workspace suite** passed. The local Xorg/XTest artwork,
+export and forced-process-termination recovery workflow also passed. GitHub
+Actions run [`40738225142`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40738225142)
+passed Windows, Linux and macOS for preceding commit `5c8ee67`; Actions for the
+direct-origin follow-up are pending its push. Mouse behavior was exercised in
+the live Linux app; native-pen placement is integrated with the existing WM_POINTER
+capture path but awaits future physical verification. This does not complete
+Phase 8.3 or Phase 9.
+
 ### Continuation
 
 After verifying the current Actions run, prioritize an end-to-end selection

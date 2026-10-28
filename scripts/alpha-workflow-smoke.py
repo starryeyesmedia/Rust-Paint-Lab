@@ -192,6 +192,9 @@ def symmetry_mode_rect(label):
         return None
     return tuple(map(float,lines[-1].split()[:5]))
 
+def symmetry_origin_button_rect():
+    return stable_window_rect_marker('UI_TEST_SYMMETRY_ORIGIN_BUTTON_RECT')
+
 def symmetry_canvas_bounds():
     marker=stable_marker('UI_TEST_SYMMETRY_CANVAS')
     return tuple(map(float,marker.split())) if marker else None
@@ -2415,11 +2418,49 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Vertical mode enables actual mirrored drawing')
             wait(lambda: json.loads(prefs.read_text()).get('symmetry',{}).get('mode')=='vertical',
                  'symmetry mode is persisted in local workspace preferences')
-            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                capture_window(window,'symmetry-panel-vertical')
+            origin_button=wait(symmetry_origin_button_rect,
+                               'symmetry panel exposes an accessible direct-origin control')
+            starts_before_origin=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                                     for line in (directory/'application.log').read_text().splitlines())
+            click_at((origin_button[0]+origin_button[2]/2)*origin_button[4],
+                     (origin_button[1]+origin_button[3]/2)*origin_button[4])
+            wait(lambda: event_marker('UI_TEST_SYMMETRY_ORIGIN_ARMED')=='true',
+                 'direct origin placement arms from the visible panel control')
             canvas=wait(symmetry_canvas_bounds,
                         'document mapping exposes physical bounds for pixel-level verification')
             left,top,right,bottom,doc_width,doc_height=canvas
+            expected_center=[0.50,0.68]
+            origin_client=(left+expected_center[0]*(right-left),
+                           top+expected_center[1]*(bottom-top))
+            click_at(*origin_client)
+            wait(lambda: event_marker('UI_TEST_SYMMETRY_ORIGIN_PLACED') is not None,
+                 'mouse placement maps through the current canvas zoom to document origin')
+            center=prefs.read_text()
+            persisted_center=json.loads(center).get('symmetry',{}).get('center')
+            assert persisted_center is not None and all(
+                abs(value-target)<0.01 for value,target in zip(persisted_center,expected_center)
+            ), f'normalized canvas origin was not persisted: {persisted_center}'
+            assert imported.read_bytes()==symmetry_base, \
+                'placing the symmetry origin must not change artwork or its saved project'
+            assert sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                       for line in (directory/'application.log').read_text().splitlines()) == starts_before_origin, \
+                'the click used to place the symmetry origin must never start a painting stroke'
+            center_before_cancel=tuple(persisted_center)
+            origin_button=wait(symmetry_origin_button_rect,
+                               'origin control remains available after a successful placement')
+            click_at((origin_button[0]+origin_button[2]/2)*origin_button[4],
+                     (origin_button[1]+origin_button[3]/2)*origin_button[4])
+            wait(lambda: event_marker('UI_TEST_SYMMETRY_ORIGIN_ARMED')=='true',
+                 'origin placement can be armed again')
+            key('Escape')
+            wait(lambda: event_marker('UI_TEST_SYMMETRY_ORIGIN_CANCELLED')=='escape',
+                 'Escape cancels origin placement before the app close action')
+            assert json.loads(prefs.read_text()).get('symmetry',{}).get('center')==list(center_before_cancel), \
+                'cancelling origin placement must preserve the prior workspace origin'
+            assert imported.read_bytes()==symmetry_base, \
+                'arming and cancelling origin placement must not mutate artwork'
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                capture_window(window,'symmetry-panel-custom-origin')
             start=(left+0.72*(right-left),top+0.43*(bottom-top))
             end=(left+0.79*(right-left),top+0.48*(bottom-top))
             stroke_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
@@ -2435,7 +2476,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             symmetry_bytes=imported.read_bytes()
             sample_x=round(0.755*doc_width)
             sample_y=round(0.455*doc_height)
-            mirror_x=round(doc_width-sample_x)
+            mirror_x=round(2*expected_center[0]*doc_width-sample_x)
             before_source=native_layer_pixel_bytes(symmetry_base,sample_x,sample_y)
             after_source=native_layer_pixel_bytes(symmetry_bytes,sample_x,sample_y)
             before_mirror=native_layer_pixel_bytes(symmetry_base,mirror_x,sample_y)
@@ -2680,7 +2721,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-vertical','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

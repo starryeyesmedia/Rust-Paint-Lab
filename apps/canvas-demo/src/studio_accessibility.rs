@@ -189,9 +189,10 @@ mod tests {
             axes: 8,
             center: [0.4, 0.6],
         };
+        let mut origin_armed = false;
         let output = context.run(Default::default(), |ctx| {
             egui::Window::new("Drawing Symmetry").show(ctx, |ui| {
-                crate::studio::symmetry_panel_contents(ui, &mut symmetry, false);
+                crate::studio::symmetry_panel_contents(ui, &mut symmetry, &mut origin_armed, false);
             });
         });
         let tree = output
@@ -214,6 +215,7 @@ mod tests {
             "Radial axes",
             "Origin X",
             "Origin Y",
+            "Place origin on canvas",
             "Center",
             "Turn symmetry off",
         ] {

@@ -99,7 +99,12 @@ transaction is active.
 Use **Y** or the symmetry icon in the primary tool palette to open Drawing
 Symmetry. Choose Off, Vertical, Horizontal, Both axes, or Radial; radial copies
 are bounded to 2–16. The X and Y origin controls are normalized to the current
-document and Center resets them. The purple guide is a workspace overlay that
+document and Center resets them. **Place origin on canvas** arms a one-contact
+gesture: click the artwork with a mouse, or press a pen against it, to set the
+origin at that document point. The placement contact is consumed and does not
+paint; Escape, focus loss, window resize, and pointer capture loss cancel the
+gesture.
+The purple guide is a workspace overlay that
 follows canvas zoom and pan and is never exported. Generated brush, Smudge and
 Color Mixer copies are ordinary pixels in one undoable stroke transaction, so
 Cancel/Undo removes all copies together. The selected mode and origin are local

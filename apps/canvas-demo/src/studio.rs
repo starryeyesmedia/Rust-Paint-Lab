@@ -3204,6 +3204,7 @@ fn stroke_mode_for_tool(tool: EditTool, color_mix_strength: f64) -> paint_docume
 pub(crate) fn symmetry_panel_contents(
     ui: &mut egui::Ui,
     symmetry: &mut paint_document::Symmetry,
+    origin_armed: &mut bool,
     test_markers: bool,
 ) -> bool {
     let before = *symmetry;
@@ -3236,6 +3237,27 @@ pub(crate) fn symmetry_panel_contents(
         ui.add(egui::Slider::new(&mut symmetry.axes, 2..=16).text("Radial axes"));
     }
     ui.label("Origin · normalized to the document");
+    let origin_button = ui
+        .selectable_label(*origin_armed, "Place origin on canvas")
+        .on_hover_text(
+            "Click or use the pen on the canvas to place the symmetry origin. Escape cancels.",
+        );
+    if test_markers {
+        crate::studio_log!(
+            "UI_TEST_SYMMETRY_ORIGIN_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            origin_button.rect.left(),
+            origin_button.rect.top(),
+            origin_button.rect.width(),
+            origin_button.rect.height(),
+            ui.ctx().pixels_per_point()
+        );
+    }
+    if origin_button.clicked() {
+        *origin_armed = !*origin_armed;
+    }
+    if *origin_armed {
+        ui.label("Click or use the pen on the artwork · Esc cancels");
+    }
     ui.horizontal(|ui| {
         ui.add(
             egui::DragValue::new(&mut symmetry.center[0])
@@ -3263,6 +3285,36 @@ pub(crate) fn symmetry_panel_contents(
     before != *symmetry
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SymmetryOriginPointer {
+    Mouse,
+    Pen(u64),
+}
+
+fn symmetry_origin_from_client(mapping: CanvasMapping, client_px: [f64; 2]) -> Option<[f64; 2]> {
+    if !mapping.contains_client(client_px) {
+        return None;
+    }
+    let size = mapping.document_size();
+    if !size.iter().all(|value| value.is_finite() && *value > 0.0) {
+        return None;
+    }
+    let point = mapping.routing_viewport().to_document(client_px).ok()?.0;
+    if !point.iter().all(|value| value.is_finite())
+        || point
+            .iter()
+            .zip(size)
+            .any(|(value, limit)| !(0.0..=limit).contains(value))
+    {
+        return None;
+    }
+    let normalized = [point[0] / size[0], point[1] / size[1]];
+    normalized
+        .iter()
+        .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        .then_some(normalized)
+}
+
 pub struct Studio {
     pub context: egui::Context,
     pub input: egui_winit::State,
@@ -3286,6 +3338,8 @@ pub struct Studio {
     color_mix_strength: f64,
     symmetry: paint_document::Symmetry,
     symmetry_panel_open: bool,
+    symmetry_origin_armed: bool,
+    symmetry_origin_pointer: Option<SymmetryOriginPointer>,
     barrel_action: crate::barrel::BarrelAction,
     barrel_router: crate::barrel::BarrelRouter,
     brush_search: String,
@@ -3528,6 +3582,8 @@ impl Studio {
             color_mix_strength,
             symmetry,
             symmetry_panel_open: false,
+            symmetry_origin_armed: false,
+            symmetry_origin_pointer: None,
             barrel_action,
             barrel_router: crate::barrel::BarrelRouter::default(),
             brush_search: String::new(),
@@ -3926,6 +3982,14 @@ impl Studio {
             window.request_redraw();
             return (true, true);
         }
+        if session.mode() != crate::interaction::Mode::Live {
+            self.symmetry_origin_armed = false;
+            self.symmetry_origin_pointer = None;
+        }
+        if self.blocks_canvas() {
+            self.symmetry_origin_armed = false;
+            self.symmetry_origin_pointer = None;
+        }
         // The deterministic path-entry dialog is only enabled by the Xvfb
         // workflow harness. Latch its submit key at the winit boundary: egui
         // text editing and platform shortcut handling can otherwise consume
@@ -3957,8 +4021,14 @@ impl Studio {
         }
         if matches!(
             event,
-            E::Focused(false) | E::CursorLeft { .. } | E::Resized(_) | E::ScaleFactorChanged { .. }
+            E::Focused(false)
+                | E::CursorLeft { .. }
+                | E::Resized(_)
+                | E::ScaleFactorChanged { .. }
+                | E::CloseRequested
         ) {
+            self.symmetry_origin_armed = false;
+            self.symmetry_origin_pointer = None;
             self.layer_drag_source = None;
             self.layer_drag_origin = None;
             self.layer_drag_moved = false;
@@ -3968,6 +4038,10 @@ impl Studio {
         }
         if matches!(event, E::Focused(false)) {
             self.placement_drag = None;
+        }
+        if self.symmetry_origin_mouse_event(event, session) {
+            window.request_redraw();
+            return (true, true);
         }
         if self.layer_drag_source.is_some() && !self.layers_flyout_open {
             self.layer_drag_source = None;
@@ -4415,6 +4489,103 @@ impl Studio {
             r.repaint,
         )
     }
+    fn place_symmetry_origin_at(&mut self, client_px: [f64; 2], session: &CanvasSession) -> bool {
+        if self.blocks_canvas()
+            || self.reference_under_client(client_px)
+            || self.floating_ui_under_client(client_px)
+        {
+            return false;
+        }
+        let Some(origin) = self
+            .mapping
+            .and_then(|mapping| symmetry_origin_from_client(mapping, client_px))
+        else {
+            return false;
+        };
+        if session.mode() != crate::interaction::Mode::Live {
+            return false;
+        }
+        self.symmetry.center = origin;
+        self.symmetry_origin_armed = false;
+        self.workspace_needs_save = true;
+        self.status = format!(
+            "Symmetry origin set to {:.0}%, {:.0}%",
+            origin[0] * 100.0,
+            origin[1] * 100.0
+        );
+        if self.test_path_dialog {
+            crate::studio_log!(
+                "UI_TEST_SYMMETRY_ORIGIN_PLACED: {:.4} {:.4}",
+                origin[0],
+                origin[1]
+            );
+        }
+        true
+    }
+    fn symmetry_origin_mouse_event(
+        &mut self,
+        event: &winit::event::WindowEvent,
+        session: &CanvasSession,
+    ) -> bool {
+        use winit::event::{ElementState, MouseButton, WindowEvent as E};
+        if matches!(
+            self.symmetry_origin_pointer,
+            Some(SymmetryOriginPointer::Pen(_))
+        ) && let Some(client_px) = self.mouse_position
+            && self
+                .mapping
+                .is_some_and(|mapping| mapping.contains_client(client_px))
+            && !self.blocks_canvas()
+            && !self.reference_under_client(client_px)
+            && !self.floating_ui_under_client(client_px)
+            && matches!(
+                event,
+                E::MouseInput {
+                    button: MouseButton::Left,
+                    ..
+                }
+            )
+        {
+            return true;
+        }
+        if self.symmetry_origin_pointer == Some(SymmetryOriginPointer::Mouse) {
+            match event {
+                E::CursorMoved { .. } => return true,
+                E::MouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    self.symmetry_origin_pointer = None;
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        if !self.symmetry_origin_armed
+            || session.mode() != crate::interaction::Mode::Live
+            || session.live().active()
+            || !matches!(
+                event,
+                E::MouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                    ..
+                }
+            )
+        {
+            return false;
+        }
+        let Some(client_px) = self.mouse_position else {
+            return false;
+        };
+        if self.place_symmetry_origin_at(client_px, session) {
+            self.symmetry_origin_pointer = Some(SymmetryOriginPointer::Mouse);
+            true
+        } else {
+            false
+        }
+    }
     pub fn native_pen_ui(
         &mut self,
         s: &paint_input::PointerSample,
@@ -4426,6 +4597,29 @@ impl Studio {
             && session.mode() == crate::interaction::Mode::Live
             && self.placement_pointer(session, s.id, s.phase, s.position_px)
         {
+            return true;
+        }
+        if self.symmetry_origin_pointer == Some(SymmetryOriginPointer::Mouse) {
+            return true;
+        }
+        if let Some(SymmetryOriginPointer::Pen(pointer_id)) = self.symmetry_origin_pointer {
+            if pointer_id != s.id {
+                // Keep the short origin-placement gesture exclusive so a
+                // second pen identity cannot start painting during it.
+                return true;
+            }
+            if matches!(s.phase, paint_input::Phase::Up | paint_input::Phase::Cancel) {
+                self.symmetry_origin_pointer = None;
+            }
+            return true;
+        }
+        if self.symmetry_origin_armed
+            && s.phase == paint_input::Phase::Down
+            && !session.live().active()
+            && session.mode() == crate::interaction::Mode::Live
+            && self.place_symmetry_origin_at(s.position_px, session)
+        {
+            self.symmetry_origin_pointer = Some(SymmetryOriginPointer::Pen(s.id));
             return true;
         }
         // Once a pen contact begins on the canvas, keep the native stream with
@@ -4618,6 +4812,8 @@ impl Studio {
     pub fn cancel_native_barrel_actions(&mut self) {
         self.barrel_router.cancel_all();
         self.placement_drag = None;
+        self.symmetry_origin_armed = false;
+        self.symmetry_origin_pointer = None;
     }
     fn editing_pointer(
         &mut self,
@@ -4835,6 +5031,9 @@ impl Studio {
         self.edit_points.clear();
         if key == 'y' {
             self.symmetry_panel_open = !self.symmetry_panel_open;
+            if !self.symmetry_panel_open {
+                self.symmetry_origin_armed = false;
+            }
             if self.test_path_dialog {
                 crate::studio_log!(
                     "UI_TEST_SYMMETRY_PANEL_TOGGLED: {}",
@@ -4843,6 +5042,7 @@ impl Studio {
             }
             return;
         }
+        self.symmetry_origin_armed = false;
         if key == 'c' {
             self.color_flyout_open = !self.color_flyout_open;
             self.brush_flyout_open = false;
@@ -4947,6 +5147,8 @@ impl Studio {
     }
     pub fn shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
+        self.symmetry_origin_armed = false;
+        self.symmetry_origin_pointer = None;
         if key == 'b' {
             self.brush_flyout_open = !self.brush_flyout_open;
             self.color_flyout_open = false;
@@ -5062,6 +5264,15 @@ impl Studio {
 
     /// Dismiss the top contextual panel before Escape can close the application.
     pub fn dismiss_flyout(&mut self) -> bool {
+        if self.symmetry_origin_armed || self.symmetry_origin_pointer.is_some() {
+            self.symmetry_origin_armed = false;
+            self.symmetry_origin_pointer = None;
+            self.status = "Symmetry origin placement cancelled".into();
+            if self.test_path_dialog {
+                crate::studio_log!("UI_TEST_SYMMETRY_ORIGIN_CANCELLED: escape");
+            }
+            return true;
+        }
         if egui::Popup::is_any_open(&self.context) {
             egui::Popup::close_all(&self.context);
             if self.test_path_dialog {
@@ -6279,6 +6490,7 @@ impl Studio {
                                 );
                             }
                             if response.clicked() {
+                                self.symmetry_origin_armed = false;
                                 self.tool = tool;
                                 session.live_mut().set_stroke_mode(stroke_mode_for_tool(
                                     tool,
@@ -6345,6 +6557,9 @@ impl Studio {
                         }
                         if symmetry_button.clicked() {
                             self.symmetry_panel_open = !self.symmetry_panel_open;
+                            if !self.symmetry_panel_open {
+                                self.symmetry_origin_armed = false;
+                            }
                             ctx.request_repaint();
                         }
                         if !compact_palette {
@@ -8364,6 +8579,7 @@ impl Studio {
             if !self.welcome && !self.new_dialog && !self.manual_file_dialog {
                 let mut panel_open = self.symmetry_panel_open;
                 let mut symmetry_changed = false;
+                let mut origin_armed = self.symmetry_origin_armed;
                 let screen = ctx.content_rect();
                 let default_pos = egui::pos2(
                     (screen.right() - 292.0).max(screen.left() + 8.0),
@@ -8377,10 +8593,26 @@ impl Studio {
                     .max_width((screen.width() - 16.0).max(220.0))
                     .resizable(false)
                     .show(ctx, |ui| {
-                        symmetry_changed =
-                            symmetry_panel_contents(ui, &mut self.symmetry, self.test_path_dialog);
+                        symmetry_changed = symmetry_panel_contents(
+                            ui,
+                            &mut self.symmetry,
+                            &mut origin_armed,
+                            self.test_path_dialog,
+                        );
                     });
                 self.symmetry_panel_open = panel_open;
+                if !panel_open {
+                    origin_armed = false;
+                }
+                if self.symmetry.mode == paint_document::SymmetryMode::Off {
+                    origin_armed = false;
+                }
+                if origin_armed != self.symmetry_origin_armed {
+                    self.symmetry_origin_armed = origin_armed;
+                    if self.test_path_dialog {
+                        crate::studio_log!("UI_TEST_SYMMETRY_ORIGIN_ARMED: {origin_armed}");
+                    }
+                }
                 if symmetry_changed {
                     workspace_changed = true;
                     ctx.request_repaint();
@@ -10579,6 +10811,8 @@ impl Studio {
     }
 
     fn execute(&mut self, a: Action, session: &mut CanvasSession) -> Result<(), Failure> {
+        self.symmetry_origin_armed = false;
+        self.symmetry_origin_pointer = None;
         let project = session.live_mut().project_mut();
         match a {
             Action::ImportOra => {
@@ -11070,12 +11304,13 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        FormatIllustration, LassoAppend, LayerMenuTarget, activate_brush_preset,
+        CanvasMapping, FormatIllustration, LassoAppend, LayerMenuTarget, activate_brush_preset,
         append_lasso_point, brush_size_after_shortcut, document_format_card_height,
         document_format_grid, fit_paper_to_box, format_illustration, home_hero_height,
         home_open_card_needed, home_sections_stacked, layer_actions_menu, native_project_path,
         quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
         recent_project_matches, recovery_checkpoint_label, recovery_source_label,
+        symmetry_origin_from_client,
     };
     use paint_document::brush::{Brush, BrushKind};
     use std::path::{Path, PathBuf};
@@ -11114,6 +11349,26 @@ mod tests {
         assert_eq!(brush_size_after_shortcut(1.0, false, false), 1.0);
         assert_eq!(brush_size_after_shortcut(f64::NAN, true, false), 1.1);
         assert_eq!(brush_size_after_shortcut(f64::INFINITY, false, false), 1.0);
+    }
+
+    #[test]
+    fn symmetry_origin_uses_the_live_zoomed_document_mapping_and_rejects_invalid_points() {
+        let mapping =
+            CanvasMapping::for_document([1200, 900], [800.0, 400.0], [0.0, 0.0, 1200.0, 900.0])
+                .unwrap()
+                .navigated(1.75, [37.0, -21.0])
+                .unwrap();
+        let expected = [0.37, 0.68];
+        let client = mapping
+            .document_to_client([expected[0] * 800.0, expected[1] * 400.0])
+            .unwrap();
+        let actual = symmetry_origin_from_client(mapping, client).unwrap();
+        assert!((actual[0] - expected[0]).abs() < 1e-10);
+        assert!((actual[1] - expected[1]).abs() < 1e-10);
+        assert!(symmetry_origin_from_client(mapping, [f64::NAN, 20.0]).is_none());
+        assert!(symmetry_origin_from_client(mapping, [-1.0, 20.0]).is_none());
+        let beyond_document = mapping.document_to_client([-1.0, 200.0]).unwrap();
+        assert!(symmetry_origin_from_client(mapping, beyond_document).is_none());
     }
 
     #[test]

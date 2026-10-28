@@ -828,17 +828,25 @@ physical S Pen validation of the Windows WM_POINTER button bit.
 16, transaction-captured settings, cancellation, one-step undo/redo, native
 roundtrip pixels, coincident-dab deduplication and clipped guide geometry.
 `canvas-demo`'s AccessKit test checks semantic, keyboard-reachable mode and origin
-controls. The full Linux/Xorg/XTest application workflow presses **Y**, selects
-Vertical in the floating panel, draws through the routed mouse path, checks the
-original and reflected layer pixels in the saved `.rpl`, and compares exact
-project bytes after Undo/Redo. It also captures a populated symmetry-panel
-screenshot.
+controls. The origin can now be positioned directly: arm **Place origin on
+canvas**, then click on the canvas or use a pen contact. The capture consumes the
+entire pointer contact; it must not produce paint input. Escape cancels without
+changing the saved origin or project.
+
+The full Linux/Xorg/XTest application workflow presses **Y**, selects Vertical,
+places a non-centered origin using a real mouse event, verifies its normalized
+workspace preference and confirms the click left artwork bytes and stroke-start
+count unchanged. It then paints through the routed mouse path, checks original
+and reflected layer pixels around that custom origin in the saved `.rpl`, and
+compares exact project bytes after Undo/Redo. It also captures the populated
+custom-origin symmetry panel.
 
 Run the targeted tests with:
 
 ```sh
 cargo test --locked -p paint-document --test document symmetry_
 cargo test --locked -p canvas-demo --lib drawing_symmetry_controls_are_named_and_keyboard_exposed
+cargo test --locked -p canvas-demo symmetry_origin_uses_the_live_zoomed_document_mapping_and_rejects_invalid_points
 ```
 
 Run the full application integration locally with an Xorg/Xvfb display and XTest
