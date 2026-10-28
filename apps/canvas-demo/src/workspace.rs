@@ -212,6 +212,9 @@ pub struct WorkspacePreferences {
     /// native artwork and brush-preset schemas stay backward compatible.
     #[serde(default = "default_color_mix_strength")]
     pub color_mix_strength: f64,
+    /// Native pen barrel-button assignment; absent in older preference files.
+    #[serde(default)]
+    pub barrel_action: crate::barrel::BarrelAction,
     #[serde(default = "default_canvas_zoom")]
     pub canvas_zoom: f64,
     #[serde(default = "default_canvas_pan")]
@@ -309,6 +312,7 @@ impl Default for WorkspacePreferences {
             saved_color_swatches: Vec::new(),
             favorite_brushes: Vec::new(),
             color_mix_strength: default_color_mix_strength(),
+            barrel_action: crate::barrel::BarrelAction::default(),
             canvas_zoom: 1.0,
             canvas_pan: [0.0, 0.0],
             inspector_tab: InspectorTab::Layers,
@@ -827,6 +831,26 @@ mod tests {
         assert_eq!(loaded.color_mix_strength, 1.0);
         loaded.color_mix_strength = f64::NAN;
         assert!(!loaded.validate());
+    }
+
+    #[test]
+    fn barrel_action_defaults_to_eraser_and_roundtrips_as_a_workspace_preference() {
+        let mut preferences = WorkspacePreferences::default();
+        assert_eq!(
+            preferences.barrel_action,
+            crate::barrel::BarrelAction::Eraser
+        );
+        preferences.barrel_action = crate::barrel::BarrelAction::Pan;
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let loaded: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(loaded.barrel_action, crate::barrel::BarrelAction::Pan);
+
+        let legacy = serde_json::to_vec(&WorkspacePreferences::default()).unwrap();
+        let legacy = String::from_utf8(legacy)
+            .unwrap()
+            .replace("\"barrel_action\":\"eraser\",", "");
+        let loaded: WorkspacePreferences = serde_json::from_str(&legacy).unwrap();
+        assert_eq!(loaded.barrel_action, crate::barrel::BarrelAction::Eraser);
     }
 
     #[test]

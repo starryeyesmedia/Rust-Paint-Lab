@@ -421,24 +421,44 @@ impl App {
     }
     fn check_capture(&mut self) {
         #[cfg(windows)]
-        if let Some(g) = &self.graphics {
-            let lost = g.capture.take_lost();
-            let events = g.capture.drain_pen();
+        {
+            let lost = self
+                .graphics
+                .as_ref()
+                .is_some_and(|graphics| graphics.capture.take_lost());
+            let events = self
+                .graphics
+                .as_ref()
+                .map(|graphics| graphics.capture.drain_pen())
+                .unwrap_or_default();
             if lost {
                 self.mouse(MouseEvent::CaptureLost);
+                if let Some(studio) = self
+                    .graphics
+                    .as_mut()
+                    .and_then(|graphics| graphics.studio.as_mut())
+                {
+                    studio.cancel_native_barrel_actions();
+                }
             } else if !events.is_empty() {
                 for mut event in events {
                     let _source_counter = event.performance_count;
                     if let Some(g) = &mut self.graphics
                         && let Some(studio) = &mut g.studio
-                        && studio.native_pen_ui(
+                    {
+                        if studio.native_pen_ui(
                             &event.sample,
                             g.window.scale_factor(),
                             &mut self.session,
-                        )
-                    {
-                        event.sample.phase = paint_input::Phase::Cancel;
-                        event.sample.in_contact = false;
+                        ) {
+                            studio.cancel_native_barrel_pointer(event.sample.id);
+                            event.sample.phase = paint_input::Phase::Cancel;
+                            event.sample.in_contact = false;
+                        } else if studio
+                            .route_native_pen_barrel(&mut event.sample, &mut self.session)
+                        {
+                            continue;
+                        }
                     }
                     self.session.pen(event.sample);
                 }
@@ -559,7 +579,17 @@ impl ApplicationHandler<AppEvent> for App {
                     event_loop.exit();
                 }
                 WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
-                WindowEvent::Focused(focused) => self.mouse(MouseEvent::Focus(focused)),
+                WindowEvent::Focused(focused) => {
+                    self.mouse(MouseEvent::Focus(focused));
+                    if !focused
+                        && let Some(studio) = self
+                            .graphics
+                            .as_mut()
+                            .and_then(|graphics| graphics.studio.as_mut())
+                    {
+                        studio.cancel_native_barrel_actions();
+                    }
+                }
                 WindowEvent::CursorEntered { .. } => self.mouse(MouseEvent::Entered),
                 WindowEvent::CursorLeft { .. } => self.mouse(MouseEvent::Left),
                 WindowEvent::CursorMoved { position, .. } => {

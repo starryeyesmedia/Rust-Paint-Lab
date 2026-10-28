@@ -1,6 +1,7 @@
 //! Hardware-independent live mouse adapter and mode/session ownership.
 //! No window handles, capture APIs, wall clock, or automatic persistence.
 use crate::{
+    barrel::{BarrelAction, BarrelEffect, BarrelRoute, BarrelRouter},
     playback::{Playback, Scenario},
     scene::{CanvasMapping, Scene, SceneError},
 };
@@ -100,6 +101,9 @@ impl LiveMouse {
     }
     pub fn active(&self) -> bool {
         !self.processor.active().is_empty()
+    }
+    pub fn native_pointer_active(&self, id: u64) -> bool {
+        self.processor.active().contains_key(&(id | (1 << 63)))
     }
     pub fn last_pen(&self) -> Option<PointerSample> {
         self.last_pen
@@ -664,6 +668,94 @@ impl CanvasSession {
     pub fn pen(&mut self, sample: PointerSample) {
         if self.mode == Mode::Live {
             self.live.pen(sample);
+        }
+    }
+    /// Apply a platform-normalized pen sample and its configured barrel action.
+    /// Transient actions split the current contact at the exact sample where
+    /// the side button changes; the brush engine still receives ordinary,
+    /// validated pointer lifecycle events.
+    pub fn pen_with_barrel(
+        &mut self,
+        router: &mut BarrelRouter,
+        action: BarrelAction,
+        mut sample: PointerSample,
+    ) -> BarrelEffect {
+        if self.mode != Mode::Live {
+            self.pen(sample);
+            return BarrelEffect::None;
+        }
+        let route = router.route(action, &sample);
+        match route {
+            BarrelRoute::Forward => {
+                self.pen(sample);
+                BarrelEffect::None
+            }
+            BarrelRoute::Eraser => {
+                if sample.phase == Phase::Down && self.live.native_pointer_active(sample.id) {
+                    self.finish_native_pointer(sample.id, sample);
+                }
+                sample.buttons.eraser = true;
+                self.pen(sample);
+                BarrelEffect::None
+            }
+            BarrelRoute::SwitchToEraser => {
+                self.finish_native_pointer(sample.id, sample);
+                sample.phase = Phase::Down;
+                sample.in_contact = true;
+                sample.buttons.eraser = true;
+                self.pen(sample);
+                BarrelEffect::None
+            }
+            BarrelRoute::RestoreTool => {
+                self.finish_native_pointer(sample.id, sample);
+                if sample.phase == Phase::Move && sample.in_contact {
+                    sample.phase = Phase::Down;
+                }
+                self.pen(sample);
+                BarrelEffect::None
+            }
+            BarrelRoute::PickColor => {
+                self.finish_native_pointer(sample.id, sample);
+                let picked = self
+                    .live
+                    .mapping
+                    .and_then(|mapping| {
+                        mapping
+                            .routing_viewport()
+                            .to_document(sample.position_px)
+                            .ok()
+                    })
+                    .and_then(|point| self.live.project.eyedropper(point.0).ok());
+                if let Some(color) = picked {
+                    self.live.project.brush.color = color;
+                }
+                sample.phase = Phase::Hover;
+                sample.in_contact = false;
+                self.pen(sample);
+                picked.map_or(BarrelEffect::ColorUnavailable, BarrelEffect::ColorPicked)
+            }
+            BarrelRoute::Pan(delta) => {
+                self.finish_native_pointer(sample.id, sample);
+                sample.phase = Phase::Hover;
+                sample.in_contact = false;
+                self.pen(sample);
+                delta.map_or(BarrelEffect::None, BarrelEffect::Pan)
+            }
+            BarrelRoute::Suppress => {
+                sample.phase = Phase::Hover;
+                sample.in_contact = false;
+                self.pen(sample);
+                BarrelEffect::None
+            }
+        }
+    }
+    fn finish_native_pointer(&mut self, id: u64, sample: PointerSample) {
+        if self.live.native_pointer_active(id) {
+            self.pen(PointerSample {
+                phase: Phase::Up,
+                in_contact: false,
+                ..sample
+            });
         }
     }
     pub fn live_mut(&mut self) -> &mut LiveMouse {

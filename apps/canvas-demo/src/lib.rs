@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 pub mod appearance;
 pub mod autosave;
+pub mod barrel;
 pub mod brush_preview;
 pub mod color_controls;
 pub mod diagnostics;

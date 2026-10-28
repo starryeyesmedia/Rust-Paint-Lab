@@ -775,3 +775,14 @@ through the normal input processor/router, verifies changed selected-layer tile
 bytes in the saved project, then checks exact undo/redo persistence. This
 software-rendered test validates the application workflow, not physical stylus
 hardware or color-managed mixing.
+
+The platform-independent barrel router tests cover default Eraser switch/release,
+terminal and cancellation cleanup, reused IDs, multiple pointer identities,
+bounded Pan deltas, temporary-action suppression until pen lift, and malformed
+or unexpected lifecycle events. `CanvasSession` integration tests drive synthetic
+native-style samples through Processor, Stroke Router and the document engine:
+they verify held Eraser pixels plus separate undo transactions, release back to
+the selected paint tool, visible-composite Eyedropper sampling without painting,
+and Pan deltas without painting. Workspace tests verify that Eraser is the
+backward-compatible default and that assignments persist. This does not replace
+physical S Pen validation of the Windows WM_POINTER button bit.

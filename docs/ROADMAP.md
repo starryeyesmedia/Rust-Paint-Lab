@@ -62,7 +62,9 @@ painting, configurable pen barrel behavior and transformed image placement.
   previews, native/PNG roundtrips and undo/redo. A separate Color Mixer mode now
   deposits the chosen brush color into existing layer pixels, with configurable
   mix strength and the existing opacity/flow/pressure controls; persistence
-  remains ordinary v1 raster data. Continue image placement/transforms, stylus controls, QuickShape, fills, symmetry, rulers/guides,
+  remains ordinary v1 raster data. Native Windows pen barrel assignments now
+  route hold-to-erase/restore, eyedropper or pan without changing the WM_POINTER
+  adapter. Continue image placement/transforms, QuickShape, fills, symmetry, rulers/guides,
   selection/transform improvements, masks and brush-system expansion.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
   non-destructive effects, and natural-media foundations.

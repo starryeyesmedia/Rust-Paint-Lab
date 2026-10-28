@@ -2430,3 +2430,30 @@ pending. Do not mark Phase 9 or Phase 8.3 complete based on this slice.
 2. Continue Phase 9 with configurable native pen barrel-button behavior, default
    hold-to-erase/restore, while keeping WM_POINTER capture and document format
    unchanged.
+
+## Phase 9 continuation — Native pen barrel assignments
+
+The Windows WM_POINTER observer remains unchanged; Studio now consumes its
+normalized barrel bit after the existing AccessKit/winit UI hit test. The
+workspace preference defaults to **Hold for Eraser** and also offers
+**Eyedropper**, **Pan**, or **Disabled**. Eraser transitions synthesize ordinary
+Up/Down samples through `CanvasSession`, so the painting segment commits and a
+new erase transaction begins; release commits that segment and starts a new
+segment using the selected brush mode. Pan emits bounded physical-pixel deltas
+to the existing canvas navigation state. Eyedropper samples the visible
+composite and returns its color through the existing brush-color flow. Temporary
+Eyedropper/Pan contacts stay hover-only and suppressed until actual lift.
+Capture loss, deactivation, UI capture and pointer cancellation clear router
+state. Physical pen inversion and eraser remain authoritative.
+
+The platform-independent `BarrelRouter` and `CanvasSession` currently pass eight
+synthetic lifecycle/transaction tests, including selected-layer pixel erasure,
+separate undo transactions, release-to-paint, composite color sampling without
+painting, Pan deltas, ID reuse, terminal cleanup, focus/cancel cleanup and
+suppression after temporary actions. Workspace persistence and legacy-default
+coverage also pass. The complete workspace suite passed **300 tests**; strict
+native and Windows GNU Clippy, the workspace build, and Windows GNU target check
+also pass. No physical Galaxy Book2 Pro 360
+barrel-button test has been performed; this feature does not claim hardware
+verification. WM_POINTER capture, pressure, tilt, history and mouse-promotion
+suppression were not changed.

@@ -3192,6 +3192,8 @@ pub struct Studio {
     saved_color_swatches: Vec<[u8; 3]>,
     favorite_brushes: Vec<BrushKind>,
     color_mix_strength: f64,
+    barrel_action: crate::barrel::BarrelAction,
+    barrel_router: crate::barrel::BarrelRouter,
     brush_search: String,
     brush_preview: Option<BrushPreviewCache>,
     brush_preset_previews: Vec<BrushPresetPreviewCache>,
@@ -3380,6 +3382,7 @@ impl Studio {
         let saved_color_swatches = preferences.saved_color_swatches.clone();
         let favorite_brushes = preferences.favorite_brushes.clone();
         let color_mix_strength = preferences.color_mix_strength;
+        let barrel_action = preferences.barrel_action;
         let references: Vec<ReferenceImage> = preferences
             .references
             .iter()
@@ -3420,6 +3423,8 @@ impl Studio {
             saved_color_swatches,
             favorite_brushes,
             color_mix_strength,
+            barrel_action,
+            barrel_router: crate::barrel::BarrelRouter::default(),
             brush_search: String::new(),
             brush_preview: None,
             brush_preset_previews: Vec::new(),
@@ -4319,6 +4324,78 @@ impl Studio {
         }
         captured || outside
     }
+    /// Route the native WM_POINTER barrel bit only after the existing UI hit
+    /// test has given panels and editing tools first refusal. The sample then
+    /// uses CanvasSession's ordinary normalized lifecycle and stroke router.
+    pub fn route_native_pen_barrel(
+        &mut self,
+        sample: &mut paint_input::PointerSample,
+        session: &mut CanvasSession,
+    ) -> bool {
+        use paint_input::{Phase, Tool};
+        if sample.tool != Tool::Pen || session.mode() != crate::interaction::Mode::Live {
+            return false;
+        }
+        if sample.phase == Phase::Cancel {
+            self.barrel_router.cancel_pointer(sample.id);
+            return false;
+        }
+        if sample.buttons.eraser || sample.buttons.inverted {
+            // Native inversion/eraser remains authoritative over the side
+            // button assignment and keeps the existing WM_POINTER path intact.
+            self.barrel_router.cancel_pointer(sample.id);
+            return false;
+        }
+
+        let active = session.live().native_pointer_active(sample.id);
+        let Some(mapping) = self.mapping else {
+            return false;
+        };
+        if !mapping.contains_window_client(sample.position_px) {
+            return false;
+        }
+        if self.blocks_canvas()
+            || self.reference_under_client(sample.position_px)
+            || self.floating_ui_under_client(sample.position_px)
+        {
+            return false;
+        }
+        if !active
+            && (!mapping.contains_client(sample.position_px)
+                || !matches!(
+                    self.tool,
+                    EditTool::Brush | EditTool::Smudge | EditTool::ColorMix
+                ))
+        {
+            return false;
+        }
+
+        match session.pen_with_barrel(&mut self.barrel_router, self.barrel_action, *sample) {
+            crate::barrel::BarrelEffect::None => {}
+            crate::barrel::BarrelEffect::ColorPicked(_) => {
+                self.context.request_repaint();
+            }
+            crate::barrel::BarrelEffect::ColorUnavailable => {
+                self.status = "No visible color at the pen position".into();
+                self.context.request_repaint();
+            }
+            crate::barrel::BarrelEffect::Pan(delta) => {
+                let previous = self.navigation.pan;
+                for (pan, change) in self.navigation.pan.iter_mut().zip(delta) {
+                    *pan = (*pan + change).clamp(-32768.0, 32768.0);
+                }
+                self.workspace_needs_save |= self.navigation.pan != previous;
+                self.context.request_repaint();
+            }
+        }
+        true
+    }
+    pub fn cancel_native_barrel_pointer(&mut self, id: u64) {
+        self.barrel_router.cancel_pointer(id);
+    }
+    pub fn cancel_native_barrel_actions(&mut self) {
+        self.barrel_router.cancel_all();
+    }
     fn editing_pointer(
         &mut self,
         session: &mut CanvasSession,
@@ -4889,6 +4966,7 @@ impl Studio {
             saved_color_swatches: self.saved_color_swatches.clone(),
             favorite_brushes: self.favorite_brushes.clone(),
             color_mix_strength: self.color_mix_strength,
+            barrel_action: self.barrel_action,
             canvas_zoom: self.navigation.zoom,
             canvas_pan: self.navigation.pan,
             inspector_tab: self.inspector_tab,
@@ -5148,6 +5226,18 @@ impl Studio {
                             ] {
                                 workspace_changed |= ui
                                     .selectable_value(&mut self.appearance_mode, mode, label)
+                                    .changed();
+                            }
+                            ui.separator();
+                            ui.label("Windows S Pen barrel button");
+                            for (action, label) in [
+                                (crate::barrel::BarrelAction::Eraser, "Hold for Eraser"),
+                                (crate::barrel::BarrelAction::Eyedropper, "Hold for Eyedropper"),
+                                (crate::barrel::BarrelAction::Pan, "Hold to Pan"),
+                                (crate::barrel::BarrelAction::Disabled, "Disabled"),
+                            ] {
+                                workspace_changed |= ui
+                                    .selectable_value(&mut self.barrel_action, action, label)
                                     .changed();
                             }
                             ui.separator();

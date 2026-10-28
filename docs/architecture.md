@@ -302,6 +302,16 @@ commit, cancel and undo safety. The current mixer operates on encoded sRGB byte
 values and is not a wet-media or color-managed pigment simulation. Existing
 documents remain compatible because only the resulting raster tiles are saved.
 
+The Windows WM_POINTER observer remains the sole native pen-capture path and
+continues to provide barrel state, pressure, tilt, history, capture loss and
+promoted-mouse suppression. A platform-independent `BarrelRouter` assigns that
+already-normalized button to Eraser, Eyedropper, Pan or Disabled. `CanvasSession`
+turns the route into ordinary Up/Down/Hover samples before the existing
+Processor → Stroke Router → document path; temporary Eyedropper/Pan contacts
+stay suppressed until lift. The Studio applies bounded pan deltas and persists
+the chosen action in workspace preferences. Physical side-button behavior is
+not yet hardware-validated; native pointer capture and its adapter are unchanged.
+
 `paint-document::openraster` is an explicit interchange boundary, not native storage.
 It converts supported raster layers to individual PNG assets plus stack.xml and
 rejects unsupported editing structures. The shell imports into a fresh unsaved

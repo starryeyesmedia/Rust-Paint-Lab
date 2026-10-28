@@ -96,6 +96,18 @@ or color-managed pigment model. Pressure toggles are available in the compact
 Dynamics menu. Concurrent contacts are ignored while its private layer
 transaction is active.
 
+On Windows, **View → S Pen barrel button** assigns the native pen side button.
+The default **Hold for Eraser** splits an active brush/Smudge/Color Mixer contact
+at the button transition, commits the held eraser segment, then starts a fresh
+segment with the previously selected tool on release. This preserves the
+pointer lifecycle and makes each segment independently undoable. **Hold for
+Eyedropper** samples the visible composite; **Hold to Pan** moves the canvas;
+**Disabled** leaves the button unassigned. Eyedropper and Pan contacts are
+suppressed until the physical pen lifts so they cannot restart a paint stroke.
+Assignments are workspace preferences. The existing Windows pointer adapter
+still owns native capture, pressure, tilt, inversion and capture-loss handling;
+the new assignments need physical validation on the Galaxy Book2 Pro 360.
+
 Layers support add, duplicate, delete, rename, reorder, visibility, lock, opacity,
 Normal/Multiply/Screen/Overlay, and clear. The frontmost layer appears at the top;
 use Raise/Lower to reorder, and expand Layer settings to rename or adjust opacity
