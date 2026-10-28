@@ -410,6 +410,7 @@ fn copy_selection_obeys_layer_and_tile_budgets_without_losing_source_art() {
                 locked: false,
                 opacity: 255,
                 blend: paint_document::Blend::Normal,
+                mask: None,
                 tiles,
             });
         }

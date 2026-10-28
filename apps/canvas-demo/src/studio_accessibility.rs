@@ -80,8 +80,7 @@ mod tests {
                     &mut project,
                     &mut thumbnail_context,
                     &mut actions,
-                    false,
-                    false,
+                    crate::studio::LayerFlyoutOptions::default(),
                     &mut drag_ui,
                 );
             });
@@ -148,8 +147,10 @@ mod tests {
                     &mut project,
                     &mut thumbnail_context,
                     &mut actions,
-                    false,
-                    true,
+                    crate::studio::LayerFlyoutOptions {
+                        compact: true,
+                        ..Default::default()
+                    },
                     &mut drag_ui,
                 );
             });

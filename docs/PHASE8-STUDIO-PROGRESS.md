@@ -2790,3 +2790,43 @@ canvas/stylus artifacts must be checked after push.
    migration before implementing mask painting/compositing/undo.
 3. Keep Phase 10 vector/text and Phase 11 timelapse/animation active; do not
    defer them until every Phase 8.3 visual item is closed.
+
+## Current continuation — editable raster layer masks (local validation)
+
+The next Phase 9 vertical slice adds sparse, editable grayscale masks to raster
+layers. Mask strokes use the existing routed transaction lifecycle and support
+preview, cancellation, commit, undo/redo, selection clipping and eraser-as-reveal.
+The real Layers Actions menu exposes add/edit/enable/invert/clear/remove actions.
+The mask is applied consistently by canvas compositing, full-resolution export,
+Home thumbnails, selection edits, and save/reopen. The `.rpl` writer preserves
+`RPLALP01` for documents without masks and writes a documented `RPLALP02` mask
+tile section only when needed; v1 continues to decode. Mask tiles share the
+existing 8192-entry raster/provisional memory limit. OpenRaster output applies
+the mask to layer RGBA and clearly reports that mask editability is flattened.
+
+The GUI automation now creates and edits a mask through the application, verifies
+that raster tile bytes are unchanged, checks exact undo/redo, and checks export
+disclosure. Its parser reads both native versions. Local Rust 1.90 formatting,
+strict workspace Clippy, **334 workspace tests**, workspace build, Windows GNU
+workspace check/Clippy, Python syntax, and llvmpipe/OpenGL GPU smoke pass. The
+complete Xorg/XTest application workflow cannot run locally because Xvfb is not
+installed and the package mirror is unavailable. Actions run `40754643332` for
+QuickShape failed at the line pixel-difference assertion; this update relocates
+the line gesture and retains the meaningful pixel assertion. Hosted cross-platform
+and artwork/workflow validation for this combined checkpoint remains pending.
+No new physical Windows startup, S Pen, Narrator/NVDA, or real-device mask use was
+performed. Existing basic S Pen drawing observations remain valid; advanced
+pressure/tilt and mask workflows need separate hardware validation.
+
+### Continue from this checkpoint
+
+1. Push and inspect the hosted three-platform run; require the full Linux artwork
+   workflow, the editable-mask interaction, and both Windows executable artifacts
+   before marking this checkpoint accepted.
+2. If the QuickShape line assertion remains flaky, diagnose its saved document
+   region and active selection state; preserve a real pixel-change assertion.
+3. Continue Phase 9 with the highest-value remaining interaction (barrel-button
+   assignment/configuration or other unfinished approved editing workflow), then
+   begin a Phase 10 editable vector path slice only after native format and
+   interoperability boundaries are designed and tested. Phase 11 animation and
+   timelapse remain unimplemented.

@@ -17,17 +17,21 @@ use std::{
 };
 pub const TILE: u32 = 64;
 pub const TILE_BYTES: usize = (TILE * TILE * 4) as usize;
-pub const MAX_TILES: usize = 8192; // 128 MiB authoritative + provisional tile budget.
+pub const MASK_TILE_BYTES: usize = (TILE * TILE) as usize;
+pub const MAX_TILES: usize = 8192; // Shared 128 MiB budget for raster and mask tiles.
 pub const HISTORY_BYTES: usize = 128 * 1024 * 1024;
 pub const MAX_LAYERS: usize = 32;
 pub type TileKey = (u32, u32);
 pub type TileMap = BTreeMap<TileKey, Arc<Vec<u8>>>;
+pub type MaskTileMap = BTreeMap<TileKey, Arc<Vec<u8>>>;
 /// Operation used for the lifetime of a single pointer stroke. This is not
 /// persisted in a brush preset or document: only the resulting pixels are.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum StrokeMode {
     #[default]
     Paint,
+    /// Paint grayscale values into the selected layer's editable alpha mask.
+    MaskPaint,
     Smudge,
     /// Blend the active color into raster pixels while depositing new paint.
     /// Strength is transient tool configuration and is intentionally excluded
@@ -387,6 +391,24 @@ pub enum Blend {
     Screen,
     Overlay,
 }
+/// Editable 8-bit per-pixel alpha mask. Missing sparse tiles are fully white.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LayerMask {
+    pub enabled: bool,
+    pub inverted: bool,
+    #[serde(skip)]
+    pub tiles: MaskTileMap,
+}
+impl Default for LayerMask {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            inverted: false,
+            tiles: BTreeMap::new(),
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Layer {
@@ -396,6 +418,8 @@ pub struct Layer {
     pub locked: bool,
     pub opacity: u8,
     pub blend: Blend,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<LayerMask>,
     #[serde(skip)]
     pub tiles: TileMap,
 }
@@ -426,6 +450,7 @@ impl State {
                 locked: false,
                 opacity: 255,
                 blend: Blend::Normal,
+                mask: None,
                 tiles: BTreeMap::new(),
             }],
             selected: 1,
@@ -457,7 +482,7 @@ impl State {
             }
         }
         let mut ids = BTreeSet::new();
-        let mut total = 0;
+        let mut total = 0_usize;
         for l in &self.layers {
             if l.name.len() > 256 || l.id == 0 || l.id > u64::from(u32::MAX) || !ids.insert(l.id) {
                 return Err(PaintError::Invalid);
@@ -473,14 +498,31 @@ impl State {
                 }
             }
             total += l.tiles.len();
+            if let Some(mask) = &l.mask {
+                for (&(x, y), tile) in &mask.tiles {
+                    if x >= self.width.div_ceil(TILE)
+                        || y >= self.height.div_ceil(TILE)
+                        || tile.len() != MASK_TILE_BYTES
+                    {
+                        return Err(PaintError::Invalid);
+                    }
+                    total += 1;
+                }
+            }
+            if total > MAX_TILES {
+                return Err(PaintError::Limit);
+            }
         }
-        if !ids.contains(&self.selected) || total > MAX_TILES {
+        if !ids.contains(&self.selected) {
             return Err(PaintError::Limit);
         }
         Ok(())
     }
     pub fn tile_count(&self) -> usize {
-        self.layers.iter().map(|l| l.tiles.len()).sum()
+        self.layers
+            .iter()
+            .map(|layer| layer.tiles.len() + layer.mask.as_ref().map_or(0, |mask| mask.tiles.len()))
+            .sum()
     }
 
     /// Compare a candidate edit with its COW snapshot without reading tile
@@ -503,6 +545,7 @@ impl State {
                     && left.locked == right.locked
                     && left.opacity == right.opacity
                     && left.blend == right.blend
+                    && same_mask_snapshot(left.mask.as_ref(), right.mask.as_ref())
                     && left.tiles.len() == right.tiles.len()
                     && left.tiles.iter().all(|(key, tile)| {
                         right
@@ -511,6 +554,23 @@ impl State {
                             .is_some_and(|other_tile| Arc::ptr_eq(tile, other_tile))
                     })
             })
+    }
+}
+fn same_mask_snapshot(left: Option<&LayerMask>, right: Option<&LayerMask>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.enabled == right.enabled
+                && left.inverted == right.inverted
+                && left.tiles.len() == right.tiles.len()
+                && left.tiles.iter().all(|(key, tile)| {
+                    right
+                        .tiles
+                        .get(key)
+                        .is_some_and(|other_tile| Arc::ptr_eq(tile, other_tile))
+                })
+        }
+        _ => false,
     }
 }
 struct Transaction {
@@ -525,6 +585,7 @@ struct Transaction {
     remaining: f64,
     stabilizer: stabilization::StrokeStabilizer,
     tiles: TileMap,
+    mask_tiles: MaskTileMap,
 }
 pub struct Engine {
     state: State,
@@ -603,13 +664,20 @@ impl Engine {
     }
     fn queue_bytes(queue: &VecDeque<State>) -> usize {
         // Arc identity counts COW allocations once, not once per snapshot/layer.
-        let mut allocations = std::collections::HashSet::new();
+        let mut allocations = std::collections::HashMap::new();
         for s in queue {
-            for tile in s.layers.iter().flat_map(|l| l.tiles.values()) {
-                allocations.insert(Arc::as_ptr(tile));
+            for layer in &s.layers {
+                for tile in layer.tiles.values() {
+                    allocations.insert(Arc::as_ptr(tile), TILE_BYTES);
+                }
+                if let Some(mask) = &layer.mask {
+                    for tile in mask.tiles.values() {
+                        allocations.insert(Arc::as_ptr(tile), MASK_TILE_BYTES);
+                    }
+                }
             }
         }
-        allocations.len() * TILE_BYTES
+        allocations.values().sum()
     }
     pub fn history_bytes(&self) -> [usize; 2] {
         [Self::queue_bytes(&self.undo), Self::queue_bytes(&self.redo)]
@@ -628,6 +696,7 @@ impl Engine {
     pub fn cancel_all(&mut self) {
         for t in self.active.values() {
             self.damage.extend(t.tiles.keys());
+            self.damage.extend(t.mask_tiles.keys());
         }
         self.active.clear();
     }
@@ -683,6 +752,7 @@ impl Engine {
                 locked: false,
                 opacity: 255,
                 blend: Blend::Normal,
+                mask: None,
                 tiles: BTreeMap::new(),
             });
             s.selected = id;
@@ -775,6 +845,7 @@ impl Engine {
         {
             if let Some(t) = self.active.remove(&id) {
                 self.damage.extend(t.tiles.keys());
+                self.damage.extend(t.mask_tiles.keys());
             }
             return Err(PaintError::Invalid);
         }
@@ -786,7 +857,11 @@ impl Engine {
                 // Inversion is an explicit device-level erase gesture and
                 // retains precedence over the selected contextual tool.
                 let effective_mode = if sample.buttons.eraser || sample.buttons.inverted {
-                    StrokeMode::Paint
+                    if mode == StrokeMode::MaskPaint {
+                        StrokeMode::MaskPaint
+                    } else {
+                        StrokeMode::Paint
+                    }
                 } else {
                     mode
                 };
@@ -813,6 +888,9 @@ impl Engine {
                     .ok_or(PaintError::Invalid)?;
                 if layer.locked || !layer.visible {
                     return Err(PaintError::Locked);
+                }
+                if effective_mode == StrokeMode::MaskPaint && layer.mask.is_none() {
+                    return Err(PaintError::Invalid);
                 }
                 let mut brush = self.brush.clone();
                 if sample.buttons.eraser || sample.buttons.inverted {
@@ -843,6 +921,7 @@ impl Engine {
                         sample.time_ms,
                     ),
                     tiles: BTreeMap::new(),
+                    mask_tiles: BTreeMap::new(),
                 };
                 self.dab_with_reset(&mut t, sample, true)?;
                 self.active.insert(stroke_id, t);
@@ -858,6 +937,7 @@ impl Engine {
                 let result = self.dab_with_reset(&mut t, sample, true);
                 if let Err(error) = result {
                     self.damage.extend(t.tiles.keys());
+                    self.damage.extend(t.mask_tiles.keys());
                     return Err(error);
                 }
                 self.active.insert(stroke_id, t);
@@ -870,6 +950,7 @@ impl Engine {
                 let commit = matches!(c, StrokeCommand::CommitStroke { .. });
                 if let Err(e) = self.segment(&mut t, sample) {
                     self.damage.extend(t.tiles.keys());
+                    self.damage.extend(t.mask_tiles.keys());
                     return Err(e);
                 }
                 if commit && t.last.position_document.0 != sample.position_document.0 {
@@ -882,6 +963,7 @@ impl Engine {
                     t.brush.smoothing = smoothing;
                     if let Err(error) = result {
                         self.damage.extend(t.tiles.keys());
+                        self.damage.extend(t.mask_tiles.keys());
                         return Err(error);
                     }
                 }
@@ -889,47 +971,74 @@ impl Engine {
                     // Final dab is explicit even when sample spacing has a remainder.
                     if let Err(e) = self.dab(&mut t, sample) {
                         self.damage.extend(t.tiles.keys());
+                        self.damage.extend(t.mask_tiles.keys());
                         return Err(e);
                     }
                     let before = self.state.clone();
                     let mut any_change = false;
-                    let l = self
-                        .state
-                        .layers
-                        .iter_mut()
-                        .find(|l| l.id == t.layer)
-                        .ok_or(PaintError::Invalid)?;
-                    for (key, src) in t.tiles {
-                        if stroke_mode_needs_exclusive_layer(t.mode) {
-                            let same = l
+                    if t.mode == StrokeMode::MaskPaint {
+                        let layer = self
+                            .state
+                            .layers
+                            .iter_mut()
+                            .find(|layer| layer.id == t.layer)
+                            .ok_or(PaintError::Invalid)?;
+                        let mask = layer.mask.as_mut().ok_or(PaintError::Invalid)?;
+                        for (key, src) in t.mask_tiles {
+                            let same = mask
                                 .tiles
                                 .get(&key)
                                 .is_some_and(|existing| existing.as_ref() == src.as_ref())
-                                || (!l.tiles.contains_key(&key)
-                                    && src.iter().all(|&byte| byte == 0));
+                                || (!mask.tiles.contains_key(&key)
+                                    && src.iter().all(|value| *value == 255));
                             if !same {
-                                if src.iter().any(|&byte| byte != 0) {
-                                    l.tiles.insert(key, src);
+                                if src.iter().any(|value| *value != 255) {
+                                    mask.tiles.insert(key, src);
                                 } else {
-                                    l.tiles.remove(&key);
+                                    mask.tiles.remove(&key);
                                 }
                                 any_change = true;
                             }
-                        } else {
-                            any_change = true;
-                            let dst = l
-                                .tiles
-                                .entry(key)
-                                .or_insert_with(|| Arc::new(vec![0; TILE_BYTES]));
-                            let dst = Arc::make_mut(dst);
-                            for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-                                over(
-                                    d,
-                                    s,
-                                    t.brush.kind == BrushKind::Eraser,
-                                    (t.brush.opacity * 255.0).round() as u8,
-                                    Blend::Normal,
-                                );
+                        }
+                    } else {
+                        let layer = self
+                            .state
+                            .layers
+                            .iter_mut()
+                            .find(|layer| layer.id == t.layer)
+                            .ok_or(PaintError::Invalid)?;
+                        for (key, src) in t.tiles {
+                            if stroke_mode_needs_exclusive_layer(t.mode) {
+                                let same = layer
+                                    .tiles
+                                    .get(&key)
+                                    .is_some_and(|existing| existing.as_ref() == src.as_ref())
+                                    || (!layer.tiles.contains_key(&key)
+                                        && src.iter().all(|&byte| byte == 0));
+                                if !same {
+                                    if src.iter().any(|&byte| byte != 0) {
+                                        layer.tiles.insert(key, src);
+                                    } else {
+                                        layer.tiles.remove(&key);
+                                    }
+                                    any_change = true;
+                                }
+                            } else {
+                                any_change = true;
+                                let dst = layer
+                                    .tiles
+                                    .entry(key)
+                                    .or_insert_with(|| Arc::new(vec![0; TILE_BYTES]));
+                                let dst = Arc::make_mut(dst);
+                                for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                                    over(
+                                        d,
+                                        s,
+                                        t.brush.kind == BrushKind::Eraser,
+                                        (t.brush.opacity * 255.0).round() as u8,
+                                        Blend::Normal,
+                                    );
+                                }
                             }
                         }
                     }
@@ -943,6 +1052,7 @@ impl Engine {
             StrokeCommand::CancelStroke { stroke_id, .. } => {
                 if let Some(t) = self.active.remove(&stroke_id) {
                     self.damage.extend(t.tiles.keys());
+                    self.damage.extend(t.mask_tiles.keys());
                 }
             }
         }
@@ -1013,6 +1123,8 @@ impl Engine {
                 }
                 StrokeMode::ColorMix { .. } if !duplicate => self.color_mix_dab(t, sample)?,
                 StrokeMode::ColorMix { .. } => {}
+                StrokeMode::MaskPaint if !duplicate => self.mask_dab(t, sample)?,
+                StrokeMode::MaskPaint => {}
                 StrokeMode::Paint if !duplicate => self.paint_dab(t, sample)?,
                 StrokeMode::Paint => {}
             }
@@ -1108,8 +1220,13 @@ impl Engine {
                 let key = (xx / TILE, yy / TILE);
                 if !t.tiles.contains_key(&key)
                     && self.state.tile_count()
-                        + self.active.values().map(|t| t.tiles.len()).sum::<usize>()
+                        + self
+                            .active
+                            .values()
+                            .map(|active| active.tiles.len() + active.mask_tiles.len())
+                            .sum::<usize>()
                         + t.tiles.len()
+                        + t.mask_tiles.len()
                         >= MAX_TILES
                 {
                     return Err(PaintError::Limit);
@@ -1127,6 +1244,135 @@ impl Engine {
                     a,
                 ];
                 over(&mut tile[i..i + 4], &src, false, 255, Blend::Normal);
+                self.damage.insert(key);
+            }
+        }
+        Ok(())
+    }
+
+    fn mask_dab(&mut self, t: &mut Transaction, s: StrokeSample) -> Result<(), PaintError> {
+        let [x, y] = s.position_document.0;
+        if !x.is_finite() || !y.is_finite() {
+            return Err(PaintError::Invalid);
+        }
+        let pressure = f64::from(s.pressure.unwrap_or(1.0)).clamp(0.0, 1.0);
+        if t.brush.pressure_size && pressure == 0.0 {
+            return Ok(());
+        }
+        let radius =
+            (t.brush.size * if t.brush.pressure_size { pressure } else { 1.0 } / 2.0).max(0.25);
+        let opacity = t.brush.opacity
+            * t.brush.flow
+            * if t.brush.pressure_opacity {
+                pressure
+            } else {
+                1.0
+            };
+        let minx = (x - radius - 1.0).floor().max(0.0) as u32;
+        let miny = (y - radius - 1.0).floor().max(0.0) as u32;
+        let maxx = (x + radius + 1.0)
+            .ceil()
+            .clamp(0.0, f64::from(self.state.width)) as u32;
+        let maxy = (y + radius + 1.0)
+            .ceil()
+            .clamp(0.0, f64::from(self.state.height)) as u32;
+        let angle = t.brush.angle
+            + if t.brush.tilt {
+                match s.tilt_degrees {
+                    [Some(x), Some(y)] => {
+                        let x = f64::from(x).to_radians().tan();
+                        let y = f64::from(y).to_radians().tan();
+                        if x.abs() + y.abs() < 0.00001 {
+                            0.0
+                        } else {
+                            y.atan2(x)
+                        }
+                    }
+                    [Some(x), None] => f64::from(x).to_radians(),
+                    [None, Some(y)] => f64::from(y).to_radians(),
+                    [None, None] => 0.0,
+                }
+            } else {
+                0.0
+            };
+        let (sin, cos) = angle.sin_cos();
+        let target = if t.brush.kind == BrushKind::Eraser {
+            255
+        } else {
+            let [red, green, blue] = t.brush.color;
+            ((u32::from(red) * 54 + u32::from(green) * 183 + u32::from(blue) * 19 + 128) / 256)
+                as u8
+        };
+        for yy in miny..maxy {
+            for xx in minx..maxx {
+                if self.state.selection.as_ref().is_some_and(|selection| {
+                    !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                }) {
+                    continue;
+                }
+                let dx = f64::from(xx) + 0.5 - x;
+                let dy = f64::from(yy) + 0.5 - y;
+                let shape = if t.brush.kind == BrushKind::Calligraphy {
+                    0.28
+                } else {
+                    1.0
+                };
+                let distance = ((dx * cos + dy * sin).powi(2)
+                    + ((-dx * sin + dy * cos) / shape).powi(2))
+                .sqrt()
+                    / radius;
+                if distance >= 1.0 {
+                    continue;
+                }
+                let mut weight = ((1.0 - distance) * radius).clamp(0.0, 1.0)
+                    * if distance <= t.brush.hardness {
+                        1.0
+                    } else {
+                        ((1.0 - distance) / (1.0 - t.brush.hardness).max(0.001)).clamp(0.0, 1.0)
+                    };
+                if matches!(t.brush.kind, BrushKind::Pencil | BrushKind::Textured) {
+                    let hash = xx.wrapping_mul(73856093) ^ yy.wrapping_mul(19349663);
+                    weight *= 0.2 + 0.8 * f64::from(hash % 101) / 100.0;
+                }
+                if t.brush.kind == BrushKind::Wash {
+                    weight *= 0.35 + 0.65 * distance.powi(2);
+                }
+                let coverage = (opacity * weight * 255.0).round().clamp(0.0, 255.0) as u32;
+                if coverage == 0 {
+                    continue;
+                }
+                let key = (xx / TILE, yy / TILE);
+                if !t.mask_tiles.contains_key(&key)
+                    && self.state.tile_count()
+                        + self
+                            .active
+                            .values()
+                            .map(|active| active.tiles.len() + active.mask_tiles.len())
+                            .sum::<usize>()
+                        + t.tiles.len()
+                        + t.mask_tiles.len()
+                        >= MAX_TILES
+                {
+                    return Err(PaintError::Limit);
+                }
+                let layer = self
+                    .state
+                    .layers
+                    .iter()
+                    .find(|layer| layer.id == t.layer)
+                    .ok_or(PaintError::Invalid)?;
+                let mask = layer.mask.as_ref().ok_or(PaintError::Invalid)?;
+                let tile = t.mask_tiles.entry(key).or_insert_with(|| {
+                    mask.tiles
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::new(vec![255; MASK_TILE_BYTES]))
+                });
+                let tile = Arc::make_mut(tile);
+                let offset = (yy % TILE * TILE + xx % TILE) as usize;
+                let previous = u32::from(tile[offset]);
+                let next = (previous * (255 - coverage) + u32::from(target) * coverage + 127) / 255;
+                tile[offset] = next as u8;
                 self.damage.insert(key);
             }
         }
@@ -1266,9 +1512,10 @@ impl Engine {
                         + self
                             .active
                             .values()
-                            .map(|active| active.tiles.len())
+                            .map(|active| active.tiles.len() + active.mask_tiles.len())
                             .sum::<usize>()
                         + t.tiles.len()
+                        + t.mask_tiles.len()
                         >= MAX_TILES
                 {
                     return Err(PaintError::Limit);
@@ -1425,9 +1672,12 @@ impl Engine {
                         + self
                             .active
                             .values()
-                            .map(|transaction| transaction.tiles.len())
+                            .map(|transaction| {
+                                transaction.tiles.len() + transaction.mask_tiles.len()
+                            })
                             .sum::<usize>()
                         + t.tiles.len()
+                        + t.mask_tiles.len()
                         >= MAX_TILES
                 {
                     return Err(PaintError::Limit);
@@ -1473,6 +1723,30 @@ impl Engine {
                             );
                         }
                     }
+                }
+            }
+            if let Some(mask) = l.mask.as_ref().filter(|mask| mask.enabled) {
+                let provisional = self.active.values().find_map(|transaction| {
+                    (transaction.layer == l.id && transaction.mode == StrokeMode::MaskPaint)
+                        .then(|| transaction.mask_tiles.get(&key))
+                        .flatten()
+                });
+                let stored = provisional
+                    .or_else(|| mask.tiles.get(&key))
+                    .map(|values| values.as_slice());
+                if let Some(values) = stored {
+                    for (index, pixel) in tile.chunks_exact_mut(4).enumerate() {
+                        let alpha = if mask.inverted {
+                            255 - values[index]
+                        } else {
+                            values[index]
+                        };
+                        for channel in pixel {
+                            *channel = ((u16::from(*channel) * u16::from(alpha) + 127) / 255) as u8;
+                        }
+                    }
+                } else if mask.inverted {
+                    tile.fill(0);
                 }
             }
             for (d, s) in out.chunks_exact_mut(4).zip(tile.chunks_exact(4)) {
@@ -1556,15 +1830,19 @@ impl Engine {
                     composite.copy_from_slice(&[background[0], background[1], background[2], 255]);
                 }
                 for layer in self.state.layers.iter().filter(|layer| layer.visible) {
+                    let mut pixel = [0; 4];
                     if let Some(tile) = layer.tiles.get(&key) {
-                        over(
-                            &mut composite,
-                            &tile[source..source + 4],
-                            false,
-                            layer.opacity,
-                            layer.blend,
-                        );
+                        pixel.copy_from_slice(&tile[source..source + 4]);
                     }
+                    if let Some(mask) = layer.mask.as_ref().filter(|mask| mask.enabled) {
+                        let mask_offset = (source_y % TILE * TILE + source_x % TILE) as usize;
+                        let value = mask.tiles.get(&key).map_or(255, |tile| tile[mask_offset]);
+                        let alpha = if mask.inverted { 255 - value } else { value };
+                        for channel in &mut pixel {
+                            *channel = ((u16::from(*channel) * u16::from(alpha) + 127) / 255) as u8;
+                        }
+                    }
+                    over(&mut composite, &pixel, false, layer.opacity, layer.blend);
                 }
                 let dest = ((y * width + x) * 4) as usize;
                 let alpha = u32::from(composite[3]);
@@ -1582,7 +1860,10 @@ impl Engine {
     }
 }
 fn stroke_mode_needs_exclusive_layer(mode: StrokeMode) -> bool {
-    matches!(mode, StrokeMode::Smudge | StrokeMode::ColorMix { .. })
+    matches!(
+        mode,
+        StrokeMode::Smudge | StrokeMode::ColorMix { .. } | StrokeMode::MaskPaint
+    )
 }
 fn mix_byte(from: u8, to: u8, amount: f64) -> u8 {
     (f64::from(from) + (f64::from(to) - f64::from(from)) * amount.clamp(0.0, 1.0))

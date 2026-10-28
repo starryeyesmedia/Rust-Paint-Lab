@@ -489,6 +489,18 @@ def layer_copy_selection_menu_rect():
 def layer_move_selection_menu_rect():
     return layer_menu_action_rect('MOVE_SELECTION')
 
+def layer_mask_menu_rect():
+    marker=layer_menu_action_rect('MASK')
+    return marker if marker and len(marker)==5 else None
+
+def layer_mask_add_rect():
+    marker=stable_marker('UI_TEST_LAYER_MASK_ADD_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_mask_edit_rect():
+    marker=stable_marker('UI_TEST_LAYER_MASK_EDIT_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
 def layer_settings_header():
     marker=stable_marker('UI_TEST_LAYER_SETTINGS_HEADER_RECT')
     return tuple(marker.split()) if marker else None
@@ -701,9 +713,12 @@ def valid_project(path):
     if not path.exists(): return False
     return valid_project_bytes(path.read_bytes())
 def valid_project_bytes(data):
-    if len(data)<48 or data[:8]!=b'RPLALP01' or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return False
-    n=struct.unpack('<I',data[8:12])[0]
-    return struct.unpack('<I',data[12+n:16+n])[0]
+    try:
+        if len(data)<48 or data[:8] not in (b'RPLALP01',b'RPLALP02') or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return False
+        native_document_tables(data)
+        return True
+    except (AssertionError,IndexError,ValueError,struct.error,json.JSONDecodeError):
+        return False
 def latest_journal_checkpoint(path):
     if not path.exists(): return None
     data=path.read_bytes();offset=0;last_sequence=0;latest=None
@@ -728,42 +743,63 @@ def latest_recovery_project(directory):
 def native_state_bytes(data):
     n=struct.unpack('<I',data[8:12])[0]
     return json.loads(data[12:12+n])
+def native_document_tables(data):
+    """Read bounded raster and v2 mask tables from an already checksummed RPL file."""
+    assert len(data)>=48 and data[:8] in (b'RPLALP01',b'RPLALP02')
+    checksum_offset=len(data)-32
+    metadata=struct.unpack('<I',data[8:12])[0]
+    assert metadata<=65536 and 16+metadata<=checksum_offset
+    state=native_state_bytes(data)
+    count_offset=12+metadata
+    raster_count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
+    assert raster_count<=8192
+    offset=count_offset+4
+    layers={}
+    for _ in range(raster_count):
+        assert offset+16+16384<=checksum_offset
+        layer_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
+        tile=data[offset:offset+16384];offset+=16384
+        layers.setdefault(layer_id,{})[(tile_x,tile_y)]=tile
+    masks={}
+    if data[:8]==b'RPLALP02':
+        assert offset+4<=checksum_offset
+        mask_count=struct.unpack('<I',data[offset:offset+4])[0];offset+=4
+        assert mask_count<=8192-raster_count
+        for _ in range(mask_count):
+            assert offset+16+4096<=checksum_offset
+            layer_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
+            tile=data[offset:offset+4096];offset+=4096
+            masks.setdefault(layer_id,{})[(tile_x,tile_y)]=tile
+    assert offset==checksum_offset, 'native raster/mask tile tables do not match document length'
+    return state,layers,masks
 def native_layer_pixel(path, x, y):
     return native_layer_pixel_bytes(path.read_bytes(),x,y)
 def native_layer_pixel_bytes(data, x, y):
     state=native_state_bytes(data)
     return native_layer_pixel_by_id_bytes(data,state['selected'],x,y)
 def native_layer_pixel_by_id_bytes(data, layer_id, x, y):
-    metadata=struct.unpack('<I',data[8:12])[0]
-    count_offset=12+metadata;count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
-    offset=count_offset+4
-    for _ in range(count):
-        actual_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
-        tile=data[offset:offset+16384];offset+=16384
-        if actual_id==layer_id and (tile_x,tile_y)==(x//64,y//64):
-            pixel=((y%64)*64+x%64)*4
-            return tile[pixel:pixel+4]
+    _,layers,_=native_document_tables(data)
+    tile=layers.get(layer_id,{}).get((x//64,y//64))
+    if tile is not None:
+        pixel=((y%64)*64+x%64)*4
+        return tile[pixel:pixel+4]
     return b'\0\0\0\0'
+def native_layer_mask_pixel_bytes(data, layer_id, x, y):
+    state,_,masks=native_document_tables(data)
+    layer=next((layer for layer in state['layers'] if layer['id']==layer_id),None)
+    if layer is None or not layer.get('mask'):
+        return 255
+    tile=masks.get(layer_id,{}).get((x//64,y//64))
+    if tile is None:
+        return 255
+    return tile[(y%64)*64+x%64]
 def native_layer_tiles(data):
     state=native_state_bytes(data)
     layer_id=state['selected']
-    metadata=struct.unpack('<I',data[8:12])[0]
-    count_offset=12+metadata;count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
-    offset=count_offset+4;tiles={}
-    for _ in range(count):
-        actual_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
-        tile=data[offset:offset+16384];offset+=16384
-        if actual_id==layer_id: tiles[(tile_x,tile_y)]=tile
-    return tiles
+    _,layers,_=native_document_tables(data)
+    return layers.get(layer_id,{})
 def native_layer_tiles_bytes(data):
-    metadata=struct.unpack('<I',data[8:12])[0]
-    count_offset=12+metadata;count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
-    offset=count_offset+4;layers={}
-    for _ in range(count):
-        layer_id,tile_x,tile_y=struct.unpack('<QII',data[offset:offset+16]);offset+=16
-        tile=data[offset:offset+16384];offset+=16384
-        layers.setdefault(layer_id,{})[(tile_x,tile_y)]=tile
-    assert offset==len(data)-32, 'native layer tile table does not match the document length'
+    _,layers,_=native_document_tables(data)
     return layers
 
 def native_layer_changed_pixels(before_data, after_data, bounds):
@@ -2254,7 +2290,60 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda: project.read_bytes()==blend_bytes,
                  'Redo restores the saved blend mode and opacity exactly')
-            saved=blend_bytes
+
+            def open_selected_layer_mask_menu():
+                more=wait(layer_more_button_rect,'selected layer exposes mask actions')
+                opened=layer_actions_open_count()
+                click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
+                wait(lambda: layer_actions_open_count()>opened,
+                     'selected layer Actions opens for the mask workflow')
+                menu=wait(layer_mask_menu_rect,'layer Actions exposes the real Layer mask submenu')
+                click_at((menu[0]+menu[2]/2)*menu[4],(menu[1]+menu[3]/2)*menu[4])
+
+            open_selected_layer_mask_menu()
+            add_mask=wait(layer_mask_add_rect,'Layer mask submenu exposes Add white mask')
+            click_at((add_mask[0]+add_mask[2]/2)*add_mask[4],
+                     (add_mask[1]+add_mask[3]/2)*add_mask[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ADDED')==str(copied_id),
+                 'the actual layer action adds a non-destructive mask')
+            ctrl('s')
+            wait(lambda: valid_project(project) and project.read_bytes()!=blend_bytes
+                 and project.read_bytes()[:8]==b'RPLALP02' and '*' not in title(window),
+                 'the masked project is saved in v2 without changing the v1 baseline')
+            mask_added=project.read_bytes()
+            mask_state=native_state_bytes(mask_added)
+            mask_layer=next(layer for layer in mask_state['layers'] if layer['id']==copied_id)
+            assert mask_layer['mask']['enabled'] and not mask_layer['mask']['inverted']
+            assert native_layer_mask_pixel_bytes(mask_added,copied_id,0,0)==255, \
+                'missing mask samples must remain fully revealing'
+
+            open_selected_layer_mask_menu()
+            edit_mask=wait(layer_mask_edit_rect,'Layer mask submenu exposes Edit mask with Brush')
+            click_at((edit_mask[0]+edit_mask[2]/2)*edit_mask[4],
+                     (edit_mask[1]+edit_mask[3]/2)*edit_mask[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} True',
+                 'the selected layer enters native brush mask-paint mode')
+            before_mask_pixels=native_layer_tiles_bytes(mask_added)
+            move(700,500);click_button(1,True);click_button(1,False)
+            wait(lambda: '*' in title(window),'mask brush stroke changes the native document')
+            ctrl('s')
+            wait(lambda: valid_project(project) and project.read_bytes()!=mask_added
+                 and '*' not in title(window),'mask pixels are saved into the v2 tile section')
+            mask_painted=project.read_bytes()
+            _,raster_layers,mask_tiles=native_document_tables(mask_painted)
+            assert raster_layers==native_layer_tiles_bytes(mask_added), \
+                'painting a mask must not rewrite the source raster layer pixels'
+            painted_mask=mask_tiles.get(copied_id,{})
+            assert painted_mask and any(value<255 for tile in painted_mask.values() for value in tile), \
+                'the real mouse stroke must write non-white alpha-mask samples'
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==mask_added,
+                 'Undo removes mask-paint samples and preserves the editable mask')
+            ctrl('y');ctrl('s')
+            wait(lambda: project.read_bytes()==mask_painted,
+                 'Redo restores mask-paint samples exactly')
+            key('m');key('b')
+            saved=mask_painted
 
             ctrl('f');status('*');ctrl('s')
             wait(lambda: project.read_bytes()!=saved and '*' not in title(window),'selected fill saved')
@@ -2274,6 +2363,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert event_marker('UI_TEST_OPENRASTER_EXPORT_FAILED') is None, \
                 f'OpenRaster export failed: {outcome}'
             assert ora.exists(), 'OpenRaster export reported completion without publishing its file'
+            assert event_marker('UI_TEST_OPENRASTER_MASKS_FLATTENED')=='true', \
+                'OpenRaster export must disclose that native editable masks are flattened'
             with zipfile.ZipFile(ora) as archive:
                 assert archive.namelist()[0]=='mimetype' and archive.read('mimetype')==b'image/openraster'
                 assert archive.testzip() is None and b'<layer' in archive.read('stack.xml')
@@ -2433,7 +2524,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                               (740,260),(700,260),(700,220),(700,180)]),
                 ('Ellipse',[(650+40*math.cos(i*math.tau/16),330+40*math.sin(i*math.tau/16))
                             for i in range(17)]),
-                ('Line',[(700,500),(740,502),(780,499)]),
+                # Keep the guide line away from the earlier mouse demo stroke
+                # and the ellipse preview so pixel-difference validation sees
+                # newly painted samples rather than an existing opaque color.
+                ('Line',[(500,450),(620,490),(740,530)]),
             ]:
                 before_quickshape=imported.read_bytes()
                 prior_quickshape_count=len(quickshape_markers())
@@ -2447,10 +2541,18 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                      f'QuickShape {shape_name.lower()} commits and saves real layer pixels')
                 changed_quickshape=imported.read_bytes()
                 sx,sy,ex,ey=map(float,marker[1:])
+                # Rasterized line coverage extends half a brush diameter
+                # beyond its centerline bounds. Include that real stroke area
+                # while keeping the assertion local to this one gesture.
+                brush_radius=float(native_state_bytes(before_quickshape)['brush']['size'])/2.0+2.0
+                changed_bounds=(min(sx,ex)-brush_radius,min(sy,ey)-brush_radius,
+                                max(sx,ex)+brush_radius,max(sy,ey)+brush_radius)
                 changed_pixels=native_layer_changed_pixels(
-                    before_quickshape,changed_quickshape,(sx,sy,ex,ey))
+                    before_quickshape,changed_quickshape,changed_bounds)
+                print(f'UI_TEST_QUICKSHAPE_PIXELS: {shape_name} {changed_pixels} '
+                      f'bounds={changed_bounds}',flush=True)
                 assert changed_pixels>0, \
-                    f'QuickShape {shape_name.lower()} changes saved native-layer pixels inside its document bounds'
+                    f'QuickShape {shape_name.lower()} changes saved native-layer pixels in rasterized bounds {changed_bounds}'
                 if shape_name=='Rectangle':
                     capture_window(window,'quick-shape-workspace')
                 ctrl('z');ctrl('s')

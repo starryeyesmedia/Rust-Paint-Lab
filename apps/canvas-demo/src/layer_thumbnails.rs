@@ -24,6 +24,7 @@ struct CachedThumbnail {
     // Weak refs keep the Arc control blocks alive so an allocator cannot reuse
     // a dropped tile's address and accidentally make stale content look fresh.
     source_tiles: std::collections::BTreeMap<(u32, u32), std::sync::Weak<Vec<u8>>>,
+    source_mask_tiles: std::collections::BTreeMap<(u32, u32), std::sync::Weak<Vec<u8>>>,
     image: ThumbnailImage,
     texture: TextureHandle,
 }
@@ -99,6 +100,13 @@ impl LayerThumbnailCache {
                     .iter()
                     .map(|(key, tile)| (*key, std::sync::Arc::downgrade(tile)))
                     .collect();
+                cached.source_mask_tiles = layer
+                    .mask
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|mask| mask.tiles.iter())
+                    .map(|(key, tile)| (*key, std::sync::Arc::downgrade(tile)))
+                    .collect();
                 cached.image = image;
             } else {
                 let texture = context.load_texture(
@@ -113,6 +121,13 @@ impl LayerThumbnailCache {
                         source_tiles: layer
                             .tiles
                             .iter()
+                            .map(|(key, tile)| (*key, std::sync::Arc::downgrade(tile)))
+                            .collect(),
+                        source_mask_tiles: layer
+                            .mask
+                            .as_ref()
+                            .into_iter()
+                            .flat_map(|mask| mask.tiles.iter())
                             .map(|(key, tile)| (*key, std::sync::Arc::downgrade(tile)))
                             .collect(),
                         image,
@@ -166,12 +181,25 @@ pub fn layer_thumbnail_image(layer: &Layer, document_size: [u32; 2]) -> Thumbnai
                     let source_y = ((4 * y as u64 + 2 * sample_y + 1) * u64::from(height)
                         / (4 * preview_height as u64))
                         .min(u64::from(height - 1)) as u32;
-                    let Some(tile) = layer.tiles.get(&(source_x / TILE, source_y / TILE)) else {
+                    let key = (source_x / TILE, source_y / TILE);
+                    let Some(tile) = layer.tiles.get(&key) else {
                         continue;
                     };
                     let offset = ((source_y % TILE * TILE + source_x % TILE) * 4) as usize;
+                    let mask_alpha = layer
+                        .mask
+                        .as_ref()
+                        .filter(|mask| mask.enabled)
+                        .map(|mask| {
+                            let value = mask.tiles.get(&key).map_or(255, |mask_tile| {
+                                mask_tile[(source_y % TILE * TILE + source_x % TILE) as usize]
+                            });
+                            if mask.inverted { 255 - value } else { value }
+                        })
+                        .unwrap_or(255);
                     for channel in 0..4 {
-                        channels[channel] += u32::from(tile[offset + channel]);
+                        channels[channel] +=
+                            (u32::from(tile[offset + channel]) * u32::from(mask_alpha) + 127) / 255;
                     }
                 }
             }
@@ -215,11 +243,27 @@ fn layer_signature(layer: &Layer, document_size: [u32; 2]) -> u64 {
         key.hash(&mut hasher);
         (std::sync::Arc::as_ptr(tile) as *const u8 as usize).hash(&mut hasher);
     }
+    if let Some(mask) = &layer.mask {
+        mask.enabled.hash(&mut hasher);
+        mask.inverted.hash(&mut hasher);
+        for (key, tile) in &mask.tiles {
+            key.hash(&mut hasher);
+            (std::sync::Arc::as_ptr(tile) as *const u8 as usize).hash(&mut hasher);
+        }
+    }
     hasher.finish()
 }
 
 fn source_tiles_match(cached: &CachedThumbnail, layer: &Layer) -> bool {
     cached.source_tiles.len() == layer.tiles.len()
+        && cached.source_mask_tiles.len() == layer.mask.as_ref().map_or(0, |mask| mask.tiles.len())
+        && cached.source_mask_tiles.iter().all(|(key, source)| {
+            layer
+                .mask
+                .as_ref()
+                .and_then(|mask| mask.tiles.get(key))
+                .is_some_and(|tile| std::ptr::eq(source.as_ptr(), std::sync::Arc::as_ptr(tile)))
+        })
         && layer.tiles.iter().all(|(key, tile)| {
             cached
                 .source_tiles
@@ -272,6 +316,7 @@ mod tests {
             locked: false,
             opacity,
             blend: Blend::Normal,
+            mask: None,
             tiles: std::collections::BTreeMap::from([((0, 0), Arc::new(bytes))]),
         }
     }
@@ -296,6 +341,45 @@ mod tests {
         let tall = layer_thumbnail_image(&blank, [64, 4096]);
         assert_eq!(tall.size, [1, 64]);
         assert!(tall.pixels.len() <= MAX_THUMBNAIL_WIDTH * MAX_THUMBNAIL_HEIGHT);
+    }
+
+    #[test]
+    fn mask_edits_invalidate_cached_layer_thumbnail_and_change_effective_alpha() {
+        let context = Context::default();
+        let mut project = Engine::new(64, 64, 300).unwrap();
+        project
+            .edit(|state| {
+                let mut pixels = vec![0; paint_document::TILE_BYTES];
+                for pixel in pixels.chunks_exact_mut(4) {
+                    pixel.copy_from_slice(&[80, 0, 0, 255]);
+                }
+                state.layers[0].tiles.insert((0, 0), Arc::new(pixels));
+                Ok(())
+            })
+            .unwrap();
+        let mut cache = LayerThumbnailCache::default();
+        cache.refresh(&context, 0, &project);
+        let before = cache.image(1).unwrap().pixels[0];
+        assert_eq!(before.a(), 255);
+
+        project.add_layer_mask(1).unwrap();
+        project
+            .edit(|state| {
+                let mask = state.layers[0].mask.as_mut().unwrap();
+                let mut values = vec![255; paint_document::MASK_TILE_BYTES];
+                values[0] = 0;
+                mask.tiles.insert((0, 0), Arc::new(values));
+                Ok(())
+            })
+            .unwrap();
+        let updates = cache.refresh(&context, 0, &project);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(cache.image(1).unwrap().pixels[0].a(), 0);
+        assert!(cache.rebuild_count() >= 2);
+
+        project.set_layer_mask_enabled(1, false).unwrap();
+        cache.refresh(&context, 0, &project);
+        assert_eq!(cache.image(1).unwrap().pixels[0].a(), 255);
     }
 
     #[test]

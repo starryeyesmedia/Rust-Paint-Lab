@@ -2607,6 +2607,12 @@ pub(crate) enum Action {
     MoveLayer(u64, i32),
     MoveLayerTo(u64, usize),
     Layer(u64, String, bool, bool, u8, Blend),
+    AddLayerMask(u64),
+    SetLayerMaskEnabled(u64, bool),
+    InvertLayerMask(u64),
+    ClearLayerMask(u64),
+    RemoveLayerMask(u64),
+    EditLayerMask(u64, bool),
 }
 
 #[derive(Clone)]
@@ -2622,6 +2628,10 @@ struct LayerMenuTarget {
     has_selection: bool,
     opacity: u8,
     blend: Blend,
+    mask_enabled: bool,
+    mask_inverted: bool,
+    mask_exists: bool,
+    editing_mask: bool,
 }
 
 pub(crate) struct LayerDragUi<'a> {
@@ -2828,6 +2838,80 @@ fn layer_actions_menu(
         ui.close();
     }
     ui.separator();
+    let mask_menu = ui.menu_button("Layer mask", |ui| {
+        if !target.mask_exists {
+            let add = ui.button("Add white mask");
+            if target.emit_test_markers {
+                crate::studio_log!(
+                    "UI_TEST_LAYER_MASK_ADD_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                    add.rect.left(),
+                    add.rect.top(),
+                    add.rect.width(),
+                    add.rect.height(),
+                    ui.ctx().pixels_per_point(),
+                );
+            }
+            if add.clicked() {
+                actions.push(Action::AddLayerMask(target.id));
+                ui.close();
+            }
+            ui.small("Paint black to hide pixels; white reveals them.");
+            return;
+        }
+        let edit_label = if target.editing_mask {
+            "Stop editing mask"
+        } else {
+            "Edit mask with Brush"
+        };
+        let edit = ui.button(edit_label);
+        if target.emit_test_markers {
+            crate::studio_log!(
+                "UI_TEST_LAYER_MASK_EDIT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                edit.rect.left(),
+                edit.rect.top(),
+                edit.rect.width(),
+                edit.rect.height(),
+                ui.ctx().pixels_per_point(),
+            );
+        }
+        if edit.clicked() {
+            actions.push(Action::EditLayerMask(target.id, !target.editing_mask));
+            ui.close();
+        }
+        let mut enabled = target.mask_enabled;
+        if ui.checkbox(&mut enabled, "Mask enabled").changed() {
+            actions.push(Action::SetLayerMaskEnabled(target.id, enabled));
+        }
+        if ui.button("Invert mask").clicked() {
+            actions.push(Action::InvertLayerMask(target.id));
+            ui.close();
+        }
+        if ui.button("Clear mask to white").clicked() {
+            actions.push(Action::ClearLayerMask(target.id));
+            ui.close();
+        }
+        if ui.button("Remove mask").clicked() {
+            actions.push(Action::RemoveLayerMask(target.id));
+            ui.close();
+        }
+        ui.small(if target.mask_inverted {
+            "Inverted · black reveals"
+        } else {
+            "Normal · black hides"
+        });
+        ui.small("Mask edits are saved in .rpl and support Undo.");
+    });
+    if target.emit_test_markers {
+        crate::studio_log!(
+            "UI_TEST_LAYER_MASK_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            mask_menu.response.rect.left(),
+            mask_menu.response.rect.top(),
+            mask_menu.response.rect.width(),
+            mask_menu.response.rect.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
+    ui.separator();
     let bring_forward = ui.add_enabled(
         target.layer_index + 1 < target.layer_count,
         egui::Button::new("Bring forward"),
@@ -3022,15 +3106,26 @@ pub(crate) struct LayerThumbnailContext<'a> {
     pub document_epoch: u64,
 }
 
+#[derive(Clone, Copy, Default)]
+pub(crate) struct LayerFlyoutOptions {
+    pub test_mode: bool,
+    pub compact: bool,
+    pub editing_mask: Option<u64>,
+}
+
 pub(crate) fn layer_flyout_contents(
     ui: &mut egui::Ui,
     project: &mut Engine,
     thumbnail_context: &mut LayerThumbnailContext<'_>,
     actions: &mut Vec<Action>,
-    test_mode: bool,
-    compact: bool,
+    options: LayerFlyoutOptions,
     drag_ui: &mut LayerDragUi<'_>,
 ) {
+    let LayerFlyoutOptions {
+        test_mode,
+        compact,
+        editing_mask,
+    } = options;
     drag_ui.handles.clear();
     drag_ui.drop_targets.clear();
     let thumbnail_updates =
@@ -3166,13 +3261,22 @@ pub(crate) fn layer_flyout_contents(
                     .iter()
                     .position(|layer| layer.id == id)
                     .unwrap_or(0);
-                let (opacity, blend) = project
+                let (opacity, blend, mask_enabled, mask_inverted, mask_exists) = project
                     .state()
                     .layers
                     .iter()
                     .find(|layer| layer.id == id)
-                    .map(|layer| (layer.opacity, layer.blend))
-                    .unwrap_or((255, Blend::Normal));
+                    .map(|layer| {
+                        let mask = layer.mask.as_ref();
+                        (
+                            layer.opacity,
+                            layer.blend,
+                            mask.is_none_or(|mask| mask.enabled),
+                            mask.is_some_and(|mask| mask.inverted),
+                            mask.is_some(),
+                        )
+                    })
+                    .unwrap_or((255, Blend::Normal, true, false, false));
                 let menu_target = LayerMenuTarget {
                     id,
                     layer_count,
@@ -3185,6 +3289,10 @@ pub(crate) fn layer_flyout_contents(
                     has_selection: project.state().selection.is_some(),
                     opacity,
                     blend,
+                    mask_enabled,
+                    mask_inverted,
+                    mask_exists,
+                    editing_mask: editing_mask == Some(id),
                 };
                 let rename_id = egui::Id::new(("layer-flyout-name", id));
                 let mut focus_rename = false;
@@ -3555,7 +3663,14 @@ enum EditTool {
     Gradient,
 }
 
-fn stroke_mode_for_tool(tool: EditTool, color_mix_strength: f64) -> paint_document::StrokeMode {
+fn stroke_mode_for_tool(
+    tool: EditTool,
+    color_mix_strength: f64,
+    editing_mask: bool,
+) -> paint_document::StrokeMode {
+    if editing_mask && tool == EditTool::Brush {
+        return paint_document::StrokeMode::MaskPaint;
+    }
     match tool {
         EditTool::Smudge => paint_document::StrokeMode::Smudge,
         EditTool::ColorMix => paint_document::StrokeMode::ColorMix {
@@ -3700,6 +3815,7 @@ pub struct Studio {
     saved_color_swatches: Vec<[u8; 3]>,
     favorite_brushes: Vec<BrushKind>,
     color_mix_strength: f64,
+    mask_editing_layer: Option<u64>,
     symmetry: paint_document::Symmetry,
     symmetry_panel_open: bool,
     symmetry_origin_armed: bool,
@@ -3947,6 +4063,7 @@ impl Studio {
             saved_color_swatches,
             favorite_brushes,
             color_mix_strength,
+            mask_editing_layer: None,
             symmetry,
             symmetry_panel_open: false,
             symmetry_origin_armed: false,
@@ -5682,9 +5799,13 @@ impl Studio {
             'g' => EditTool::Gradient,
             _ => EditTool::Brush,
         };
-        session
-            .live_mut()
-            .set_stroke_mode(stroke_mode_for_tool(self.tool, self.color_mix_strength));
+        if self.tool != EditTool::Brush {
+            self.mask_editing_layer = None;
+        }
+        let editing_mask =
+            self.mask_editing_layer == Some(session.live().project().state().selected);
+        let stroke_mode = stroke_mode_for_tool(self.tool, self.color_mix_strength, editing_mask);
+        session.live_mut().set_stroke_mode(stroke_mode);
         if matches!(
             self.tool,
             EditTool::ShapeLine
@@ -6535,6 +6656,13 @@ impl Studio {
                         .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
+                                let selected_layer = session.live().project().state().selected;
+                                if self.mask_editing_layer == Some(selected_layer) {
+                                    ui.colored_label(
+                                        ui.visuals().selection.bg_fill,
+                                        "MASK · black hides, white reveals",
+                                    );
+                                }
                                 if self.tool == EditTool::Brush {
                                     let project = session.live_mut().project_mut();
                                     let preset_picker = ui.menu_button(
@@ -7155,10 +7283,17 @@ impl Studio {
                             if response.clicked() {
                                 self.symmetry_origin_armed = false;
                                 self.tool = tool;
-                                session.live_mut().set_stroke_mode(stroke_mode_for_tool(
+                                if tool != EditTool::Brush {
+                                    self.mask_editing_layer = None;
+                                }
+                                let editing_mask = self.mask_editing_layer
+                                    == Some(session.live().project().state().selected);
+                                let stroke_mode = stroke_mode_for_tool(
                                     tool,
                                     self.color_mix_strength,
-                                ));
+                                    editing_mask,
+                                );
+                                session.live_mut().set_stroke_mode(stroke_mode);
                                 if self.test_path_dialog {
                                     crate::studio_log!("UI_TEST_ACTIVE_TOOL: {:?}", self.tool);
                                 }
@@ -7888,8 +8023,11 @@ impl Studio {
                             session.live_mut().project_mut(),
                             &mut thumbnail_context,
                             actions,
-                            self.test_path_dialog,
-                            compact,
+                            LayerFlyoutOptions {
+                                test_mode: self.test_path_dialog,
+                                compact,
+                                editing_mask: self.mask_editing_layer,
+                            },
                             &mut drag_ui,
                         );
                     };
@@ -10777,9 +10915,10 @@ impl Studio {
         if let Err(error) = session.live_mut().project_mut().set_symmetry(self.symmetry) {
             self.status = format!("Could not apply drawing symmetry: {error}");
         }
-        session
-            .live_mut()
-            .set_stroke_mode(stroke_mode_for_tool(self.tool, self.color_mix_strength));
+        let selected = session.live().project().state().selected;
+        let editing_mask = self.mask_editing_layer == Some(selected);
+        let stroke_mode = stroke_mode_for_tool(self.tool, self.color_mix_strength, editing_mask);
+        session.live_mut().set_stroke_mode(stroke_mode);
 
         if let Some(request) = self.picker.take() {
             if self.test_path_dialog && !matches!(request, FileRequest::AddReferences) {
@@ -11596,6 +11735,7 @@ impl Studio {
             Action::ImportOra => {
                 self.placed_image = None;
                 self.placement_drag = None;
+                self.mask_editing_layer = None;
                 let state = paint_document::openraster::load(std::path::Path::new(&self.path))?;
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
                 self.invalidate_document_thumbnail_cache();
@@ -11609,6 +11749,14 @@ impl Studio {
             }
             Action::ExportOra => {
                 let started = std::time::Instant::now();
+                let masks_flattened = project
+                    .state()
+                    .layers
+                    .iter()
+                    .any(|layer| layer.mask.as_ref().is_some_and(|mask| mask.enabled));
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_OPENRASTER_MASKS_FLATTENED: {masks_flattened}");
+                }
                 if self.test_path_dialog {
                     crate::studio_log!("UI_TEST_OPENRASTER_EXPORT_STARTED: true");
                 }
@@ -11626,7 +11774,11 @@ impl Studio {
                         started.elapsed().as_secs_f64()
                     );
                 }
-                self.status="OpenRaster exported: raster layers retained; background becomes a layer. Locks, presets and history are omitted".into();
+                self.status = if masks_flattened {
+                    "OpenRaster exported: layer masks were flattened into layer pixels; the .rpl source keeps editable masks. Locks, presets and history are omitted".into()
+                } else {
+                    "OpenRaster exported: raster layers retained; background becomes a layer. Locks, presets and history are omitted".into()
+                };
             }
             Action::RemoveRecovery(path) => {
                 paint_document::recovery::remove(&paint_document::recovery::directory()?, &path)?;
@@ -11851,9 +12003,81 @@ impl Studio {
                     );
                 }
             }
+            Action::AddLayerMask(id) => {
+                project.add_layer_mask(id)?;
+                self.status = "White layer mask added · artwork remains non-destructive".into();
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_LAYER_MASK_ADDED: {id}");
+                }
+            }
+            Action::SetLayerMaskEnabled(id, enabled) => {
+                project.set_layer_mask_enabled(id, enabled)?;
+                self.status = if enabled {
+                    "Layer mask enabled".into()
+                } else {
+                    "Layer mask disabled · source mask retained".into()
+                };
+            }
+            Action::InvertLayerMask(id) => {
+                project.invert_layer_mask(id)?;
+                self.status = "Layer mask inverted · Ctrl+Z to restore".into();
+            }
+            Action::ClearLayerMask(id) => {
+                project.clear_layer_mask(id)?;
+                self.status = "Layer mask cleared to white · Ctrl+Z to restore".into();
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_LAYER_MASK_CLEARED: {id}");
+                }
+            }
+            Action::RemoveLayerMask(id) => {
+                project.remove_layer_mask(id)?;
+                if self.mask_editing_layer == Some(id) {
+                    self.mask_editing_layer = None;
+                }
+                self.status = "Layer mask removed · Ctrl+Z to restore".into();
+            }
+            Action::EditLayerMask(id, editing) => {
+                if editing {
+                    let (has_mask, enabled, locked, visible) = project
+                        .state()
+                        .layers
+                        .iter()
+                        .find(|layer| layer.id == id)
+                        .map(|layer| {
+                            (
+                                layer.mask.is_some(),
+                                layer.mask.as_ref().is_some_and(|mask| mask.enabled),
+                                layer.locked,
+                                layer.visible,
+                            )
+                        })
+                        .ok_or(paint_document::PaintError::Invalid)?;
+                    if !has_mask {
+                        return Err(paint_document::PaintError::Invalid.into());
+                    }
+                    if locked || !visible {
+                        return Err(paint_document::PaintError::Locked.into());
+                    }
+                    if !enabled {
+                        project.set_layer_mask_enabled(id, true)?;
+                    }
+                    project.select(id);
+                    self.mask_editing_layer = Some(id);
+                    self.tool = EditTool::Brush;
+                    self.brush_flyout_open = true;
+                    self.status = "Editing layer mask · black hides, white reveals".into();
+                } else {
+                    self.mask_editing_layer = None;
+                    self.status = "Layer mask editing ended".into();
+                }
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_LAYER_MASK_EDITING: {id} {editing}");
+                }
+            }
             Action::New => {
                 self.placed_image = None;
                 self.placement_drag = None;
+                self.mask_editing_layer = None;
                 // Each document keeps its own recovery lineage. Never replace the
                 // previous document checkpoint with the next document snapshot.
                 let state = crate::document_setup::build_state(
@@ -11903,6 +12127,7 @@ impl Studio {
             Action::Recover(path) => {
                 self.placed_image = None;
                 self.placement_drag = None;
+                self.mask_editing_layer = None;
                 let (state, fallback) = paint_document::recovery::restore(&path)?;
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
                 self.invalidate_document_thumbnail_cache();
@@ -11923,6 +12148,7 @@ impl Studio {
             Action::Open | Action::Recent(_) => {
                 self.placed_image = None;
                 self.placement_drag = None;
+                self.mask_editing_layer = None;
                 let path = if let Action::Recent(p) = &a {
                     p.clone()
                 } else {
@@ -12032,6 +12258,24 @@ impl Studio {
                 }
             }
         }
+        let selected = project.state().selected;
+        let editing_mask = self.mask_editing_layer.is_some_and(|id| {
+            id == selected
+                && project.state().layers.iter().any(|layer| {
+                    layer.id == id
+                        && layer.visible
+                        && !layer.locked
+                        && layer.mask.as_ref().is_some_and(|mask| mask.enabled)
+                })
+        });
+        if !editing_mask {
+            self.mask_editing_layer = None;
+        }
+        session.live_mut().set_stroke_mode(stroke_mode_for_tool(
+            self.tool,
+            self.color_mix_strength,
+            editing_mask,
+        ));
         Ok(())
     }
     pub fn paint(
@@ -12379,6 +12623,10 @@ mod tests {
                         has_selection: true,
                         opacity: 255,
                         blend: paint_document::Blend::Normal,
+                        mask_enabled: true,
+                        mask_inverted: false,
+                        mask_exists: false,
+                        editing_mask: false,
                     },
                     &mut actions,
                     &mut focus_rename,
@@ -12398,6 +12646,10 @@ mod tests {
         assert!(
             nodes.contains("Copy selected pixels to new layer"),
             "selection copy is missing from the keyboard/screen-reader action list: {nodes}"
+        );
+        assert!(
+            nodes.contains("Layer mask"),
+            "the editable mask workflow must be reachable from layer actions: {nodes}"
         );
         assert!(
             nodes.contains("role: Button"),

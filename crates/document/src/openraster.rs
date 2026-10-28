@@ -158,15 +158,30 @@ fn layer_rgba(width: u32, height: u32, layer: &Layer) -> Result<Vec<u8>, PaintEr
         for y in 0..valid_height {
             for x in 0..valid_width {
                 let source = ((y * TILE + x) * 4) as usize;
-                let alpha = u32::from(tile[source + 3]);
+                let source_alpha = u32::from(tile[source + 3]);
+                if source_alpha == 0 {
+                    continue;
+                }
+                let alpha = if let Some(mask) = layer.mask.as_ref().filter(|mask| mask.enabled) {
+                    let mask_offset = (y * TILE + x) as usize;
+                    let value = mask
+                        .tiles
+                        .get(&(tile_x, tile_y))
+                        .map_or(255, |mask_tile| mask_tile[mask_offset]);
+                    u32::from(if mask.inverted { 255 - value } else { value })
+                } else {
+                    255
+                };
+                let alpha = (source_alpha * alpha + 127) / 255;
                 if alpha == 0 {
                     continue;
                 }
                 let destination = (((origin_y + y) * width + origin_x + x) * 4) as usize;
                 for channel in 0..3 {
-                    rgba[destination + channel] =
-                        ((u32::from(tile[source + channel]) * 255 + alpha / 2) / alpha).min(255)
-                            as u8;
+                    rgba[destination + channel] = ((u32::from(tile[source + channel]) * 255
+                        + source_alpha / 2)
+                        / source_alpha)
+                        .min(255) as u8;
                 }
                 rgba[destination + 3] = alpha as u8;
             }
@@ -345,6 +360,7 @@ pub fn load(path: &Path) -> Result<State, PaintError> {
             locked: false,
             opacity: (opacity * 255.0).round() as u8,
             blend,
+            mask: None,
             tiles,
         });
     }
@@ -378,6 +394,10 @@ pub fn export(path: &Path, engine: &Engine) -> Result<(), PaintError> {
     if state.layers.len() + usize::from(state.background.is_some()) > crate::MAX_LAYERS {
         return Err(PaintError::Limit);
     }
+    // OpenRaster has no portable layer-mask edit model in this restricted
+    // importer. Export the effective per-layer alpha into its PNG layer and
+    // report the loss in the application status; the native .rpl remains the
+    // editable source of truth.
     let temp = crate::storage::temporary(path);
     let result = (|| {
         let file = OpenOptions::new()
@@ -439,7 +459,7 @@ pub fn export(path: &Path, engine: &Engine) -> Result<(), PaintError> {
 #[cfg(test)]
 mod layer_rgba_tests {
     use super::layer_rgba;
-    use crate::{Engine, TILE_BYTES};
+    use crate::{Engine, LayerMask, MASK_TILE_BYTES, TILE_BYTES};
     use std::sync::Arc;
 
     #[test]
@@ -464,5 +484,39 @@ mod layer_rgba_tests {
         assert_eq!(&image[..4], &[80, 40, 0, 128]);
         let edge_pixel = ((64 * 65 + 64) * 4) as usize;
         assert_eq!(&image[edge_pixel..edge_pixel + 4], &[48, 96, 143, 64]);
+    }
+
+    #[test]
+    fn openraster_layer_pixels_apply_enabled_and_inverted_masks() {
+        let mut engine = Engine::new(4, 4, 300).unwrap();
+        engine
+            .edit(|state| {
+                let mut pixels = vec![0; TILE_BYTES];
+                pixels[..4].copy_from_slice(&[100, 0, 0, 100]);
+                let mut alpha = vec![255; MASK_TILE_BYTES];
+                alpha[0] = 0;
+                state.layers[0].tiles.insert((0, 0), Arc::new(pixels));
+                state.layers[0].mask = Some(LayerMask {
+                    enabled: true,
+                    inverted: false,
+                    tiles: [((0, 0), Arc::new(alpha))].into_iter().collect(),
+                });
+                Ok(())
+            })
+            .unwrap();
+        let layer = &engine.state().layers[0];
+        let hidden = layer_rgba(4, 4, layer).unwrap();
+        assert_eq!(&hidden[..4], &[0, 0, 0, 0]);
+        assert_eq!(&hidden[4..8], &[0, 0, 0, 0]);
+
+        let mut inverted = layer.clone();
+        inverted.mask.as_mut().unwrap().inverted = true;
+        let revealed = layer_rgba(4, 4, &inverted).unwrap();
+        assert_eq!(&revealed[..4], &[255, 0, 0, 100]);
+        assert_eq!(&revealed[4..8], &[0, 0, 0, 0]);
+
+        inverted.mask.as_mut().unwrap().enabled = false;
+        let disabled = layer_rgba(4, 4, &inverted).unwrap();
+        assert_eq!(&disabled[..4], &[255, 0, 0, 100]);
     }
 }

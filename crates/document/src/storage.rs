@@ -1,6 +1,6 @@
 //! Bounded, checksummed editable alpha format. Atomic replacement preserves the
 //! prior valid file and backup; GPU/platform objects are never serialized.
-use crate::{MAX_TILES, PaintError, State, TILE, TILE_BYTES};
+use crate::{LayerMask, MASK_TILE_BYTES, MAX_TILES, PaintError, State, TILE, TILE_BYTES};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
@@ -8,7 +8,8 @@ use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
-const MAGIC: &[u8; 8] = b"RPLALP01";
+const MAGIC_V1: &[u8; 8] = b"RPLALP01";
+const MAGIC_V2: &[u8; 8] = b"RPLALP02";
 pub(crate) const MAX_FILE: usize = 160 * 1024 * 1024;
 const MAX_BRUSH_FILE: usize = 16 * 1024;
 static NONCE: AtomicU64 = AtomicU64::new(0);
@@ -23,15 +24,30 @@ fn hash(bytes: &[u8]) -> [u8; 32] {
 }
 pub fn encode(state: &State) -> Result<Vec<u8>, PaintError> {
     state.validate()?;
+    let has_masks = state.layers.iter().any(|layer| layer.mask.is_some());
+    let magic = if has_masks { MAGIC_V2 } else { MAGIC_V1 };
     let meta = serde_json::to_vec(state)?;
     if meta.len() > 65536 {
         return Err(PaintError::Limit);
     }
-    let mut bytes = Vec::with_capacity(meta.len() + state.tile_count() * (TILE_BYTES + 16) + 48);
-    bytes.extend_from_slice(MAGIC);
+    let raster_tiles: usize = state.layers.iter().map(|layer| layer.tiles.len()).sum();
+    let mask_tiles: usize = state
+        .layers
+        .iter()
+        .filter_map(|layer| layer.mask.as_ref())
+        .map(|mask| mask.tiles.len())
+        .sum();
+    let mask_section_size = if has_masks {
+        4 + mask_tiles * (16 + MASK_TILE_BYTES)
+    } else {
+        0
+    };
+    let mut bytes =
+        Vec::with_capacity(meta.len() + raster_tiles * (TILE_BYTES + 16) + mask_section_size + 48);
+    bytes.extend_from_slice(magic);
     bytes.extend_from_slice(&(meta.len() as u32).to_le_bytes());
     bytes.extend(meta);
-    bytes.extend_from_slice(&(state.tile_count() as u32).to_le_bytes());
+    bytes.extend_from_slice(&(raster_tiles as u32).to_le_bytes());
     for l in &state.layers {
         for (&(x, y), tile) in &l.tiles {
             bytes.extend_from_slice(&l.id.to_le_bytes());
@@ -40,15 +56,34 @@ pub fn encode(state: &State) -> Result<Vec<u8>, PaintError> {
             bytes.extend_from_slice(tile);
         }
     }
+    if has_masks {
+        bytes.extend_from_slice(&(mask_tiles as u32).to_le_bytes());
+        for layer in &state.layers {
+            if let Some(mask) = &layer.mask {
+                for (&(x, y), tile) in &mask.tiles {
+                    bytes.extend_from_slice(&layer.id.to_le_bytes());
+                    bytes.extend_from_slice(&x.to_le_bytes());
+                    bytes.extend_from_slice(&y.to_le_bytes());
+                    bytes.extend_from_slice(tile);
+                }
+            }
+        }
+    }
     bytes.extend(hash(&bytes));
     Ok(bytes)
 }
 pub fn decode(bytes: &[u8]) -> Result<State, PaintError> {
-    if bytes.len() < 48
-        || bytes.len() > MAX_FILE
-        || &bytes[..8] != MAGIC
-        || hash(&bytes[..bytes.len() - 32]) != bytes[bytes.len() - 32..]
-    {
+    if bytes.len() < 48 || bytes.len() > MAX_FILE {
+        return Err(PaintError::Invalid);
+    }
+    let has_mask_section = if &bytes[..8] == MAGIC_V1 {
+        false
+    } else if &bytes[..8] == MAGIC_V2 {
+        true
+    } else {
+        return Err(PaintError::Invalid);
+    };
+    if hash(&bytes[..bytes.len() - 32]) != bytes[bytes.len() - 32..] {
         return Err(PaintError::Invalid);
     }
     let len = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
@@ -57,11 +92,22 @@ pub fn decode(bytes: &[u8]) -> Result<State, PaintError> {
     }
     let mut state: State = serde_json::from_slice(&bytes[12..12 + len])?;
     state.validate()?;
+    if !has_mask_section && state.layers.iter().any(|layer| layer.mask.is_some()) {
+        return Err(PaintError::Invalid);
+    }
     let count = u32::from_le_bytes(bytes[12 + len..16 + len].try_into().unwrap()) as usize;
-    if count > MAX_TILES || 16 + len + count * (16 + TILE_BYTES) + 32 != bytes.len() {
+    if count > MAX_TILES {
         return Err(PaintError::Limit);
     }
     let mut offset = 16 + len;
+    let checksum_offset = bytes.len() - 32;
+    let raster_bytes = count
+        .checked_mul(16 + TILE_BYTES)
+        .and_then(|size| offset.checked_add(size))
+        .ok_or(PaintError::Limit)?;
+    if raster_bytes > checksum_offset || (!has_mask_section && raster_bytes != checksum_offset) {
+        return Err(PaintError::Invalid);
+    }
     for _ in 0..count {
         let id = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
         let x = u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap());
@@ -83,6 +129,49 @@ pub fn decode(bytes: &[u8]) -> Result<State, PaintError> {
             std::sync::Arc::new(bytes[offset..offset + TILE_BYTES].to_vec()),
         );
         offset += TILE_BYTES;
+    }
+    if has_mask_section {
+        if offset + 4 > checksum_offset {
+            return Err(PaintError::Invalid);
+        }
+        let mask_count = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+        offset += 4;
+        if mask_count > MAX_TILES - count {
+            return Err(PaintError::Limit);
+        }
+        let expected_end = mask_count
+            .checked_mul(16 + MASK_TILE_BYTES)
+            .and_then(|size| offset.checked_add(size))
+            .ok_or(PaintError::Limit)?;
+        if expected_end != checksum_offset {
+            return Err(PaintError::Invalid);
+        }
+        for _ in 0..mask_count {
+            let id = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            let x = u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap());
+            let y = u32::from_le_bytes(bytes[offset + 12..offset + 16].try_into().unwrap());
+            offset += 16;
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == id)
+                .ok_or(PaintError::Invalid)?;
+            let mask: &mut LayerMask = layer.mask.as_mut().ok_or(PaintError::Invalid)?;
+            if x >= state.width.div_ceil(TILE)
+                || y >= state.height.div_ceil(TILE)
+                || mask.tiles.contains_key(&(x, y))
+            {
+                return Err(PaintError::Invalid);
+            }
+            mask.tiles.insert(
+                (x, y),
+                std::sync::Arc::new(bytes[offset..offset + MASK_TILE_BYTES].to_vec()),
+            );
+            offset += MASK_TILE_BYTES;
+        }
+    }
+    if offset != checksum_offset {
+        return Err(PaintError::Invalid);
     }
     state.validate()?;
     Ok(state)
@@ -112,7 +201,7 @@ pub fn peek_dimensions(path: &Path) -> Option<(u32, u32, u32)> {
     }
     let mut prefix = [0u8; 12];
     file.read_exact(&mut prefix).ok()?;
-    if &prefix[..8] != MAGIC {
+    if &prefix[..8] != MAGIC_V1 && &prefix[..8] != MAGIC_V2 {
         return None;
     }
     let metadata_len = u32::from_le_bytes(prefix[8..12].try_into().ok()?) as usize;
@@ -411,6 +500,7 @@ pub fn import_png(path: &Path, engine: &mut crate::Engine) -> Result<(), PaintEr
             locked: false,
             opacity: 255,
             blend: crate::Blend::Normal,
+            mask: None,
             tiles,
         });
         s.selected = id;

@@ -1,5 +1,7 @@
 //! Pixel-center selections and bounded nearest-neighbor raster edits.
-use crate::{Blend, Engine, PaintError, State, TILE, TILE_BYTES, TileMap, over};
+use crate::{
+    Blend, Engine, MASK_TILE_BYTES, MaskTileMap, PaintError, State, TILE, TILE_BYTES, TileMap, over,
+};
 use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SelectionKind {
@@ -237,6 +239,34 @@ fn write(
     t[i..i + 4].copy_from_slice(&p);
     Ok(())
 }
+fn read_mask(tiles: &MaskTileMap, x: u32, y: u32) -> u8 {
+    let Some(tile) = tiles.get(&(x / TILE, y / TILE)) else {
+        return 255;
+    };
+    tile[(y % TILE * TILE + x % TILE) as usize]
+}
+fn write_mask(
+    tiles: &mut MaskTileMap,
+    x: u32,
+    y: u32,
+    value: u8,
+    count: &mut usize,
+) -> Result<(), PaintError> {
+    let key = (x / TILE, y / TILE);
+    if let std::collections::btree_map::Entry::Vacant(entry) = tiles.entry(key) {
+        if value == 255 {
+            return Ok(());
+        }
+        if *count >= crate::MAX_TILES {
+            return Err(PaintError::Limit);
+        }
+        *count += 1;
+        entry.insert(Arc::new(vec![255; MASK_TILE_BYTES]));
+    }
+    let tile = Arc::make_mut(tiles.get_mut(&key).unwrap());
+    tile[(y % TILE * TILE + x % TILE) as usize] = value;
+    Ok(())
+}
 fn mask(s: &State) -> Vec<bool> {
     let mut mask = vec![s.selection.is_none(); (s.width * s.height) as usize];
     let Some(selection) = &s.selection else {
@@ -272,6 +302,79 @@ fn mask(s: &State) -> Vec<bool> {
     mask
 }
 impl Engine {
+    /// Add a fully revealing sparse mask to one raster layer as one undoable
+    /// document edit. Missing mask tiles represent alpha 255.
+    pub fn add_layer_mask(&mut self, id: u64) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == id)
+                .ok_or(PaintError::Invalid)?;
+            if layer.mask.is_some() {
+                return Err(PaintError::Invalid);
+            }
+            layer.mask = Some(crate::LayerMask::default());
+            Ok(())
+        })
+    }
+
+    pub fn remove_layer_mask(&mut self, id: u64) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == id)
+                .ok_or(PaintError::Invalid)?;
+            if layer.mask.take().is_none() {
+                return Err(PaintError::Invalid);
+            }
+            Ok(())
+        })
+    }
+
+    pub fn set_layer_mask_enabled(&mut self, id: u64, enabled: bool) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let mask = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == id)
+                .and_then(|layer| layer.mask.as_mut())
+                .ok_or(PaintError::Invalid)?;
+            mask.enabled = enabled;
+            Ok(())
+        })
+    }
+
+    pub fn invert_layer_mask(&mut self, id: u64) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let mask = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == id)
+                .and_then(|layer| layer.mask.as_mut())
+                .ok_or(PaintError::Invalid)?;
+            mask.inverted = !mask.inverted;
+            Ok(())
+        })
+    }
+
+    /// Reset the mask to its initial white/reveal state without deleting it.
+    pub fn clear_layer_mask(&mut self, id: u64) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let mask = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == id)
+                .and_then(|layer| layer.mask.as_mut())
+                .ok_or(PaintError::Invalid)?;
+            mask.tiles.clear();
+            mask.inverted = false;
+            mask.enabled = true;
+            Ok(())
+        })
+    }
+
     /// Place an 8-bit straight-alpha RGBA image as a new editable raster layer.
     /// `transform` maps source pixel coordinates into document coordinates as
     /// `[a,b,c,d,tx,ty]`. The entire placement is validated and committed as a
@@ -415,6 +518,7 @@ impl Engine {
                 locked: false,
                 opacity: 255,
                 blend: Blend::Normal,
+                mask: None,
                 tiles,
             });
             state.selected = id;
@@ -458,6 +562,7 @@ impl Engine {
             }
             let source_opacity = source.opacity;
             let source_blend = source.blend;
+            let source_mask = source.mask.clone();
             let id = state
                 .layers
                 .iter()
@@ -523,6 +628,16 @@ impl Engine {
                     return Err(PaintError::Limit);
                 }
             }
+            if state
+                .tile_count()
+                .checked_add(tiles.len())
+                .and_then(|count| {
+                    count.checked_add(source_mask.as_ref().map_or(0, |mask| mask.tiles.len()))
+                })
+                .is_none_or(|count| count > crate::MAX_TILES)
+            {
+                return Err(PaintError::Limit);
+            }
             let copied_layer = crate::Layer {
                 id,
                 name,
@@ -534,6 +649,7 @@ impl Engine {
                 } else {
                     Blend::Normal
                 },
+                mask: source_mask,
                 tiles,
             };
             state.layers.insert(source_index + 1, copied_layer);
@@ -866,11 +982,16 @@ impl Engine {
             let original = s.layers[index].tiles.clone();
             let mut out = original.clone();
             let mut count = s.tile_count();
+            let original_mask = s.layers[index].mask.as_ref().map(|mask| mask.tiles.clone());
+            let mut out_mask = original_mask.clone();
             let mask = mask(s);
             for y in 0..s.height {
                 for x in 0..s.width {
                     if mask[(y * s.width + x) as usize] {
                         write(&mut out, x, y, [0; 4], &mut count)?;
+                        if let Some(mask_tiles) = &mut out_mask {
+                            write_mask(mask_tiles, x, y, 255, &mut count)?;
+                        }
                     }
                 }
             }
@@ -892,11 +1013,26 @@ impl Engine {
                             over(&mut p, &src, false, 255, Blend::Normal);
                             write(&mut out, x, y, p, &mut count)?;
                         }
+                        if let (Some(source_mask), Some(destination_mask)) =
+                            (&original_mask, &mut out_mask)
+                        {
+                            write_mask(
+                                destination_mask,
+                                x,
+                                y,
+                                read_mask(source_mask, sx, sy),
+                                &mut count,
+                            )?;
+                        }
                     }
                 }
             }
             out.retain(|_, t| t.iter().any(|v| *v != 0));
             s.layers[index].tiles = out;
+            if let (Some(layer_mask), Some(mut tiles)) = (&mut s.layers[index].mask, out_mask) {
+                tiles.retain(|_, tile| tile.iter().any(|value| *value != 255));
+                layer_mask.tiles = tiles;
+            }
             s.selection = None;
             Ok(())
         })
@@ -911,12 +1047,26 @@ impl Engine {
             let mut count = 0;
             for l in &mut s.layers {
                 let mut out = TileMap::new();
+                let mut out_mask = l.mask.as_ref().map(|_| MaskTileMap::new());
                 for yy in y..b {
                     for xx in x..r {
                         write(&mut out, xx - x, yy - y, read(&l.tiles, xx, yy), &mut count)?;
+                        if let (Some(mask), Some(mask_out)) = (&l.mask, &mut out_mask) {
+                            write_mask(
+                                mask_out,
+                                xx - x,
+                                yy - y,
+                                read_mask(&mask.tiles, xx, yy),
+                                &mut count,
+                            )?;
+                        }
                     }
                 }
                 l.tiles = out;
+                if let (Some(mask), Some(mut tiles)) = (&mut l.mask, out_mask) {
+                    tiles.retain(|_, tile| tile.iter().any(|value| *value != 255));
+                    mask.tiles = tiles;
+                }
             }
             s.width = r - x;
             s.height = b - y;

@@ -221,7 +221,8 @@ pub fn restore(path: &Path) -> Result<(State, bool), PaintError> {
 #[cfg(test)]
 mod journal_tests {
     use super::*;
-    use crate::Engine;
+    use crate::{Engine, LayerMask, MASK_TILE_BYTES};
+    use std::sync::Arc;
 
     #[test]
     fn journal_checkpoint_is_discoverable_if_snapshot_replace_was_interrupted() {
@@ -240,6 +241,41 @@ mod journal_tests {
         assert_eq!(restored.layers.len(), 2);
         remove(&dir, &path).unwrap();
         assert!(!path.with_extension("rpl.journal").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn journal_restores_editable_mask_tiles_when_snapshot_replacement_was_interrupted() {
+        let dir =
+            std::env::temp_dir().join(format!("rpl-journal-mask-recovery-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let recovery = Recovery::start(&dir).unwrap();
+        let mut engine = Engine::new(32, 32, 96).unwrap();
+        engine
+            .edit(|state| {
+                let mut tile = vec![255; MASK_TILE_BYTES];
+                tile[16 * 64 + 16] = 0;
+                state.layers[0].mask = Some(LayerMask {
+                    enabled: true,
+                    inverted: false,
+                    tiles: [((0, 0), Arc::new(tile))].into_iter().collect(),
+                });
+                Ok(())
+            })
+            .unwrap();
+        recovery.flush(engine.state().clone()).unwrap();
+        let path = recovery.path.clone();
+        drop(recovery);
+        fs::remove_file(&path).unwrap();
+        let (restored, fallback) = restore(&path).unwrap();
+        assert!(!fallback);
+        assert_eq!(
+            restored.layers[0].mask.as_ref().unwrap().tiles[&(0, 0)][16 * 64 + 16],
+            0
+        );
+        let encoded = crate::storage::encode(&restored).unwrap();
+        assert_eq!(&encoded[..8], b"RPLALP02");
+        remove(&dir, &path).unwrap();
         let _ = fs::remove_dir_all(dir);
     }
 }

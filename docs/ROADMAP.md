@@ -78,7 +78,6 @@ painting, configurable pen barrel behavior and transformed image placement.
   and the full Linux artwork/recovery workflow pass. GitHub Actions for the newest
   integration commit is still required to confirm hosted platform jobs. Next:
   selection transforms and QuickShape, then guides/symmetry and brush expansion.
-  Design a format migration before masks.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
   non-destructive effects, and natural-media foundations.
 - Phase 11 — frame animation, onion skin, automatic per-action timelapse, and
@@ -96,7 +95,31 @@ save/reopen, history and storage limits. The full Linux artifact/artwork workflo
 also passed locally with 52 populated screenshots spanning themes, sizes, panels,
 painting tools, gradients, layers, references and recovery. These slices advance
 Phase 9 without completing the phase. Follow-up work remains selection transforms,
-QuickShape, symmetry/guides, brush dynamics and a designed mask-format migration.
+QuickShape, symmetry/guides, brush dynamics, and other unfinished raster tools.
+
+## Phase 9 continuation — editable raster masks
+
+The current continuation adds editable sparse grayscale masks on raster layers.
+Mask painting is an ordinary routed brush transaction with provisional preview,
+cancel, undo/redo, selection clipping, and pressure/opacity/flow behavior. Layer
+mask controls (add, edit, enable, invert, clear, remove) operate on the actual
+document. The `.rpl` container writes `RPLALP02` only when masks are present;
+unmasked documents remain version 1, and v1 files still decode unchanged. Mask
+tiles share the bounded document tile budget. OpenRaster export applies masks to
+layer pixels and the UI reports that mask editability is flattened there.
+
+Local verification currently passes 334 workspace tests, strict Clippy,
+formatting, workspace build, Windows GNU check/Clippy, and required llvmpipe GPU
+smoke. Focused tests cover transaction behavior, corrupt/truncated v2 records,
+v1 compatibility, recovery, thumbnails, selection transforms, and OpenRaster.
+The Linux Xorg/XTest harness now exercises mask creation, painting, untouched
+raster bytes, save/undo/redo, and OpenRaster disclosure, and its native parser
+understands v2; this GUI workflow awaits hosted execution because this container
+has no Xvfb. The preceding QuickShape Actions run failed its line pixel-region
+assertion; the harness moves that test line into a separate document region and
+adds diagnostic changed-pixel reporting before the next CI run. Do not treat the
+mask checkpoint as cross-platform accepted until that run passes. Phase 8.3,
+Phase 9, Phase 10 vector/text, and Phase 11 timelapse/animation remain active.
 
 ## Reliability and platform engineering
 
