@@ -1165,6 +1165,260 @@ fn apply_smudge(engine: &mut Engine, id: u64, start: [f64; 2], end: [f64; 2]) {
         .unwrap();
 }
 
+fn apply_color_mix(engine: &mut Engine, id: u64, at: [f64; 2], strength: f64) {
+    let mode = paint_document::StrokeMode::ColorMix { strength };
+    engine
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(id),
+                sample: sample(at[0], at[1], Some(1.0)),
+            },
+            mode,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &C::CommitStroke {
+                stroke_id: StrokeId(id),
+                sample: sample(at[0], at[1], Some(1.0)),
+            },
+            mode,
+        )
+        .unwrap();
+}
+
+#[test]
+fn color_mixer_blends_selected_paint_on_layer_and_roundtrips_undo_redo() {
+    let mut engine = smudge_fixture();
+    engine.brush.color = [0, 0, 255];
+    engine.brush.size = 8.0;
+    engine.brush.pressure_size = false;
+    engine.brush.pressure_opacity = false;
+    engine.brush.flow = 1.0;
+    engine.brush.opacity = 1.0;
+    let before = engine.rgba();
+    let pixel = (32 * 128 + 20) * 4;
+    assert_eq!(&before[pixel..pixel + 4], &[255, 0, 0, 255]);
+
+    // Strength controls color transition while load and opacity control the
+    // deposit. The alpha remains valid premultiplied RGBA throughout.
+    apply_color_mix(&mut engine, 80, [20.0, 32.0], 0.5);
+    let mixed = engine.rgba();
+    // Begin and terminal samples both deposit at this same pixel, so the
+    // second half-strength dab moves the already mixed color closer to blue.
+    assert_eq!(&mixed[pixel..pixel + 4], &[64, 0, 192, 255]);
+    assert_eq!(
+        engine.undo_count(),
+        3,
+        "one brush and one mixer transaction"
+    );
+    assert!(engine.state().validate().is_ok());
+
+    let encoded = storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&encoded).unwrap()).unwrap();
+    assert_eq!(reopened.rgba(), mixed);
+    let png = path("color-mix-export").with_extension("png");
+    storage::export_png(&png, &reopened).unwrap();
+    let mut imported = Engine::new(128, 64, 300).unwrap();
+    imported
+        .edit(|state| {
+            state.background = None;
+            Ok(())
+        })
+        .unwrap();
+    storage::import_png(&png, &mut imported).unwrap();
+    assert_eq!(imported.rgba(), mixed);
+
+    assert!(engine.undo());
+    assert_eq!(engine.rgba(), before);
+    assert!(engine.redo());
+    assert_eq!(engine.rgba(), mixed);
+}
+
+#[test]
+fn color_mixer_preview_cancel_pressure_load_selection_and_bounds_are_safe() {
+    use paint_document::editing::{Selection, SelectionKind};
+
+    let mut engine = smudge_fixture();
+    engine.brush.color = [0, 0, 255];
+    engine.brush.size = 8.0;
+    engine.brush.pressure_size = false;
+    engine.brush.pressure_opacity = false;
+    let before = engine.rgba();
+    let mode = paint_document::StrokeMode::ColorMix { strength: 1.0 };
+    let id = StrokeId(81);
+    engine
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: id,
+                sample: sample(20.0, 32.0, Some(1.0)),
+            },
+            mode,
+        )
+        .unwrap();
+    assert_ne!(
+        engine.rgba(),
+        before,
+        "mixer has a provisional pixel preview"
+    );
+    engine.cancel_all();
+    assert_eq!(engine.active_count(), 0);
+    assert_eq!(engine.rgba(), before, "cancel discards provisional edits");
+
+    engine.brush.flow = 0.0;
+    let history = engine.undo_count();
+    apply_color_mix(&mut engine, 82, [20.0, 32.0], 1.0);
+    assert_eq!(
+        engine.rgba(),
+        before,
+        "zero paint loading does not edit pixels"
+    );
+    assert_eq!(
+        engine.undo_count(),
+        history,
+        "no-op strokes do not enter history"
+    );
+
+    engine.brush.flow = 1.0;
+    engine.brush.pressure_opacity = true;
+    let id = StrokeId(83);
+    let mut pressure_sample = sample(20.0, 32.0, Some(0.25));
+    engine
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: id,
+                sample: pressure_sample,
+            },
+            mode,
+        )
+        .unwrap();
+    pressure_sample.time_ms = 1;
+    engine
+        .apply_with_mode(
+            &C::CommitStroke {
+                stroke_id: id,
+                sample: pressure_sample,
+            },
+            mode,
+        )
+        .unwrap();
+    let pressured = engine.rgba();
+    let pixel = (32 * 128 + 20) * 4;
+    assert_eq!(pressured[pixel + 3], 255);
+    assert!(pressured[pixel] > 0 && pressured[pixel + 2] > 0);
+
+    let mut selected = smudge_fixture();
+    selected.brush.color = [0, 0, 255];
+    selected.brush.size = 8.0;
+    selected.brush.pressure_size = false;
+    selected
+        .set_selection(Some(
+            Selection::new(SelectionKind::Rectangle, vec![[16.0, 28.0], [24.0, 36.0]]).unwrap(),
+        ))
+        .unwrap();
+    let before = selected.rgba();
+    apply_color_mix(&mut selected, 84, [20.0, 32.0], 1.0);
+    let after = selected.rgba();
+    assert_ne!(&after[pixel..pixel + 4], &before[pixel..pixel + 4]);
+    let outside = (32 * 128 + 30) * 4;
+    assert_eq!(&after[outside..outside + 4], &before[outside..outside + 4]);
+
+    let mut locked = smudge_fixture();
+    locked
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    assert!(matches!(
+        locked.apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(86),
+                sample: sample(20.0, 32.0, Some(1.0)),
+            },
+            mode,
+        ),
+        Err(PaintError::Locked)
+    ));
+
+    let mut inverted = smudge_fixture();
+    inverted.brush.size = 8.0;
+    inverted.brush.pressure_size = false;
+    let mut eraser_sample = sample(20.0, 32.0, Some(1.0));
+    eraser_sample.buttons.eraser = true;
+    inverted
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(87),
+                sample: eraser_sample,
+            },
+            mode,
+        )
+        .unwrap();
+    inverted
+        .apply_with_mode(
+            &C::CommitStroke {
+                stroke_id: StrokeId(87),
+                sample: eraser_sample,
+            },
+            mode,
+        )
+        .unwrap();
+    assert_eq!(&inverted.rgba()[pixel..pixel + 4], &[0; 4]);
+
+    let mut invalid = smudge_fixture();
+    assert!(matches!(
+        invalid.apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(85),
+                sample: sample(20.0, 32.0, Some(1.0)),
+            },
+            paint_document::StrokeMode::ColorMix { strength: f64::NAN },
+        ),
+        Err(PaintError::Invalid)
+    ));
+}
+
+#[test]
+fn color_mixer_serializes_pixel_replacement_transactions_without_stale_overwrites() {
+    let mut engine = smudge_fixture();
+    engine.brush.color = [0, 0, 255];
+    engine.brush.size = 8.0;
+    engine.brush.pressure_size = false;
+    let mode = paint_document::StrokeMode::ColorMix { strength: 1.0 };
+    engine
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(90),
+                sample: sample(20.0, 32.0, Some(1.0)),
+            },
+            mode,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &C::BeginStroke {
+                stroke_id: StrokeId(91),
+                sample: sample(24.0, 32.0, Some(1.0)),
+            },
+            mode,
+        )
+        .unwrap();
+    assert_eq!(engine.active_count(), 1);
+    engine
+        .apply_with_mode(
+            &C::CommitStroke {
+                stroke_id: StrokeId(90),
+                sample: sample(20.0, 32.0, Some(1.0)),
+            },
+            mode,
+        )
+        .unwrap();
+    assert_eq!(engine.active_count(), 0);
+    assert!(engine.undo());
+    assert_eq!(engine.rgba(), smudge_fixture().rgba());
+}
+
 #[test]
 fn smudge_moves_premultiplied_pigment_across_transparency_and_roundtrips() {
     let mut engine = smudge_fixture();

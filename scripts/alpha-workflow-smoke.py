@@ -2306,6 +2306,46 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda: imported.read_bytes()==smudge_bytes and '*' not in title(window),
                  'redo restores the exact committed Smudge result')
+            # Color Mixer is a separate raster operation: it deposits the
+            # selected brush color into existing pixels and uses the ordinary
+            # routed input path, but replaces touched layer pixels rather than
+            # painting a separate opaque preview on top of the document.
+            color_mix_base=imported.read_bytes()
+            key('x')
+            wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='ColorMix',
+                 'X selects the document-backed Color Mixer tool')
+            color_mix_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                                 for line in (directory/'application.log').read_text().splitlines())
+            drag_at(520,350,600,390)
+            wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>color_mix_starts,
+                 'Color Mixer uses the ordinary routed canvas pointer lifecycle')
+            ctrl('s')
+            wait(lambda: valid_project(imported) and imported.read_bytes()!=color_mix_base
+                 and '*' not in title(window),
+                 'committed color-mixing pixels are saved in the editable native document')
+            color_mix_bytes=imported.read_bytes()
+            color_base_tiles=native_layer_tiles(color_mix_base)
+            color_mixed_tiles=native_layer_tiles(color_mix_bytes)
+            changed_mix_pixels=sum(
+                old_pixel!=new_pixel
+                for tile_key in set(color_base_tiles)|set(color_mixed_tiles)
+                for old_tile,new_tile in [(color_base_tiles.get(tile_key,b'\0'*16384),
+                                           color_mixed_tiles.get(tile_key,b'\0'*16384))]
+                for old_pixel,new_pixel in zip(
+                    (old_tile[i:i+4] for i in range(0,16384,4)),
+                    (new_tile[i:i+4] for i in range(0,16384,4)))
+            )
+            assert changed_mix_pixels>0, \
+                'Color Mixer must change authoritative selected-layer pixels'
+            if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
+                capture_window(window,'color-mixer-workspace')
+            ctrl('z');ctrl('s')
+            wait(lambda: imported.read_bytes()==color_mix_base,
+                 'Color Mixer is one exact undoable raster transaction')
+            ctrl('y');ctrl('s')
+            wait(lambda: imported.read_bytes()==color_mix_bytes and '*' not in title(window),
+                 'redo restores the exact committed Color Mixer result')
             snapshot=wait(lambda: latest_recovery_project(recovery_dir),
                           'latest active document recovery lineage is available')
             journal_path=Path(str(snapshot)+'.journal')
@@ -2549,7 +2589,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; native save/reopen pixels and exact undo/redo; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise

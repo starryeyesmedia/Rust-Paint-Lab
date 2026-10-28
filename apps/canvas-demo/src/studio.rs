@@ -3150,6 +3150,7 @@ fn layer_thumbnail(
 enum EditTool {
     Brush,
     Smudge,
+    ColorMix,
     Rectangle,
     Ellipse,
     Lasso,
@@ -3159,6 +3160,17 @@ enum EditTool {
     ShapeEllipse,
     Gradient,
 }
+
+fn stroke_mode_for_tool(tool: EditTool, color_mix_strength: f64) -> paint_document::StrokeMode {
+    match tool {
+        EditTool::Smudge => paint_document::StrokeMode::Smudge,
+        EditTool::ColorMix => paint_document::StrokeMode::ColorMix {
+            strength: color_mix_strength,
+        },
+        _ => paint_document::StrokeMode::Paint,
+    }
+}
+
 pub struct Studio {
     pub context: egui::Context,
     pub input: egui_winit::State,
@@ -3179,6 +3191,7 @@ pub struct Studio {
     recent_brush_colors: Vec<[u8; 3]>,
     saved_color_swatches: Vec<[u8; 3]>,
     favorite_brushes: Vec<BrushKind>,
+    color_mix_strength: f64,
     brush_search: String,
     brush_preview: Option<BrushPreviewCache>,
     brush_preset_previews: Vec<BrushPresetPreviewCache>,
@@ -3366,6 +3379,7 @@ impl Studio {
         let recent_brush_colors = preferences.recent_brush_colors.clone();
         let saved_color_swatches = preferences.saved_color_swatches.clone();
         let favorite_brushes = preferences.favorite_brushes.clone();
+        let color_mix_strength = preferences.color_mix_strength;
         let references: Vec<ReferenceImage> = preferences
             .references
             .iter()
@@ -3405,6 +3419,7 @@ impl Studio {
             recent_brush_colors,
             saved_color_swatches,
             favorite_brushes,
+            color_mix_strength,
             brush_search: String::new(),
             brush_preview: None,
             brush_preset_previews: Vec::new(),
@@ -4317,8 +4332,10 @@ impl Studio {
             EditTool::ShapeLine | EditTool::ShapeRectangle | EditTool::ShapeEllipse
         );
         let gradient_tool = self.tool == EditTool::Gradient;
-        if matches!(self.tool, EditTool::Brush | EditTool::Smudge)
-            || session.mode() != crate::interaction::Mode::Live
+        if matches!(
+            self.tool,
+            EditTool::Brush | EditTool::Smudge | EditTool::ColorMix
+        ) || session.mode() != crate::interaction::Mode::Live
             || self.blocks_canvas()
         {
             return false;
@@ -4531,6 +4548,7 @@ impl Studio {
         }
         self.tool = match key {
             's' => EditTool::Smudge,
+            'x' => EditTool::ColorMix,
             'm' => EditTool::Rectangle,
             'e' => EditTool::Ellipse,
             'k' => EditTool::Lasso,
@@ -4543,11 +4561,7 @@ impl Studio {
         };
         session
             .live_mut()
-            .set_stroke_mode(if self.tool == EditTool::Smudge {
-                paint_document::StrokeMode::Smudge
-            } else {
-                paint_document::StrokeMode::Paint
-            });
+            .set_stroke_mode(stroke_mode_for_tool(self.tool, self.color_mix_strength));
         if matches!(
             self.tool,
             EditTool::ShapeLine
@@ -4874,6 +4888,7 @@ impl Studio {
             recent_brush_colors: self.recent_brush_colors.clone(),
             saved_color_swatches: self.saved_color_swatches.clone(),
             favorite_brushes: self.favorite_brushes.clone(),
+            color_mix_strength: self.color_mix_strength,
             canvas_zoom: self.navigation.zoom,
             canvas_pan: self.navigation.pan,
             inspector_tab: self.inspector_tab,
@@ -5340,7 +5355,7 @@ impl Studio {
                             ui.separator();
                             ui.label("Brush size [ / ] · fine adjustment: Shift+[ / Shift+]");
                             ui.label("B Brush · G Gradient · C Color · M / E selection");
-                            ui.label("K Lasso · I Eyedropper · S Smudge · L Line · R Rectangle · O Ellipse");
+                            ui.label("K Lasso · I Eyedropper · S Smudge · X Color Mixer · L Line · R Rectangle · O Ellipse");
                             ui.label("Shift constrains line angles and shape proportions");
                             ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
                             ui.label("Ctrl+L Floating Layers panel");
@@ -5432,35 +5447,94 @@ impl Studio {
                                         self.color_flyout_open = !self.color_flyout_open;
                                         self.brush_flyout_open = false;
                                     }
-                                    if ui.button("Brushes · B").clicked() {
-                                        self.brush_flyout_open = !self.brush_flyout_open;
-                                        self.color_flyout_open = false;
-                                    }
                                 } else if self.tool == EditTool::Smudge {
                                     let project = session.live_mut().project_mut();
+                                    let control_width = if ui.available_width() < 800.0 {
+                                        112.0
+                                    } else {
+                                        148.0
+                                    };
                                     ui.strong("Smudge").on_hover_text(
                                         "Smears pixels on the active unlocked layer; the current selection clips the stroke.",
                                     );
                                     ui.add_sized(
-                                        [148.0, 34.0],
+                                        [control_width, 34.0],
                                         egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
                                             .text("Size"),
                                     );
                                     ui.add_sized(
-                                        [148.0, 34.0],
+                                        [control_width, 34.0],
                                         egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
                                             .text("Strength"),
                                     );
                                     ui.add_sized(
-                                        [148.0, 34.0],
+                                        [control_width, 34.0],
                                         egui::Slider::new(&mut project.brush.flow, 0.0..=1.0)
                                             .text("Pickup"),
                                     );
-                                    ui.checkbox(&mut project.brush.pressure_size, "Pressure size");
-                                    ui.checkbox(
-                                        &mut project.brush.pressure_opacity,
-                                        "Pressure strength",
+                                    ui.menu_button("Dynamics", |ui| {
+                                        ui.checkbox(
+                                            &mut project.brush.pressure_size,
+                                            "Pressure size",
+                                        );
+                                        ui.checkbox(
+                                            &mut project.brush.pressure_opacity,
+                                            "Pressure strength",
+                                        );
+                                    });
+                                } else if self.tool == EditTool::ColorMix {
+                                    ui.strong("Color Mixer").on_hover_text(
+                                        "Blends the active paint color into the selected layer. Opacity and Paint loading control how much pigment is deposited; Strength controls how far its color moves toward your chosen color.",
                                     );
+                                    let project = session.live_mut().project_mut();
+                                    let control_width = if ui.available_width() < 800.0 {
+                                        92.0
+                                    } else {
+                                        126.0
+                                    };
+                                    let flow_width = if ui.available_width() < 800.0 {
+                                        100.0
+                                    } else {
+                                        140.0
+                                    };
+                                    ui.add_sized(
+                                        [control_width, 34.0],
+                                        egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
+                                            .text("Size"),
+                                    );
+                                    ui.add_sized(
+                                        [control_width, 34.0],
+                                        egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
+                                            .text("Opacity"),
+                                    );
+                                    ui.add_sized(
+                                        [flow_width, 34.0],
+                                        egui::Slider::new(&mut project.brush.flow, 0.0..=1.0)
+                                            .text("Paint loading"),
+                                    );
+                                    if ui
+                                        .add_sized(
+                                            [flow_width, 34.0],
+                                            egui::Slider::new(
+                                                &mut self.color_mix_strength,
+                                                0.0..=1.0,
+                                            )
+                                            .text("Mix strength"),
+                                        )
+                                        .changed()
+                                    {
+                                        workspace_changed = true;
+                                    }
+                                    ui.menu_button("Dynamics", |ui| {
+                                        ui.checkbox(
+                                            &mut project.brush.pressure_size,
+                                            "Pressure size",
+                                        );
+                                        ui.checkbox(
+                                            &mut project.brush.pressure_opacity,
+                                            "Pressure opacity",
+                                        );
+                                    });
                                 } else if matches!(
                                     self.tool,
                                     EditTool::ShapeLine
@@ -5578,6 +5652,7 @@ impl Studio {
                                         EditTool::Eyedropper => "Eyedropper",
                                         EditTool::Brush => "Brush",
                                         EditTool::Smudge => "Smudge",
+                                        EditTool::ColorMix => "Color Mixer",
                                         EditTool::ShapeLine
                                         | EditTool::ShapeRectangle
                                         | EditTool::ShapeEllipse
@@ -5609,26 +5684,6 @@ impl Studio {
                                     {
                                         actions.push(Action::Deselect);
                                     }
-                                }
-                                ui.separator();
-                                let project = session.live().project();
-                                if ui
-                                    .add_enabled(
-                                        project.undo_count() > 0,
-                                        egui::Button::new("Undo · Ctrl+Z"),
-                                    )
-                                    .clicked()
-                                {
-                                    actions.push(Action::Undo);
-                                }
-                                if ui
-                                    .add_enabled(
-                                        project.redo_count() > 0,
-                                        egui::Button::new("Redo · Ctrl+Y"),
-                                    )
-                                    .clicked()
-                                {
-                                    actions.push(Action::Redo);
                                 }
                             });
                         });
@@ -5789,6 +5844,13 @@ impl Studio {
                                 0,
                             ),
                             (
+                                EditTool::ColorMix,
+                                crate::studio_icons::Icon::ColorMixer,
+                                "Color Mixer",
+                                "X",
+                                0,
+                            ),
+                            (
                                 EditTool::Rectangle,
                                 crate::studio_icons::Icon::RectangleSelection,
                                 "Rectangle selection",
@@ -5893,13 +5955,10 @@ impl Studio {
                             }
                             if response.clicked() {
                                 self.tool = tool;
-                                session.live_mut().set_stroke_mode(
-                                    if tool == EditTool::Smudge {
-                                        paint_document::StrokeMode::Smudge
-                                    } else {
-                                        paint_document::StrokeMode::Paint
-                                    },
-                                );
+                                session.live_mut().set_stroke_mode(stroke_mode_for_tool(
+                                    tool,
+                                    self.color_mix_strength,
+                                ));
                                 if self.test_path_dialog {
                                     crate::studio_log!("UI_TEST_ACTIVE_TOOL: {:?}", self.tool);
                                 }
@@ -9293,6 +9352,11 @@ impl Studio {
         let mut output = ctx.run(raw, |ctx| {
             self.widgets(ctx, session, &mut actions, &mut central, &mut approved)
         });
+        // Tool controls are edited inside the UI frame. Capture their latest
+        // mode parameters before subsequent native pointer events arrive.
+        session
+            .live_mut()
+            .set_stroke_mode(stroke_mode_for_tool(self.tool, self.color_mix_strength));
 
         if let Some(request) = self.picker.take() {
             if self.test_path_dialog && !matches!(request, FileRequest::AddReferences) {
@@ -9649,8 +9713,10 @@ impl Studio {
                 }
             }
         }
-        if matches!(self.tool, EditTool::Brush | EditTool::Smudge)
-            && session.mode() == crate::interaction::Mode::Live
+        if matches!(
+            self.tool,
+            EditTool::Brush | EditTool::Smudge | EditTool::ColorMix
+        ) && session.mode() == crate::interaction::Mode::Live
             && let Some(pen) = session.live().last_pen()
             && pen.phase != paint_input::Phase::Cancel
             && pen.in_range

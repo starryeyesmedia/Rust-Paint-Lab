@@ -765,3 +765,13 @@ winit/XTest path, saves, compares selected-layer tile bytes, and checks exact
 undo/redo file restoration. It captures `smudge-workspace.png`. The 2026-10-28
 local run passed against Xorg with llvmpipe; Actions will refresh the screenshot
 archive after this implementation is pushed.
+
+Color Mixer regression coverage exercises real pixel blending and no-op loads,
+pressure and opacity/flow behavior, transparent pixels, selection clipping,
+locked layers, eraser precedence, concurrent-contact safety, cancel/commit,
+undo/redo, native-v1 and PNG roundtrips, and the routed `LiveMouse` lifecycle.
+The Linux Xorg/XTest artwork workflow also selects **X Color Mixer**, paints
+through the normal input processor/router, verifies changed selected-layer tile
+bytes in the saved project, then checks exact undo/redo persistence. This
+software-rendered test validates the application workflow, not physical stylus
+hardware or color-managed mixing.

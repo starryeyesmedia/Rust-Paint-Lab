@@ -574,6 +574,68 @@ mod smudge_tests {
         assert!(live.project_mut().undo());
         assert_eq!(live.project().rgba(), before);
     }
+
+    #[test]
+    fn live_mouse_routes_color_mixing_through_processor_and_router() {
+        let mut live = LiveMouse::new([800, 500]);
+        live.enable_document();
+        seed_red_patch(&mut live);
+        live.project_mut().brush.size = 8.0;
+        live.project_mut().brush.color = [0, 0, 255];
+        live.project_mut().brush.flow = 1.0;
+        live.project_mut().brush.opacity = 1.0;
+        live.project_mut().brush.pressure_size = false;
+        live.project_mut().brush.pressure_opacity = false;
+        let before = live.project().rgba();
+        let mapping = CanvasMapping::new([800, 500]).unwrap();
+        let client = |x| mapping.document_to_client([x, 250.0]).unwrap();
+
+        live.set_stroke_mode(paint_document::StrokeMode::ColorMix { strength: 1.0 });
+        live.handle(MouseEvent::Entered, 1);
+        live.handle(MouseEvent::Moved(client(16.0)), 2);
+        live.handle(
+            MouseEvent::Button {
+                primary: true,
+                pressed: true,
+            },
+            3,
+        );
+        live.handle(MouseEvent::Moved(client(60.0)), 4);
+        assert_ne!(
+            live.project().rgba(),
+            before,
+            "routed input previews mixed pixels"
+        );
+        live.handle(MouseEvent::Focus(false), 5);
+        assert_eq!(
+            live.project().rgba(),
+            before,
+            "focus loss cancels the mixture"
+        );
+
+        live.handle(MouseEvent::Focus(true), 6);
+        live.handle(MouseEvent::Entered, 7);
+        live.handle(MouseEvent::Moved(client(16.0)), 8);
+        live.handle(
+            MouseEvent::Button {
+                primary: true,
+                pressed: true,
+            },
+            9,
+        );
+        live.handle(MouseEvent::Moved(client(60.0)), 10);
+        live.handle(
+            MouseEvent::Button {
+                primary: true,
+                pressed: false,
+            },
+            11,
+        );
+        assert_ne!(live.project().rgba(), before);
+        assert_eq!(live.project().undo_count(), 2, "the mix is one transaction");
+        assert!(live.project_mut().undo());
+        assert_eq!(live.project().rgba(), before);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -24,11 +24,17 @@ pub type TileKey = (u32, u32);
 pub type TileMap = BTreeMap<TileKey, Arc<Vec<u8>>>;
 /// Operation used for the lifetime of a single pointer stroke. This is not
 /// persisted in a brush preset or document: only the resulting pixels are.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum StrokeMode {
     #[default]
     Paint,
     Smudge,
+    /// Blend the active color into raster pixels while depositing new paint.
+    /// Strength is transient tool configuration and is intentionally excluded
+    /// from the native document and brush-preset schemas.
+    ColorMix {
+        strength: f64,
+    },
 }
 #[derive(Debug)]
 pub enum PaintError {
@@ -430,6 +436,11 @@ impl Engine {
         c: &StrokeCommand,
         mode: StrokeMode,
     ) -> Result<(), PaintError> {
+        if matches!(c, StrokeCommand::BeginStroke { .. })
+            && matches!(mode, StrokeMode::ColorMix { strength } if !strength.is_finite() || !(0.0..=1.0).contains(&strength))
+        {
+            return Err(PaintError::Invalid);
+        }
         let candidate = match c {
             StrokeCommand::BeginStroke { stroke_id, sample }
             | StrokeCommand::BreakStrokeSegment { stroke_id, sample }
@@ -467,15 +478,16 @@ impl Engine {
                 } else {
                     mode
                 };
-                if (effective_mode == StrokeMode::Smudge && !self.active.is_empty())
+                if (stroke_mode_needs_exclusive_layer(effective_mode) && !self.active.is_empty())
                     || self
                         .active
                         .values()
-                        .any(|transaction| transaction.mode == StrokeMode::Smudge)
+                        .any(|transaction| stroke_mode_needs_exclusive_layer(transaction.mode))
                 {
                     // A second pointer cannot safely mutate the same layer
-                    // while Smudge owns a private working copy. Ignore that
-                    // contact rather than interrupting the first transaction.
+                    // while a pixel-replacement transaction owns a private
+                    // working copy. Ignore that contact rather than allowing
+                    // stale tiles to overwrite another stroke.
                     return Ok(());
                 }
                 if !self.brush.validate() || self.active.len() >= 64 {
@@ -507,10 +519,10 @@ impl Engine {
                     ),
                     tiles: BTreeMap::new(),
                 };
-                if effective_mode == StrokeMode::Paint {
-                    self.dab(&mut t, sample)?;
-                } else {
-                    self.smudge_dab(&mut t, sample, true)?;
+                match effective_mode {
+                    StrokeMode::Paint => self.dab(&mut t, sample)?,
+                    StrokeMode::Smudge => self.smudge_dab(&mut t, sample, true)?,
+                    StrokeMode::ColorMix { .. } => self.color_mix_dab(&mut t, sample)?,
                 }
                 self.active.insert(stroke_id, t);
             }
@@ -522,10 +534,9 @@ impl Engine {
                 t.remaining = 0.0;
                 t.stabilizer
                     .reset(sample.position_document.0, sample.time_ms);
-                let result = if t.mode == StrokeMode::Smudge {
-                    self.smudge_dab(&mut t, sample, true)
-                } else {
-                    self.dab(&mut t, sample)
+                let result = match t.mode {
+                    StrokeMode::Smudge => self.smudge_dab(&mut t, sample, true),
+                    _ => self.dab(&mut t, sample),
                 };
                 if let Err(error) = result {
                     self.damage.extend(t.tiles.keys());
@@ -571,7 +582,7 @@ impl Engine {
                         .find(|l| l.id == t.layer)
                         .ok_or(PaintError::Invalid)?;
                     for (key, src) in t.tiles {
-                        if t.mode == StrokeMode::Smudge {
+                        if stroke_mode_needs_exclusive_layer(t.mode) {
                             let same = l
                                 .tiles
                                 .get(&key)
@@ -650,8 +661,10 @@ impl Engine {
         Ok(())
     }
     fn dab(&mut self, t: &mut Transaction, s: StrokeSample) -> Result<(), PaintError> {
-        if t.mode == StrokeMode::Smudge {
-            return self.smudge_dab(t, s, false);
+        match t.mode {
+            StrokeMode::Smudge => return self.smudge_dab(t, s, false),
+            StrokeMode::ColorMix { .. } => return self.color_mix_dab(t, s),
+            StrokeMode::Paint => {}
         }
         let [x, y] = s.position_document.0;
         if ![x, y].iter().all(|v| v.is_finite()) {
@@ -759,6 +772,160 @@ impl Engine {
                     a,
                 ];
                 over(&mut tile[i..i + 4], &src, false, 255, Blend::Normal);
+                self.damage.insert(key);
+            }
+        }
+        Ok(())
+    }
+
+    fn color_mix_dab(&mut self, t: &mut Transaction, s: StrokeSample) -> Result<(), PaintError> {
+        let StrokeMode::ColorMix { strength } = t.mode else {
+            return Err(PaintError::Invalid);
+        };
+        let [x, y] = s.position_document.0;
+        if !x.is_finite() || !y.is_finite() {
+            return Err(PaintError::Invalid);
+        }
+        let pressure = f64::from(s.pressure.unwrap_or(1.0)).clamp(0.0, 1.0);
+        if t.brush.pressure_size && pressure == 0.0 {
+            return Ok(());
+        }
+        let pressure_load = if t.brush.pressure_opacity {
+            pressure
+        } else {
+            1.0
+        };
+        let radius =
+            (t.brush.size * if t.brush.pressure_size { pressure } else { 1.0 } / 2.0).max(0.25);
+        let load = (t.brush.flow * t.brush.opacity * pressure_load).clamp(0.0, 1.0);
+        if load <= 0.0 {
+            return Ok(());
+        }
+        let minx = (x - radius - 1.0).floor().max(0.0) as u32;
+        let miny = (y - radius - 1.0).floor().max(0.0) as u32;
+        let maxx = (x + radius + 1.0)
+            .ceil()
+            .clamp(0.0, f64::from(self.state.width)) as u32;
+        let maxy = (y + radius + 1.0)
+            .ceil()
+            .clamp(0.0, f64::from(self.state.height)) as u32;
+        let angle = t.brush.angle
+            + if t.brush.tilt {
+                match s.tilt_degrees {
+                    [Some(x), Some(y)] => {
+                        let x = f64::from(x).to_radians().tan();
+                        let y = f64::from(y).to_radians().tan();
+                        if x.abs() + y.abs() < 0.00001 {
+                            0.0
+                        } else {
+                            y.atan2(x)
+                        }
+                    }
+                    [Some(x), None] => f64::from(x).to_radians(),
+                    [None, Some(y)] => f64::from(y).to_radians(),
+                    [None, None] => 0.0,
+                }
+            } else {
+                0.0
+            };
+        let (sin, cos) = angle.sin_cos();
+        let layer = self
+            .state
+            .layers
+            .iter()
+            .find(|layer| layer.id == t.layer)
+            .ok_or(PaintError::Invalid)?;
+
+        for yy in miny..maxy {
+            for xx in minx..maxx {
+                if self.state.selection.as_ref().is_some_and(|selection| {
+                    !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                }) {
+                    continue;
+                }
+                let dx = f64::from(xx) + 0.5 - x;
+                let dy = f64::from(yy) + 0.5 - y;
+                let shape = if t.brush.kind == BrushKind::Calligraphy {
+                    0.28
+                } else {
+                    1.0
+                };
+                let distance = ((dx * cos + dy * sin).powi(2)
+                    + ((-dx * sin + dy * cos) / shape).powi(2))
+                .sqrt()
+                    / radius;
+                let edge = smudge_edge_weight(distance, radius, t.brush.hardness);
+                if edge <= 0.0 {
+                    continue;
+                }
+                let mut coverage = edge;
+                if matches!(t.brush.kind, BrushKind::Pencil | BrushKind::Textured) {
+                    let hash = xx.wrapping_mul(73856093) ^ yy.wrapping_mul(19349663);
+                    coverage *= 0.2 + 0.8 * f64::from(hash % 101) / 100.0;
+                }
+                if t.brush.kind == BrushKind::Wash {
+                    coverage *= 0.35 + 0.65 * distance.powi(2);
+                }
+                let alpha = (load * coverage * 255.0).round().clamp(0.0, 255.0) as u8;
+                if alpha == 0 {
+                    continue;
+                }
+                let key = (xx / TILE, yy / TILE);
+                let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
+                let previous =
+                    t.tiles
+                        .get(&key)
+                        .or_else(|| layer.tiles.get(&key))
+                        .map_or([0; 4], |tile| {
+                            tile[offset..offset + 4]
+                                .try_into()
+                                .expect("RGBA pixel has four bytes")
+                        });
+                let current = if previous[3] == 0 {
+                    t.brush.color
+                } else {
+                    std::array::from_fn(|channel| {
+                        ((u16::from(previous[channel]) * 255 + u16::from(previous[3]) / 2)
+                            / u16::from(previous[3]))
+                        .min(255) as u8
+                    })
+                };
+                let pigment = [
+                    mix_byte(current[0], t.brush.color[0], strength),
+                    mix_byte(current[1], t.brush.color[1], strength),
+                    mix_byte(current[2], t.brush.color[2], strength),
+                ];
+                let mut next = previous;
+                let source = [
+                    ((u16::from(pigment[0]) * u16::from(alpha) + 127) / 255) as u8,
+                    ((u16::from(pigment[1]) * u16::from(alpha) + 127) / 255) as u8,
+                    ((u16::from(pigment[2]) * u16::from(alpha) + 127) / 255) as u8,
+                    alpha,
+                ];
+                over(&mut next, &source, false, 255, Blend::Normal);
+                if next == previous {
+                    continue;
+                }
+                if !t.tiles.contains_key(&key)
+                    && self.state.tile_count()
+                        + self
+                            .active
+                            .values()
+                            .map(|active| active.tiles.len())
+                            .sum::<usize>()
+                        + t.tiles.len()
+                        >= MAX_TILES
+                {
+                    return Err(PaintError::Limit);
+                }
+                let tile = t.tiles.entry(key).or_insert_with(|| {
+                    layer
+                        .tiles
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::new(vec![0; TILE_BYTES]))
+                });
+                Arc::make_mut(tile)[offset..offset + 4].copy_from_slice(&next);
                 self.damage.insert(key);
             }
         }
@@ -930,7 +1097,7 @@ impl Engine {
                 .unwrap_or_else(|| vec![0; TILE_BYTES]);
             for t in self.active.values().filter(|t| t.layer == l.id) {
                 if let Some(src) = t.tiles.get(&key) {
-                    if t.mode == StrokeMode::Smudge {
+                    if stroke_mode_needs_exclusive_layer(t.mode) {
                         tile.copy_from_slice(src);
                     } else {
                         for (d, s) in tile.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
@@ -1050,6 +1217,9 @@ impl Engine {
         }
         Ok((width, height, pixels))
     }
+}
+fn stroke_mode_needs_exclusive_layer(mode: StrokeMode) -> bool {
+    matches!(mode, StrokeMode::Smudge | StrokeMode::ColorMix { .. })
 }
 fn mix_byte(from: u8, to: u8, amount: f64) -> u8 {
     (f64::from(from) + (f64::from(to) - f64::from(from)) * amount.clamp(0.0, 1.0))

@@ -151,6 +151,10 @@ fn default_show_controls() -> bool {
     false
 }
 
+fn default_color_mix_strength() -> f64 {
+    0.55
+}
+
 pub fn load(path: &std::path::Path) -> Option<WorkspacePreferences> {
     let mut bytes = Vec::new();
     File::open(path)
@@ -204,6 +208,10 @@ pub struct WorkspacePreferences {
     pub saved_color_swatches: Vec<[u8; 3]>,
     #[serde(default)]
     pub favorite_brushes: Vec<BrushKind>,
+    /// Color-mixer pigment blend, kept as a workspace tool preference so the
+    /// native artwork and brush-preset schemas stay backward compatible.
+    #[serde(default = "default_color_mix_strength")]
+    pub color_mix_strength: f64,
     #[serde(default = "default_canvas_zoom")]
     pub canvas_zoom: f64,
     #[serde(default = "default_canvas_pan")]
@@ -300,6 +308,7 @@ impl Default for WorkspacePreferences {
             recent_brush_colors: Vec::new(),
             saved_color_swatches: Vec::new(),
             favorite_brushes: Vec::new(),
+            color_mix_strength: default_color_mix_strength(),
             canvas_zoom: 1.0,
             canvas_pan: [0.0, 0.0],
             inspector_tab: InspectorTab::Layers,
@@ -345,6 +354,7 @@ impl WorkspacePreferences {
                 .iter()
                 .all(|v| v.is_finite())
             || !self.workspace_controls_size.iter().all(|v| v.is_finite())
+            || !self.color_mix_strength.is_finite()
             || !self.canvas_pan.iter().all(|v| v.is_finite())
             || !self.new_document.validate()
         {
@@ -353,6 +363,7 @@ impl WorkspacePreferences {
         self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
         self.canvas_zoom = self.canvas_zoom.clamp(0.25, 8.0);
         self.ui_scale = self.ui_scale.clamp(0.8, 1.6);
+        self.color_mix_strength = self.color_mix_strength.clamp(0.0, 1.0);
         self.palette_position = self.palette_position.map(|v| v.clamp(0.0, 32768.0));
         self.layers_flyout_position = self.layers_flyout_position.map(|v| v.clamp(0.0, 32768.0));
         self.layers_flyout_size = [
@@ -623,6 +634,7 @@ mod tests {
         assert_eq!(preferences.appearance_mode, None);
         assert_eq!(preferences.canvas_zoom, 1.0);
         assert_eq!(preferences.canvas_pan, [0.0, 0.0]);
+        assert_eq!(preferences.color_mix_strength, 0.55);
         assert_eq!(preferences.inspector_tab, InspectorTab::Layers);
         assert!(!preferences.high_contrast);
         assert!(!preferences.reduced_motion);
@@ -795,6 +807,26 @@ mod tests {
         let mut legacy = serde_json::from_slice::<WorkspacePreferences>(legacy).unwrap();
         assert!(legacy.validate());
         assert!(legacy.favorite_brushes.is_empty());
+        assert_eq!(legacy.color_mix_strength, 0.55);
+    }
+
+    #[test]
+    fn color_mixer_strength_is_persisted_and_clamped_in_workspace_preferences() {
+        let mut preferences = WorkspacePreferences {
+            color_mix_strength: 0.73,
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut loaded: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(loaded.validate());
+        assert_eq!(loaded.color_mix_strength, 0.73);
+
+        loaded.color_mix_strength = 2.0;
+        assert!(loaded.validate());
+        assert_eq!(loaded.color_mix_strength, 1.0);
+        loaded.color_mix_strength = f64::NAN;
+        assert!(!loaded.validate());
     }
 
     #[test]

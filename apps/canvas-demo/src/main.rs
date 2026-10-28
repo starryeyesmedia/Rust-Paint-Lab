@@ -639,6 +639,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 }
                                 PhysicalKey::Code(KeyCode::KeyK) => Some('k'),
                                 PhysicalKey::Code(KeyCode::KeyS) => Some('s'),
+                                PhysicalKey::Code(KeyCode::KeyX) => Some('x'),
                                 PhysicalKey::Code(KeyCode::KeyI) => Some('i'),
                                 PhysicalKey::Code(KeyCode::KeyC) => Some('c'),
                                 PhysicalKey::Code(KeyCode::KeyL) => Some('l'),

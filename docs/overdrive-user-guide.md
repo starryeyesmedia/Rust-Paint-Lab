@@ -82,6 +82,20 @@ selected visible unlocked layer; transparent pixels can receive carried pigment.
 Device eraser/inversion takes precedence. Concurrent contacts are ignored while
 a Smudge transaction is active to avoid conflicting edits to that layer.
 
+Use **X** for Color Mixer. It deposits the active brush color while mixing it
+with the existing pixels on the selected layer. **Mix** controls the color
+blend, **Paint loading** controls deposited opacity together with the brush's
+Opacity and Flow, and the brush size, hardness, smoothing, pressure and tilt
+settings continue to shape the dabs. Unlike Smudge, Color Mixer introduces the
+selected color; unlike an ordinary brush stroke, it works directly into the
+existing layer pixels. It is a bounded raster operation, respects selection
+and layer lock/visibility, previews as one transaction, and supports undo/redo
+and ordinary `.rpl`/PNG persistence. Current mixing is performed in encoded
+sRGB bytes; it is an initial practical color mixer, not a wet-paint simulator
+or color-managed pigment model. Pressure toggles are available in the compact
+Dynamics menu. Concurrent contacts are ignored while its private layer
+transaction is active.
+
 Layers support add, duplicate, delete, rename, reorder, visibility, lock, opacity,
 Normal/Multiply/Screen/Overlay, and clear. The frontmost layer appears at the top;
 use Raise/Lower to reorder, and expand Layer settings to rename or adjust opacity
@@ -216,7 +230,7 @@ Standalone `stylus-diagnostic.exe` remains separately packaged and unchanged.
 
 ## Selection and editing slice
 
-B selects brush; S Smudge; M rectangle selection; E ellipse; K lasso; I eyedropper. Drag inside
+B selects brush; S Smudge; X Color Mixer; M rectangle selection; E ellipse; K lasso; I eyedropper. Drag inside
 paper to select, then switch back to Brush to constrain painting to that selection.
 Selection outlines are black/white. Lasso is capped at 1024 points (2 document-pixel
 minimum spacing); reaching the cap cancels the whole lasso with a visible status

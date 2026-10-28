@@ -2383,3 +2383,50 @@ not changed.
 3. Then develop transformed Place Image, selection transforms, symmetry and
    raster masks. Phase 10 editable vector/text and Phase 11 timelapse/animation
    remain untouched and active in the longer campaign.
+
+## Phase 9 continuation — Color Mixer vertical slice
+
+Color Mixer is implemented as a separate transient stroke mode and toolbar tool
+(**X**), not as a preset rename of Smudge. It blends the selected brush RGB into
+covered pixels on the active raster layer while depositing paint controlled by
+brush opacity and flow, plus pressure when enabled. Mix strength, size,
+hardness, shape, tilt and selection coverage feed the actual raster operation.
+It previews through bounded private COW tiles, owns the active layer exclusively
+while open, and commits/cancels as one undoable transaction. The layer/pixel
+result remains ordinary native-v1 raster data; no document or preset migration
+was introduced. Workspace preferences persist mix strength.
+
+Coverage includes pixel-level engine cases for existing and transparent pixels,
+different mix values, no-op paint loading, pressure, selection, lock state,
+device eraser, cancellation, stale transaction safety, undo/redo and native/PNG
+roundtrips. A routed `LiveMouse` test checks preview, focus-loss cancellation,
+commit and undo. On 2026-10-28 the full Linux Xorg/XTest workflow selected X,
+changed saved selected-layer tile bytes, checked exact undo/redo, and completed
+the remaining artwork, export, journal-recovery and clean-close scenarios. The
+first captured `color-mixer-workspace.png` exposed clipped pressure controls.
+Wrapping the entire tool row made them visible but reduced the narrow reference
+image to a 56% width share. The corrected compact row removes duplicate
+Brush/Undo/Redo buttons, puts pressure toggles in a Dynamics menu, and reduces
+slider widths on narrow windows. The final mixer screenshot was inspected with
+all four primary settings visible and no clipping; the 640×480 reference board
+again renders at 85.1% image/window width share.
+
+The 2026-10-28 workspace suite passed **291 tests**, including the llvmpipe
+OpenGL GPU smoke. Formatting, strict workspace Clippy, workspace build, and
+`x86_64-pc-windows-gnu` check/Clippy also passed after the responsive row
+change. The full Xorg/XTest application workflow passed with 52 captured UI
+states and completed Save/Reopen, PNG/OpenRaster, layer, undo/redo, and
+journal-recovery assertions. Screenshots were inspected, including the mixer
+screen and narrow reference board. The run used Mesa llvmpipe/OpenGL and is an
+automated software-GPU test. It does not measure physical stylus response or
+validate color-managed/wet-media mixing. The mixer currently interpolates
+encoded sRGB channel bytes. Windows/Linux/macOS Actions for this checkpoint are
+pending. Do not mark Phase 9 or Phase 8.3 complete based on this slice.
+
+### Continue from this checkpoint
+
+1. Commit and push the verified Color Mixer slice, then confirm its
+   Windows/Linux/macOS Actions run.
+2. Continue Phase 9 with configurable native pen barrel-button behavior, default
+   hold-to-erase/restore, while keeping WM_POINTER capture and document format
+   unchanged.

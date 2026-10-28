@@ -59,8 +59,10 @@ painting, configurable pen barrel behavior and transformed image placement.
 ## Creative engine
 
 - Phase 9 — raster Smudge is implemented with selection/pressure, bounded
-  previews, native/PNG roundtrips and undo/redo. Continue color-mixing painting,
-  image placement/transforms, stylus controls, QuickShape, fills, symmetry, rulers/guides,
+  previews, native/PNG roundtrips and undo/redo. A separate Color Mixer mode now
+  deposits the chosen brush color into existing layer pixels, with configurable
+  mix strength and the existing opacity/flow/pressure controls; persistence
+  remains ordinary v1 raster data. Continue image placement/transforms, stylus controls, QuickShape, fills, symmetry, rulers/guides,
   selection/transform improvements, masks and brush-system expansion.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
   non-destructive effects, and natural-media foundations.

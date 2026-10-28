@@ -17,6 +17,14 @@ mod tests {
         let output = context.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 studio_icons::button(ui, Icon::Brush, "Brush", Some("B"), true, [48.0, 48.0]);
+                studio_icons::button(
+                    ui,
+                    Icon::ColorMixer,
+                    "Color Mixer",
+                    Some("X"),
+                    false,
+                    [48.0, 48.0],
+                );
                 ui.add(egui::Button::new("New document"));
             });
         });
@@ -33,6 +41,10 @@ mod tests {
         assert!(
             labels.contains("Brush"),
             "toolbar label missing from tree: {labels}"
+        );
+        assert!(
+            labels.contains("Color Mixer"),
+            "new paint tool is missing its accessible toolbar name: {labels}"
         );
         assert!(
             labels.contains("New document"),

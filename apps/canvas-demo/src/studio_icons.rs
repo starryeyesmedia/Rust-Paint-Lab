@@ -5,6 +5,7 @@
 pub enum Icon {
     Brush,
     Smudge,
+    ColorMixer,
     Eraser,
     Line,
     Gradient,
@@ -75,6 +76,16 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
             ]);
             path(&[(-6.0, 7.0), (-2.0, 6.0), (2.0, 3.0), (6.0, 2.0)]);
             painter.circle_filled(at(5.0, -6.0), 1.2 * scale, color);
+        }
+        Icon::ColorMixer => {
+            painter.circle_filled(at(-4.0, 1.0), 4.2 * scale, color.linear_multiply(0.82));
+            painter.circle_filled(
+                at(3.5, -2.0),
+                4.2 * scale,
+                egui::Color32::from_rgb(255, 122, 197),
+            );
+            painter.circle_stroke(at(0.0, 5.5), 2.0 * scale, stroke);
+            line((-1.0, -5.0), (0.0, -7.0));
         }
         Icon::Line => {
             line((-7.0, 7.0), (7.0, -7.0));

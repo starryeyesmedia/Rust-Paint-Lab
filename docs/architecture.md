@@ -291,6 +291,17 @@ Smudge. Because the current transaction model does not merge concurrent edits to
 the same layer, a second contact is ignored while Smudge owns the layer; committed
 pixels remain ordinary v1 raster data and save/export without migration.
 
+Color Mixing is a second transient `StrokeMode`, also captured at stroke begin
+and excluded from the `.rpl` and brush-preset formats. It blends the active brush
+RGB into each covered selected-layer pixel, then composites a bounded pigment
+deposit using brush opacity, flow, hardness, pressure, shape, tilt and selection
+coverage. Unlike Smudge it introduces the active brush color; unlike ordinary
+painting it modifies the selected layer's existing pixel colors. It uses a
+private copy-on-write tile map and exclusive layer ownership for preview,
+commit, cancel and undo safety. The current mixer operates on encoded sRGB byte
+values and is not a wet-media or color-managed pigment simulation. Existing
+documents remain compatible because only the resulting raster tiles are saved.
+
 `paint-document::openraster` is an explicit interchange boundary, not native storage.
 It converts supported raster layers to individual PNG assets plus stack.xml and
 rejects unsupported editing structures. The shell imports into a fresh unsaved
