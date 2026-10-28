@@ -2295,7 +2295,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Redo restores the saved blend mode and opacity exactly')
 
             def open_selected_layer_mask_menu():
-                more=wait(layer_more_button_rect,'selected layer exposes mask actions')
+                more=scroll_layers_marker_into_view(
+                    layer_more_button_rect,
+                    'selected layer Actions button scrolls into the Layers viewport',
+                )
                 opened=layer_actions_open_count()
                 click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
                 wait(lambda: layer_actions_open_count()>opened,

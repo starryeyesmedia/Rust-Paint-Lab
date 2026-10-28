@@ -2817,7 +2817,12 @@ The next run, `40759189142`, then failed earlier at the empty-document regressio
 the v2 parser edit accidentally changed the helper from a valid raster-tile count
 to a boolean. The helper now returns the original count for valid files and
 `None` only for malformed data. A new hosted run is required; neither the mask
-GUI test nor the QuickShape fix has completed in hosted CI yet.
+GUI test nor the QuickShape fix has completed in hosted CI yet. Run
+`40760547539` passed the parser regression and earlier artwork checks, then
+timed out opening the selected layer's Actions menu because the button was partly
+below the scrolled Layers viewport. The XTest helper now scrolls this button fully
+into view before clicking. The application stayed running; this is an automation
+geometry correction before rerunning the same mask workflow.
 No new physical Windows startup, S Pen, Narrator/NVDA, or real-device mask use was
 performed. Existing basic S Pen drawing observations remain valid; advanced
 pressure/tilt and mask workflows need separate hardware validation.

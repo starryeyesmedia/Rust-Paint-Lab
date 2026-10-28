@@ -117,12 +117,13 @@ raster bytes, save/undo/redo, and OpenRaster disclosure, and its native parser
 understands v2; this GUI workflow awaits hosted execution because this container
 has no Xvfb. Actions run `40754643332` first exposed a QuickShape line-pixel
 assertion that now measures the complete brush-radius raster region. Run
-`40759189142` then exposed an empty-document harness contract regression: the
-extended parser returned a boolean instead of the previous valid raster tile
-count. The parser now returns the count and uses `None` for malformed input. A
-new hosted run must verify both fixes and the mask workflow before this
-checkpoint is accepted. Phase 8.3, Phase 9, Phase 10 vector/text, and Phase 11
-timelapse/animation remain active.
+`40759189142` exposed an empty-document harness regression; the parser now
+returns a valid raster-tile count and uses `None` for malformed input. Run
+`40760547539` passed that check and earlier artwork steps, then timed out on a
+selected-layer Actions button partly below the scrolled Layers viewport. The
+automation now scrolls that control into view before clicking. A new hosted run
+must verify these fixes and the mask workflow before acceptance. Phase 8.3,
+Phase 9, Phase 10 vector/text, and Phase 11 timelapse/animation remain active.
 
 ## Reliability and platform engineering
 

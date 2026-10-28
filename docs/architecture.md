@@ -139,10 +139,12 @@ Future components have distinct responsibilities:
 5. **Canvas renderer:** display committed content plus isolated provisional
    previews; remove cancelled previews without committing them. Convert document
    coordinates to GPU units with explicit range checks at this boundary.
-6. **Document model:** `paint-document` owns sparse raster tiles, editable layers,
-   bounded undo/redo, provisional brush transactions, and checked native storage;
-   only Commit finalizes a transaction. It is OS/UI/GPU-independent. See the alpha
-   format and overdrive progress document for its current boundaries.
+6. **Document model:** `paint-document` owns sparse raster tiles, editable layers
+   and alpha masks, bounded undo/redo, provisional brush transactions, and checked
+   native storage; only Commit finalizes a stroke transaction. It is OS/UI/GPU-
+   independent. Unmasked `.rpl` files retain version 1; documents with masks use
+   version 2 and continue to read version 1. See the alpha format and overdrive
+   progress document for current boundaries.
 
 The separate canvas demo now implements a bounded command consumer and renderer
 for synthetic playback and interactive mouse drawing. The physical-pixel winit
@@ -231,6 +233,12 @@ recovery queues are bounded. Tiny legacy demo geometry limits do not limit alpha
 painting. GPU display uses only a composited texture; small strokes upload dirty
 tiles rather than rebuilding the full document. Metadata operations can invalidate
 all tiles. The CPU document is authoritative and editable without GPU resources.
+Raster layer masks are sparse 8-bit tiles (one quarter the size of RGBA tiles) with
+missing samples revealing the source. Mask-paint strokes use the same preview,
+commit/cancel, selection and bounded history lifecycle without modifying source
+raster bytes. Mask tiles share the document's tile-count budget. OpenRaster export
+applies enabled masks to per-layer pixels and reports that mask editability is
+flattened; the native `.rpl` remains editable.
 
 Recovery writes a bounded append-only sequence of complete native snapshot records
 alongside the existing atomic snapshot and verified backup. Replay selects the most
@@ -322,7 +330,8 @@ ordering/rollover, and optional exact `SourceCounter { ticks, ticks_per_second }
 future velocity/latency work. Windows attaches POINTER_INFO.PerformanceCount plus
 QueryPerformanceFrequency when available; no conversion to coarse mouse timing.
 The shared structs/router preserve it, and replay v2 supplies deterministic coverage.
-Native v1 documents persist raster artwork, not raw input or performance counters.
+Native v1/v2 documents persist raster artwork and (in v2) editable raster masks,
+not raw input or performance counters.
 
 Custom brush settings use the existing version-1 `Brush::encode/decode` schema and
 are stored as standalone `.rplbrush` JSON files. The document storage boundary
