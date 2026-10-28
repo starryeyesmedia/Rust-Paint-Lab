@@ -9547,14 +9547,34 @@ impl Studio {
                 ui.small(
                     "Drag the preview on the canvas; the artwork stays untouched until placement.",
                 );
-                ui.add(
+                let scale = ui.add(
                     egui::Slider::new(&mut placement.scale, 0.01..=32.0)
                         .logarithmic(true)
                         .text("Scale"),
                 );
-                ui.add(
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_IMAGE_SCALE_SLIDER_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        scale.rect.left(),
+                        scale.rect.top(),
+                        scale.rect.width(),
+                        scale.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+                let rotate = ui.add(
                     egui::Slider::new(&mut placement.angle_degrees, -180.0..=180.0).text("Rotate"),
                 );
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_IMAGE_ROTATE_SLIDER_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        rotate.rect.left(),
+                        rotate.rect.top(),
+                        rotate.rect.width(),
+                        rotate.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
                 ui.horizontal(|ui| {
                     if ui
                         .button("Fit")
@@ -9707,6 +9727,7 @@ impl Studio {
         let mut approved = false;
         let mut output = ctx.run(raw, |ctx| {
             self.widgets(ctx, session, &mut actions, &mut central, &mut approved);
+            self.paint_placed_image_preview(ctx, central, session, size);
             self.placed_image_controls(ctx, session, &mut actions);
         });
         // Tool controls are edited inside the UI frame. Capture their latest
@@ -9939,81 +9960,6 @@ impl Studio {
         self.workspace_center = [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0];
         if let Some(m) = self.mapping {
             session.live_mut().set_mapping(m);
-        }
-        if session.mode() == crate::interaction::Mode::Live
-            && let (Some(placement), Some(mapping)) = (&self.placed_image, self.mapping)
-        {
-            let screen_points: Vec<_> = placement
-                .corners()
-                .into_iter()
-                .filter_map(|point| mapping.to_clip(point).ok())
-                .map(|point| {
-                    egui::pos2(
-                        (point[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
-                        (1.0 - point[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
-                    )
-                })
-                .collect();
-            if screen_points.len() == 4 {
-                let mut mesh = egui::Mesh::with_texture(placement.texture.id());
-                for (point, uv) in screen_points.iter().zip([
-                    egui::pos2(0.0, 0.0),
-                    egui::pos2(1.0, 0.0),
-                    egui::pos2(1.0, 1.0),
-                    egui::pos2(0.0, 1.0),
-                ]) {
-                    mesh.vertices.push(egui::epaint::Vertex {
-                        pos: *point,
-                        uv,
-                        color: egui::Color32::WHITE,
-                    });
-                }
-                mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
-                output.shapes.push(egui::epaint::ClippedShape {
-                    clip_rect: central,
-                    shape: egui::Shape::mesh(mesh),
-                });
-                output.shapes.push(egui::epaint::ClippedShape {
-                    clip_rect: central,
-                    shape: egui::Shape::closed_line(
-                        screen_points.clone(),
-                        egui::Stroke::new(1.5, egui::Color32::from_rgb(205, 113, 255)),
-                    ),
-                });
-                if self.test_path_dialog {
-                    crate::studio_log!(
-                        "UI_TEST_IMAGE_PLACEMENT_PREVIEW: {} {} {:.3} {:.2}",
-                        placement.width,
-                        placement.height,
-                        placement.scale,
-                        placement.angle_degrees
-                    );
-                    let min_x = screen_points
-                        .iter()
-                        .map(|point| point.x)
-                        .fold(f32::INFINITY, f32::min);
-                    let min_y = screen_points
-                        .iter()
-                        .map(|point| point.y)
-                        .fold(f32::INFINITY, f32::min);
-                    let max_x = screen_points
-                        .iter()
-                        .map(|point| point.x)
-                        .fold(f32::NEG_INFINITY, f32::max);
-                    let max_y = screen_points
-                        .iter()
-                        .map(|point| point.y)
-                        .fold(f32::NEG_INFINITY, f32::max);
-                    crate::studio_log!(
-                        "UI_TEST_IMAGE_PREVIEW_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                        min_x,
-                        min_y,
-                        max_x - min_x,
-                        max_y - min_y,
-                        output.pixels_per_point
-                    );
-                }
-            }
         }
         if session.mode() == crate::interaction::Mode::Live
             && let Some(mapping) = self.mapping
@@ -10258,6 +10204,117 @@ impl Studio {
     pub fn home_surface_color(&self) -> Option<egui::Color32> {
         self.welcome
             .then(|| self.context.style().visuals.panel_fill)
+    }
+
+    fn paint_placed_image_preview(
+        &self,
+        ctx: &egui::Context,
+        central: egui::Rect,
+        session: &CanvasSession,
+        size: [u32; 2],
+    ) {
+        if session.mode() != crate::interaction::Mode::Live || central.is_negative() {
+            return;
+        }
+        let Some(placement) = &self.placed_image else {
+            return;
+        };
+        let scale = f64::from(ctx.pixels_per_point());
+        let rect = [
+            f64::from(central.min.x) * scale,
+            f64::from(central.min.y) * scale,
+            (f64::from(central.max.x) * scale).min(f64::from(size[0])),
+            (f64::from(central.max.y) * scale).min(f64::from(size[1])),
+        ];
+        let state = session.live().project().state();
+        let Some(mapping) = CanvasMapping::for_document(
+            size,
+            [f64::from(state.width), f64::from(state.height)],
+            rect,
+        )
+        .ok()
+        .and_then(|mapping| {
+            mapping
+                .navigated(self.navigation.zoom, self.navigation.pan)
+                .ok()
+        }) else {
+            return;
+        };
+        let points: Vec<_> = placement
+            .corners()
+            .into_iter()
+            .filter_map(|point| mapping.to_clip(point).ok())
+            .map(|point| {
+                egui::pos2(
+                    (point[0] + 1.0) * size[0] as f32 / 2.0 / scale as f32,
+                    (1.0 - point[1]) * size[1] as f32 / 2.0 / scale as f32,
+                )
+            })
+            .collect();
+        if points.len() != 4 {
+            return;
+        }
+        let mut mesh = egui::Mesh::with_texture(placement.texture.id());
+        for (point, uv) in points.iter().zip([
+            egui::pos2(0.0, 0.0),
+            egui::pos2(1.0, 0.0),
+            egui::pos2(1.0, 1.0),
+            egui::pos2(0.0, 1.0),
+        ]) {
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: *point,
+                uv,
+                color: egui::Color32::WHITE,
+            });
+        }
+        mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+        let painter = ctx
+            .layer_painter(egui::LayerId::new(
+                egui::Order::Middle,
+                egui::Id::new("image placement preview"),
+            ))
+            .with_clip_rect(central);
+        painter.add(egui::Shape::mesh(mesh));
+        painter.add(egui::Shape::closed_line(
+            points.clone(),
+            egui::Stroke::new(1.5, egui::Color32::from_rgb(205, 113, 255)),
+        ));
+
+        if self.test_path_dialog {
+            crate::studio_log!(
+                "UI_TEST_IMAGE_PLACEMENT_PREVIEW: {} {} {:.3} {:.2} {:.1} {:.1}",
+                placement.width,
+                placement.height,
+                placement.scale,
+                placement.angle_degrees,
+                placement.center[0],
+                placement.center[1]
+            );
+            let min_x = points
+                .iter()
+                .map(|point| point.x)
+                .fold(f32::INFINITY, f32::min);
+            let min_y = points
+                .iter()
+                .map(|point| point.y)
+                .fold(f32::INFINITY, f32::min);
+            let max_x = points
+                .iter()
+                .map(|point| point.x)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let max_y = points
+                .iter()
+                .map(|point| point.y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            crate::studio_log!(
+                "UI_TEST_IMAGE_PREVIEW_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                min_x,
+                min_y,
+                max_x - min_x,
+                max_y - min_y,
+                ctx.pixels_per_point()
+            );
+        }
     }
 
     fn load_placed_image(

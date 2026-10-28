@@ -70,17 +70,33 @@ painting, configurable pen barrel behavior and transformed image placement.
   OpenRaster layer export to convert sparse tiles directly. Move Selection to
   New Layer is integrated in the real Layer Actions menu, preserves opacity/blend
   and composite pixels, is undoable and uses the v1 project representation.
-  Local unit/build, strict lint, Windows GNU cross-checks and GPU smoke pass; the
-  Xvfb click/save screenshot workflow is pending. Run `40721752674` exposed a
-  15-second OpenRaster test wait; run `40728078333` for the placement/export fix
-  was queued at last inspection. Next: verify Actions and both artist workflows,
-  then add selection transforms, QuickShape, fills, symmetry/guides and brush
-  expansion. Design a format migration before masks.
+  The placement preview is now layered below floating controls, not painted over
+  them. A real Xorg/XTest workflow changes scale and rotation, drags the image,
+  verifies cancel, commits an editable layer, and checks app-level undo/redo byte
+  for byte. Locally, all **310 workspace tests**, strict Clippy, formatting,
+  workspace build, Windows GNU checks, llvmpipe GPU smoke, the placement workflow,
+  and the full Linux artwork/recovery workflow pass. GitHub Actions for the newest
+  integration commit is still required to confirm hosted platform jobs. Next:
+  selection transforms and QuickShape, then guides/symmetry and brush expansion.
+  Design a format migration before masks.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
   non-destructive effects, and natural-media foundations.
 - Phase 11 — frame animation, onion skin, automatic per-action timelapse, and
   interoperability expansion.
 - Phase 12 — broader creative workflows and mobile-core reuse.
+
+## Latest Phase 9 integration — 2026-10-28
+
+Place Image now has an Xorg-tested end-to-end flow covering preview visibility,
+scale, rotation, movement, cancel-without-mutation, placing into an independent
+raster layer, save, and application Undo/Redo. Fixing the preview's egui layer
+ordering keeps transform controls above the image. The Move Selection to New
+Layer operation is separately implemented and unit-tested for exact compositing,
+save/reopen, history and storage limits. The full Linux artifact/artwork workflow
+also passed locally with 52 populated screenshots spanning themes, sizes, panels,
+painting tools, gradients, layers, references and recovery. These slices advance
+Phase 9 without completing the phase. Follow-up work remains selection transforms,
+QuickShape, symmetry/guides, brush dynamics and a designed mask-format migration.
 
 ## Reliability and platform engineering
 

@@ -81,6 +81,23 @@ def click(window, x, y):
     flush(display)
     time.sleep(0.08)
 
+def drag(window, start_x, start_y, end_x, end_y):
+    root_x, root_y, child = I(), I(), W()
+    assert translate(display, window, root, 0, 0, c.byref(root_x), c.byref(root_y), c.byref(child))
+    origin_x, origin_y = root_x.value + round(start_x), root_y.value + round(start_y)
+    motion(display, -1, origin_x, origin_y, 0)
+    button(display, 1, 1, 0)
+    for step in range(1, 9):
+        fraction = step / 8
+        motion(display, -1,
+               origin_x + round((end_x - start_x) * fraction),
+               origin_y + round((end_y - start_y) * fraction), 0)
+        flush(display)
+        time.sleep(0.015)
+    button(display, 1, 0, 0)
+    flush(display)
+    time.sleep(0.08)
+
 def wait(predicate, process, description, seconds=20):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -199,9 +216,59 @@ def start_case(root_dir, source, cancel):
             bounds = wait(lambda: marker(log_path, button_name), process, 'placement action bounds')
             x, y, width, height, scale = bounds
             assert width >= 40 and height >= 18, f'placement action is too small: {bounds}'
-            if not cancel:
+            if cancel:
+                screenshot = capture(window, screens, 'cancelled-image-preview', log_path)
+                print(f'PLACE_IMAGE_CANCEL_SCREENSHOT: {screenshot}', flush=True)
+            else:
                 screenshot = capture(window, screens, 'placed-image-preview', log_path)
                 print(f'PLACE_IMAGE_SCREENSHOT: {screenshot}', flush=True)
+                initial = marker(log_path, 'UI_TEST_IMAGE_PLACEMENT_PREVIEW')
+                assert initial is not None and len(initial) == 6
+                scale_rect = wait(lambda: marker(log_path, 'UI_TEST_IMAGE_SCALE_SLIDER_RECT'),
+                                  process, 'interactive image scale control')
+                # The response rect includes the numeric value and label. Drag
+                # the visible handle along the track rather than clicking the
+                # value or label portion of that wider response rectangle.
+                drag(window, (scale_rect[0] + scale_rect[2] * 0.35) * scale_rect[4],
+                     (scale_rect[1] + scale_rect[3] / 2) * scale_rect[4],
+                     (scale_rect[0] + scale_rect[2] * 0.18) * scale_rect[4],
+                     (scale_rect[1] + scale_rect[3] / 2) * scale_rect[4])
+                scaled = wait(lambda: (lambda value: value
+                                       if value and abs(value[2] - initial[2]) > 0.1
+                                       else None)(marker(log_path,
+                                           'UI_TEST_IMAGE_PLACEMENT_PREVIEW')),
+                              process, 'scale control changes the pending image transform')
+                rotate_rect = wait(lambda: marker(log_path, 'UI_TEST_IMAGE_ROTATE_SLIDER_RECT'),
+                                   process, 'interactive image rotation control')
+                drag(window, (rotate_rect[0] + rotate_rect[2] * 0.24) * rotate_rect[4],
+                     (rotate_rect[1] + rotate_rect[3] / 2) * rotate_rect[4],
+                     (rotate_rect[0] + rotate_rect[2] * 0.36) * rotate_rect[4],
+                     (rotate_rect[1] + rotate_rect[3] / 2) * rotate_rect[4])
+                rotated = wait(lambda: (lambda value: value
+                                        if value and abs(value[3]) > 1.0
+                                        else None)(marker(log_path,
+                                            'UI_TEST_IMAGE_PLACEMENT_PREVIEW')),
+                               process, 'rotation control changes the pending image transform')
+                preview_rect = wait(lambda: marker(log_path,
+                                                   'UI_TEST_IMAGE_PREVIEW_BOUNDS'),
+                                    process, 'transformed preview bounds')
+                start_x = preview_rect[0] + preview_rect[2] / 2
+                start_y = preview_rect[1] + preview_rect[3] / 2
+                drag(window, start_x * preview_rect[4], start_y * preview_rect[4],
+                     (start_x + 60) * preview_rect[4], (start_y + 40) * preview_rect[4])
+                moved = wait(lambda: (lambda value: value
+                                      if value and abs(value[4] - rotated[4])
+                                      + abs(value[5] - rotated[5]) > 0.1
+                                      else None)(marker(log_path,
+                                          'UI_TEST_IMAGE_PLACEMENT_PREVIEW')),
+                             process, 'dragging moves the pending image without painting')
+                assert moved[2] == scaled[2] and moved[3] == rotated[3], \
+                    'moving the image should preserve its scale and rotation'
+                screenshot = capture(window, screens, 'placed-image-transformed-preview', log_path)
+                print(f'PLACE_IMAGE_TRANSFORM_SCREENSHOT: {screenshot}', flush=True)
+                bounds = wait(lambda: marker(log_path, button_name),
+                              process, 'transformed placement action bounds')
+                x, y, width, height, scale = bounds
             click(window, (x + width / 2) * scale, (y + height / 2) * scale)
             if cancel:
                 wait(lambda: 'UI_TEST_IMAGE_PLACEMENT_CANCELLED: 1 0 ' in log_path.read_text(),
@@ -224,6 +291,16 @@ def start_case(root_dir, source, cancel):
                 tile_count = struct.unpack('<I', data[tile_count_offset:tile_count_offset + 4])[0]
                 assert tile_count > 0, 'placed layer contains no raster tiles'
                 print(f'PLACE_IMAGE_COMMIT: PASS layers={len(state_doc["layers"])} tiles={tile_count}', flush=True)
+                placed_bytes = project.read_bytes()
+                key('z', control=True)
+                key('s', control=True)
+                wait(lambda: len(json.loads(project.read_bytes()[12:12 +
+                     struct.unpack('<I', project.read_bytes()[8:12])[0]])['layers']) == 1,
+                     process, 'Undo removes the placed layer in the real application')
+                key('y', control=True)
+                key('s', control=True)
+                wait(lambda: project.read_bytes() == placed_bytes,
+                     process, 'Redo restores the placed image exactly')
             key('Escape')
             try:
                 process.wait(timeout=3)
@@ -231,6 +308,11 @@ def start_case(root_dir, source, cancel):
                 key('Escape')
                 process.wait(timeout=10)
             assert process.returncode == 0
+        except Exception:
+            print(f'PLACE_IMAGE_APP_LOG: {log_path}', flush=True)
+            if log_path.exists():
+                print(log_path.read_text()[-12000:], flush=True)
+            raise
         finally:
             if process.poll() is None:
                 process.terminate()

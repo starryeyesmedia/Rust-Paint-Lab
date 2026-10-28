@@ -789,11 +789,17 @@ The document suite also covers transformed image placement: pixel/alpha output,
 quarter-turn rotation, document-edge clipping, invalid-transform atomicity, one
 undo/redo transaction, and native encode/decode. The bounded PNG/JPEG decoder tests
 corrupt and over-dimension images. `scripts/place-image-smoke.py` starts the actual
-canvas under Xvfb, captures the provisional GPU preview, clicks Cancel and verifies
-the project is unchanged, then repeats with Place, saves a native `.rpl`, and checks
-its layer metadata, tile count, and integrity checksum. CI uploads its populated
-preview screenshot with the other Linux studio captures. The smoke tests do not
-validate Windows pen behavior; physical pen placement still requires hardware.
+canvas under Xvfb, inspects colored regions inside the preview's actual rendered
+bounds, clicks Cancel and verifies the project is unchanged, then changes scale and
+rotation, drags the preview, captures the transformed GPU state, and uses Place. It
+saves a native `.rpl`, checks layer metadata, tile count and integrity checksum, then
+uses application Undo/Redo to verify placement is one reversible operation. CI
+uploads the cancelled, placed and transformed preview screenshots with the other
+Linux studio captures. The Xorg smoke also verifies that egui's floating transform
+panel remains above the temporary canvas preview and can be manipulated by real
+mouse events.
+The smoke tests do not validate Windows pen behavior; physical pen placement still
+requires hardware.
 
 The Linux XTest artwork workflow waits for an explicit OpenRaster export start and
 completion marker and allows up to 120 seconds for that operation. This distinguishes

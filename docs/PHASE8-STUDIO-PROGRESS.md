@@ -2481,6 +2481,12 @@ export start/failure/completion and elapsed seconds, with a bounded 120-second
 completion wait. A pixel test covers premultiplied-alpha conversion, tile-edge
 clipping and keeping layer opacity in OpenRaster metadata.
 
+The Linux placement smoke has since been expanded to exercise the real Scale and
+Rotate sliders, drag the preview on the canvas, assert the transform state changes,
+inspect colored fixture regions within the GPU-rendered preview bounds, and verify
+application Undo/Redo around the final Place. This expanded Xvfb flow has not run
+locally or in Actions yet.
+
 Local validation on pinned Rust 1.90 passes formatting, strict workspace
 Clippy, the full **308-test workspace suite**, workspace build, Windows GNU
 workspace check/Clippy, and required llvmpipe/OpenGL GPU smoke. The standalone
@@ -2531,3 +2537,45 @@ workflow. Keep the prior failure visible in reporting until the new OpenRaster
 markers confirm the outcome. Next after CI: selection transforms and symmetry /
 guides, then evaluate brush dynamics; layer masks require a separately designed
 document migration.
+
+## Phase 9 integration update — 2026-10-28
+
+The Xorg placement smoke now exercises both cancellation and the complete
+interactive transform/commit path. It captures the pending GPU preview, drags the
+Scale and Rotate handles, moves the transformed image across the canvas, confirms
+the preview bounds and fixture pixels, commits a new raster layer, saves it, then
+uses application Undo/Redo and compares the complete native `.rpl` bytes. The
+smoke copies three populated preview captures (cancelled, initial, transformed)
+to the UI artifact directory. Its first live run found that the Scale hit target
+covered the combined slider/value/label rectangle; changing the test to drag the
+actual handle made scale and rotation changes deterministic.
+
+The visual review also found a real rendering defect: the provisional image mesh
+was appended after egui had generated its interface, causing it to cover the
+floating transform panel. The preview is now emitted on egui's middle layer,
+above the canvas but below floating panels. Captured screenshots confirm the
+preview and transform controls remain visible together, and the live XTest path
+operates the controls successfully.
+
+Validation on Rust 1.90: `cargo fmt --all --check`, the complete **310-test
+workspace suite**, strict workspace Clippy, workspace build, Windows GNU workspace
+check and strict Clippy, and llvmpipe/OpenGL GPU smoke pass. The direct Xorg/XTest
+image-placement workflow passes cancel, rendered fixture inspection, scale,
+rotation, movement, placement, save, undo and redo. The full Linux Xorg/XTest
+artwork, export and recovery workflow also passed locally and produced **52
+screenshots**, which were inspected at representative 640 × 480 and 1920 × 1080
+sizes, in light/dark themes, with populated Layers, References, and Recovery, plus
+New Artwork and canvas/tool states. This is software-rendered Linux validation;
+Windows physical stylus behavior is unchanged and no new hardware testing is
+claimed. Windows and macOS hosted Actions for this latest integration commit are
+pending confirmation.
+
+### Next development steps
+
+1. Confirm the new three-platform Actions run, including its Windows startup and
+   portable executable artifact and Linux placement/export diagnostics.
+2. Advance Phase 9 with a completed selection-transform workflow or QuickShape;
+   keep the `.rpl` v1 format unchanged where the feature is transient/raster.
+3. Then develop symmetry/guides and brush dynamics. Design versioned mask storage
+   with v1 migration and recovery tests before adding editable masks. Phase 10
+   vector/text and Phase 11 timelapse/animation remain incomplete.
