@@ -418,6 +418,30 @@ pub fn import_png(path: &Path, engine: &mut crate::Engine) -> Result<(), PaintEr
     })
 }
 
+/// Decode a bounded PNG or JPEG into straight-alpha 8-bit RGBA for a pending
+/// placement. The caller can show a preview and cancel before changing artwork.
+pub fn decode_placement_image(path: &Path) -> Result<(u32, u32, Vec<u8>), PaintError> {
+    let reader = image::ImageReader::open(path)
+        .map_err(|error| PaintError::Image(error.to_string()))?
+        .with_guessed_format()
+        .map_err(|error| PaintError::Image(error.to_string()))?;
+    let mut reader = reader;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(4096);
+    limits.max_image_height = Some(4096);
+    limits.max_alloc = Some(80 * 1024 * 1024);
+    reader.limits(limits);
+    let decoded = reader
+        .decode()
+        .map_err(|error| PaintError::Image(error.to_string()))?
+        .to_rgba8();
+    let (width, height) = decoded.dimensions();
+    if width == 0 || height == 0 || decoded.as_raw().len() > 64 * 1024 * 1024 {
+        return Err(PaintError::Limit);
+    }
+    Ok((width, height, decoded.into_raw()))
+}
+
 #[cfg(test)]
 mod recent_header_tests {
     use super::*;
@@ -439,5 +463,62 @@ mod recent_header_tests {
         fs::write(&path, b"RPLALP01\xff\xff\xff\xff").unwrap();
         assert_eq!(peek_dimensions(&path), None);
         let _ = fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod image_placement_decode_tests {
+    use super::decode_placement_image;
+    use std::sync::atomic::Ordering;
+    use std::{fs, path::PathBuf};
+
+    fn path(extension: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "rpl-placement-{}-{}.{}",
+            std::process::id(),
+            super::NONCE.fetch_add(1, Ordering::Relaxed),
+            extension
+        ))
+    }
+
+    #[test]
+    fn bounded_placement_decoder_reads_png_and_jpeg() {
+        let pixels = image::RgbaImage::from_raw(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 64]).unwrap();
+        let png = path("png");
+        pixels
+            .save_with_format(&png, image::ImageFormat::Png)
+            .unwrap();
+        assert_eq!(
+            decode_placement_image(&png).unwrap(),
+            (2, 1, pixels.as_raw().clone())
+        );
+        fs::remove_file(png).unwrap();
+
+        let jpeg = path("jpg");
+        image::RgbImage::from_raw(2, 1, vec![255, 0, 0, 0, 0, 255])
+            .unwrap()
+            .save_with_format(&jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        let (width, height, rgba) = decode_placement_image(&jpeg).unwrap();
+        assert_eq!((width, height), (2, 1));
+        assert_eq!(rgba.len(), 8);
+        assert_eq!(rgba[3], 255);
+        assert_eq!(rgba[7], 255, "JPEG has no alpha channel");
+        fs::remove_file(jpeg).unwrap();
+    }
+
+    #[test]
+    fn placement_decoder_rejects_corrupt_and_overlarge_images() {
+        let corrupt = path("png");
+        fs::write(&corrupt, b"not a PNG or JPEG").unwrap();
+        assert!(decode_placement_image(&corrupt).is_err());
+        fs::remove_file(corrupt).unwrap();
+
+        let overlarge = path("png");
+        image::RgbaImage::new(4097, 1)
+            .save_with_format(&overlarge, image::ImageFormat::Png)
+            .unwrap();
+        assert!(decode_placement_image(&overlarge).is_err());
+        fs::remove_file(overlarge).unwrap();
     }
 }

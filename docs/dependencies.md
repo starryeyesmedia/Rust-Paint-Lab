@@ -17,7 +17,7 @@ safe Rust with no GPU or GUI dependency. Cargo.lock pins the complete graph.
 | png | 0.18.1 | PNG import/export | MIT OR Apache-2.0 |
 | zip | 9.0.5 exact | Bounded OpenRaster ZIP, deflate only | MIT |
 | roxmltree | 0.21.1 exact | Bounded stack.xml; DTD disabled | MIT OR Apache-2.0 |
-| image | 0.25.10 exact | Bounded PNG/JPEG decoding for external workspace references | MIT OR Apache-2.0 |
+| image | 0.25.10 exact | Bounded PNG/JPEG decoding for workspace references and artwork placement | MIT OR Apache-2.0 |
 | rfd | 0.15.4 exact | Native project/image/preset selection dialogs; XDG desktop portal on Linux | MIT |
 
 The interface bundles locally embedded Outfit Bold/ExtraBold/Black and Manrope

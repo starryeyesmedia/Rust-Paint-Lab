@@ -272,6 +272,158 @@ fn mask(s: &State) -> Vec<bool> {
     mask
 }
 impl Engine {
+    /// Place an 8-bit straight-alpha RGBA image as a new editable raster layer.
+    /// `transform` maps source pixel coordinates into document coordinates as
+    /// `[a,b,c,d,tx,ty]`. The entire placement is validated and committed as a
+    /// single undoable edit; source pixels outside the document are clipped.
+    pub fn place_rgba_image(
+        &mut self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        transform: [f64; 6],
+        name: &str,
+    ) -> Result<u64, PaintError> {
+        let expected = u64::from(width)
+            .checked_mul(u64::from(height))
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or(PaintError::Limit)?;
+        let determinant = transform[0] * transform[3] - transform[1] * transform[2];
+        if width == 0
+            || height == 0
+            || width > 4096
+            || height > 4096
+            || expected != rgba.len() as u64
+            || !transform
+                .iter()
+                .all(|value| value.is_finite() && value.abs() <= 262144.0)
+            || determinant.abs() < 0.0001
+            || transform[..4].iter().any(|value| value.abs() > 32.0)
+        {
+            return Err(PaintError::Invalid);
+        }
+
+        let corners = [
+            [0.0, 0.0],
+            [f64::from(width), 0.0],
+            [0.0, f64::from(height)],
+            [f64::from(width), f64::from(height)],
+        ]
+        .map(|[x, y]| {
+            [
+                transform[0] * x + transform[2] * y + transform[4],
+                transform[1] * x + transform[3] * y + transform[5],
+            ]
+        });
+        let left = corners
+            .iter()
+            .map(|point| point[0])
+            .fold(f64::INFINITY, f64::min)
+            .floor()
+            .max(0.0)
+            .min(f64::from(self.state.width)) as u32;
+        let top = corners
+            .iter()
+            .map(|point| point[1])
+            .fold(f64::INFINITY, f64::min)
+            .floor()
+            .max(0.0)
+            .min(f64::from(self.state.height)) as u32;
+        let right = corners
+            .iter()
+            .map(|point| point[0])
+            .fold(f64::NEG_INFINITY, f64::max)
+            .ceil()
+            .max(0.0)
+            .min(f64::from(self.state.width)) as u32;
+        let bottom = corners
+            .iter()
+            .map(|point| point[1])
+            .fold(f64::NEG_INFINITY, f64::max)
+            .ceil()
+            .max(0.0)
+            .min(f64::from(self.state.height)) as u32;
+        if left >= right || top >= bottom {
+            return Err(PaintError::Invalid);
+        }
+
+        let mut created_id = None;
+        self.edit(|state| {
+            if state.layers.len() >= crate::MAX_LAYERS {
+                return Err(PaintError::Limit);
+            }
+            let id = state
+                .layers
+                .iter()
+                .map(|layer| layer.id)
+                .max()
+                .unwrap_or(0)
+                .checked_add(1)
+                .filter(|id| *id <= u64::from(u32::MAX))
+                .ok_or(PaintError::Limit)?;
+            let mut tiles = TileMap::new();
+            let mut total_tiles = state.tile_count();
+            for y in top..bottom {
+                for x in left..right {
+                    let dx = f64::from(x) + 0.5 - transform[4];
+                    let dy = f64::from(y) + 0.5 - transform[5];
+                    let source_x = (transform[3] * dx - transform[2] * dy) / determinant;
+                    let source_y = (-transform[1] * dx + transform[0] * dy) / determinant;
+                    if source_x < 0.0
+                        || source_y < 0.0
+                        || source_x >= f64::from(width)
+                        || source_y >= f64::from(height)
+                    {
+                        continue;
+                    }
+                    let source_index =
+                        ((source_y.floor() as u32 * width + source_x.floor() as u32) * 4) as usize;
+                    let pixel = &rgba[source_index..source_index + 4];
+                    let alpha = pixel[3];
+                    if alpha == 0 {
+                        continue;
+                    }
+                    let key = (x / TILE, y / TILE);
+                    if let std::collections::btree_map::Entry::Vacant(entry) = tiles.entry(key) {
+                        if total_tiles >= crate::MAX_TILES {
+                            return Err(PaintError::Limit);
+                        }
+                        total_tiles += 1;
+                        entry.insert(Arc::new(vec![0; TILE_BYTES]));
+                    }
+                    let tile = Arc::make_mut(tiles.get_mut(&key).expect("inserted tile"));
+                    let offset = ((y % TILE * TILE + x % TILE) * 4) as usize;
+                    for channel in 0..3 {
+                        tile[offset + channel] =
+                            ((u16::from(pixel[channel]) * u16::from(alpha) + 127) / 255) as u8;
+                    }
+                    tile[offset + 3] = alpha;
+                }
+            }
+            if tiles.is_empty() {
+                return Err(PaintError::Invalid);
+            }
+            let clean_name: String = name.chars().take(240).collect();
+            state.layers.push(crate::Layer {
+                id,
+                name: if clean_name.trim().is_empty() {
+                    "Placed image".into()
+                } else {
+                    clean_name
+                },
+                visible: true,
+                locked: false,
+                opacity: 255,
+                blend: Blend::Normal,
+                tiles,
+            });
+            state.selected = id;
+            created_id = Some(id);
+            Ok(())
+        })?;
+        created_id.ok_or(PaintError::Invalid)
+    }
+
     /// Copy the selected pixels from the active, visible, unlocked layer into a
     /// new normal layer immediately above it. The source and selection remain
     /// unchanged; the new layer becomes active. This is one bounded document

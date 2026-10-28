@@ -379,6 +379,23 @@ uses native dialogs. Linux desktop users need a functioning XDG portal backend.
 The welcome and creation dialogs block canvas input until a document is selected
 or created.
 
+PNG/JPEG Place Image keeps its source RGBA bytes and bounded, 2048-edge preview
+texture in temporary workspace state. Mouse or native pen contact on the canvas
+moves the preview; the independent Reference board continues to be UI-only and
+never becomes artwork. Fit/Fill/scale/rotation produce one source-to-document affine
+matrix. Only the explicit Place action invokes `Engine::place_rgba_image`, which
+clips to document bounds, enforces layer/tile limits, premultiplies alpha, and
+creates one new raster layer inside a single ordinary engine edit. Cancel discards
+the pending source and texture without changing document revision, history, or the
+v1 `.rpl` schema. The raster transform currently uses nearest-neighbor sampling;
+embedded ICC profiles and EXIF orientation are not applied.
+
+OpenRaster layer exports convert only the populated sparse tiles of each layer to
+straight-alpha PNG pixels. Visibility, opacity and blend mode remain in the ORA
+stack metadata. The merged image is still rendered from the complete document.
+This avoids constructing and revalidating a cloned document for every layer while
+exporting; validation remains once at the start of the transaction.
+
 Normal-close persistence stores a dirty named project through its existing
 `Store`, preserving the content-hash conflict check, atomic replacement, and `.bak`
 behavior. An unnamed project is encoded as a regular editable `.rpl` in a separate

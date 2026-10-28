@@ -92,6 +92,26 @@ jobs:
           PYTHON
           fi
           exit "$outcome"
+      - name: Linux placed-image workflow smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        env:
+          WGPU_BACKEND: vulkan
+          RPL_UI_SCREENSHOT_DIR: ${{ runner.temp }}/rpl-studio-ui
+        run: |
+          set +e
+          xvfb-run -a -s "-screen 0 1600x1000x24" python3 scripts/place-image-smoke.py > /tmp/place-image-smoke.log 2>&1
+          outcome=$?
+          set -e
+          cat /tmp/place-image-smoke.log
+          if [ "$outcome" -ne 0 ]; then
+            python3 - <<'PYTHON'
+          from pathlib import Path
+          text=Path('/tmp/place-image-smoke.log').read_text()[-6000:]
+          print('::error title=Placed-image workflow::'+text.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+          PYTHON
+          fi
+          exit "$outcome"
       - name: Upload Linux rendered studio screenshots
         if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

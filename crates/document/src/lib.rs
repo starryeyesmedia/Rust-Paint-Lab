@@ -47,6 +47,7 @@ pub enum PaintError {
     Io(std::io::Error),
     Json(serde_json::Error),
     Png(String),
+    Image(String),
 }
 impl std::fmt::Display for PaintError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -71,6 +72,7 @@ impl std::fmt::Display for PaintError {
             Self::Io(e) => write!(f, "File operation failed: {e}"),
             Self::Json(e) => write!(f, "Invalid project or preset metadata: {e}"),
             Self::Png(e) => write!(f, "PNG operation failed: {e}"),
+            Self::Image(e) => write!(f, "Image could not be decoded: {e}"),
         }
     }
 }

@@ -138,6 +138,56 @@ fn png_encode(w: u32, h: u32, rgba: &[u8]) -> Result<Vec<u8>, PaintError> {
     }
     Ok(data)
 }
+
+/// Encode one layer's sparse premultiplied tiles as a straight-alpha RGBA image.
+/// The layer's visibility, opacity, and blend mode belong in stack.xml and must
+/// not be baked into its source pixels. Iterating only stored tiles also avoids
+/// cloning and revalidating the full document once per exported layer.
+fn layer_rgba(width: u32, height: u32, layer: &Layer) -> Result<Vec<u8>, PaintError> {
+    let byte_count = u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .ok_or(PaintError::Limit)?;
+    let mut rgba = vec![0; byte_count];
+    for (&(tile_x, tile_y), tile) in &layer.tiles {
+        let origin_x = tile_x.checked_mul(TILE).ok_or(PaintError::Limit)?;
+        let origin_y = tile_y.checked_mul(TILE).ok_or(PaintError::Limit)?;
+        let valid_width = TILE.min(width.saturating_sub(origin_x));
+        let valid_height = TILE.min(height.saturating_sub(origin_y));
+        for y in 0..valid_height {
+            for x in 0..valid_width {
+                let source = ((y * TILE + x) * 4) as usize;
+                let alpha = u32::from(tile[source + 3]);
+                if alpha == 0 {
+                    continue;
+                }
+                let destination = (((origin_y + y) * width + origin_x + x) * 4) as usize;
+                for channel in 0..3 {
+                    rgba[destination + channel] =
+                        ((u32::from(tile[source + channel]) * 255 + alpha / 2) / alpha).min(255)
+                            as u8;
+                }
+                rgba[destination + 3] = alpha as u8;
+            }
+        }
+    }
+    Ok(rgba)
+}
+
+fn solid_rgba(width: u32, height: u32, color: [u8; 3]) -> Result<Vec<u8>, PaintError> {
+    let byte_count = u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .ok_or(PaintError::Limit)?;
+    let mut rgba = vec![0; byte_count];
+    for pixel in rgba.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&[color[0], color[1], color[2], 255]);
+    }
+    Ok(rgba)
+}
+
 fn png_tiles(data: &[u8], width: u32, height: u32) -> Result<TileMap, PaintError> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(data));
     decoder.set_limits(png::Limits {
@@ -344,16 +394,7 @@ pub fn export(path: &Path, engine: &Engine) -> Result<(), PaintError> {
             state.width, state.height, state.dpi, state.dpi
         );
         for (index, layer) in state.layers.iter().rev().enumerate() {
-            let mut raw = state.clone();
-            let mut l = layer.clone();
-            l.opacity = 255;
-            l.visible = true;
-            l.blend = Blend::Normal;
-            raw.layers = vec![l];
-            raw.selected = layer.id;
-            raw.background = None;
-            raw.selection = None;
-            let pixels = Engine::from_state(raw)?.rgba();
+            let pixels = layer_rgba(state.width, state.height, layer)?;
             let png = png_encode(state.width, state.height, &pixels)?;
             let src = format!("data/layer{index}.png");
             zip.start_file(&src, options).map_err(format_error)?;
@@ -367,9 +408,11 @@ pub fn export(path: &Path, engine: &Engine) -> Result<(), PaintError> {
             xml.push_str(&format!("<layer name=\"{}\" src=\"{}\" opacity=\"{}\" visibility=\"{}\" composite-op=\"{}\" x=\"0\" y=\"0\"/>",escape(&layer.name),src,f64::from(layer.opacity)/255.0,if layer.visible{"visible"}else{"hidden"},blend));
         }
         if let Some(background) = state.background {
-            let mut raw = State::new(state.width, state.height, state.dpi)?;
-            raw.background = Some(background);
-            let png = png_encode(state.width, state.height, &Engine::from_state(raw)?.rgba())?;
+            let png = png_encode(
+                state.width,
+                state.height,
+                &solid_rgba(state.width, state.height, background)?,
+            )?;
             zip.start_file("data/background.png", options)
                 .map_err(format_error)?;
             zip.write_all(&png)?;
@@ -391,4 +434,35 @@ pub fn export(path: &Path, engine: &Engine) -> Result<(), PaintError> {
     })();
     let _ = fs::remove_file(temp);
     result
+}
+
+#[cfg(test)]
+mod layer_rgba_tests {
+    use super::layer_rgba;
+    use crate::{Engine, TILE_BYTES};
+    use std::sync::Arc;
+
+    #[test]
+    fn sparse_layer_export_unpremultiplies_alpha_and_clips_edge_tiles() {
+        let mut engine = Engine::new(65, 65, 300).unwrap();
+        engine
+            .edit(|state| {
+                state.layers[0].opacity = 17;
+                let mut first = vec![0; TILE_BYTES];
+                first[..4].copy_from_slice(&[40, 20, 0, 128]);
+                let mut edge = vec![0; TILE_BYTES];
+                edge[..4].copy_from_slice(&[12, 24, 36, 64]);
+                edge[4..8].copy_from_slice(&[50, 0, 0, 50]);
+                state.layers[0].tiles.insert((0, 0), Arc::new(first));
+                state.layers[0].tiles.insert((1, 1), Arc::new(edge));
+                Ok(())
+            })
+            .unwrap();
+
+        let image = layer_rgba(65, 65, &engine.state().layers[0]).unwrap();
+        assert_eq!(image.len(), 65 * 65 * 4);
+        assert_eq!(&image[..4], &[80, 40, 0, 128]);
+        let edge_pixel = ((64 * 65 + 64) * 4) as usize;
+        assert_eq!(&image[edge_pixel..edge_pixel + 4], &[48, 96, 143, 64]);
+    }
 }

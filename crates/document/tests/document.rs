@@ -1664,3 +1664,62 @@ fn smudge_obeys_selection_layer_guards_and_mode_conflicts() {
     assert_eq!(conflict.active_count(), 1);
     cancel(&mut conflict, 10);
 }
+
+#[test]
+fn placed_image_is_transformable_editable_and_one_undoable_layer() {
+    let mut engine = Engine::new(8, 8, 300).unwrap();
+    let pixels = [
+        255, 0, 0, 255, // red
+        0, 0, 255, 128, // half-alpha blue
+    ];
+    let id = engine
+        .place_rgba_image(2, 1, &pixels, [2.0, 0.0, 0.0, 2.0, 2.0, 3.0], "paper")
+        .unwrap();
+    assert_eq!(engine.state().layers.len(), 2);
+    assert_eq!(engine.state().selected, id);
+    assert_eq!(engine.state().layers[1].name, "paper");
+    let output = engine.rgba();
+    let pixel = |x: usize, y: usize| output[(y * 8 + x) * 4..(y * 8 + x) * 4 + 4].to_vec();
+    assert_eq!(pixel(2, 3), [255, 0, 0, 255]);
+    assert_eq!(pixel(3, 4), [255, 0, 0, 255]);
+    assert_eq!(pixel(4, 3), [127, 127, 255, 255]);
+    assert_eq!(pixel(5, 4), [127, 127, 255, 255]);
+    assert_eq!(engine.undo_count(), 1);
+
+    let encoded = storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&encoded).unwrap()).unwrap();
+    assert_eq!(reopened.rgba(), output);
+    assert!(engine.undo());
+    assert_eq!(engine.state().layers.len(), 1);
+    assert!(engine.redo());
+    assert_eq!(engine.rgba(), output);
+}
+
+#[test]
+fn placed_image_rotation_clips_at_document_edges_and_failure_is_atomic() {
+    let mut engine = Engine::new(4, 4, 300).unwrap();
+    let pixels = [255, 0, 0, 255, 0, 255, 0, 255];
+    engine
+        .place_rgba_image(2, 1, &pixels, [0.0, 1.0, -1.0, 0.0, 1.0, 2.0], "rotated")
+        .unwrap();
+    let output = engine.rgba();
+    let pixel = |x: usize, y: usize| output[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4].to_vec();
+    assert_eq!(pixel(0, 2), [255, 0, 0, 255]);
+    assert_eq!(pixel(0, 3), [0, 255, 0, 255]);
+    assert_eq!(engine.undo_count(), 1);
+
+    let before = engine.rgba();
+    let undo_before = engine.undo_count();
+    assert!(
+        engine
+            .place_rgba_image(2, 1, &pixels, [0.0; 6], "singular")
+            .is_err()
+    );
+    assert!(
+        engine
+            .place_rgba_image(2, 1, &pixels, [1.0, 0.0, 0.0, 1.0, 20.0, 20.0], "outside")
+            .is_err()
+    );
+    assert_eq!(engine.rgba(), before);
+    assert_eq!(engine.undo_count(), undo_before);
+}

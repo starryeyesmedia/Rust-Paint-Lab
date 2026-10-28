@@ -1,6 +1,7 @@
 //! Functional alpha controls. No widget is presented without an implemented action.
 use crate::{
     gpu::{Failure, Renderer},
+    image_placement::PendingImagePlacement,
     interaction::{CanvasSession, MouseEvent},
     scene::CanvasMapping,
 };
@@ -2217,6 +2218,9 @@ pub(crate) enum Action {
     LoadBrush,
     Export,
     Import,
+    PlaceFile(PathBuf),
+    CommitPlacedImage,
+    CancelPlacedImage,
     ImportOra,
     ExportOra,
     Recover(PathBuf),
@@ -2483,7 +2487,7 @@ enum FileRequest {
     SaveBrush,
     LoadBrush,
     ExportPng,
-    ImportPng,
+    PlaceImage,
     ImportOra,
     ExportOra,
     AddReferences,
@@ -2496,7 +2500,7 @@ impl FileRequest {
             Self::SaveBrush => Action::SaveBrush,
             Self::LoadBrush => Action::LoadBrush,
             Self::ExportPng => Action::Export,
-            Self::ImportPng => Action::Import,
+            Self::PlaceImage => return None,
             Self::ImportOra => Action::ImportOra,
             Self::ExportOra => Action::ExportOra,
             Self::AddReferences => return None,
@@ -3209,6 +3213,7 @@ pub struct Studio {
     manual_file_submit: bool,
     test_path_dialog: bool,
     test_reference_import: Option<PathBuf>,
+    test_placement_import: Option<PathBuf>,
     test_reference_centered: bool,
     test_palette_rect_logged: Option<[i32; 5]>,
     test_palette_grip_rect_logged: Option<[i32; 5]>,
@@ -3310,6 +3315,9 @@ pub struct Studio {
     transform_offset: [f64; 2],
     transform_scale: f64,
     transform_angle: f64,
+    placed_image: Option<PendingImagePlacement>,
+    placement_drag: Option<u64>,
+    placement_drag_offset: [f64; 2],
     pen_ui: std::collections::BTreeSet<u64>,
     mouse_position: Option<[f64; 2]>,
     ui_drag: bool,
@@ -3365,6 +3373,10 @@ impl Studio {
         let test_path_dialog = std::env::var_os("RPL_TEST_PATH_DIALOG").is_some();
         let test_reference_import = test_path_dialog
             .then(|| std::env::var_os("RPL_TEST_REFERENCE_IMPORT_PATH"))
+            .flatten()
+            .map(PathBuf::from);
+        let test_placement_import = test_path_dialog
+            .then(|| std::env::var_os("RPL_TEST_IMAGE_PLACEMENT_PATH"))
             .flatten()
             .map(PathBuf::from);
         let new_name = if test_path_dialog {
@@ -3440,6 +3452,7 @@ impl Studio {
             manual_file_submit: false,
             test_path_dialog,
             test_reference_import,
+            test_placement_import,
             test_reference_centered: false,
             test_palette_rect_logged: None,
             test_palette_grip_rect_logged: None,
@@ -3547,6 +3560,9 @@ impl Studio {
             transform_offset: [0.0; 2],
             transform_scale: 1.0,
             transform_angle: 0.0,
+            placed_image: None,
+            placement_drag: None,
+            placement_drag_offset: [0.0; 2],
             pen_ui: std::collections::BTreeSet::new(),
             mouse_position: None,
             ui_drag: false,
@@ -3726,6 +3742,9 @@ impl Studio {
                 }
             }),
         );
+        if self.placed_image.is_some() {
+            ids.push(egui::Id::new("Place image controls"));
+        }
         if ids.into_iter().any(|id| {
             egui::AreaState::load(&self.context, id).is_some_and(|state| {
                 crate::studio_layout::client_point_in_rect(state.rect(), client_px, scale)
@@ -3853,6 +3872,9 @@ impl Studio {
             self.layer_drag_target = None;
             self.clear_touch_routes();
             self.pan_cursor = None;
+        }
+        if matches!(event, E::Focused(false)) {
+            self.placement_drag = None;
         }
         if self.layer_drag_source.is_some() && !self.layers_flyout_open {
             self.layer_drag_source = None;
@@ -4023,6 +4045,30 @@ impl Studio {
                 ) {
                     self.touch_routes.finish(touch.id);
                 }
+                return (true, true);
+            }
+        }
+        if self.placed_image.is_some() && session.mode() == crate::interaction::Mode::Live {
+            let placement_phase = match event {
+                E::MouseInput {
+                    state,
+                    button: winit::event::MouseButton::Left,
+                    ..
+                } => Some(if *state == ElementState::Pressed {
+                    paint_input::Phase::Down
+                } else {
+                    paint_input::Phase::Up
+                }),
+                E::CursorMoved { .. } if self.placement_drag == Some(0) => {
+                    Some(paint_input::Phase::Move)
+                }
+                _ => None,
+            };
+            if let Some(phase) = placement_phase
+                && let Some(position) = self.mouse_position
+                && self.placement_pointer(session, 0, phase, position)
+            {
+                window.request_redraw();
                 return (true, true);
             }
         }
@@ -4283,6 +4329,12 @@ impl Studio {
         session: &mut CanvasSession,
     ) -> bool {
         let scale = f64::from(self.context.pixels_per_point());
+        if self.placed_image.is_some()
+            && session.mode() == crate::interaction::Mode::Live
+            && self.placement_pointer(session, s.id, s.phase, s.position_px)
+        {
+            return true;
+        }
         // Once a pen contact begins on the canvas, keep the native stream with
         // the painting processor while it crosses the paper boundary. Sending
         // these samples to egui would synthesize a Cancel and orphan the stroke.
@@ -4323,6 +4375,80 @@ impl Studio {
             self.pen_ui.remove(&s.id);
         }
         captured || outside
+    }
+
+    fn placement_pointer(
+        &mut self,
+        session: &CanvasSession,
+        id: u64,
+        phase: paint_input::Phase,
+        client: [f64; 2],
+    ) -> bool {
+        use paint_input::Phase;
+        let captured = self.placement_drag == Some(id);
+        if phase == Phase::Cancel {
+            if captured {
+                self.placement_drag = None;
+                return true;
+            }
+            return false;
+        }
+        let Some(mapping) = self.mapping else {
+            return false;
+        };
+        if !captured
+            && (phase != Phase::Down
+                || self.blocks_canvas()
+                || self.reference_under_client(client)
+                || self.floating_ui_under_client(client))
+        {
+            return false;
+        }
+        let Some(placement) = self.placed_image.as_mut() else {
+            self.placement_drag = None;
+            return false;
+        };
+        let Ok(document_point) = mapping.routing_viewport().to_document(client) else {
+            if captured && phase == Phase::Up {
+                self.placement_drag = None;
+                return true;
+            }
+            return captured;
+        };
+        let point = document_point.0;
+        let document = session.live().project().state();
+        match phase {
+            Phase::Down if !captured && mapping.contains_client(client) => {
+                self.placement_drag = Some(id);
+                if placement.contains_document_point(point) {
+                    self.placement_drag_offset = [
+                        placement.center[0] - point[0],
+                        placement.center[1] - point[1],
+                    ];
+                } else {
+                    placement.center = [
+                        point[0].clamp(0.0, f64::from(document.width)),
+                        point[1].clamp(0.0, f64::from(document.height)),
+                    ];
+                    self.placement_drag_offset = [0.0; 2];
+                }
+                true
+            }
+            Phase::Move if captured => {
+                placement.center = [
+                    (point[0] + self.placement_drag_offset[0])
+                        .clamp(0.0, f64::from(document.width)),
+                    (point[1] + self.placement_drag_offset[1])
+                        .clamp(0.0, f64::from(document.height)),
+                ];
+                true
+            }
+            Phase::Up if captured => {
+                self.placement_drag = None;
+                true
+            }
+            _ => captured,
+        }
     }
     /// Route the native WM_POINTER barrel bit only after the existing UI hit
     /// test has given panels and editing tools first refusal. The sample then
@@ -4392,9 +4518,13 @@ impl Studio {
     }
     pub fn cancel_native_barrel_pointer(&mut self, id: u64) {
         self.barrel_router.cancel_pointer(id);
+        if self.placement_drag == Some(id) {
+            self.placement_drag = None;
+        }
     }
     pub fn cancel_native_barrel_actions(&mut self) {
         self.barrel_router.cancel_all();
+        self.placement_drag = None;
     }
     fn editing_pointer(
         &mut self,
@@ -5059,8 +5189,8 @@ impl Studio {
                                 ui.close();
                             }
                             ui.menu_button("Import", |ui| {
-                                if ui.button("Raster image (PNG)…").clicked() {
-                                    self.picker = Some(FileRequest::ImportPng);
+                                if ui.button("Place image (PNG/JPEG)…").clicked() {
+                                    self.picker = Some(FileRequest::PlaceImage);
                                     ui.close();
                                 }
                                 if ui.button("OpenRaster project…").clicked() {
@@ -9362,6 +9492,112 @@ impl Studio {
             });
         }
     }
+
+    fn placed_image_controls(
+        &mut self,
+        ctx: &egui::Context,
+        session: &CanvasSession,
+        actions: &mut Vec<Action>,
+    ) {
+        let Some(placement) = self.placed_image.as_mut() else {
+            return;
+        };
+        let state = session.live().project().state();
+        let document = [state.width, state.height];
+        let mut open = true;
+        let mut operation = None;
+        egui::Window::new("Place image")
+            .id(egui::Id::new("Place image controls"))
+            .order(egui::Order::Foreground)
+            .resizable(false)
+            .collapsible(false)
+            .open(&mut open)
+            .default_pos(ctx.content_rect().right_top() - egui::vec2(326.0, -12.0))
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "{} · {} × {} px",
+                    placement.name, placement.width, placement.height
+                ));
+                ui.small(
+                    "Drag the preview on the canvas; the artwork stays untouched until placement.",
+                );
+                ui.add(
+                    egui::Slider::new(&mut placement.scale, 0.01..=32.0)
+                        .logarithmic(true)
+                        .text("Scale"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut placement.angle_degrees, -180.0..=180.0).text("Rotate"),
+                );
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("Fit")
+                        .on_hover_text("Fit inside the document while preserving aspect ratio")
+                        .clicked()
+                    {
+                        operation = Some(0);
+                    }
+                    if ui
+                        .button("Fill")
+                        .on_hover_text("Cover the document while preserving aspect ratio")
+                        .clicked()
+                    {
+                        operation = Some(1);
+                    }
+                    if ui.button("Center").clicked() {
+                        operation = Some(2);
+                    }
+                    if ui.button("Reset").clicked() {
+                        operation = Some(3);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let cancel = ui.button("Cancel");
+                    if self.test_path_dialog {
+                        crate::studio_log!(
+                            "UI_TEST_IMAGE_CANCEL_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            cancel.rect.left(),
+                            cancel.rect.top(),
+                            cancel.rect.width(),
+                            cancel.rect.height(),
+                            ui.ctx().pixels_per_point()
+                        );
+                    }
+                    if cancel.clicked() {
+                        operation = Some(4);
+                    }
+                    let place = ui.button("Place on new layer");
+                    if self.test_path_dialog {
+                        crate::studio_log!(
+                            "UI_TEST_IMAGE_PLACE_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                            place.rect.left(),
+                            place.rect.top(),
+                            place.rect.width(),
+                            place.rect.height(),
+                            ui.ctx().pixels_per_point()
+                        );
+                    }
+                    if place.clicked() {
+                        operation = Some(5);
+                    }
+                });
+            });
+        match operation {
+            Some(0) => placement.fit(document),
+            Some(1) => placement.fill(document),
+            Some(2) => {
+                placement.center = [f64::from(document[0]) / 2.0, f64::from(document[1]) / 2.0];
+            }
+            Some(3) => placement.reset(document),
+            Some(4) => actions.push(Action::CancelPlacedImage),
+            Some(5) => actions.push(Action::CommitPlacedImage),
+            _ => {}
+        }
+        if !open {
+            actions.push(Action::CancelPlacedImage);
+        }
+    }
+
     pub fn frame(
         &mut self,
         window: &Window,
@@ -9429,6 +9665,10 @@ impl Studio {
         if let Some((id, target_index)) = self.pending_layer_move.take() {
             actions.push(Action::MoveLayerTo(id, target_index));
         }
+        if let Some(path) = self.test_placement_import.take() {
+            self.welcome = false;
+            actions.push(Action::PlaceFile(path));
+        }
         if self.test_path_dialog && self.manual_file_dialog && self.manual_file_submit {
             self.manual_file_submit = false;
             self.manual_file_dialog = false;
@@ -9440,7 +9680,8 @@ impl Studio {
         let mut central = egui::Rect::NOTHING;
         let mut approved = false;
         let mut output = ctx.run(raw, |ctx| {
-            self.widgets(ctx, session, &mut actions, &mut central, &mut approved)
+            self.widgets(ctx, session, &mut actions, &mut central, &mut approved);
+            self.placed_image_controls(ctx, session, &mut actions);
         });
         // Tool controls are edited inside the UI frame. Capture their latest
         // mode parameters before subsequent native pointer events arrive.
@@ -9450,7 +9691,9 @@ impl Studio {
 
         if let Some(request) = self.picker.take() {
             if self.test_path_dialog && !matches!(request, FileRequest::AddReferences) {
-                self.manual_file_action = request.action();
+                self.manual_file_action = request.action().or_else(|| {
+                    matches!(request, FileRequest::PlaceImage).then_some(Action::Import)
+                });
                 self.manual_file_dialog = true;
                 self.context.request_repaint();
             } else {
@@ -9475,7 +9718,12 @@ impl Studio {
                         false,
                     ),
                     FileRequest::ExportPng => ("Export PNG", "PNG image", vec!["png"], true),
-                    FileRequest::ImportPng => ("Import image", "Raster image", vec!["png"], false),
+                    FileRequest::PlaceImage => (
+                        "Place image",
+                        "Raster image",
+                        vec!["png", "jpg", "jpeg"],
+                        false,
+                    ),
                     FileRequest::ImportOra => {
                         ("Open OpenRaster", "OpenRaster image", vec!["ora"], false)
                     }
@@ -9516,9 +9764,13 @@ impl Studio {
                     actions.extend(selected.into_iter().map(Action::AddReference));
                     self.picker_from_welcome = false;
                 } else if let Some(path) = selected.into_iter().next() {
-                    self.path = path.to_string_lossy().into_owned();
-                    if let Some(action) = request.action() {
-                        actions.push(action);
+                    if matches!(request, FileRequest::PlaceImage) {
+                        actions.push(Action::PlaceFile(path));
+                    } else {
+                        self.path = path.to_string_lossy().into_owned();
+                        if let Some(action) = request.action() {
+                            actions.push(action);
+                        }
                     }
                 }
             }
@@ -9661,6 +9913,81 @@ impl Studio {
         self.workspace_center = [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0];
         if let Some(m) = self.mapping {
             session.live_mut().set_mapping(m);
+        }
+        if session.mode() == crate::interaction::Mode::Live
+            && let (Some(placement), Some(mapping)) = (&self.placed_image, self.mapping)
+        {
+            let screen_points: Vec<_> = placement
+                .corners()
+                .into_iter()
+                .filter_map(|point| mapping.to_clip(point).ok())
+                .map(|point| {
+                    egui::pos2(
+                        (point[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
+                        (1.0 - point[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
+                    )
+                })
+                .collect();
+            if screen_points.len() == 4 {
+                let mut mesh = egui::Mesh::with_texture(placement.texture.id());
+                for (point, uv) in screen_points.iter().zip([
+                    egui::pos2(0.0, 0.0),
+                    egui::pos2(1.0, 0.0),
+                    egui::pos2(1.0, 1.0),
+                    egui::pos2(0.0, 1.0),
+                ]) {
+                    mesh.vertices.push(egui::epaint::Vertex {
+                        pos: *point,
+                        uv,
+                        color: egui::Color32::WHITE,
+                    });
+                }
+                mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+                output.shapes.push(egui::epaint::ClippedShape {
+                    clip_rect: central,
+                    shape: egui::Shape::mesh(mesh),
+                });
+                output.shapes.push(egui::epaint::ClippedShape {
+                    clip_rect: central,
+                    shape: egui::Shape::closed_line(
+                        screen_points.clone(),
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(205, 113, 255)),
+                    ),
+                });
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_IMAGE_PLACEMENT_PREVIEW: {} {} {:.3} {:.2}",
+                        placement.width,
+                        placement.height,
+                        placement.scale,
+                        placement.angle_degrees
+                    );
+                    let min_x = screen_points
+                        .iter()
+                        .map(|point| point.x)
+                        .fold(f32::INFINITY, f32::min);
+                    let min_y = screen_points
+                        .iter()
+                        .map(|point| point.y)
+                        .fold(f32::INFINITY, f32::min);
+                    let max_x = screen_points
+                        .iter()
+                        .map(|point| point.x)
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    let max_y = screen_points
+                        .iter()
+                        .map(|point| point.y)
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    crate::studio_log!(
+                        "UI_TEST_IMAGE_PREVIEW_BOUNDS: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        min_x,
+                        min_y,
+                        max_x - min_x,
+                        max_y - min_y,
+                        output.pixels_per_point
+                    );
+                }
+            }
         }
         if session.mode() == crate::interaction::Mode::Live
             && let Some(mapping) = self.mapping
@@ -9907,10 +10234,33 @@ impl Studio {
             .then(|| self.context.style().visuals.panel_fill)
     }
 
+    fn load_placed_image(
+        &mut self,
+        path: &std::path::Path,
+        project: &Engine,
+    ) -> Result<(), Failure> {
+        let document = [project.state().width, project.state().height];
+        self.placed_image = Some(PendingImagePlacement::load(&self.context, path, document)?);
+        self.placement_drag = None;
+        self.status = "Image ready to place · drag it on the canvas or adjust its transform".into();
+        if self.test_path_dialog {
+            let placement = self.placed_image.as_ref().expect("placement loaded");
+            crate::studio_log!(
+                "UI_TEST_IMAGE_PLACEMENT_LOADED: {} {} {}",
+                placement.width,
+                placement.height,
+                placement.name
+            );
+        }
+        Ok(())
+    }
+
     fn execute(&mut self, a: Action, session: &mut CanvasSession) -> Result<(), Failure> {
         let project = session.live_mut().project_mut();
         match a {
             Action::ImportOra => {
+                self.placed_image = None;
+                self.placement_drag = None;
                 let state = paint_document::openraster::load(std::path::Path::new(&self.path))?;
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
                 self.invalidate_document_thumbnail_cache();
@@ -9923,7 +10273,24 @@ impl Studio {
                 self.status="OpenRaster imported. Save As .rpl to retain native editing. Layer locks/presets/history are not in ORA; resolution rounds to integer DPI".into();
             }
             Action::ExportOra => {
-                paint_document::openraster::export(std::path::Path::new(&self.path), project)?;
+                let started = std::time::Instant::now();
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_OPENRASTER_EXPORT_STARTED: true");
+                }
+                if let Err(error) =
+                    paint_document::openraster::export(std::path::Path::new(&self.path), project)
+                {
+                    if self.test_path_dialog {
+                        crate::studio_log!("UI_TEST_OPENRASTER_EXPORT_FAILED: {error}");
+                    }
+                    return Err(error.into());
+                }
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_OPENRASTER_EXPORT_COMPLETED: {:.3}",
+                        started.elapsed().as_secs_f64()
+                    );
+                }
                 self.status="OpenRaster exported: raster layers retained; background becomes a layer. Locks, presets and history are omitted".into();
             }
             Action::RemoveRecovery(path) => {
@@ -10128,6 +10495,8 @@ impl Studio {
                 }
             }
             Action::New => {
+                self.placed_image = None;
+                self.placement_drag = None;
                 // Each document keeps its own recovery lineage. Never replace the
                 // previous document checkpoint with the next document snapshot.
                 let state = crate::document_setup::build_state(
@@ -10175,6 +10544,8 @@ impl Studio {
                 }
             }
             Action::Recover(path) => {
+                self.placed_image = None;
+                self.placement_drag = None;
                 let (state, fallback) = paint_document::recovery::restore(&path)?;
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
                 self.invalidate_document_thumbnail_cache();
@@ -10193,6 +10564,8 @@ impl Studio {
                 .into();
             }
             Action::Open | Action::Recent(_) => {
+                self.placed_image = None;
+                self.placement_drag = None;
                 let path = if let Action::Recent(p) = &a {
                     p.clone()
                 } else {
@@ -10251,8 +10624,55 @@ impl Studio {
                 self.status = "PNG exported (flattened 8-bit sRGB RGBA)".into();
             }
             Action::Import => {
-                storage::import_png(std::path::Path::new(&self.path), project)?;
-                self.status="PNG imported as 8-bit encoded-sRGB. ICC profiles, animation and 16-bit precision are not preserved".into();
+                let path = PathBuf::from(&self.path);
+                self.load_placed_image(&path, project)?;
+            }
+            Action::PlaceFile(path) => {
+                self.load_placed_image(&path, project)?;
+            }
+            Action::CommitPlacedImage => {
+                let placement = self
+                    .placed_image
+                    .as_ref()
+                    .ok_or(paint_document::PaintError::Invalid)?;
+                let id = project.place_rgba_image(
+                    placement.width,
+                    placement.height,
+                    &placement.rgba,
+                    placement.transform(),
+                    &placement.name,
+                )?;
+                let name = placement.name.clone();
+                self.placed_image = None;
+                self.placement_drag = None;
+                self.status = format!("Placed {name} as a new editable layer · Ctrl+Z to undo");
+                if self.test_path_dialog {
+                    let layer = project
+                        .state()
+                        .layers
+                        .iter()
+                        .find(|layer| layer.id == id)
+                        .unwrap();
+                    crate::studio_log!(
+                        "UI_TEST_IMAGE_PLACEMENT_COMMITTED: {id} {} {} {}",
+                        layer.name,
+                        layer.tiles.len(),
+                        project.state().layers.len()
+                    );
+                }
+            }
+            Action::CancelPlacedImage => {
+                self.placed_image = None;
+                self.placement_drag = None;
+                self.status = "Image placement canceled; document unchanged".into();
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_IMAGE_PLACEMENT_CANCELLED: {} {} {}",
+                        project.state().layers.len(),
+                        project.state().tile_count(),
+                        project.revision
+                    );
+                }
             }
         }
         Ok(())

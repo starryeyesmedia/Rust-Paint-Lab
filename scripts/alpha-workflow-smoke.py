@@ -77,8 +77,8 @@ def find_window():
         if children:
             free(children)
 
-def wait(predicate, description):
-    deadline = time.monotonic() + 15
+def wait(predicate, description, seconds=15):
+    deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise AssertionError(f'Canvas exited early: {process.returncode}; {description}')
@@ -2043,7 +2043,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('0');ctrl('s')
             wait(lambda: project.read_bytes()==saved,'zoom and fit preserve artwork')
             ctrl_shift('e');ora=directory/'artwork.ora'
-            wait(lambda: ora.exists(),'layered OpenRaster export')
+            wait(lambda: event_marker('UI_TEST_OPENRASTER_EXPORT_STARTED') is not None,
+                 'OpenRaster export shortcut reaches the application')
+            outcome=wait(lambda: event_marker('UI_TEST_OPENRASTER_EXPORT_COMPLETED')
+                         or event_marker('UI_TEST_OPENRASTER_EXPORT_FAILED'),
+                         'layered OpenRaster export finishes',seconds=120)
+            assert event_marker('UI_TEST_OPENRASTER_EXPORT_FAILED') is None, \
+                f'OpenRaster export failed: {outcome}'
+            assert ora.exists(), 'OpenRaster export reported completion without publishing its file'
             with zipfile.ZipFile(ora) as archive:
                 assert archive.namelist()[0]=='mimetype' and archive.read('mimetype')==b'image/openraster'
                 assert archive.testzip() is None and b'<layer' in archive.read('stack.xml')

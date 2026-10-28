@@ -148,9 +148,17 @@ shortcut still toggles dark/light directly.
 Brush presets are versioned `.rplbrush` JSON files; load/save validates settings and
 saving refuses to replace an existing preset. New/Open safeguard dirty artwork with
 recovery confirmation. Save As and
-PNG export refuse unrelated existing files; select a new path. PNG import creates a
-layer at the top-left; oversized inputs are rejected. Save `.rpl` for editable layers,
-PNG for flattened images. Color is encoded-sRGB RGBA8, not full ICC color management.
+PNG export refuse unrelated existing files; select a new path. **File → Import →
+Place image (PNG/JPEG)** opens a temporary transform preview over the canvas. Drag the
+preview or click a canvas location to position it; use Scale, Rotate, Fit, Fill,
+Center, or Reset before choosing **Place on new layer**. Cancel or close the panel
+without changing the document. Confirmation rasterizes the transform into one
+independent editable layer and one Ctrl+Z transaction. The aspect ratio stays locked
+while scaling. Images are limited to 4096 pixels per edge and 64 MiB decoded RGBA;
+oversized inputs are rejected before artwork changes. PNG alpha is retained. JPEG
+is decoded to 8-bit RGBA; embedded ICC profiles and EXIF orientation are not
+interpreted. Save `.rpl` for editable layers, PNG for flattened images. Color is
+encoded-sRGB RGBA8, not full ICC color management.
 Document, file-path, recovery, close, and cleanup prompts are blocking modal dialogs;
 the workspace behind them does not accept drawing or toolbar input. Saving an
 untitled document after a PNG export chooses the matching `.rpl` project path.

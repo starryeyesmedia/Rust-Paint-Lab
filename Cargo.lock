@@ -2182,6 +2182,7 @@ dependencies = [
 name = "paint-document"
 version = "0.1.0"
 dependencies = [
+ "image",
  "paint-input",
  "paint-stroke",
  "png",

@@ -2457,3 +2457,49 @@ also pass. No physical Galaxy Book2 Pro 360
 barrel-button test has been performed; this feature does not claim hardware
 verification. WM_POINTER capture, pressure, tilt, history and mouse-promotion
 suppression were not changed.
+
+## Phase 9 continuation — interactive Place Image and OpenRaster export
+
+The working tree continues from remote commit `7138092` on
+`feature/studio-overdrive-phase-8`. Place Image now decodes bounded PNG/JPEG
+inputs into temporary state and presents a canvas preview with move, scale,
+rotation, Fit, Fill, Center, Reset, Cancel and explicit Place actions. The source
+is committed only as a new editable raster layer through one document transaction;
+cancel leaves revision, history and artwork unchanged. Reference images remain a
+separate workspace-only feature. Native `.rpl` version 1 and OpenRaster stack
+metadata are unchanged. Placement currently uses nearest-neighbor resampling and
+does not apply EXIF orientation or embedded ICC profiles.
+
+Investigating Actions run `40721752674` showed its Linux job did not hit the
+10-minute workflow-step limit. The job reached `Timeout: layered OpenRaster export`
+after 2m43s in the artwork workflow; that test used a 15-second file wait and
+did not report whether the export shortcut arrived or whether export returned an
+error. The exporter previously cloned and revalidated the entire document for
+each layer, so it now converts populated sparse tiles directly and renders the
+flat background without constructing temporary documents. The test now records
+export start/failure/completion and elapsed seconds, with a bounded 120-second
+completion wait. A pixel test covers premultiplied-alpha conversion, tile-edge
+clipping and keeping layer opacity in OpenRaster metadata.
+
+Local validation on pinned Rust 1.90 passes formatting, strict workspace
+Clippy, the full **308-test workspace suite**, workspace build, Windows GNU
+workspace check/Clippy, and required llvmpipe/OpenGL GPU smoke. The standalone
+placement engine tests cover transformed pixel values, quarter-turn rotation,
+document clipping, invalid-transform atomicity, undo/redo and native save/reopen.
+The complete Xvfb/XTest artwork run and the new real-window placement workflow
+could not run here because this environment has no Xvfb. Actions on the current
+implementation are pending. The latest known Actions run remains
+`40721752674`: Windows startup/artifact packaging and macOS checks passed, while
+the Linux export wait failed. This does not validate image placement on physical
+WM_POINTER hardware or change the owner-confirmed basic S Pen baseline.
+
+### Continue from this checkpoint
+
+1. Commit and push the image-placement/export optimization and wait for its
+   Windows, Linux and macOS Actions run. Inspect its export timing markers and
+   verify the placement preview/cancel/commit workflow on Linux Xvfb.
+2. Continue Phase 9 with Move Selection to New Layer, distinct from Copy
+   Selection, including exact source/pixel integrity and undo/redo tests.
+3. Then expand selection transforms and symmetry/guides; defer masks until a
+   compatible persistence migration and recovery strategy are designed. Phase 10
+   editable vector/text and Phase 11 timelapse/animation remain unimplemented.

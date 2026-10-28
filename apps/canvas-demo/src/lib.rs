@@ -10,6 +10,7 @@ pub mod document_setup;
 pub mod drafts;
 pub mod gpu;
 pub mod home_thumbnails;
+pub mod image_placement;
 pub mod interaction;
 pub mod layer_thumbnails;
 pub mod native_history;

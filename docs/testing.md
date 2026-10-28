@@ -776,6 +776,26 @@ bytes in the saved project, then checks exact undo/redo persistence. This
 software-rendered test validates the application workflow, not physical stylus
 hardware or color-managed mixing.
 
+The document suite also covers transformed image placement: pixel/alpha output,
+quarter-turn rotation, document-edge clipping, invalid-transform atomicity, one
+undo/redo transaction, and native encode/decode. The bounded PNG/JPEG decoder tests
+corrupt and over-dimension images. `scripts/place-image-smoke.py` starts the actual
+canvas under Xvfb, captures the provisional GPU preview, clicks Cancel and verifies
+the project is unchanged, then repeats with Place, saves a native `.rpl`, and checks
+its layer metadata, tile count, and integrity checksum. CI uploads its populated
+preview screenshot with the other Linux studio captures. The smoke tests do not
+validate Windows pen behavior; physical pen placement still requires hardware.
+
+The Linux XTest artwork workflow waits for an explicit OpenRaster export start and
+completion marker and allows up to 120 seconds for that operation. This distinguishes
+a delayed export from a lost shortcut or a reported file error. The exporter validates
+the document once, then converts each populated sparse layer directly to RGBA instead
+of cloning and revalidating every other layer for each PNG. A unit test checks
+premultiplied-alpha conversion, opacity remaining in ORA metadata, and right/bottom
+tile clipping. The next Actions run is required to confirm the original failure no
+longer occurs on GitHub-hosted Linux; this environment has no Xvfb for local GUI
+reproduction.
+
 The platform-independent barrel router tests cover default Eraser switch/release,
 terminal and cancellation cleanup, reused IDs, multiple pointer identities,
 bounded Pan deltas, temporary-action suppression until pen lift, and malformed
