@@ -9,6 +9,8 @@ pub enum Icon {
     Gradient,
     Rectangle,
     Ellipse,
+    RectangleSelection,
+    EllipseSelection,
     Lasso,
     Eyedropper,
     Deselect,
@@ -99,6 +101,36 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
         }
         Icon::Ellipse => {
             painter.circle_stroke(center, 7.0 * scale, stroke);
+        }
+        Icon::RectangleSelection => {
+            let corners = [
+                ((-7.0, -6.0), (-2.0, -6.0)),
+                ((2.0, -6.0), (7.0, -6.0)),
+                ((7.0, -6.0), (7.0, -1.0)),
+                ((7.0, 2.0), (7.0, 6.0)),
+                ((2.0, 6.0), (7.0, 6.0)),
+                ((-7.0, 6.0), (-2.0, 6.0)),
+                ((-7.0, 2.0), (-7.0, 6.0)),
+                ((-7.0, -6.0), (-7.0, -1.0)),
+            ];
+            for (start, end) in corners {
+                line(start, end);
+            }
+            painter.circle_filled(at(-7.0, -6.0), 1.1 * scale, color);
+            painter.circle_filled(at(7.0, 6.0), 1.1 * scale, color);
+            painter.circle_stroke(at(0.0, 0.0), 1.8 * scale, stroke);
+        }
+        Icon::EllipseSelection => {
+            let points = (0..32)
+                .map(|step| {
+                    let angle = step as f32 * std::f32::consts::TAU / 32.0;
+                    at(angle.cos() * 7.0, angle.sin() * 5.8)
+                })
+                .collect::<Vec<_>>();
+            for index in (0..points.len()).step_by(2) {
+                painter.line_segment([points[index], points[(index + 1) % points.len()]], stroke);
+            }
+            painter.circle_stroke(center, 1.8 * scale, stroke);
         }
         Icon::Lasso => {
             painter.add(Shape::closed_line(
@@ -422,6 +454,8 @@ mod tests {
             Icon::Eraser,
             Icon::Rectangle,
             Icon::Ellipse,
+            Icon::RectangleSelection,
+            Icon::EllipseSelection,
             Icon::Lasso,
             Icon::Eyedropper,
             Icon::Deselect,
@@ -466,6 +500,35 @@ mod tests {
         });
         assert!(width >= 32.0);
         assert!(!output.shapes.is_empty());
+    }
+
+    #[test]
+    fn selection_boundaries_have_distinct_geometry_from_painted_shapes() {
+        fn signature(icon: Icon) -> String {
+            let context = egui::Context::default();
+            let output = context.run(egui::RawInput::default(), |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    paint(
+                        ui.painter(),
+                        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(36.0, 36.0)),
+                        icon,
+                        egui::Color32::WHITE,
+                    );
+                });
+            });
+            format!("{:?}", output.shapes)
+        }
+
+        assert_ne!(
+            signature(Icon::RectangleSelection),
+            signature(Icon::Rectangle),
+            "selection uses corner handles and broken marching-ants bounds"
+        );
+        assert_ne!(
+            signature(Icon::EllipseSelection),
+            signature(Icon::Ellipse),
+            "selection uses a segmented boundary and a center marker"
+        );
     }
 
     #[test]

@@ -5707,62 +5707,76 @@ impl Studio {
                                 }
                             }
                         }
-                        for (tool, icon, name, shortcut) in [
+                        let mut previous_tool_group = None;
+                        for (tool, icon, name, shortcut, group) in [
                             (
                                 EditTool::Brush,
                                 crate::studio_icons::Icon::Brush,
                                 "Brush",
                                 "B",
+                                0,
                             ),
                             (
                                 EditTool::Rectangle,
-                                crate::studio_icons::Icon::Rectangle,
+                                crate::studio_icons::Icon::RectangleSelection,
                                 "Rectangle selection",
                                 "M",
+                                1,
                             ),
                             (
                                 EditTool::Ellipse,
-                                crate::studio_icons::Icon::Ellipse,
+                                crate::studio_icons::Icon::EllipseSelection,
                                 "Ellipse selection",
                                 "E",
-                            ),
-                            (
-                                EditTool::ShapeLine,
-                                crate::studio_icons::Icon::Line,
-                                "Draw line",
-                                "L",
-                            ),
-                            (
-                                EditTool::ShapeRectangle,
-                                crate::studio_icons::Icon::Rectangle,
-                                "Draw rectangle",
-                                "R",
-                            ),
-                            (
-                                EditTool::ShapeEllipse,
-                                crate::studio_icons::Icon::Ellipse,
-                                "Draw ellipse",
-                                "O",
-                            ),
-                            (
-                                EditTool::Gradient,
-                                crate::studio_icons::Icon::Gradient,
-                                "Gradient",
-                                "G",
+                                1,
                             ),
                             (
                                 EditTool::Lasso,
                                 crate::studio_icons::Icon::Lasso,
                                 "Freehand lasso",
                                 "K",
+                                1,
+                            ),
+                            (
+                                EditTool::ShapeLine,
+                                crate::studio_icons::Icon::Line,
+                                "Draw line",
+                                "L",
+                                2,
+                            ),
+                            (
+                                EditTool::ShapeRectangle,
+                                crate::studio_icons::Icon::Rectangle,
+                                "Draw rectangle",
+                                "R",
+                                2,
+                            ),
+                            (
+                                EditTool::ShapeEllipse,
+                                crate::studio_icons::Icon::Ellipse,
+                                "Draw ellipse",
+                                "O",
+                                2,
+                            ),
+                            (
+                                EditTool::Gradient,
+                                crate::studio_icons::Icon::Gradient,
+                                "Gradient",
+                                "G",
+                                2,
                             ),
                             (
                                 EditTool::Eyedropper,
                                 crate::studio_icons::Icon::Eyedropper,
                                 "Eyedropper",
                                 "I",
+                                3,
                             ),
                         ] {
+                            if previous_tool_group.is_some_and(|previous| previous != group) {
+                                ui.separator();
+                            }
+                            previous_tool_group = Some(group);
                             let response = if compact_palette {
                                 crate::studio_icons::button(
                                     ui,
@@ -5830,6 +5844,7 @@ impl Studio {
                                 }
                             }
                         }
+                        ui.separator();
                         if crate::studio_icons::button(
                             ui,
                             crate::studio_icons::Icon::Color,

@@ -40,6 +40,23 @@ local-only at `/tmp/bp-screens`; Actions must rerun the workflow on pushed code
 before cross-platform validation. Commit `d37e10b` was still under Actions when
 this note was written.
 
+### Tool discoverability — local icon/toolbar slice
+
+The primary palette now groups painting, selection, shape, and color tools with
+compact separators. Rectangle and ellipse selection use separate marching-
+boundary/corner-marker icons rather than reusing the solid geometry icons for
+drawn shapes. Accessibility labels and existing shortcuts remain attached to
+their original working actions. New icon tests confirm both variants emit
+distinct vector geometry. On the rendered 1280 × 800 workspace screenshot, the
+selection pair is visibly distinct from the line/rectangle/ellipse drawing
+group. This is a partial iconography pass; other custom icon silhouettes and
+the toolbar's overall density still need broader review. The full suite passes
+**280 tests**, and format, strict Clippy, workspace build, Windows GNU check and
+Clippy, llvmpipe GPU smoke and the 47-image local Xorg workflow all include
+these changes. A three-platform Actions result for the pushed startup/logger
+checkpoint is still pending; no cross-platform validation is claimed for this
+uncommitted icon slice.
+
 The ten owner findings are being addressed in priority order: startup A is
 implemented locally and awaits cross-platform CI; custom iconography, Home/New
 Canvas, coordinated workspace/Layers, side-button action, Smudge, and image
