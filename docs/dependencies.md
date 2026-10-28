@@ -50,7 +50,7 @@ usability is not yet verified; see accessibility-assessment.md. Egui clipboard
 integration brings image packages transitively, but those codecs are not advertised
 as implemented application import/export features. Font notices include bundled
 Ubuntu/Noto/Hack attributions. No cloud services, telemetry or account dependency.
-The project owner's own distribution license remains undecided.
+BitchPixel's original project code is licensed under GPL-3.0-only; third-party packages and bundled fonts retain their own terms. See [LICENSE](../LICENSE), [copyright](../COPYRIGHT.md), and [third-party notices](../THIRD-PARTY.md).
 
 The artist-facing file selection workflow uses rfd 0.15.4 with its default XDG
 portal backend on Linux; Linux desktops need a working document portal service for
@@ -81,8 +81,7 @@ notices conservatively include the reachable Windows build graph. Native OS APIs
 SDKs, and installed GPU drivers are prerequisites and are not redistributed in
 the artifact. No third-party implementation source is copied into application code.
 
-The owner has not selected a license for Rust Paint Lab's original code; third-party
-notices are not a distribution license for the application itself. Before adding
+The original BitchPixel project code is licensed under GPL-3.0-only; third-party notices are separate legal obligations and do not replace the application's own license. Before adding
 or upgrading packages, update the lockfile, inventory, and notices; inspect
 maintenance, MSRV, enabled features, target compatibility, and licensing again.
 
