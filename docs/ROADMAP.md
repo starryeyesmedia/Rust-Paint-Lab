@@ -816,3 +816,49 @@ The current cross-platform Actions run is pending. The inspected narrow
 Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
 implement bounded, keyboard-accessible vector node movement and undo, then
 continue curve handles, fill and transforms without claiming Phase 10 complete.
+
+### Vector anchor movement — local integration checkpoint (2026-10-29)
+
+The latest local slice adds per-anchor vector editing through both canvas drag
+and a keyboard/accessibility-friendly anchor selector with exact X/Y controls.
+The document API retains adjacent cubic handle offsets, rejects invalid and
+locked-layer edits atomically, and records one undoable transaction. The native
+v3 geometry and monotonic object IDs are unchanged; v1/v2 remain readable.
+Complete Xorg/XTest validation now exercises anchor movement and width styling
+through the application, including preview, save/reopen, thumbnail invalidation,
+unchanged raster/mask storage, and exact Undo/Redo. All 356 workspace tests,
+formatting, strict Clippy, workspace build, Windows GNU check/Clippy, and
+llvmpipe GPU smoke pass locally. Hosted Actions for this code are pending; the
+green run `40831057143` is for the parent commit. OpenRaster export with a 360 px
+path measured 12.444 s in the local UI run and 11.993 s in a debug standalone
+measurement; the earlier 9.669 s UI export was a raster/mask fixture. These are
+not release or hardware performance measurements.
+
+The next vector slice should add and remove anchors from the line paths the UI
+currently creates, with exact single-transaction Undo/Redo and native reopen
+coverage. Cubic path authoring and handle editing, fills, scale/rotation, and
+duplication remain unimplemented. The 640 × 480 workspace still has little
+exposed canvas when both Layers and Reference panels are open. Phase 8.3, Phase
+9 hardware testing, Phase 10 and Phase 11 remain active.
+
+### Mask workflow correction and vector style slice (2026-10-29)
+
+Run [`40820933426`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40820933426)
+exposed a stale geometry assumption in mask-removal automation: the script
+estimated the Layers scroll viewport from the panel frame even though the
+Remove button was clipped below the actual egui ScrollArea. The test adapter
+now reports the ScrollArea clip bounds and targets controls against those live
+bounds. Local full Xorg/XTest validation passes all six mask actions and the
+existing raster workflows.
+
+Editable paths now have a tested width control and an Apply color action using
+the active brush color. The document API persists stroke RGBA and width through
+native v3 data, retains geometry and raster/mask separation, invalidates layer
+thumbnails, and records a single undo transaction. Automated API coverage
+includes alpha; the UI intentionally exposes no separate path-opacity control
+yet. Rust formatting, strict Clippy, **354 workspace tests**, build, Windows GNU
+check/Clippy, llvmpipe GPU smoke and the complete local Xorg/XTest workflow pass.
+The current cross-platform Actions run is pending. The inspected narrow
+Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
+implement bounded, keyboard-accessible vector node movement and undo, then
+continue curve handles, fill and transforms without claiming Phase 10 complete.

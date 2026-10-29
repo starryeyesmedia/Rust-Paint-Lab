@@ -2603,6 +2603,7 @@ pub(crate) enum Action {
     ClearLayer(u64),
     DeleteVectorPath(u64),
     SetVectorPathStyle(u64, [u8; 4], f64),
+    MoveVectorPathAnchor(u64, usize, [f64; 2]),
     Clear,
     Select(u64),
     Move(i32),
@@ -3981,6 +3982,9 @@ pub struct Studio {
     edit_points: Vec<[f64; 2]>,
     selected_vector_path: Option<u64>,
     vector_drag_path: Option<u64>,
+    vector_drag_node: Option<(u64, usize)>,
+    vector_node_editor: Option<(u64, usize, [f64; 2])>,
+    test_vector_node_rect_logged: bool,
     pending_vector_style: Option<(u64, [u8; 4], f64)>,
     selection_transform: Option<SelectionTransformDrag>,
     test_selection_handles_logged: bool,
@@ -4239,6 +4243,9 @@ impl Studio {
             edit_points: Vec::new(),
             selected_vector_path: None,
             vector_drag_path: None,
+            vector_drag_node: None,
+            vector_node_editor: None,
+            test_vector_node_rect_logged: false,
             pending_vector_style: None,
             selection_transform: None,
             test_selection_handles_logged: false,
@@ -4981,6 +4988,7 @@ impl Studio {
             self.edit_pointer = None;
             self.edit_points.clear();
             self.vector_drag_path = None;
+            self.vector_drag_node = None;
         }
         if self.selected_vector_path.is_some_and(|path_id| {
             !session
@@ -4992,6 +5000,7 @@ impl Studio {
                 .any(|layer| layer.vector_paths.iter().any(|path| path.id == path_id))
         }) {
             self.selected_vector_path = None;
+            self.vector_node_editor = None;
         }
         if self
             .pending_vector_style
@@ -5556,6 +5565,7 @@ impl Studio {
             self.edit_pointer = None;
             self.edit_points.clear();
             self.vector_drag_path = None;
+            self.vector_drag_node = None;
             if self.test_path_dialog && gradient_tool {
                 crate::studio_log!("UI_TEST_GRADIENT_CANCELLED: pointer");
             }
@@ -5603,18 +5613,75 @@ impl Studio {
                         .project()
                         .hit_test_vector_path(position, hit_tolerance);
                     if let Some(path_id) = hit {
+                        if self.selected_vector_path != Some(path_id) {
+                            self.vector_node_editor = None;
+                            self.test_vector_node_rect_logged = false;
+                        }
                         self.selected_vector_path = Some(path_id);
-                        self.vector_drag_path = Some(path_id);
                         self.edit_pointer = Some(id);
-                        self.edit_points = vec![position, position];
-                        self.status =
-                            format!("Vector path {path_id} selected · drag to move · Esc cancels");
+                        let selected_anchor = self
+                            .vector_node_editor
+                            .filter(|(selected_id, _, _)| *selected_id == path_id)
+                            .and_then(|_| {
+                                session
+                                    .live()
+                                    .project()
+                                    .state()
+                                    .layers
+                                    .iter()
+                                    .find_map(|layer| {
+                                        layer
+                                            .vector_paths
+                                            .iter()
+                                            .find(|path| path.id == path_id)
+                                            .map(|path| {
+                                                path.anchor_points()
+                                                    .into_iter()
+                                                    .enumerate()
+                                                    .map(|(index, anchor)| {
+                                                        let distance = (anchor[0] - position[0])
+                                                            .hypot(anchor[1] - position[1]);
+                                                        (index, anchor, distance)
+                                                    })
+                                                    .min_by(|left, right| {
+                                                        left.2.total_cmp(&right.2)
+                                                    })
+                                            })
+                                    })
+                                    .flatten()
+                                    .filter(|(_, _, distance)| *distance <= hit_tolerance)
+                            });
+                        if let Some((anchor_index, anchor, _)) = selected_anchor {
+                            self.vector_node_editor = Some((path_id, anchor_index, anchor));
+                            self.test_vector_node_rect_logged = false;
+                            self.vector_drag_node = Some((path_id, anchor_index));
+                            self.edit_points = vec![anchor, anchor];
+                            self.status = format!(
+                                "Vector anchor {} selected · drag to move · Esc cancels",
+                                anchor_index + 1
+                            );
+                        } else {
+                            self.vector_drag_path = Some(path_id);
+                            self.edit_points = vec![position, position];
+                            self.status = format!(
+                                "Vector path {path_id} selected · drag to move · Esc cancels"
+                            );
+                        }
                         if self.test_path_dialog {
                             crate::studio_log!("UI_TEST_VECTOR_PATH_SELECTED: {path_id}");
+                            if let Some((_, anchor_index, anchor)) = self.vector_node_editor {
+                                crate::studio_log!(
+                                    "UI_TEST_VECTOR_NODE_SELECTED: {path_id} {anchor_index} {:.2} {:.2}",
+                                    anchor[0],
+                                    anchor[1]
+                                );
+                            }
                         }
                     } else {
                         self.selected_vector_path = None;
                         self.vector_drag_path = None;
+                        self.vector_drag_node = None;
+                        self.vector_node_editor = None;
                         self.edit_pointer = Some(id);
                         self.edit_points = vec![position];
                         self.status = "Drawing editable vector path · Esc cancels".into();
@@ -5672,7 +5739,37 @@ impl Studio {
             }
             Phase::Move | Phase::Up if captured => {
                 if vector_tool {
-                    if let Some(path_id) = self.vector_drag_path {
+                    if let Some((path_id, anchor_index)) = self.vector_drag_node {
+                        self.edit_points[1] = position;
+                        if phase == Phase::Up {
+                            let result = session.live_mut().project_mut().move_vector_path_anchor(
+                                path_id,
+                                anchor_index,
+                                position,
+                            );
+                            self.edit_pointer = None;
+                            self.vector_drag_node = None;
+                            self.edit_points.clear();
+                            self.status = match result {
+                                Ok(()) => {
+                                    self.vector_node_editor =
+                                        Some((path_id, anchor_index, position));
+                                    format!(
+                                        "Vector anchor {} moved · Ctrl+Z to undo",
+                                        anchor_index + 1
+                                    )
+                                }
+                                Err(error) => error.to_string(),
+                            };
+                            if self.test_path_dialog {
+                                crate::studio_log!(
+                                    "UI_TEST_VECTOR_NODE_MOVED: {path_id} {anchor_index} {:.2} {:.2}",
+                                    position[0],
+                                    position[1]
+                                );
+                            }
+                        }
+                    } else if let Some(path_id) = self.vector_drag_path {
                         self.edit_points[1] = position;
                         if phase == Phase::Up {
                             let start = self.edit_points[0];
@@ -5713,6 +5810,7 @@ impl Studio {
                                 match session.live_mut().project_mut().add_vector_path(&points) {
                                     Ok(path_id) => {
                                         self.selected_vector_path = Some(path_id);
+                                        self.vector_node_editor = None;
                                         if self.test_path_dialog {
                                             crate::studio_log!(
                                                 "UI_TEST_VECTOR_PATH_CREATED: {path_id} {}",
@@ -5915,6 +6013,7 @@ impl Studio {
         self.edit_pointer = None;
         self.edit_points.clear();
         self.vector_drag_path = None;
+        self.vector_drag_node = None;
         self.selection_transform = None;
         if key == 'y' {
             self.symmetry_panel_open = !self.symmetry_panel_open;
@@ -5958,6 +6057,9 @@ impl Studio {
             'v' => EditTool::VectorPath,
             _ => EditTool::Brush,
         };
+        if self.tool != EditTool::VectorPath {
+            self.vector_node_editor = None;
+        }
         if self.tool != EditTool::Brush {
             self.mask_editing_layer = None;
         }
@@ -6188,6 +6290,7 @@ impl Studio {
         if self.edit_pointer.take().is_some() {
             self.edit_points.clear();
             self.vector_drag_path = None;
+            self.vector_drag_node = None;
             self.status = if self.tool == EditTool::Gradient {
                 "Gradient preview cancelled".into()
             } else if self.tool == EditTool::VectorPath {
@@ -7060,6 +7163,141 @@ impl Studio {
                                         })
                                     });
                                     if let Some(path) = selected_path {
+                                        let edit_nodes = self
+                                            .vector_node_editor
+                                            .is_some_and(|(path_id, _, _)| path_id == path.id);
+                                        let node_editor_button = ui
+                                            .selectable_label(edit_nodes, "Edit anchors")
+                                            .on_hover_text(
+                                                "Select an anchor on the canvas, or choose it here and enter coordinates",
+                                            );
+                                        if self.test_path_dialog {
+                                            crate::studio_log!(
+                                                "UI_TEST_VECTOR_EDIT_NODES_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                node_editor_button.rect.left(),
+                                                node_editor_button.rect.top(),
+                                                node_editor_button.rect.width(),
+                                                node_editor_button.rect.height(),
+                                                ui.ctx().pixels_per_point()
+                                            );
+                                        }
+                                        if node_editor_button.clicked() {
+                                            self.vector_node_editor = if edit_nodes {
+                                                None
+                                            } else {
+                                                Some((path.id, 0, path.start))
+                                            };
+                                            self.test_vector_node_rect_logged = false;
+                                            if self.test_path_dialog {
+                                                crate::studio_log!(
+                                                    "UI_TEST_VECTOR_NODE_EDITING: {} {}",
+                                                    path.id,
+                                                    !edit_nodes
+                                                );
+                                            }
+                                        }
+                                        if let Some((editor_path, node_index, _)) =
+                                            self.vector_node_editor.filter(|(id, _, _)| *id == path.id)
+                                        {
+                                            let anchors = path.anchor_points();
+                                            let selected_index = node_index.min(anchors.len() - 1);
+                                            let label = format!("Anchor {} ▾", selected_index + 1);
+                                            let document_width = f64::from(project.state().width);
+                                            let document_height = f64::from(project.state().height);
+                                            let anchor_controls = ui.menu_button(label, |ui| {
+                                                let mut next_index = selected_index;
+                                                let mut point = anchors[next_index];
+                                                ui.horizontal(|ui| {
+                                                    ui.label(format!(
+                                                        "Anchor {} of {}",
+                                                        next_index + 1,
+                                                        anchors.len()
+                                                    ));
+                                                    if ui
+                                                        .add_enabled(
+                                                            next_index > 0,
+                                                            egui::Button::new("Previous"),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        next_index -= 1;
+                                                    }
+                                                    if ui
+                                                        .add_enabled(
+                                                            next_index + 1 < anchors.len(),
+                                                            egui::Button::new("Next"),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        next_index += 1;
+                                                    }
+                                                });
+                                                if next_index != selected_index {
+                                                    point = anchors[next_index];
+                                                    self.test_vector_node_rect_logged = false;
+                                                    if self.test_path_dialog {
+                                                        crate::studio_log!(
+                                                            "UI_TEST_VECTOR_NODE_SELECTED: {editor_path} {next_index} {:.2} {:.2}",
+                                                            point[0],
+                                                            point[1]
+                                                        );
+                                                    }
+                                                }
+                                                ui.horizontal(|ui| {
+                                                    let x_position = ui.add(
+                                                        egui::DragValue::new(&mut point[0])
+                                                            .speed(0.5)
+                                                            .range(0.0..=document_width)
+                                                            .prefix("X "),
+                                                    );
+                                                    x_position.widget_info(|| {
+                                                        egui::WidgetInfo::labeled(
+                                                            egui::WidgetType::DragValue,
+                                                            ui.is_enabled(),
+                                                            "Vector anchor X position",
+                                                        )
+                                                    });
+                                                    let y_position = ui.add(
+                                                        egui::DragValue::new(&mut point[1])
+                                                            .speed(0.5)
+                                                            .range(0.0..=document_height)
+                                                            .prefix("Y "),
+                                                    );
+                                                    y_position.widget_info(|| {
+                                                        egui::WidgetInfo::labeled(
+                                                            egui::WidgetType::DragValue,
+                                                            ui.is_enabled(),
+                                                            "Vector anchor Y position",
+                                                        )
+                                                    });
+                                                });
+                                                if point != anchors[next_index]
+                                                    && ui.button("Apply position").clicked()
+                                                {
+                                                    actions.push(Action::MoveVectorPathAnchor(
+                                                        path.id,
+                                                        next_index,
+                                                        point,
+                                                    ));
+                                                } else if point == anchors[next_index] {
+                                                    ui.weak(
+                                                        "Drag a canvas anchor or enter exact coordinates here.",
+                                                    );
+                                                }
+                                                self.vector_node_editor =
+                                                    Some((editor_path, next_index, point));
+                                            });
+                                            if self.test_path_dialog {
+                                                crate::studio_log!(
+                                                    "UI_TEST_VECTOR_ANCHOR_CONTROLS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                    anchor_controls.response.rect.left(),
+                                                    anchor_controls.response.rect.top(),
+                                                    anchor_controls.response.rect.width(),
+                                                    anchor_controls.response.rect.height(),
+                                                    ui.ctx().pixels_per_point()
+                                                );
+                                            }
+                                        }
                                         let pending = self
                                             .pending_vector_style
                                             .filter(|(pending_id, _, _)| *pending_id == path.id);
@@ -7105,6 +7343,28 @@ impl Studio {
                                                     width_response.dragged(),
                                                     width_response.changed(),
                                                     width_response.drag_stopped(),
+                                                );
+                                            }
+                                            let pointer_state = ui.ctx().input(|input| {
+                                                (
+                                                    input.pointer.primary_down(),
+                                                    input.pointer.button_pressed(
+                                                        egui::PointerButton::Primary,
+                                                    ),
+                                                    input.pointer.button_released(
+                                                        egui::PointerButton::Primary,
+                                                    ),
+                                                    input.pointer.interact_pos(),
+                                                )
+                                            });
+                                            if pointer_state.0 || pointer_state.1 || pointer_state.2
+                                            {
+                                                crate::studio_log!(
+                                                    "UI_TEST_VECTOR_SLIDER_POINTER: down={} pressed={} released={} pos={:?}",
+                                                    pointer_state.0,
+                                                    pointer_state.1,
+                                                    pointer_state.2,
+                                                    pointer_state.3
                                                 );
                                             }
                                         }
@@ -7919,6 +8179,10 @@ impl Studio {
                 self.edit_pointer = None;
                 self.edit_points.clear();
                 self.vector_drag_path = None;
+                self.vector_drag_node = None;
+                if self.tool != EditTool::VectorPath {
+                    self.vector_node_editor = None;
+                }
             }
 
             egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
@@ -11166,6 +11430,7 @@ impl Studio {
             self.edit_pointer = None;
             self.edit_points.clear();
             self.vector_drag_path = None;
+            self.vector_drag_node = None;
         }
         if let Some(theme) = window.theme() {
             self.system_dark = theme == winit::window::Theme::Dark;
@@ -11498,11 +11763,7 @@ impl Studio {
             && let Some(mapping) = self.mapping
         {
             if self.tool == EditTool::VectorPath {
-                let vector_points = if let Some(path_id) = self.vector_drag_path {
-                    let delta = [
-                        self.edit_points[1][0] - self.edit_points[0][0],
-                        self.edit_points[1][1] - self.edit_points[0][1],
-                    ];
+                let selected_path = self.selected_vector_path.and_then(|path_id| {
                     session
                         .live()
                         .project()
@@ -11514,8 +11775,30 @@ impl Studio {
                                 .vector_paths
                                 .iter()
                                 .find(|path| path.id == path_id)
-                                .map(paint_document::vector::flattened_points)
+                                .cloned()
                         })
+                });
+                let vector_points = if let Some((path_id, anchor_index)) = self.vector_drag_node {
+                    selected_path
+                        .as_ref()
+                        .filter(|path| path.id == path_id)
+                        .and_then(|path| {
+                            let mut preview = path.clone();
+                            preview
+                                .move_anchor(anchor_index, self.edit_points[1])
+                                .ok()?;
+                            Some(paint_document::vector::flattened_points(&preview))
+                        })
+                        .unwrap_or_default()
+                } else if let Some(path_id) = self.vector_drag_path {
+                    let delta = [
+                        self.edit_points[1][0] - self.edit_points[0][0],
+                        self.edit_points[1][1] - self.edit_points[0][1],
+                    ];
+                    selected_path
+                        .as_ref()
+                        .filter(|path| path.id == path_id)
+                        .map(paint_document::vector::flattened_points)
                         .unwrap_or_default()
                         .into_iter()
                         .map(|point| [point[0] + delta[0], point[1] + delta[1]])
@@ -11562,6 +11845,61 @@ impl Studio {
                                 egui::Stroke::new(width, color),
                             ),
                         });
+                    }
+                }
+                if let Some((path_id, selected_index, _)) = self.vector_node_editor
+                    && let Some(path) = selected_path.as_ref().filter(|path| path.id == path_id)
+                {
+                    let mut preview = path.clone();
+                    let preview_path = self.vector_drag_node.is_some_and(|(id, _)| id == path_id)
+                        && preview
+                            .move_anchor(
+                                selected_index,
+                                self.edit_points.get(1).copied().unwrap_or(path.start),
+                            )
+                            .is_ok();
+                    let preview = if preview_path { &preview } else { path };
+                    for (index, anchor) in preview.anchor_points().into_iter().enumerate() {
+                        let Some(clip) = mapping.to_clip(anchor).ok() else {
+                            continue;
+                        };
+                        let center = egui::pos2(
+                            (clip[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
+                            (1.0 - clip[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
+                        );
+                        let radius = 7.0;
+                        output.shapes.push(egui::epaint::ClippedShape {
+                            clip_rect: central,
+                            shape: egui::Shape::circle_filled(
+                                center,
+                                radius,
+                                if index == selected_index {
+                                    egui::Color32::from_rgb(255, 190, 96)
+                                } else {
+                                    egui::Color32::from_rgb(202, 128, 255)
+                                },
+                            ),
+                        });
+                        output.shapes.push(egui::epaint::ClippedShape {
+                            clip_rect: central,
+                            shape: egui::Shape::circle_stroke(
+                                center,
+                                radius,
+                                egui::Stroke::new(1.5, egui::Color32::from_rgb(28, 20, 44)),
+                            ),
+                        });
+                        if index == selected_index
+                            && self.test_path_dialog
+                            && !self.test_vector_node_rect_logged
+                        {
+                            self.test_vector_node_rect_logged = true;
+                            crate::studio_log!(
+                                "UI_TEST_VECTOR_NODE_HANDLE: {path_id} {index} {:.2} {:.2} {:.2}",
+                                center.x,
+                                center.y,
+                                output.pixels_per_point
+                            );
+                        }
                     }
                 }
             } else if self.edit_pointer.is_some()
@@ -12345,6 +12683,19 @@ impl Studio {
                         stroke[1],
                         stroke[2],
                         stroke[3]
+                    );
+                }
+            }
+            Action::MoveVectorPathAnchor(id, index, point) => {
+                project.move_vector_path_anchor(id, index, point)?;
+                self.vector_node_editor = Some((id, index, point));
+                self.test_vector_node_rect_logged = false;
+                self.status = format!("Vector anchor {} moved · Ctrl+Z to undo", index + 1);
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_VECTOR_NODE_POSITION_APPLIED: {id} {index} {:.2} {:.2}",
+                        point[0],
+                        point[1]
                     );
                 }
             }

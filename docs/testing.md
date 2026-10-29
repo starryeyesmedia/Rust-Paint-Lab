@@ -977,3 +977,32 @@ strict Clippy, build, Windows GNU checks and GPU smoke passed in the same local
 validation. Hosted Windows/Linux/macOS validation must still pass for the
 current source commit. Do not interpret Linux llvmpipe or Windows cross-checks as
 physical Windows GUI, S Pen, macOS runtime, Narrator/NVDA or hardware-GPU tests.
+
+### Latest anchor-editing regression — 2026-10-29
+
+The selected path's **Edit anchors** control now exposes an accessible anchor
+selector and coordinate fields. The complete `scripts/alpha-workflow-smoke.py`
+Xorg/XTest run verifies anchor drag and vector-width slider gestures through
+actual application input. The test waits for the app to acknowledge each held
+pointer frame because XTest can otherwise deliver the press and release in a
+single egui frame. It asserts preview/commit behavior, path geometry in v3,
+unchanged raster and mask tile tables, thumbnail refresh, save/reopen, and exact
+Undo/Redo. The focused integration also rejects invalid coordinates/indices and
+locked layers atomically:
+
+```sh
+cargo test --locked -p paint-document --test vector
+```
+
+Local validation on 2026-10-29 passed formatting, strict host Clippy, all
+**356 workspace tests**, workspace build, Windows GNU workspace check and
+Clippy, and explicit llvmpipe GPU smoke. The complete Xorg/XTest workflow passed
+and generated 62 screenshots, which were inspected for the populated vector
+editor, Home, New Artwork, and narrow Layers/Reference layouts. A 360 px path in
+the 1800 × 2400 XTest artwork took 12.444 s for OpenRaster export in the UI and
+11.993 s in a standalone debug build; this is a software-rendering/debug timing,
+not a release build or hardware measurement. Hosted cross-platform Actions for
+these uncommitted changes are pending; the previous green Actions run validates
+only the prior commit. The node editor creates/moves anchors on existing
+polylines; it does not yet add/remove anchors, author cubic curves, expose
+independent Bézier handles, or edit fill/transforms.

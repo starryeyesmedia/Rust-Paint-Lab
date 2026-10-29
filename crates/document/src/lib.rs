@@ -992,6 +992,32 @@ impl Engine {
         })
     }
 
+    /// Move one path anchor as a single history transaction. Adjacent cubic
+    /// handles follow the anchor, retaining their tangent offsets.
+    pub fn move_vector_path_anchor(
+        &mut self,
+        id: u64,
+        anchor: usize,
+        point: [f64; 2],
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.move_anchor(anchor, point)
+        })
+    }
+
     /// Remove one editable path from its visible, unlocked owner layer.
     pub fn remove_vector_path(&mut self, id: u64) -> Result<(), PaintError> {
         self.edit(|state| {

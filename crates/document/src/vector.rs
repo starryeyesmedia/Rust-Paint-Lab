@@ -105,6 +105,59 @@ impl VectorPath {
         Ok(())
     }
 
+    /// Return the editable anchors in path order. Cubic control handles are
+    /// intentionally excluded; they are adjusted with their adjacent anchors.
+    pub fn anchor_points(&self) -> Vec<[f64; 2]> {
+        let mut points = Vec::with_capacity(self.segments.len() + 1);
+        points.push(self.start);
+        points.extend(self.segments.iter().filter_map(|segment| match segment {
+            VectorSegment::LineTo { point } | VectorSegment::CubicTo { point, .. } => Some(*point),
+            VectorSegment::Close => None,
+        }));
+        points
+    }
+
+    /// Move one anchor and carry the adjacent cubic handles with it. The edit
+    /// is applied to a clone first so invalid coordinates leave the path intact.
+    pub fn move_anchor(&mut self, index: usize, point: [f64; 2]) -> Result<(), PaintError> {
+        if !valid_point(point) {
+            return Err(PaintError::Invalid);
+        }
+        let old = self
+            .anchor_points()
+            .get(index)
+            .copied()
+            .ok_or(PaintError::Invalid)?;
+        let delta = [point[0] - old[0], point[1] - old[1]];
+        let mut candidate = self.clone();
+        if index == 0 {
+            candidate.start = point;
+        } else {
+            let segment = candidate
+                .segments
+                .get_mut(index - 1)
+                .ok_or(PaintError::Invalid)?;
+            match segment {
+                VectorSegment::LineTo { point: endpoint } => *endpoint = point,
+                VectorSegment::CubicTo {
+                    control2,
+                    point: endpoint,
+                    ..
+                } => {
+                    translate_point(control2, delta);
+                    *endpoint = point;
+                }
+                VectorSegment::Close => return Err(PaintError::Invalid),
+            }
+        }
+        if let Some(VectorSegment::CubicTo { control1, .. }) = candidate.segments.get_mut(index) {
+            translate_point(control1, delta);
+        }
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
+    }
+
     pub fn translate(&mut self, delta: [f64; 2]) -> Result<(), PaintError> {
         if !delta.iter().all(|value| value.is_finite()) {
             return Err(PaintError::Invalid);

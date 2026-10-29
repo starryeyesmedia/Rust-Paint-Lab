@@ -68,8 +68,13 @@ separate from raster tiles, share the selected layer's ordering/mask/visibility,
 and render with deterministic antialiasing. `.rpl` version 3 stores and reopens
 their editable line/cubic geometry and stable IDs; PNG and OpenRaster render them
 as pixels, and the OpenRaster export status discloses that flattening. Node
-editing, Bezier handle controls, fills, scaling, rotation, and path duplication
-are not part of this first vector slice.
+editing is available from **Edit anchors**: drag an anchor on the canvas or
+choose it from the **Anchor N** menu and enter exact X/Y document coordinates.
+The drag remains provisional until release; Escape cancels it. One anchor move
+is one Undo/Redo transaction and moves adjacent cubic handles along with the
+anchor. The editor currently creates polylines only; anchor insertion/deletion,
+independent Bézier-handle controls, fills, scaling, rotation, and path duplication
+remain future work.
 
 Use **G** to choose the Gradient tool. Select **Linear** or **Radial** in the
 contextual options, then drag across the canvas: linear uses the drag direction;

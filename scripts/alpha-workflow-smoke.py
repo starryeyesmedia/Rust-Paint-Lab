@@ -206,6 +206,10 @@ def vector_width_rect():
     marker=stable_window_rect_marker('UI_TEST_VECTOR_WIDTH_RECT')
     return tuple(marker) if marker else None
 
+def vector_node_handle():
+    marker=event_marker('UI_TEST_VECTOR_NODE_HANDLE')
+    return tuple(map(float,marker.split())) if marker else None
+
 def symmetry_mode_rect(label):
     prefix=f'UI_TEST_SYMMETRY_MODE_RECT: {label} '
     lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
@@ -257,6 +261,15 @@ def window_rect_marker(name):
     lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
            if line.startswith(prefix)]
     return tuple(map(float,lines[-1].split()[:5])) if lines else None
+
+def window_size(window):
+    root_return=W();x_return=I();y_return=I()
+    width_return=U();height_return=U();border_return=U();depth_return=U()
+    if not get_geometry(display,window,c.byref(root_return),c.byref(x_return),c.byref(y_return),
+                        c.byref(width_return),c.byref(height_return),c.byref(border_return),
+                        c.byref(depth_return)):
+        return None
+    return width_return.value,height_return.value
 
 def home_preset_card_rect(name='Portrait'):
     prefix=f'UI_TEST_HOME_PRESET_CARD_RECT|{name}|'
@@ -695,6 +708,33 @@ def drag_at(start_x, start_y, end_x, end_y):
     move(round(end_x),round(end_y))
     time.sleep(0.12)
     click_button(1,False)
+
+def drag_control_with_frame_ack(start_x, start_y, end_x, end_y, marker_name):
+    """Keep a control drag held until the app has observed each pointer frame."""
+    def pointer_state_after(previous_count, description, predicate):
+        def observed():
+            if event_marker_count(marker_name) <= previous_count:
+                return None
+            marker=event_marker(marker_name)
+            return marker if marker and predicate(marker) else None
+        return wait(observed,description)
+
+    start_x,start_y=round(start_x),round(start_y)
+    end_x,end_y=round(end_x),round(end_y)
+    move(start_x,start_y)
+    before=event_marker_count(marker_name)
+    click_button(1,True)
+    pointer_state_after(before,'the application observes the pressed control pointer',
+                        lambda marker:'down=true' in marker and 'released=true' not in marker)
+    for px,py in [((start_x+end_x)//2,(start_y+end_y)//2),(end_x,end_y)]:
+        before=event_marker_count(marker_name)
+        move(px,py)
+        pointer_state_after(before,'the application observes the held pointer moving over the control',
+                            lambda marker:'down=true' in marker and 'released=true' not in marker)
+    before=event_marker_count(marker_name)
+    click_button(1,False)
+    pointer_state_after(before,'the application observes the control pointer release',
+                        lambda marker:'released=true' in marker)
 
 def drag_path(points):
     assert len(points)>=2
@@ -2878,6 +2918,73 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda:layer_thumbnail_update(selected_layer_id),
                  'the reopened vector layer has a cached thumbnail before style editing')
 
+            # The selected path exposes an accessible node editor. Dragging a
+            # rendered anchor changes editable geometry while preserving its
+            # raster/mask tables and creates one undoable transaction.
+            node_edit_count=event_marker_count('UI_TEST_VECTOR_NODE_EDITING')
+            node_handle_count=event_marker_count('UI_TEST_VECTOR_NODE_HANDLE')
+            node_edit_rect=wait(
+                lambda:stable_window_rect_marker('UI_TEST_VECTOR_EDIT_NODES_RECT'),
+                'the selected vector path exposes its node editor action')
+            click_at((node_edit_rect[0]+node_edit_rect[2]/2)*node_edit_rect[4],
+                     (node_edit_rect[1]+node_edit_rect[3]/2)*node_edit_rect[4])
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_NODE_EDITING')>node_edit_count
+                 and event_marker('UI_TEST_VECTOR_NODE_EDITING')
+                 ==f'{vector_created_marker[0]} true',
+                 'the selected path enters anchor-edit mode')
+            node_handle=wait(
+                lambda:(lambda marker:marker if marker
+                        and event_marker_count('UI_TEST_VECTOR_NODE_HANDLE')>node_handle_count
+                        else None)(vector_node_handle()),
+                'anchor-edit mode draws a selectable point handle on the canvas')
+            assert int(node_handle[0])==int(vector_created_marker[0])
+            assert int(node_handle[1])==0
+            width_control=wait(vector_width_rect,
+                               'anchor editing keeps the vector stroke-width control available')
+            current_window_size=window_size(window)
+            assert current_window_size is not None
+            assert width_control[0]>=0 and width_control[0]+width_control[2] \
+                <=current_window_size[0]/width_control[4]+1, \
+                f'anchor editing must not push the stroke-width control outside the window: {width_control} in {current_window_size}'
+            capture_window(window,'vector-node-editor')
+            node_before=imported.read_bytes()
+            node_before_state=native_state_bytes(node_before)
+            node_layer=next(layer for layer in node_before_state['layers']
+                            if layer['id']==node_before_state['selected'])
+            node_path_before=node_layer['vector_paths'][0]
+            node_thumbnail_before=layer_thumbnail_update(node_layer['id'])
+            node_move_count=event_marker_count('UI_TEST_VECTOR_NODE_MOVED')
+            hx,hy=round(node_handle[2]*node_handle[4]),round(node_handle[3]*node_handle[4])
+            drag_at(hx,hy,hx+12,hy+8)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_NODE_MOVED')>node_move_count,
+                 'dragging a canvas anchor commits one editable vector-node transaction')
+            moved_node_marker=event_marker('UI_TEST_VECTOR_NODE_MOVED').split()
+            assert int(moved_node_marker[0])==node_path_before['id']
+            assert int(moved_node_marker[1])==0
+            ctrl('s')
+            wait(lambda:valid_project(imported) and imported.read_bytes()!=node_before
+                 and '*' not in title(window),
+                 'the moved vector anchor is saved in the native project')
+            node_after=imported.read_bytes()
+            node_after_state=native_state_bytes(node_after)
+            node_layer_after=next(layer for layer in node_after_state['layers']
+                                  if layer['id']==node_after_state['selected'])
+            node_path_after=node_layer_after['vector_paths'][0]
+            assert node_path_after['start']!=node_path_before['start']
+            assert node_path_after['segments']==node_path_before['segments']
+            assert native_document_tables(node_after)[1]==native_document_tables(node_before)[1]
+            assert native_document_tables(node_after)[2]==native_document_tables(node_before)[2]
+            wait(lambda:(lambda update:update and node_thumbnail_before
+                         and update[0]!=node_thumbnail_before[0])(
+                             layer_thumbnail_update(node_layer['id'])),
+                 'moving a vector anchor invalidates the owning layer thumbnail')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==node_before,
+                 'Undo restores the exact pre-node-edit vector project')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==node_after,
+                 'Redo restores the saved vector anchor exactly')
+
             # Width editing changes editable path metadata, leaves raster/mask
             # storage untouched, refreshes the layer preview, and commits one
             # undo transaction per gesture.
@@ -2893,12 +3000,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 print(f'UI_TEST_VECTOR_STYLE_CONTROL: WIDTH rect={rect}',flush=True)
                 before_count=event_marker_count('UI_TEST_VECTOR_STYLE_APPLIED')
                 x,y,width,height,scale=rect
-                drag_at((x+width*start_fraction)*scale,
-                        (y+height*0.5)*scale,
-                        (x+width*end_fraction)*scale,
-                        (y+height*0.5)*scale)
+                drag_control_with_frame_ack(
+                    (x+width*start_fraction)*scale,
+                    (y+height*0.5)*scale,
+                    (x+width*end_fraction)*scale,
+                    (y+height*0.5)*scale,
+                    'UI_TEST_VECTOR_SLIDER_POINTER',
+                )
                 wait(lambda:event_marker_count('UI_TEST_VECTOR_STYLE_APPLIED')>before_count,
-                     'a completed width drag commits one vector-style transaction')
+                     'a completed width drag commits one vector-style transaction',seconds=30)
                 assert event_marker_count('UI_TEST_VECTOR_STYLE_APPLIED')==before_count+1, \
                     'a width drag must create exactly one undo transaction'
                 applied=event_marker('UI_TEST_VECTOR_STYLE_APPLIED').split()
@@ -2933,7 +3043,9 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                      'Redo restores the saved vector width exactly')
                 return after
 
-            vector_styled=apply_vector_width(0.05,0.16)
+            # Move within the visible track instead of starting at its edge,
+            # where the thumb/label hit area is driver-dependent at high DPI.
+            vector_styled=apply_vector_width(0.45,0.65)
             # Confirm the saved editable style is restored by the application's
             # ordinary Open workflow, not merely by its serializer.
             styled_open_count=event_marker_count('UI_TEST_PROJECT_OPENED')
@@ -2994,7 +3106,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl_shift('e')
             wait(lambda: event_marker('UI_TEST_OPENRASTER_VECTORS_FLATTENED')=='true'
                  and ora.exists(),
-                 'OpenRaster export discloses that editable vector objects become pixels')
+                 'OpenRaster export discloses that editable vector objects become pixels',
+                 seconds=120)
             with zipfile.ZipFile(ora) as archive:
                 assert archive.testzip() is None
                 layer_pngs=[name for name in archive.namelist()
@@ -3515,7 +3628,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','layers-panel-white-mask-settings','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','layers-panel-white-mask-settings','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

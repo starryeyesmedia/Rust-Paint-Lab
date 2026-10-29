@@ -257,6 +257,97 @@ fn vector_style_edit_rejects_invalid_widths_and_locked_or_hidden_owner_layers() 
 }
 
 #[test]
+fn vector_anchor_edits_preserve_cubic_handle_offsets_and_roundtrip_as_one_transaction() {
+    let mut engine = blank();
+    let id = add_path(&mut engine);
+    engine
+        .edit(|state| {
+            state.layers[0].vector_paths[0].segments = vec![
+                VectorSegment::CubicTo {
+                    control1: [16.0, 12.0],
+                    control2: [24.0, 20.0],
+                    point: [32.0, 24.0],
+                },
+                VectorSegment::CubicTo {
+                    control1: [40.0, 28.0],
+                    control2: [48.0, 36.0],
+                    point: [56.0, 40.0],
+                },
+            ];
+            Ok(())
+        })
+        .unwrap();
+    let before = storage::encode(engine.state()).unwrap();
+    let pixels_before = engine.rgba();
+    let history_before = engine.undo_count();
+
+    engine.move_vector_path_anchor(id, 1, [36.0, 30.0]).unwrap();
+    let path = &engine.state().layers[0].vector_paths[0];
+    assert_eq!(
+        path.anchor_points(),
+        vec![[8.0, 12.0], [36.0, 30.0], [56.0, 40.0]]
+    );
+    assert_eq!(
+        path.segments,
+        vec![
+            VectorSegment::CubicTo {
+                control1: [16.0, 12.0],
+                control2: [28.0, 26.0],
+                point: [36.0, 30.0],
+            },
+            VectorSegment::CubicTo {
+                control1: [44.0, 34.0],
+                control2: [48.0, 36.0],
+                point: [56.0, 40.0],
+            },
+        ]
+    );
+    assert_ne!(engine.rgba(), pixels_before);
+    assert_eq!(engine.undo_count(), history_before + 1);
+    let after = storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&after).unwrap()).unwrap();
+    assert_eq!(
+        reopened.state().layers[0].vector_paths[0],
+        engine.state().layers[0].vector_paths[0]
+    );
+
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert_eq!(engine.rgba(), pixels_before);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), after);
+    assert_eq!(engine.rgba(), reopened.rgba());
+}
+
+#[test]
+fn vector_anchor_edits_reject_invalid_indices_points_and_locked_owners_atomically() {
+    let mut engine = blank();
+    let id = add_path(&mut engine);
+    let before = storage::encode(engine.state()).unwrap();
+    let history = engine.undo_count();
+
+    for (index, point) in [
+        (usize::MAX, [20.0, 20.0]),
+        (1, [f64::NAN, 20.0]),
+        (1, [16_385.0, 20.0]),
+    ] {
+        assert!(engine.move_vector_path_anchor(id, index, point).is_err());
+        assert_eq!(storage::encode(engine.state()).unwrap(), before);
+        assert_eq!(engine.undo_count(), history);
+    }
+
+    engine
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    let locked_state = storage::encode(engine.state()).unwrap();
+    assert!(engine.move_vector_path_anchor(id, 1, [20.0, 20.0]).is_err());
+    assert_eq!(storage::encode(engine.state()).unwrap(), locked_state);
+}
+
+#[test]
 fn layer_duplication_remaps_vector_ids_and_preserves_editable_order() {
     let mut engine = blank();
     let first_id = add_path(&mut engine);

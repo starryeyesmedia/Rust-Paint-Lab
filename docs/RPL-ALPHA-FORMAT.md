@@ -47,9 +47,11 @@ allows at most 1,024 paths and 8,192 stored segments (1,024 per path), finite
 coordinates within ±16,384 document pixels, widths from 0.25 to 512 pixels, and a
 conservative estimated 32 million segment-bounds pixel checks per composite
 across visible paths. Cubic segments use deterministic 16-step flattening for
-rasterization and hit testing. This first path slice is stroked only; editable
-fill, node handles, transforms beyond translation, and SVG round-trip remain
-future work. No decompression is used. The reader validates checksum, bounded
+rasterization and hit testing. The current editor can move path anchors without
+changing the version 3 record layout; adjacent cubic handles retain their
+offsets. It creates polyline paths only and does not yet expose independent
+Bézier-handle editing, anchor insertion/deletion, path fills, scale/rotation, or
+SVG round-trip. No decompression is used. The reader validates checksum, bounded
 lengths/counts, metadata and tile data before returning a document. It does not
 deserialize GPU objects or platform handles.
 
