@@ -3173,3 +3173,39 @@ interactive cubic-creation workflow and native transaction tests, then evaluate
 vector object transforms without changing v3 until a concrete schema need is
 demonstrated. Do not declare Phase 8.3, Phase 9 hardware validation, or Phase 10
 complete.
+
+### Phase 10 continuation — convert line segments to editable curves (2026-10-29)
+
+The vector node menu now converts an adjacent straight segment into cubic
+Bézier geometry using collinear one-third/two-third control points. The initial
+render remains the same straight line; the outgoing and incoming handles can
+then be edited independently. At the final anchor the menu targets the
+preceding line; at other anchors it prefers the outgoing line. Locked, hidden,
+invalid, and non-line segments remain rejected by the document API. This keeps
+the native v3 schema and v1/v2 read compatibility unchanged. Two document tests
+cover exact geometry/pixels, serialization, one-step undo/redo, limits, and
+atomic refusal.
+
+Local Rust 1.90 formatting, strict host and Windows GNU Clippy, workspace build,
+Windows GNU target check, 366 workspace tests, and required llvmpipe GPU smoke
+pass. The full Linux Xorg/XTest artwork workflow now exits successfully. It
+exercised the new menu conversion, native save/reopen, undo/redo, and cubic-handle
+editing, and re-ran masks, painting, gradients, shapes, selection, recovery,
+PNG/OpenRaster, and exact mixer undo/redo. The earlier mixer discrepancy was
+caused by least-significant floating-point coordinate drift during repeated
+native JSON decoding; enabling serde_json `float_roundtrip` fixed the exact
+round-trip without changing the project schema. The workflow retained 64 PNG
+captures; I inspected `vector-cubic-handles.png`, the populated narrow
+Layers/Reference view, and the populated light Home view. Both the path editor
+and narrow panel state remain functional, though the latter leaves little canvas
+visible when both panels are open.
+
+Actions run
+[`40867515476`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40867515476)
+passed Windows and macOS but timed out the Linux alpha artwork workflow at its
+former 15-minute cap. CI now allows 25 minutes with all assertions retained. A
+new hosted run for this commit is pending. The local Xorg/llvmpipe results do not
+validate Windows GUI startup, macOS startup, physical S Pen pressure/tilt or
+palm behavior, Narrator/NVDA, or power-loss durability. Phase 9 and Phase 10
+remain active. Next, require the hosted matrix to pass, then implement connected
+cubic-path creation and continue with vector fill and object transforms.

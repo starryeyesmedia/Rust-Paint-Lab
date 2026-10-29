@@ -1044,6 +1044,31 @@ impl Engine {
         })
     }
 
+    /// Convert a straight path segment to a cubic Bézier without changing its
+    /// rendered line. The resulting handles can then be adjusted separately.
+    pub fn convert_vector_path_segment_to_cubic(
+        &mut self,
+        id: u64,
+        after_anchor: usize,
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.convert_line_to_cubic(after_anchor)
+        })
+    }
+
     /// Split the segment after one anchor and return the new anchor index.
     pub fn insert_vector_path_anchor(
         &mut self,

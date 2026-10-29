@@ -819,6 +819,30 @@ Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
 implement bounded, keyboard-accessible vector node movement and undo, then
 continue curve handles, fill and transforms without claiming Phase 10 complete.
 
+### Current local continuation — editable line-to-cubic conversion (2026-10-29)
+
+The Phase 10 node editor can convert an adjacent line segment to an editable
+cubic while retaining its straight appearance, then expose the new handles.
+Native v3 is unchanged and v1/v2 remain readable. Engine tests and the real
+Linux UI workflow verify geometry, saved path data, raster/mask table isolation,
+and undo/redo. Rust formatting, strict host/Windows GNU Clippy, all 366 workspace
+tests, workspace build, Windows GNU target check, and llvmpipe GPU smoke pass
+locally.
+
+The complete Linux Xorg/XTest workflow now passes locally, including the new
+conversion menu, native save/reopen, exact Undo/Redo, and populated cubic-handle
+editing. It re-exercises the Phase 9 mask operations and artwork/save/export/
+recovery flows. An exact Color Mixer redo failure was traced to f64 metadata
+drift during native JSON decoding; enabling serde_json `float_roundtrip` fixed
+the repeated round-trip and the UI regression without changing the format.
+Formatting, strict host/Windows GNU Clippy, all 366 workspace tests, workspace
+build, Windows GNU check, and llvmpipe GPU smoke pass locally. The XTest run
+completed with 64 screenshot captures; populated vector, narrow Layers/Reference,
+and light Home views were inspected. Hosted validation of the 25-minute Linux
+workflow change is pending because run `40867515476` used the previous 15-minute
+limit. Cubic authoring, object transforms, duplication, fill, and SVG
+interoperability remain open.
+
 ### Cubic handle editing and current validation — 2026-10-29
 
 The local Phase 10 continuation adds incoming/outgoing Bézier handle selection,

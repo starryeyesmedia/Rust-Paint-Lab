@@ -1099,3 +1099,31 @@ llvmpipe environment; this is not a release or hardware performance result.
 Windows GNU checks are compile/lint validation only, and hosted Actions for this
 working tree are pending. Windows GUI startup, macOS GUI startup, physical pen,
 Narrator/NVDA, and power-loss durability were not exercised here.
+
+### Line-to-cubic conversion follow-up (2026-10-29)
+
+`paint-document` covers line-to-cubic conversion, exact pixel preservation,
+native v3 round trips, undo/redo, and atomic rejection:
+
+```sh
+cargo test --locked -p paint-document --test vector
+```
+
+The current full local check passed formatting, strict host and Windows GNU
+Clippy, workspace build, Windows GNU target check, 366 workspace tests, and the
+required llvmpipe GPU smoke. The complete Xorg/XTest artwork script exited
+successfully after exercising conversion through the real anchor menu,
+save/reopen, undo/redo, cubic-handle editing, mask operations, and the broader
+painting/export/recovery regression. It produced 64 PNG screenshots. The exact
+Color Mixer redo mismatch seen in an earlier run was traced to floating-point
+metadata drift from JSON parsing; serde_json `float_roundtrip` now preserves the
+native geometry through repeated decode/encode cycles and the full UI redo test
+passes. No project schema changed.
+
+GitHub Actions run
+[`40867515476`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40867515476)
+passed Windows and macOS. Its Linux alpha artwork step exceeded the old
+15-minute timeout, so the workflow now gives that unchanged step 25 minutes. The
+updated hosted workflow is pending for the new commit. The local Linux Xorg test
+and software GPU smoke do not validate physical S Pen behavior, Windows GUI
+startup, macOS startup, Narrator/NVDA, or power-loss durability.

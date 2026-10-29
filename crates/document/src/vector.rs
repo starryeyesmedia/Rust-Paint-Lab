@@ -214,6 +214,34 @@ impl VectorPath {
         Ok(())
     }
 
+    /// Convert a straight segment to a cubic with collinear one-third handles.
+    /// The initial curve is visually the same line, after which either handle
+    /// can be edited independently.
+    pub fn convert_line_to_cubic(&mut self, after_anchor: usize) -> Result<(), PaintError> {
+        let start = self
+            .anchor_points()
+            .get(after_anchor)
+            .copied()
+            .ok_or(PaintError::Invalid)?;
+        let segment = self
+            .segments
+            .get(after_anchor)
+            .cloned()
+            .ok_or(PaintError::Invalid)?;
+        let VectorSegment::LineTo { point } = segment else {
+            return Err(PaintError::Invalid);
+        };
+        let mut candidate = self.clone();
+        candidate.segments[after_anchor] = VectorSegment::CubicTo {
+            control1: lerp(start, point, 1.0 / 3.0),
+            control2: lerp(start, point, 2.0 / 3.0),
+            point,
+        };
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
+    }
+
     /// Insert an anchor halfway along the segment following `index`. Cubic
     /// segments are split with De Casteljau's algorithm, retaining the same
     /// curve while making the split point independently editable.
@@ -404,6 +432,10 @@ fn valid_point(point: [f64; 2]) -> bool {
 
 fn midpoint(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
     [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]
+}
+
+fn lerp(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
 }
 
 fn translate_point(point: &mut [f64; 2], delta: [f64; 2]) {

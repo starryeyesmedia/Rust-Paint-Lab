@@ -216,6 +216,9 @@ def vector_anchor_controls_rect():
 def vector_anchor_action_rect(action):
     return stable_window_rect_marker(f'UI_TEST_VECTOR_ANCHOR_{action.upper()}_RECT')
 
+def vector_curve_segment_rect():
+    return stable_window_rect_marker('UI_TEST_VECTOR_CURVE_SEGMENT_RECT')
+
 def vector_handles_section_rect():
     return stable_window_rect_marker('UI_TEST_VECTOR_HANDLES_SECTION_RECT')
 
@@ -931,6 +934,29 @@ def native_projects_equivalent(left, right):
     right_state,right_layers,right_masks=native_document_tables(right)
     return native_values_near(left_state,right_state) \
         and left_layers==right_layers and left_masks==right_masks
+
+def native_project_difference_summary(expected, actual):
+    expected_state,expected_tiles,expected_masks=native_document_tables(expected)
+    actual_state,actual_tiles,actual_masks=native_document_tables(actual)
+    different_tiles=[]
+    different_bytes=0
+    for layer_id in set(expected_tiles)|set(actual_tiles):
+        expected_layer=expected_tiles.get(layer_id,{})
+        actual_layer=actual_tiles.get(layer_id,{})
+        for tile_key in set(expected_layer)|set(actual_layer):
+            before=expected_layer.get(tile_key,b'\0'*16384)
+            after=actual_layer.get(tile_key,b'\0'*16384)
+            if before!=after:
+                different_tiles.append((layer_id,tile_key))
+                different_bytes+=sum(a!=b for a,b in zip(before,after))
+    return (
+        f'expected_sha256={hashlib.sha256(expected).hexdigest()} '
+        f'actual_sha256={hashlib.sha256(actual).hexdigest()} '
+        f'state_equal={expected_state==actual_state} '
+        f'mask_equal={expected_masks==actual_masks} '
+        f'different_tiles={len(different_tiles)} different_bytes={different_bytes} '
+        f'tiles={different_tiles[:12]}'
+    )
 def native_layer_pixel(path, x, y):
     return native_layer_pixel_bytes(path.read_bytes(),x,y)
 def native_layer_pixel_bytes(data, x, y):
@@ -1014,6 +1040,10 @@ def capture_window(window, name):
             time.sleep(0.03)
         assert capture.is_file(), f'wgpu surface capture did not complete for {name}'
         data=capture.read_bytes()
+        # The raw RGBA readback is several megabytes per screenshot. The PNG
+        # below is the retained artifact, so remove each temporary surface copy
+        # immediately instead of filling the constrained CI/tmp filesystem.
+        capture.unlink(missing_ok=True)
         assert len(data)>=16 and data[:8]==b'RPLCAP01', f'{name} has an invalid GPU capture header'
         width,height=struct.unpack('<II',data[8:16])
         assert width>0 and height>0 and width<=4096 and height<=4096, f'{name} GPU capture dimensions are invalid'
@@ -3137,6 +3167,74 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda:imported.read_bytes()==insertion_before,
                  'Redo restores the exact line geometry after anchor deletion')
 
+            # A line drawn in the application can be promoted to editable
+            # cubic geometry in place; its initial one-third handles preserve
+            # the straight appearance, after which the handle editor can bend it.
+            curve_before=imported.read_bytes()
+            assert curve_before==insertion_before
+            # Explicitly leave and re-enter anchor editing so the selector is
+            # known closed. Escape is also used by the workspace to dismiss
+            # panels, so it is not a reliable way to reset popup state here.
+            node_edit_count=event_marker_count('UI_TEST_VECTOR_NODE_EDITING')
+            node_edit=wait(lambda:stable_window_rect_marker('UI_TEST_VECTOR_EDIT_NODES_RECT'),
+                           'the vector path exposes its anchor editor toggle')
+            click_scaled_rect(node_edit)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_NODE_EDITING')>node_edit_count
+                 and event_marker('UI_TEST_VECTOR_NODE_EDITING')
+                 ==f"{insertion_path['id']} false",
+                 'anchor editing closes before reopening the segment menu')
+            node_edit_count=event_marker_count('UI_TEST_VECTOR_NODE_EDITING')
+            node_edit=wait(lambda:stable_window_rect_marker('UI_TEST_VECTOR_EDIT_NODES_RECT'),
+                           'the vector path exposes its anchor editor toggle')
+            click_scaled_rect(node_edit)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_NODE_EDITING')>node_edit_count
+                 and event_marker('UI_TEST_VECTOR_NODE_EDITING')
+                 ==f"{insertion_path['id']} true",
+                 'anchor editing reopens with the segment menu closed')
+            curve_rect_count=event_marker_count('UI_TEST_VECTOR_CURVE_SEGMENT_RECT')
+            curve_anchor_menu=wait(
+                vector_anchor_controls_rect,
+                'the selected line path keeps its accessible anchor menu')
+            click_scaled_rect(curve_anchor_menu)
+            curve_rect=wait(
+                lambda:(lambda rect:rect if rect and
+                        event_marker_count('UI_TEST_VECTOR_CURVE_SEGMENT_RECT')>=
+                        curve_rect_count+3 else None)(vector_curve_segment_rect()),
+                'the selected line segment exposes its curve conversion action')
+            curve_count=event_marker_count('UI_TEST_VECTOR_SEGMENT_CURVED')
+            click_scaled_rect(curve_rect)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_SEGMENT_CURVED')>curve_count,
+                 'the curve action creates an editable cubic segment through the UI')
+            ctrl('s')
+            wait(lambda:valid_project(imported) and imported.read_bytes()!=curve_before
+                 and '*' not in title(window),
+                 'the editable cubic segment is saved in the native project')
+            curve_after=imported.read_bytes()
+            curve_after_state=native_state_bytes(curve_after)
+            curve_layer=next(layer for layer in curve_after_state['layers']
+                             if layer['id']==curve_after_state['selected'])
+            curve_path=curve_layer['vector_paths'][0]
+            curve_segment=curve_path['segments'][0]
+            assert curve_segment['kind']=='cubic_to'
+            start=curve_path['start']
+            end=curve_segment['point']
+            assert native_values_near(curve_segment['control1'],
+                [start[axis]+(end[axis]-start[axis])/3.0 for axis in range(2)])
+            assert native_values_near(curve_segment['control2'],
+                [start[axis]+(end[axis]-start[axis])*2.0/3.0 for axis in range(2)])
+            assert native_document_tables(curve_after)[1] \
+                ==native_document_tables(curve_before)[1], \
+                'converting a line to a vector curve must not write raster tiles'
+            assert native_document_tables(curve_after)[2] \
+                ==native_document_tables(curve_before)[2], \
+                'converting a line to a vector curve must preserve editable masks'
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==curve_before,
+                 'Undo restores the exact pre-conversion line path')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==curve_after,
+                 'Redo restores the exact editable cubic segment')
+
             # Load a checked native fixture containing a cubic segment so the
             # actual canvas handle editor is exercised with XTest, not just its
             # document API or Accessibility tree. The metadata rewrite keeps
@@ -3501,10 +3599,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'S selects the document-backed Smudge tool')
             smudge_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                               for line in (directory/'application.log').read_text().splitlines())
+            smudge_commits=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
             drag_at(520,350,600,390)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>smudge_starts,
                  'Smudge uses the ordinary routed canvas pointer lifecycle')
+            wait(lambda:event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>smudge_commits,
+                 'the primary-button release commits the Smudge transaction before saving')
             ctrl('s')
             wait(lambda: valid_project(imported) and imported.read_bytes()!=smudge_base
                  and '*' not in title(window),
@@ -3528,8 +3629,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: imported.read_bytes()==smudge_base,
                  'Smudge is one exact undoable raster transaction')
             ctrl('y');ctrl('s')
-            wait(lambda: imported.read_bytes()==smudge_bytes and '*' not in title(window),
-                 'redo restores the exact committed Smudge result')
+            try:
+                wait(lambda: imported.read_bytes()==smudge_bytes and '*' not in title(window),
+                     'redo restores the exact committed Smudge result')
+            except AssertionError:
+                print('UI_TEST_SMUDGE_REDO_MISMATCH: '
+                      +native_project_difference_summary(smudge_bytes,imported.read_bytes()),
+                      flush=True)
+                raise
             # Color Mixer is a separate raster operation: it deposits the
             # selected brush color into existing pixels and uses the ordinary
             # routed input path, but replaces touched layer pixels rather than
@@ -3540,10 +3647,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'X selects the document-backed Color Mixer tool')
             color_mix_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                                  for line in (directory/'application.log').read_text().splitlines())
+            color_mix_commits=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
             drag_at(520,350,600,390)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>color_mix_starts,
                  'Color Mixer uses the ordinary routed canvas pointer lifecycle')
+            wait(lambda:event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>color_mix_commits,
+                 'the primary-button release commits the Color Mixer transaction before saving')
             ctrl('s')
             wait(lambda: valid_project(imported) and imported.read_bytes()!=color_mix_base
                  and '*' not in title(window),
@@ -3568,8 +3678,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: imported.read_bytes()==color_mix_base,
                  'Color Mixer is one exact undoable raster transaction')
             ctrl('y');ctrl('s')
-            wait(lambda: imported.read_bytes()==color_mix_bytes and '*' not in title(window),
-                 'redo restores the exact committed Color Mixer result')
+            try:
+                wait(lambda: imported.read_bytes()==color_mix_bytes and '*' not in title(window),
+                     'redo restores the exact committed Color Mixer result')
+            except AssertionError:
+                print('UI_TEST_COLOR_MIX_REDO_MISMATCH: '
+                      +native_project_difference_summary(color_mix_bytes,imported.read_bytes()),
+                      flush=True)
+                raise
             # The UI's symmetry panel must affect real routed mouse strokes,
             # save preference separately, and persist reflected pixels as one
             # ordinary editable native raster transaction.

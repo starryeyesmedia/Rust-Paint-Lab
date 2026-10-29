@@ -1414,6 +1414,7 @@ fn color_mixer_blends_selected_paint_on_layer_and_roundtrips_undo_redo() {
     engine.brush.flow = 1.0;
     engine.brush.opacity = 1.0;
     let before = engine.rgba();
+    let encoded_before = storage::encode(engine.state()).unwrap();
     let pixel = (32 * 128 + 20) * 4;
     assert_eq!(&before[pixel..pixel + 4], &[255, 0, 0, 255]);
 
@@ -1421,6 +1422,7 @@ fn color_mixer_blends_selected_paint_on_layer_and_roundtrips_undo_redo() {
     // deposit. The alpha remains valid premultiplied RGBA throughout.
     apply_color_mix(&mut engine, 80, [20.0, 32.0], 0.5);
     let mixed = engine.rgba();
+    let encoded_mixed = storage::encode(engine.state()).unwrap();
     // Begin and terminal samples both deposit at this same pixel, so the
     // second half-strength dab moves the already mixed color closer to blue.
     assert_eq!(&mixed[pixel..pixel + 4], &[64, 0, 192, 255]);
@@ -1448,8 +1450,10 @@ fn color_mixer_blends_selected_paint_on_layer_and_roundtrips_undo_redo() {
 
     assert!(engine.undo());
     assert_eq!(engine.rgba(), before);
+    assert_eq!(storage::encode(engine.state()).unwrap(), encoded_before);
     assert!(engine.redo());
     assert_eq!(engine.rgba(), mixed);
+    assert_eq!(storage::encode(engine.state()).unwrap(), encoded_mixed);
 }
 
 #[test]

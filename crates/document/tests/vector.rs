@@ -471,6 +471,96 @@ fn cubic_handle_edits_reject_missing_segments_invalid_points_and_locked_layers()
 }
 
 #[test]
+fn line_segment_can_become_an_editable_cubic_without_changing_its_line() {
+    let mut engine = blank();
+    let id = engine
+        .add_vector_path(&[[8.25, 12.5], [73.75, 42.125], [88.0, 16.0]])
+        .unwrap();
+    let before = storage::encode(engine.state()).unwrap();
+    let pixels_before = engine.rgba();
+    let history_before = engine.undo_count();
+
+    engine.convert_vector_path_segment_to_cubic(id, 0).unwrap();
+    let path = &engine.state().layers[0].vector_paths[0];
+    let VectorSegment::CubicTo {
+        control1,
+        control2,
+        point,
+    } = path.segments[0]
+    else {
+        panic!("the selected line segment should now be cubic")
+    };
+    assert_eq!(
+        control1,
+        [8.25 + (73.75 - 8.25) / 3.0, 12.5 + (42.125 - 12.5) / 3.0]
+    );
+    assert_eq!(
+        control2,
+        [
+            8.25 + (73.75 - 8.25) * (2.0 / 3.0),
+            12.5 + (42.125 - 12.5) * (2.0 / 3.0)
+        ]
+    );
+    assert_eq!(point, [73.75, 42.125]);
+    assert!(path.control_handle(0, VectorHandle::Outgoing).is_some());
+    assert!(path.control_handle(1, VectorHandle::Incoming).is_some());
+    assert_eq!(
+        engine.rgba(),
+        pixels_before,
+        "collinear handles preserve the rendered line"
+    );
+    assert_eq!(engine.undo_count(), history_before + 1);
+    let curved = storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&curved).unwrap()).unwrap();
+    assert_eq!(reopened.state().layers[0].vector_paths[0], *path);
+
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), curved);
+}
+
+#[test]
+fn cubic_conversion_refuses_non_lines_bad_indices_and_locked_or_hidden_layers_atomically() {
+    let mut engine = blank();
+    let id = engine
+        .add_vector_path(&[[8.0, 12.0], [40.0, 18.0], [80.0, 30.0]])
+        .unwrap();
+    engine.convert_vector_path_segment_to_cubic(id, 0).unwrap();
+    let before = storage::encode(engine.state()).unwrap();
+    let history = engine.undo_count();
+    for index in [usize::MAX, 0, 2] {
+        assert!(
+            engine
+                .convert_vector_path_segment_to_cubic(id, index)
+                .is_err()
+        );
+        assert_eq!(storage::encode(engine.state()).unwrap(), before);
+        assert_eq!(engine.undo_count(), history);
+    }
+    engine
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    let locked = storage::encode(engine.state()).unwrap();
+    assert!(engine.convert_vector_path_segment_to_cubic(id, 1).is_err());
+    assert_eq!(storage::encode(engine.state()).unwrap(), locked);
+
+    engine
+        .edit(|state| {
+            state.layers[0].locked = false;
+            state.layers[0].visible = false;
+            Ok(())
+        })
+        .unwrap();
+    let hidden = storage::encode(engine.state()).unwrap();
+    assert!(engine.convert_vector_path_segment_to_cubic(id, 1).is_err());
+    assert_eq!(storage::encode(engine.state()).unwrap(), hidden);
+}
+
+#[test]
 fn repeated_native_roundtrips_preserve_cubic_f64_coordinates_exactly() {
     let mut engine = blank();
     let id = engine

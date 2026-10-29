@@ -2606,6 +2606,7 @@ pub(crate) enum Action {
     SetVectorPathStyle(u64, [u8; 4], f64),
     MoveVectorPathAnchor(u64, usize, [f64; 2]),
     MoveVectorPathHandle(u64, usize, VectorHandle, [f64; 2]),
+    ConvertVectorPathSegmentToCubic(u64, usize),
     InsertVectorPathAnchor(u64, usize),
     DeleteVectorPathAnchor(u64, usize),
     Clear,
@@ -7531,6 +7532,49 @@ impl Studio {
                                                             ui.ctx().pixels_per_point()
                                                         );
                                                     }
+                                                }
+                                                let curve_segment_index = if matches!(
+                                                    path.segments.get(next_index),
+                                                    Some(paint_document::vector::VectorSegment::LineTo { .. })
+                                                ) {
+                                                    Some(next_index)
+                                                } else if next_index > 0
+                                                    && matches!(
+                                                        path.segments.get(next_index - 1),
+                                                        Some(paint_document::vector::VectorSegment::LineTo { .. })
+                                                    )
+                                                {
+                                                    Some(next_index - 1)
+                                                } else {
+                                                    None
+                                                };
+                                                let curve_segment = ui
+                                                    .add_enabled(
+                                                        curve_segment_index.is_some(),
+                                                        egui::Button::new("Convert adjacent line to curve"),
+                                                    )
+                                                    .on_hover_text(
+                                                        "Keep the same straight appearance, then edit the new Bézier handles. Uses the outgoing line, or the incoming line at the final anchor.",
+                                                    );
+                                                if self.test_path_dialog {
+                                                    crate::studio_log!(
+                                                        "UI_TEST_VECTOR_CURVE_SEGMENT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                        curve_segment.rect.left(),
+                                                        curve_segment.rect.top(),
+                                                        curve_segment.rect.width(),
+                                                        curve_segment.rect.height(),
+                                                        ui.ctx().pixels_per_point()
+                                                    );
+                                                }
+                                                if curve_segment.clicked()
+                                                    && let Some(after_anchor) = curve_segment_index
+                                                {
+                                                    actions.push(
+                                                        Action::ConvertVectorPathSegmentToCubic(
+                                                            path.id,
+                                                            after_anchor,
+                                                        ),
+                                                    );
                                                 }
                                                 ui.horizontal(|ui| {
                                                     let insert = ui
@@ -13091,6 +13135,17 @@ impl Studio {
                         point[0],
                         point[1]
                     );
+                }
+            }
+            Action::ConvertVectorPathSegmentToCubic(id, after_anchor) => {
+                project.convert_vector_path_segment_to_cubic(id, after_anchor)?;
+                self.selected_vector_path = Some(id);
+                self.vector_handle_editor = Some((id, after_anchor, VectorHandle::Outgoing));
+                self.test_vector_node_rect_logged = false;
+                self.status =
+                    "Line converted to an editable Bézier segment · adjust its handles".into();
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_VECTOR_SEGMENT_CURVED: {id} {after_anchor}");
                 }
             }
             Action::InsertVectorPathAnchor(id, after_anchor) => {

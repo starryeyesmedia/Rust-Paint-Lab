@@ -71,10 +71,11 @@ jobs:
           exit "$outcome"
       - name: Linux alpha artwork workflow smoke
         if: runner.os == 'Linux'
-        # The editable-mask workflow passed on hosted Linux in 596 seconds,
-        # four seconds below the previous 10-minute cap. Phase 10 adds another
-        # real UI vector-path round trip, so retain the full checks with margin.
-        timeout-minutes: 15
+        # The expanded vector-handle workflow exceeded the former 15-minute
+        # step timeout on hosted Linux. The full local Xorg/llvmpipe workflow
+        # took about 17 minutes; keep every assertion and allow for the slower
+        # hosted software renderer instead of truncating validation.
+        timeout-minutes: 25
         env:
           WGPU_BACKEND: vulkan
           RPL_UI_SCREENSHOT_DIR: ${{ runner.temp }}/rpl-studio-ui

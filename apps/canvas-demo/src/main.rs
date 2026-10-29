@@ -400,6 +400,13 @@ impl App {
         let active = live.active();
         let samples = live.scene().sample_count();
         let notice = live.notice();
+        let primary_release = matches!(
+            event,
+            MouseEvent::Button {
+                primary: true,
+                pressed: false
+            }
+        );
         self.session.mouse(event, self.time_ms());
         let live = self.session.live();
         if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some() && !active && live.active() {
@@ -417,6 +424,13 @@ impl App {
             if let Some(g) = &self.graphics {
                 g.window.request_redraw();
             }
+        }
+        if primary_release
+            && active
+            && !live.active()
+            && std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
+        {
+            canvas_demo::studio_log!("UI_TEST_MOUSE_STROKE_COMMITTED: {}", samples);
         }
     }
     fn check_capture(&mut self) {
