@@ -794,3 +794,25 @@ fresh event counts and the complete 61-screenshot Xorg/XTest workflow passes
 locally against the optimized code. A new hosted matrix is required for this
 test-only correction; do not treat the earlier green run as validation of
 `d357580` or the harness update.
+
+### Mask workflow correction and vector style slice (2026-10-29)
+
+Run [`40820933426`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40820933426)
+exposed a stale geometry assumption in mask-removal automation: the script
+estimated the Layers scroll viewport from the panel frame even though the
+Remove button was clipped below the actual egui ScrollArea. The test adapter
+now reports the ScrollArea clip bounds and targets controls against those live
+bounds. Local full Xorg/XTest validation passes all six mask actions and the
+existing raster workflows.
+
+Editable paths now have a tested width control and an Apply color action using
+the active brush color. The document API persists stroke RGBA and width through
+native v3 data, retains geometry and raster/mask separation, invalidates layer
+thumbnails, and records a single undo transaction. Automated API coverage
+includes alpha; the UI intentionally exposes no separate path-opacity control
+yet. Rust formatting, strict Clippy, **354 workspace tests**, build, Windows GNU
+check/Clippy, llvmpipe GPU smoke and the complete local Xorg/XTest workflow pass.
+The current cross-platform Actions run is pending. The inspected narrow
+Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
+implement bounded, keyboard-accessible vector node movement and undo, then
+continue curve handles, fill and transforms without claiming Phase 10 complete.

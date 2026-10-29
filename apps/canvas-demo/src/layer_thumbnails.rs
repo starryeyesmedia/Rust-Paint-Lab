@@ -554,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn vector_creation_visibility_and_movement_invalidate_layer_thumbnails() {
+    fn vector_creation_style_visibility_and_movement_invalidate_layer_thumbnails() {
         let context = Context::default();
         let mut project = Engine::new(128, 64, 300).unwrap();
         project.brush.color = [220, 40, 145];
@@ -593,7 +593,13 @@ mod tests {
         assert_eq!(moved.len(), 1);
         assert!(moved[0].colored_pixels > 0);
         assert_ne!(moved[0].fingerprint, created_fingerprint);
-        assert_eq!(cache.rebuild_count(), 4);
+        project
+            .set_vector_path_style(path_id, [24, 110, 236, 128], 8.0)
+            .unwrap();
+        let styled = cache.refresh(&context, 0, &project);
+        assert_eq!(styled.len(), 1);
+        assert_ne!(styled[0].fingerprint, moved[0].fingerprint);
+        assert_eq!(cache.rebuild_count(), 5);
     }
 
     #[test]

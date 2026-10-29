@@ -202,6 +202,10 @@ def vector_delete_rect():
            if line.startswith('UI_TEST_VECTOR_DELETE_RECT: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
+def vector_width_rect():
+    marker=stable_window_rect_marker('UI_TEST_VECTOR_WIDTH_RECT')
+    return tuple(marker) if marker else None
+
 def symmetry_mode_rect(label):
     prefix=f'UI_TEST_SYMMETRY_MODE_RECT: {label} '
     lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
@@ -533,6 +537,9 @@ def layer_mask_remove_rect():
     marker=stable_marker('UI_TEST_LAYER_MASK_REMOVE_RECT')
     return tuple(map(float,marker.split())) if marker else None
 
+def layers_scroll_clip_rect():
+    return stable_window_rect_marker('UI_TEST_LAYERS_SCROLL_CLIP_RECT')
+
 def layer_settings_header():
     marker=stable_marker('UI_TEST_LAYER_SETTINGS_HEADER_RECT')
     return tuple(marker.split()) if marker else None
@@ -660,19 +667,22 @@ def wheel_at(px, py, notches=1, down=True):
 def scroll_layers_marker_into_view(marker_fn, description):
     marker=wait(marker_fn,description)
     for _ in range(20):
-        bounds=wait(layers_window_rect,'Layers reports its scroll viewport')
-        panel_left,panel_top,panel_width,panel_height,scale=bounds
+        clip=wait(layers_scroll_clip_rect,'Layers reports its live scroll clip rectangle')
+        clip_left,clip_top,clip_width,clip_height,scale=clip
         if len(marker)==6:  # settings-header marker includes an open/closed flag
             _,x,y,width,height,_=marker
             x,y,width,height=map(float,(x,y,width,height))
         else:
             x,y,width,height,_=marker
-        visible_top=panel_top+72
-        visible_bottom=panel_top+panel_height-12
+        # Use the ScrollArea's live clip rectangle rather than approximating it
+        # from the outer window. Window chrome, compact sizing, and egui version
+        # changes all affect the difference between those bounds.
+        visible_top=clip_top+2
+        visible_bottom=clip_top+clip_height-2
         if y>=visible_top and y+height<=visible_bottom:
             return marker
-        wheel_at(panel_left+panel_width*0.72,
-                 visible_bottom-20 if visible_bottom>panel_top else panel_top+100,
+        wheel_at(clip_left+clip_width*0.72,
+                 visible_bottom-12 if visible_bottom>clip_top else clip_top+12,
                  1,down=y+height>visible_bottom)
         marker=wait(marker_fn,description)
     raise AssertionError(f'{description}: control did not scroll into the Layers viewport ({marker})')
@@ -2405,8 +2415,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
 
             def click_mask_control(marker_fn, description):
                 control=scroll_layers_marker_into_view(marker_fn,description)
-                click_at((control[0]+control[2]/2)*control[4],
-                         (control[1]+control[3]/2)*control[4])
+                target=((control[0]+control[2]/2)*control[4],
+                        (control[1]+control[3]/2)*control[4])
+                print(f'UI_TEST_MASK_CONTROL_CLICK: {description} '
+                      f'rect={control[:4]} target={target}',flush=True)
+                click_at(*target)
                 return control
 
             click_mask_control(
@@ -2850,6 +2863,91 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             opened_marker=event_marker('UI_TEST_PROJECT_OPENED')
             assert opened_marker and opened_marker.split()[-1]=='1', \
                 f'reopened document must restore its editable path object: {opened_marker}'
+            path_selection_count=event_marker_count('UI_TEST_VECTOR_PATH_SELECTED')
+            click_at(585,560)
+            selected_path=wait(
+                lambda:(lambda marker:marker if marker and
+                        event_marker_count('UI_TEST_VECTOR_PATH_SELECTED')>path_selection_count
+                        else None)(event_marker('UI_TEST_VECTOR_PATH_SELECTED')),
+                'the reopened editable vector path can be selected directly on the canvas')
+            assert int(selected_path)==int(vector_created_marker[0])
+            ctrl('l')
+            wait(lambda:event_marker('UI_TEST_LAYERS_PANEL_STATE')=='true',
+                 'the real Layers panel opens to verify vector thumbnail invalidation')
+            selected_layer_id=native_state_bytes(imported.read_bytes())['selected']
+            wait(lambda:layer_thumbnail_update(selected_layer_id),
+                 'the reopened vector layer has a cached thumbnail before style editing')
+
+            # Width editing changes editable path metadata, leaves raster/mask
+            # storage untouched, refreshes the layer preview, and commits one
+            # undo transaction per gesture.
+            def apply_vector_width(start_fraction, end_fraction):
+                before=imported.read_bytes()
+                before_state=native_state_bytes(before)
+                before_layer=next(layer for layer in before_state['layers']
+                                  if layer['id']==before_state['selected'])
+                before_path=before_layer['vector_paths'][0]
+                before_preview=layer_thumbnail_update(before_layer['id'])
+                rect=wait(vector_width_rect,
+                          'the selected vector exposes its stroke-width control')
+                print(f'UI_TEST_VECTOR_STYLE_CONTROL: WIDTH rect={rect}',flush=True)
+                before_count=event_marker_count('UI_TEST_VECTOR_STYLE_APPLIED')
+                x,y,width,height,scale=rect
+                drag_at((x+width*start_fraction)*scale,
+                        (y+height*0.5)*scale,
+                        (x+width*end_fraction)*scale,
+                        (y+height*0.5)*scale)
+                wait(lambda:event_marker_count('UI_TEST_VECTOR_STYLE_APPLIED')>before_count,
+                     'a completed width drag commits one vector-style transaction')
+                assert event_marker_count('UI_TEST_VECTOR_STYLE_APPLIED')==before_count+1, \
+                    'a width drag must create exactly one undo transaction'
+                applied=event_marker('UI_TEST_VECTOR_STYLE_APPLIED').split()
+                assert int(applied[0])==before_path['id']
+                ctrl('s')
+                wait(lambda:valid_project(imported) and imported.read_bytes()!=before
+                     and '*' not in title(window),
+                     'the edited vector width is saved in the native document')
+                after=imported.read_bytes()
+                after_state=native_state_bytes(after)
+                after_layer=next(layer for layer in after_state['layers']
+                                 if layer['id']==after_state['selected'])
+                after_path=after_layer['vector_paths'][0]
+                assert after_path['id']==before_path['id']
+                assert after_path['start']==before_path['start']
+                assert after_path['segments']==before_path['segments']
+                assert native_document_tables(after)[1]==native_document_tables(before)[1], \
+                    'vector style editing must not write derived pixels into raster tiles'
+                assert native_document_tables(after)[2]==native_document_tables(before)[2], \
+                    'vector style editing must preserve independent masks'
+                assert after_path['width']!=before_path['width']
+                assert abs(after_path['width']-float(applied[1]))<0.02
+                wait(lambda:(lambda update:update and before_preview
+                             and update[0]!=before_preview[0])(
+                                 layer_thumbnail_update(before_layer['id'])),
+                     'editing vector width invalidates its cached layer thumbnail')
+                ctrl('z');ctrl('s')
+                wait(lambda:imported.read_bytes()==before,
+                     'Undo restores the exact pre-width vector project')
+                ctrl('y');ctrl('s')
+                wait(lambda:imported.read_bytes()==after,
+                     'Redo restores the saved vector width exactly')
+                return after
+
+            vector_styled=apply_vector_width(0.05,0.16)
+            # Confirm the saved editable style is restored by the application's
+            # ordinary Open workflow, not merely by its serializer.
+            styled_open_count=event_marker_count('UI_TEST_PROJECT_OPENED')
+            ctrl('o');path_prompt();ctrl('Return')
+            wait(lambda:event_marker_count('UI_TEST_PROJECT_OPENED')>styled_open_count,
+                 "the styled vector project reopens through the application's Open workflow")
+            reopened_style_state=native_state_bytes(imported.read_bytes())
+            reopened_style_layer=next(layer for layer in reopened_style_state['layers']
+                                      if layer['id']==reopened_style_state['selected'])
+            assert reopened_style_layer['vector_paths'][0]['width'] \
+                ==native_state_bytes(vector_styled)['layers'][
+                    next(index for index,layer in enumerate(native_state_bytes(vector_styled)['layers'])
+                         if layer['id']==reopened_style_state['selected'])]['vector_paths'][0]['width']
+
             vector_move_before=imported.read_bytes()
             prior_move_count=len(vector_move_markers())
             drag_at(560,570,590,605)

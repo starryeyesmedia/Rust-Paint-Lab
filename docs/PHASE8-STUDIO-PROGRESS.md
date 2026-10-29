@@ -3007,3 +3007,42 @@ Clippy, workspace build, Windows GNU check/Clippy, and llvmpipe GPU smoke record
 above. Continue with vector style editing and selection affordances before
 bounded node/handle editing; Phase 8.3, Phase 9 owner hardware validation, Phase
 10 and Phase 11 remain active.
+
+### Mask workflow clip correction and editable path styling — local checkpoint
+
+Actions run [`40820933426`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40820933426)
+failed during mask removal because the Python helper estimated the Layers
+viewport from the outer window frame and clicked below the actual clipped
+ScrollArea. The app now logs the live `ui.clip_rect()` only in UI test mode, and
+the XTest helper scrolls and clicks against that actual rectangle. This fixes
+the targeting defect rather than extending event timeouts.
+
+The same verified integration slice adds editable vector stroke styling. The
+document engine changes RGBA stroke and width as one undoable transaction while
+preserving path geometry, raster/mask tiles and v3 persistence. A selected path
+exposes a width slider and an Apply color action that uses the current brush
+color; width is committed once when a drag ends. Thumbnail fingerprints refresh
+after the style edit. API tests cover alpha values, raster output, native encode,
+no-op history, undo/redo, invalid widths and locked/hidden owners. Alpha is
+supported by the document API but is not exposed as a UI control in this slice;
+the UI should not claim opacity editing yet.
+
+Rust 1.90 formatting, strict host Clippy, all **354 workspace tests**, workspace
+build, Windows GNU check/Clippy, and the offscreen GPU pixel smoke pass. The
+complete Linux Xorg/XTest workflow now passes locally with Mesa llvmpipe/OpenGL.
+It exercised all Phase 9 mask actions, painting and selection behavior, native
+save/reopen, exact Undo/Redo, PNG/OpenRaster, recovery after journal-durable
+process termination, and editable vector create/reopen/width-edit/move/delete.
+The workflow generated populated Home, New Artwork, workspace, Brush, Color,
+Layers, Reference, Recovery, mask, shape, gradient and vector screenshots; the
+vector path and narrow populated Layers/Reference states were inspected. The
+narrow screenshot still shows both panels occupying nearly all canvas width,
+which remains a workspace usability issue. llvmpipe/Xorg is not physical GPU,
+Windows/macOS GUI, S Pen, Narrator/NVDA or power-loss validation.
+
+Cross-platform Actions for the current source changes remain pending. Preserve
+the v1/v2 mask and v1/v2/v3 vector compatibility checks. The next Phase 10 slice
+is keyboard-accessible node selection and bounded anchor movement with a single
+undoable transaction; curve handles, path fill and broader object transforms
+remain later steps. Phase 8.3, Phase 9 hardware validation, Phase 10 and Phase 11
+are still active.

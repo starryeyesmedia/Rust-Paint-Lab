@@ -180,6 +180,83 @@ fn paths_can_be_hit_tested_moved_deleted_and_undone_as_transactions() {
 }
 
 #[test]
+fn vector_stroke_style_edits_preserve_geometry_and_roundtrip_through_history() {
+    let mut engine = blank();
+    let id = add_path(&mut engine);
+    let before = storage::encode(engine.state()).unwrap();
+    let before_pixels = engine.rgba();
+    let before_history = engine.undo_count();
+
+    engine
+        .set_vector_path_style(id, [24, 110, 236, 128], 8.0)
+        .unwrap();
+    let after = storage::encode(engine.state()).unwrap();
+    let path = &engine.state().layers[0].vector_paths[0];
+    assert_eq!(path.id, id);
+    assert_eq!(path.stroke, [24, 110, 236, 128]);
+    assert_eq!(path.width, 8.0);
+    assert_eq!(path.start, [8.0, 12.0]);
+    assert_eq!(path.segments.len(), 2);
+    assert_ne!(engine.rgba(), before_pixels);
+    assert_eq!(engine.undo_count(), before_history + 1);
+
+    let reopened = Engine::from_state(storage::decode(&after).unwrap()).unwrap();
+    assert_eq!(reopened.state().layers[0].vector_paths[0], *path);
+    assert_eq!(reopened.rgba(), engine.rgba());
+
+    engine
+        .set_vector_path_style(id, [24, 110, 236, 128], 8.0)
+        .unwrap();
+    assert_eq!(
+        engine.undo_count(),
+        before_history + 1,
+        "no-op style edits add no history"
+    );
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert_eq!(engine.rgba(), before_pixels);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), after);
+    assert_eq!(engine.rgba(), reopened.rgba());
+}
+
+#[test]
+fn vector_style_edit_rejects_invalid_widths_and_locked_or_hidden_owner_layers() {
+    let mut engine = blank();
+    let id = add_path(&mut engine);
+    let before = storage::encode(engine.state()).unwrap();
+    let history = engine.undo_count();
+    for width in [f64::NAN, f64::INFINITY, 0.0, 512.1] {
+        assert!(
+            engine
+                .set_vector_path_style(id, [0, 0, 0, 255], width)
+                .is_err()
+        );
+        assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    }
+    assert!(
+        engine
+            .set_vector_path_style(id + 1, [0, 0, 0, 255], 4.0)
+            .is_err()
+    );
+    assert_eq!(engine.undo_count(), history);
+
+    engine
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    let locked_history = engine.undo_count();
+    assert!(
+        engine
+            .set_vector_path_style(id, [0, 0, 0, 255], 4.0)
+            .is_err()
+    );
+    assert_eq!(engine.undo_count(), locked_history);
+}
+
+#[test]
 fn layer_duplication_remaps_vector_ids_and_preserves_editable_order() {
     let mut engine = blank();
     let first_id = add_path(&mut engine);

@@ -958,3 +958,22 @@ the corrected harness requires a fresh Actions run after its commit. The prior
 vector commit passed the Windows, Linux and macOS matrix in run
 [`40817631458`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40817631458),
 including separate Windows canvas and stylus diagnostic artifacts.
+
+The current continuation additionally covers vector style edits. API tests
+verify width and RGBA color, geometry preservation, raster output, v3 encode,
+thumbnail invalidation, and exact Undo/Redo. The live UI test changes width
+through the selected-path slider and checks one transaction, persisted native
+state, unchanged raster/mask tables, thumbnail refresh, and exact undo/redo;
+the path is reopened through the application before movement/deletion checks.
+The current selected-path UI offers width and Apply color. Alpha remains
+available to the engine API, but no separate path-opacity widget is currently
+present.
+
+After the Layers automation began using the actual logged ScrollArea clip
+rectangle, the complete Xorg/XTest workflow passed locally with llvmpipe/OpenGL,
+including Add/Edit/Enable/Disable/Invert/Clear/Remove masks, recovery, export,
+and the editable vector workflow. The workspace has **354 tests**; formatting,
+strict Clippy, build, Windows GNU checks and GPU smoke passed in the same local
+validation. Hosted Windows/Linux/macOS validation must still pass for the
+current source commit. Do not interpret Linux llvmpipe or Windows cross-checks as
+physical Windows GUI, S Pen, macOS runtime, Narrator/NVDA or hardware-GPU tests.

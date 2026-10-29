@@ -2602,6 +2602,7 @@ pub(crate) enum Action {
     DeleteLayer(u64),
     ClearLayer(u64),
     DeleteVectorPath(u64),
+    SetVectorPathStyle(u64, [u8; 4], f64),
     Clear,
     Select(u64),
     Move(i32),
@@ -3168,6 +3169,17 @@ pub(crate) fn layer_flyout_contents(
         compact,
         editing_mask,
     } = options;
+    if test_mode {
+        let clip = ui.clip_rect();
+        crate::studio_log!(
+            "UI_TEST_LAYERS_SCROLL_CLIP_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            clip.left(),
+            clip.top(),
+            clip.width(),
+            clip.height(),
+            ui.ctx().pixels_per_point(),
+        );
+    }
     drag_ui.handles.clear();
     drag_ui.drop_targets.clear();
     let thumbnail_updates =
@@ -3969,6 +3981,7 @@ pub struct Studio {
     edit_points: Vec<[f64; 2]>,
     selected_vector_path: Option<u64>,
     vector_drag_path: Option<u64>,
+    pending_vector_style: Option<(u64, [u8; 4], f64)>,
     selection_transform: Option<SelectionTransformDrag>,
     test_selection_handles_logged: bool,
     test_shape_preview_bounds_logged: Option<[f32; 4]>,
@@ -4226,6 +4239,7 @@ impl Studio {
             edit_points: Vec::new(),
             selected_vector_path: None,
             vector_drag_path: None,
+            pending_vector_style: None,
             selection_transform: None,
             test_selection_handles_logged: false,
             test_shape_preview_bounds_logged: None,
@@ -4979,6 +4993,12 @@ impl Studio {
         }) {
             self.selected_vector_path = None;
         }
+        if self
+            .pending_vector_style
+            .is_some_and(|(path_id, _, _)| self.selected_vector_path != Some(path_id))
+        {
+            self.pending_vector_style = None;
+        }
         if let Some(phase) = phase
             && let Some(position) = self.mouse_position
             && self.editing_pointer(session, 0, phase, position)
@@ -5589,6 +5609,9 @@ impl Studio {
                         self.edit_points = vec![position, position];
                         self.status =
                             format!("Vector path {path_id} selected · drag to move · Esc cancels");
+                        if self.test_path_dialog {
+                            crate::studio_log!("UI_TEST_VECTOR_PATH_SELECTED: {path_id}");
+                        }
                     } else {
                         self.selected_vector_path = None;
                         self.vector_drag_path = None;
@@ -7028,35 +7051,120 @@ impl Studio {
                                 } else if self.tool == EditTool::VectorPath {
                                     ui.strong("Vector Path");
                                     let project = session.live_mut().project_mut();
-                                    ui.add_sized(
-                                        [156.0, 34.0],
-                                        egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
-                                            .text("Stroke width"),
-                                    );
-                                    ui.add_sized(
-                                        [142.0, 34.0],
-                                        egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
-                                            .text("Opacity"),
-                                    );
-                                    let color = project.brush.color;
-                                    if color_swatch(
-                                        ui,
-                                        color,
-                                        "New path color · open color controls",
-                                        false,
-                                        32.0,
-                                    ) {
-                                        self.color_flyout_open = !self.color_flyout_open;
-                                        self.brush_flyout_open = false;
-                                    }
-                                    if let Some(id) = self.selected_vector_path.filter(|id| {
-                                        project.state().layers.iter().any(|layer| {
-                                            !layer.locked
-                                                && layer.visible
-                                                && layer.vector_paths.iter().any(|path| path.id == *id)
+                                    let selected_path = self.selected_vector_path.and_then(|id| {
+                                        project.state().layers.iter().find_map(|layer| {
+                                            (!layer.locked && layer.visible)
+                                                .then(|| layer.vector_paths.iter().find(|path| path.id == id))
+                                                .flatten()
+                                                .cloned()
                                         })
-                                    }) {
-                                        ui.label(format!("Selected path · {id}"));
+                                    });
+                                    if let Some(path) = selected_path {
+                                        let pending = self
+                                            .pending_vector_style
+                                            .filter(|(pending_id, _, _)| *pending_id == path.id);
+                                        let mut width = pending.map_or(path.width as f32, |(_, _, width)| {
+                                            width as f32
+                                        });
+                                        let mut stroke =
+                                            pending.map_or(path.stroke, |(_, stroke, _)| stroke);
+                                        let width_response = ui.horizontal(|ui| {
+                                            ui.label("Width");
+                                            let width_response = ui.add_sized(
+                                                [124.0, 34.0],
+                                                egui::Slider::new(&mut width, 0.25..=512.0)
+                                                    .show_value(false),
+                                            );
+                                            width_response.widget_info(|| {
+                                                egui::WidgetInfo::labeled(
+                                                    egui::WidgetType::Slider,
+                                                    ui.is_enabled(),
+                                                    format!("Vector stroke width, {width:.1} pixels"),
+                                                )
+                                            });
+                                            ui.label(format!("{width:.0} px"));
+                                            width_response
+                                        }).inner;
+                                        if self.test_path_dialog {
+                                            crate::studio_log!(
+                                                "UI_TEST_VECTOR_WIDTH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                width_response.rect.left(),
+                                                width_response.rect.top(),
+                                                width_response.rect.width(),
+                                                width_response.rect.height(),
+                                                ui.ctx().pixels_per_point()
+                                            );
+                                            if width_response.hovered()
+                                                || width_response.dragged()
+                                                || width_response.changed()
+                                                || width_response.drag_stopped()
+                                            {
+                                                crate::studio_log!(
+                                                    "UI_TEST_VECTOR_SLIDER_STATE: WIDTH hovered={} dragged={} changed={} stopped={} value={width:.4}",
+                                                    width_response.hovered(),
+                                                    width_response.dragged(),
+                                                    width_response.changed(),
+                                                    width_response.drag_stopped(),
+                                                );
+                                            }
+                                        }
+                                        let brush_color = project.brush.color;
+                                        if color_swatch(
+                                            ui,
+                                            brush_color,
+                                            "Brush color · open Color controls",
+                                            false,
+                                            26.0,
+                                        ) {
+                                            self.color_flyout_open = !self.color_flyout_open;
+                                            self.brush_flyout_open = false;
+                                        }
+                                        let apply_color = ui
+                                            .button("Apply color")
+                                            .on_hover_text(
+                                                "Apply the current Color panel color to this path",
+                                            );
+                                        if self.test_path_dialog {
+                                            crate::studio_log!(
+                                                "UI_TEST_VECTOR_APPLY_COLOR_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                apply_color.rect.left(),
+                                                apply_color.rect.top(),
+                                                apply_color.rect.width(),
+                                                apply_color.rect.height(),
+                                                ui.ctx().pixels_per_point()
+                                            );
+                                        }
+                                        let apply_color = apply_color.clicked();
+                                        if apply_color {
+                                            stroke[..3].copy_from_slice(&brush_color);
+                                        }
+                                        let slider_changed = width_response.changed();
+                                        let slider_dragging = width_response.dragged();
+                                        let slider_drag_stopped = width_response.drag_stopped();
+                                        if slider_dragging {
+                                            self.pending_vector_style = Some((
+                                                path.id,
+                                                stroke,
+                                                f64::from(width),
+                                            ));
+                                        } else if slider_changed || apply_color || slider_drag_stopped
+                                        {
+                                            // Keep a continuous slider gesture as one edit-history
+                                            // transaction. The document and thumbnail cache update
+                                            // only when the gesture ends; keyboard steps and the
+                                            // explicit color action still commit immediately.
+                                            if stroke != path.stroke
+                                                || (f64::from(width) - path.width).abs() > 1.0e-9
+                                            {
+                                                actions.push(Action::SetVectorPathStyle(
+                                                    path.id,
+                                                    stroke,
+                                                    f64::from(width),
+                                                ));
+                                            }
+                                            self.pending_vector_style = None;
+                                        }
+                                        ui.label(format!("Path · {}", path.id));
                                         let response = ui.button("Delete path");
                                         if self.test_path_dialog && !self.test_vector_delete_rect_logged {
                                             self.test_vector_delete_rect_logged = true;
@@ -7070,7 +7178,29 @@ impl Studio {
                                             );
                                         }
                                         if response.clicked() {
-                                            actions.push(Action::DeleteVectorPath(id));
+                                            actions.push(Action::DeleteVectorPath(path.id));
+                                        }
+                                    } else {
+                                        ui.add_sized(
+                                            [156.0, 34.0],
+                                            egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
+                                                .text("Stroke width"),
+                                        );
+                                        ui.add_sized(
+                                            [142.0, 34.0],
+                                            egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
+                                                .text("Opacity"),
+                                        );
+                                        let color = project.brush.color;
+                                        if color_swatch(
+                                            ui,
+                                            color,
+                                            "New path color · open color controls",
+                                            false,
+                                            32.0,
+                                        ) {
+                                            self.color_flyout_open = !self.color_flyout_open;
+                                            self.brush_flyout_open = false;
                                         }
                                     }
                                     ui.weak("V · drag to draw; drag a path to move · Esc cancels");
@@ -12197,10 +12327,25 @@ impl Studio {
                 project.remove_vector_path(id)?;
                 if self.selected_vector_path == Some(id) {
                     self.selected_vector_path = None;
+                    self.pending_vector_style = None;
                 }
                 self.status = "Vector path deleted · Ctrl+Z to undo".into();
                 if self.test_path_dialog {
                     crate::studio_log!("UI_TEST_VECTOR_PATH_DELETED: {id}");
+                }
+            }
+            Action::SetVectorPathStyle(id, stroke, width) => {
+                project.set_vector_path_style(id, stroke, width)?;
+                self.status = "Vector path style updated · Ctrl+Z to undo".into();
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_VECTOR_STYLE_APPLIED: {id} {:.2} {} {} {} {}",
+                        width,
+                        stroke[0],
+                        stroke[1],
+                        stroke[2],
+                        stroke[3]
+                    );
                 }
             }
             Action::Clear => project.clear_layer()?,

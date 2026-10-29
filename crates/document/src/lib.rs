@@ -960,6 +960,38 @@ impl Engine {
         })
     }
 
+    /// Change a path's immutable-by-default stroke style as one document
+    /// transaction. This preserves its editable geometry and invalidates the
+    /// owning layer's derived composite and thumbnail data through `edit`.
+    pub fn set_vector_path_style(
+        &mut self,
+        id: u64,
+        stroke: [u8; 4],
+        width: f64,
+    ) -> Result<(), PaintError> {
+        if !width.is_finite() || !(0.25..=512.0).contains(&width) {
+            return Err(PaintError::Invalid);
+        }
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.stroke = stroke;
+            path.width = width;
+            path.validate()
+        })
+    }
+
     /// Remove one editable path from its visible, unlocked owner layer.
     pub fn remove_vector_path(&mut self, id: u64) -> Result<(), PaintError> {
         self.edit(|state| {
