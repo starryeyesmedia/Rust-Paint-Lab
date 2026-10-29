@@ -711,19 +711,27 @@ pending; no physical stylus result is claimed. Phase 9 remains active. Next is
 versioned, v1-compatible layer-mask storage and compositing design; Phase 10
 vector/text and Phase 11 timelapse/animation remain open work.
 
-### Editable masks — direct controls and final Round 1 validation pending
+### Editable masks — hosted Round 1 verification pending
 
-The failing Linux XTest in Actions run [`40762059402`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40762059402)
-timed out entering mask-brush mode through the nested Layer Actions submenu,
-after the v2 mask had already saved. Mask operations have now moved to direct
-controls in the expandable selected-layer settings; Add/Edit/Enable/Disable/
-Invert/Clear/Remove are individually named, keyboard-accessible, and operate on
-the same document transactions. XTest now saves and reopens a masked project,
-checks all control states plus exact Undo/Redo and v1/v2 transitions, and keeps
-the existing OpenRaster flattening check. A new document test covers actual
-selection clipping, effective compositing, and raster-tile preservation. Local
-Rust, Windows GNU cross-check, full workspace suite/build, Python harness, and
-llvmpipe smoke pass. The checkout lacks Xvfb, so the new real-window workflow
-and all-platform Actions run remain mandatory before accepting Round 1. Only
-then proceed to the first Phase 10 mixed raster/vector path and native-format
-vertical slice. Phase 8.3, Phase 9, Phase 10, and Phase 11 remain active.
+Actions run [`40762059402`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40762059402)
+failed while the nested Layer Actions mask menu was being used. Mask operations
+moved to direct controls in Selected layer settings in commit `8cfc990`. The
+follow-up run, [`40801195199`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40801195199),
+still failed in the Linux workflow because the real app emitted
+`UI_TEST_LAYER_MASK_EDIT_CLICKED: 4 true` while the Python test expected `4
+True`. Local Xorg reproduced the exact event and confirmed mask mode was entered.
+The harness now uses lowercase Rust bool spellings, dismisses the Brush Library
+that opens contextually in mask mode before sending its canvas dab, and accepts
+that v1 omits the optional mask field.
+
+The full local Linux/Xorg/XTest artwork workflow now passes on display `:102`
+with llvmpipe/OpenGL. It verifies all mask operations, v2 save/reopen, unchanged
+raster tiles, exact Undo/Redo, v1 compatibility after removal, selection-clipped
+compositing, OpenRaster disclosure, and the existing export/recovery scenarios.
+The 2026-10-29 local validation also passed all 336 workspace tests, formatting,
+strict Clippy, workspace build, Windows GNU check/Clippy, test metadata check,
+and llvmpipe GPU smoke; the Xorg workflow generated 59 PNGs. I inspected the
+mask-editing, painted-mask, and populated-recovery screenshots. The hosted
+cross-platform run and both Windows artifacts remain required before Round 1
+acceptance; do not begin the Phase 10 vector slice until that gate is green.
+Phase 8.3, Phase 9, Phase 10, and Phase 11 remain active.

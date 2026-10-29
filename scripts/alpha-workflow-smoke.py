@@ -2341,18 +2341,30 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'missing mask samples must remain fully revealing'
             capture_window(window,'layers-panel-white-mask-settings')
 
-            edit_mask=scroll_layers_marker_into_view(
+            def click_mask_control(marker_fn, description):
+                control=scroll_layers_marker_into_view(marker_fn,description)
+                click_at((control[0]+control[2]/2)*control[4],
+                         (control[1]+control[3]/2)*control[4])
+                return control
+
+            click_mask_control(
                 layer_mask_edit_rect,
                 'Selected layer settings exposes the direct Edit mask with Brush control',
             )
-            click_at((edit_mask[0]+edit_mask[2]/2)*edit_mask[4],
-                     (edit_mask[1]+edit_mask[3]/2)*edit_mask[4])
-            wait(lambda: event_marker('UI_TEST_LAYER_MASK_EDIT_CLICKED')==f'{copied_id} True',
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_EDIT_CLICKED')==f'{copied_id} true',
                  'the direct mask control receives its real pointer click')
-            wait(lambda: event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} True',
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} true',
                  'the selected layer enters native brush mask-paint mode')
             capture_window(window,'layers-panel-mask-editing')
             before_mask_pixels=native_layer_tiles_bytes(mask_added)
+            # Editing a mask opens Brush Library so its current settings are
+            # immediately available. Dismiss that floating panel before the
+            # routed canvas pointer stroke; it otherwise owns the test point.
+            key('Escape')
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='brush',
+                 'closing Brush Library exposes the canvas without leaving mask-edit mode')
+            assert event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} true', \
+                'dismissing Brush Library must preserve the active mask target'
             # The selection used to create the copied layer is still active.
             # Paint inside it so the mask transaction exercises selection
             # clipping while remaining clear of the Layers panel at x < 368.
@@ -2380,11 +2392,6 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('o');path_prompt();ctrl('Return')
             wait(lambda: valid_project(project) and project.read_bytes()==mask_painted,
                  'the application reopens the complete editable v2 mask project')
-
-            def click_mask_control(marker_fn, description):
-                control=scroll_layers_marker_into_view(marker_fn,description)
-                click_at((control[0]+control[2]/2)*control[4],
-                         (control[1]+control[3]/2)*control[4])
 
             def verify_mask_edit(marker_name, expected_event, marker_fn, description, validate):
                 before=project.read_bytes()
@@ -2417,7 +2424,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 assert native_document_tables(after)[1]==native_layer_tiles_bytes(before)
                 assert native_document_tables(after)[2]==native_document_tables(before)[2]
             verify_mask_edit(
-                'UI_TEST_LAYER_MASK_ENABLED',lambda value:f'{copied_id} False',
+                'UI_TEST_LAYER_MASK_ENABLED',lambda value:f'{copied_id} false',
                 layer_mask_enabled_rect,'Disabling the layer mask',validate_disabled,
             )
 
@@ -2425,7 +2432,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # well. Save each state and walk history both directions byte-exactly.
             enabled_before=project.read_bytes()
             click_mask_control(layer_mask_enabled_rect,'The mask-enabled checkbox can disable the mask')
-            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} False',
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} false',
                  'the mask-enabled checkbox disables the mask through its real UI control')
             ctrl('s')
             wait(lambda: project.read_bytes()!=enabled_before and '*' not in title(window),
@@ -2434,7 +2441,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             validate_disabled(enabled_before,disabled_again)
 
             click_mask_control(layer_mask_enabled_rect,'Disabled mask can be enabled again')
-            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} True',
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} true',
                  'the mask-enabled checkbox restores the mask through its real UI control')
             ctrl('s')
             wait(lambda: project.read_bytes()!=disabled_again and '*' not in title(window),
@@ -2465,7 +2472,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 assert native_document_tables(after)[2]==native_document_tables(before)[2]
                 assert native_document_tables(after)[1]==native_layer_tiles_bytes(before)
             verify_mask_edit(
-                'UI_TEST_LAYER_MASK_INVERTED',lambda value:f'{copied_id} True',
+                'UI_TEST_LAYER_MASK_INVERTED',lambda value:f'{copied_id} true',
                 layer_mask_invert_rect,'Inverting the editable layer mask',validate_inverted,
             )
 
@@ -2484,7 +2491,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 assert after[:8]==b'RPLALP01', \
                     'removing the only mask should return to the compatible v1 container'
                 assert next(item for item in native_state_bytes(after)['layers']
-                            if item['id']==copied_id)['mask'] is None
+                            if item['id']==copied_id).get('mask') is None
                 assert native_layer_tiles_bytes(after)==native_layer_tiles_bytes(before)
             verify_mask_edit(
                 'UI_TEST_LAYER_MASK_REMOVED',lambda value:f'{copied_id}',

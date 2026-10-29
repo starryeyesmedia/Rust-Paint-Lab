@@ -738,17 +738,30 @@ application workflow.
 The mask workflow uses the selected layer's expandable settings rather than a
 nested Actions submenu. The Linux artwork smoke opens the rendered controls by
 their stable UI markers, clicks Add white mask, saves `.rpl` v2, and reopens that
-file through the application picker. It then enters brush mask mode and paints
-with XTest, verifies saved mask tiles changed while every source raster tile
-remained byte-identical, and checks exact Undo/Redo. It clicks the Enabled
-checkbox both ways, Invert, Clear to white, and Remove. Each change is validated
-against parsed saved state and its own exact history round trip; removing the
-last mask writes a readable v1 project, and undo returns to the exact v2 state.
-The later OpenRaster UI step must still report flattened masks. Document tests
-cover preview/cancel, brush/eraser, selection clipping, effective alpha
-compositing, source tile preservation, malformed v2 records, recovery and v1/v2
-round trips. A hosted run is required to validate the expanded XTest interactions;
+file through the application picker. Entering mask mode opens Brush Library;
+Escape dismisses that floating panel, and the test confirms that mask mode
+remains active before it paints with XTest. It verifies saved mask tiles changed
+while every source raster tile remained byte-identical, then checks exact
+Undo/Redo. It clicks the Enabled checkbox both ways, Invert, Clear to white, and
+Remove. Each change is validated against parsed saved state and its own exact
+history round trip; removing the last mask writes readable v1 metadata with the
+optional `mask` field omitted, and undo returns to the exact v2 state. Rust bool
+markers are compared using lowercase `true`/`false`. The later OpenRaster UI
+step must still report flattened masks. Document tests cover selection clipping,
+effective alpha compositing, source tile preservation, malformed v2 records,
+recovery and v1/v2 round trips. The full Linux/Xorg/XTest flow has passed locally
+on the existing display; a hosted run is still required to verify the CI runner.
 `cargo test` does not substitute for the Linux window workflow.
+
+On 2026-10-29, the final local validation passed all 336 workspace tests,
+formatting, strict Clippy, workspace build, Windows GNU target check/Clippy,
+`scripts/check-tests.py`, and the required llvmpipe GPU smoke. The complete
+Linux window workflow passed on `DISPLAY=:102` with Xorg/XTest and OpenGL
+software rendering, producing 59 PNGs. The mask-editing screenshot shows the
+contextual Brush Library open; the test dismisses it with Escape and confirms
+mask editing remains active before sending the canvas stroke. Screenshots were
+reviewed for mask editing, painted-mask state, and populated recovery. Hosted
+cross-platform CI remains pending for the corrected harness.
 
 On 2026-10-27 the local run passed **275 workspace tests**, formatting, strict
 Clippy, workspace build, Windows GNU workspace check/Clippy, the required

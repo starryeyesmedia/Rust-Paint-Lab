@@ -2844,13 +2844,10 @@ pressure/tilt and mask workflows need separate hardware validation.
 
 Actions run [`40762059402`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40762059402)
 completed Windows and macOS successfully. The Linux artwork workflow saved an
-`RPLALP02` project after adding a white mask, then timed out after clicking the
-nested `Layer Actions → Layer mask → Edit mask with Brush` path. The run page
-contains the failing assertion and a bounded tail of application markers; its
-Linux diagnostics and screenshot artifacts are listed on the run, but their
-binary download endpoints are inaccessible through this environment's GitHub
-API proxy. The failure was therefore localized to the nested UI action path,
-not inferred from a screenshot.
+`RPLALP02` project after adding a white mask, then timed out after the nested
+`Layer Actions → Layer mask → Edit mask with Brush` interaction. The controls
+were moved to Selected layer settings in commit `8cfc990`, removing the nested
+menu from the workflow.
 
 The full set of mask operations now lives in the selected layer's expandable
 settings. This removes the nested popup level and exposes direct, named controls
@@ -2864,21 +2861,42 @@ undo restores the v2 state. A document regression additionally checks
 selection-clipped mask paint, rendered alpha compositing, and unchanged raster
 tiles.
 
-Local Rust 1.90 formatting, strict workspace Clippy, all **336 workspace tests**,
-workspace build, Windows GNU workspace check/Clippy, Python test-harness validation, and the
-required llvmpipe GPU smoke pass. The Linux Xorg/XTest workflow cannot be run in
-this checkout because Xvfb is unavailable; the direct-control change and all six
-UI mask operations still require the next hosted Linux artwork workflow. Round 1
-is not accepted until that workflow and the Windows/Linux/macOS matrix pass.
-No physical Windows mask, advanced S Pen, Narrator/NVDA, or power-loss testing
-was performed.
+The follow-up Actions run [`40801195199`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40801195199)
+also failed in Linux artwork smoke. A local reproduction on the available Xorg
+display exposed a test assertion mismatch rather than a failed UI action: the
+application logged `UI_TEST_LAYER_MASK_EDIT_CLICKED: 4 true` and entered mask
+mode, while Python compared the value to `4 True`. Rust's boolean formatting is
+lowercase. The interaction is additionally contextual: Edit mask opens Brush
+Library, so the test now dismisses that panel with Escape, confirms the same mask
+target remains active, and only then sends the real canvas dab. The v1 removal
+assertion now accepts the documented omission of the optional `mask` field.
+
+The complete Linux/Xorg/XTest artwork workflow has now passed locally on the
+existing display `:102` with llvmpipe/OpenGL. It exercised all six mask controls,
+painted mask samples through the app, confirmed source raster tiles remained
+unchanged, saved/reopened v2, verified exact Undo/Redo and the v1 transition,
+then completed the existing shape/gradient, OpenRaster, export and recovery
+workflow. On 2026-10-29, the final local rerun also passed formatting, strict
+Clippy, all **336 workspace tests**, workspace build, Windows GNU target check
+and Clippy, the repository test check, and the required llvmpipe GPU smoke. The
+workflow command was `env DISPLAY=:102 WGPU_BACKEND=gl
+LIBGL_ALWAYS_SOFTWARE=1 XDG_RUNTIME_DIR=/tmp
+RPL_UI_SCREENSHOT_DIR=/tmp/bp-round1-final-screenshots
+python3 scripts/alpha-workflow-smoke.py`; it passed and generated 59 PNG
+screenshots. I inspected the mask-editing, painted-mask, and populated-recovery
+screenshots. The mask-editing state intentionally opens Brush Library; the test
+closes it with Escape before painting, while confirming the mask target remains
+active. Hosted Linux and all-platform CI must still be rerun before Round 1 is
+accepted. This was software-rendered Xorg testing, not physical Windows mask or
+S Pen validation; Narrator/NVDA and power-loss behavior also remain unverified.
 
 ### Next exact steps
 
-1. Commit and push the direct selected-layer mask workflow and its XTest changes.
-2. Inspect the new Windows, Linux, and macOS Actions conclusions. Require the
-   complete Linux artwork workflow, mask save/reopen, all six UI operations,
-   OpenRaster flattening disclosure, and both Windows application artifacts.
+1. Commit and push the corrected boolean expectations, Brush Library dismissal,
+   and v1 optional-field assertion; rerun hosted Windows, Linux and macOS CI.
+2. Require the complete Linux artwork workflow, mask save/reopen, all six UI
+   operations, OpenRaster flattening disclosure, and both Windows application
+   artifacts before accepting Round 1.
 3. Only after Round 1 passes, begin the bounded Phase 10 vector foundation:
    mixed raster/vector layer representation, stable path IDs, RPL v3 migration
    with v1/v2 reads, safe path validation, editable path save/reopen and
