@@ -1130,3 +1130,29 @@ including the Linux artwork workflow, and produced the Windows canvas and
 stylus diagnostic artifacts. The local Linux Xorg test and hosted builds do not
 validate physical S Pen behavior, Windows GUI startup, macOS startup,
 Narrator/NVDA, or power-loss durability.
+
+### Canvas-first handoff regression coverage (2026-10-29)
+
+The handoff regression checkpoint adds one mask-engine test and one mixed
+raster/mask/vector document integration test. The mask test checks a single
+stroke crossing into a rectangular selection, sample-by-sample clipping,
+raster-tile isolation, Undo/Redo, and a wholly outside no-op stroke. The mixed
+document test persists populated raster and mask tiles with an edited cubic
+handle, then verifies exact native Store reopen, journal recovery, PNG pixels,
+OpenRaster contents, and unchanged native state after export.
+
+```sh
+cargo test --locked -p paint-document --test masks
+cargo test --locked -p paint-document --test vector mixed_raster_mask_and_edited_vector_survive_store_journal_and_exports
+```
+
+The Linux XTest artwork workflow also tests real mouse strokes crossing and
+missing a mask selection, Stop Mask followed by an ordinary raster stroke, and
+an uninterrupted vector create/select/convert/new-handle-drag/save/reopen
+sequence. It checks native tile tables and document-space bounds instead of
+treating a control click or screenshot as proof of functionality. That expanded
+window workflow must pass in the hosted Linux Xorg job before this integration
+checkpoint is considered validated. The current cloud shell has no local X
+server/Xvfb command, so here only its Python syntax and the portable engine
+tests are checked locally; the workspace suite and GPU pixel smoke are separate
+validations, not substitutes for the XTest workflow.

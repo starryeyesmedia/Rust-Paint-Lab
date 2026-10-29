@@ -1,5 +1,39 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Canvas-first design handoff — regression coverage checkpoint (2026-10-29)
+
+The approved canvas-first design handoff starts from `64c2a3e` on
+`feature/studio-overdrive-phase-8`, whose last confirmed cross-platform run was
+Actions [`40890033654`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40890033654).
+The first implementation slice addresses the handoff's uncovered document and
+application workflow cases before changing the workspace layout:
+
+- A document regression paints a mask with a stroke that begins outside and
+  crosses a rectangular selection, verifies every changed sample lies within
+  selected pixel centers, checks that outside-only strokes are no-op history,
+  and preserves raster tiles across mask edits.
+- A mixed native-document regression creates real raster pixels and populated
+  editable mask tiles, converts and edits a cubic vector handle, then verifies
+  exact Undo/Redo, `.rpl` save/reopen, recovery-journal restoration, PNG pixels,
+  and OpenRaster output without mutating the source document.
+- The Linux XTest application workflow now crosses a selection boundary with
+  real mouse input, verifies saved mask samples against document-space bounds,
+  exercises an outside-only stroke, clicks Stop Mask and proves the next brush
+  stroke changes raster tiles without changing masks, and runs
+  create/select/convert/drag-new-handle/save/reopen as one continuous vector
+  workflow.
+
+All **368 workspace Rust test cases** pass locally, including the new mask and
+mixed-document regressions. Rust 1.90 formatting, strict host Clippy, strict
+Windows GNU-target Clippy, workspace build, workspace Windows GNU check, and
+required llvmpipe/OpenGL GPU smoke pass. The expanded application XTest workflow
+and hosted Actions matrix remain pending for this checkpoint. The current cloud
+shell has no `Xvfb`/`xvfb-run`; the attempted system-package install was blocked
+by read-only system directories, so no local window/screenshot result is
+claimed. The workflow remains in the existing hosted Linux Xorg job. No
+Inspector or Phase 10 feature work is counted in this regression checkpoint
+yet.
+
 ## Latest owner-usability checkpoint — Linux workflow timeout diagnosed (2026-10-28)
 
 The active continuation starts from the successful owner-tested `b50e7ec`

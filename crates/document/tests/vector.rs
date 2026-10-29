@@ -1,7 +1,9 @@
 use paint_document::{
-    Engine, storage,
+    Engine, StrokeMode, storage,
     vector::{VectorHandle, VectorSegment},
 };
+use paint_input::Tool;
+use paint_stroke::{StrokeCommand, StrokeId, StrokeSample, coordinates::DocumentPoint};
 use sha2::{Digest, Sha256};
 use std::{fs, io::Read, path::PathBuf};
 
@@ -23,6 +25,21 @@ fn add_path(engine: &mut Engine) -> u64 {
     engine
         .add_vector_path(&[[8.0, 12.0], [24.0, 12.0], [35.0, 20.0]])
         .unwrap()
+}
+
+fn sample(x: f64, y: f64, time_ms: u64) -> StrokeSample {
+    StrokeSample {
+        source_counter: None,
+        pointer_id: 1,
+        tool: Tool::Pen,
+        position_client_px: [x, y],
+        position_document: DocumentPoint([x, y]),
+        pressure: Some(1.0),
+        tilt_degrees: [None, None],
+        buttons: Default::default(),
+        source_time_ms: time_ms,
+        time_ms,
+    }
 }
 
 fn pixel(engine: &Engine, x: usize, y: usize) -> [u8; 4] {
@@ -157,6 +174,169 @@ fn vector_and_editable_mask_share_a_layer_and_v3_recovery_snapshot() {
     assert_eq!(pixel(&engine, 18, 12), [220, 40, 145, 255]);
     assert!(engine.redo());
     assert_eq!(pixel(&engine, 18, 12), [0; 4]);
+}
+
+#[test]
+fn mixed_raster_mask_and_edited_vector_survive_store_journal_and_exports() {
+    let mut engine = blank();
+    let layer_id = engine.state().selected;
+    engine.brush.size = 10.0;
+    engine.brush.hardness = 1.0;
+    engine.brush.pressure_size = false;
+    engine.brush.pressure_opacity = false;
+    engine
+        .apply_with_mode(
+            &StrokeCommand::BeginStroke {
+                stroke_id: StrokeId(1),
+                sample: sample(28.0, 38.0, 1),
+            },
+            StrokeMode::Paint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::CommitStroke {
+                stroke_id: StrokeId(1),
+                sample: sample(28.0, 38.0, 2),
+            },
+            StrokeMode::Paint,
+        )
+        .unwrap();
+    let raster_tiles = engine.state().layers[0].tiles.clone();
+    assert!(!raster_tiles.is_empty());
+
+    engine.add_layer_mask(layer_id).unwrap();
+    engine.brush.color = [0, 0, 0];
+    engine
+        .apply_with_mode(
+            &StrokeCommand::BeginStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(24.0, 38.0, 3),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::UpdateStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(40.0, 38.0, 4),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::CommitStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(48.0, 38.0, 5),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    let mask_tiles = engine.state().layers[0]
+        .mask
+        .as_ref()
+        .unwrap()
+        .tiles
+        .clone();
+    assert!(!mask_tiles.is_empty());
+    assert!(
+        mask_tiles
+            .values()
+            .any(|tile| tile.iter().any(|value| *value < 255))
+    );
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
+
+    let path_id = engine
+        .add_vector_path(&[[8.0, 12.0], [50.0, 12.0], [70.0, 28.0]])
+        .unwrap();
+    engine
+        .convert_vector_path_segment_to_cubic(path_id, 0)
+        .unwrap();
+    let converted = storage::encode(engine.state()).unwrap();
+    let before_handle = engine.state().layers[0].vector_paths[0].clone();
+    assert!(matches!(
+        before_handle.segments[0],
+        VectorSegment::CubicTo { .. }
+    ));
+    engine
+        .move_vector_path_handle(path_id, 0, VectorHandle::Outgoing, [22.0, 7.0])
+        .unwrap();
+    let edited = storage::encode(engine.state()).unwrap();
+    assert_eq!(&edited[..8], b"RPLALP03");
+    assert_ne!(edited, converted);
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
+    assert_eq!(
+        engine.state().layers[0].mask.as_ref().unwrap().tiles,
+        mask_tiles
+    );
+
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), converted);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), edited);
+
+    let root = temp("mixed-raster-mask-vector");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let project_path = root.join("mixed.rpl");
+    let mut store = storage::Store::new(project_path.clone());
+    store.save(engine.state()).unwrap();
+    drop(store);
+    let (store, opened_state) = storage::Store::open(project_path.clone()).unwrap();
+    let opened = Engine::from_state(opened_state).unwrap();
+    assert_eq!(storage::encode(opened.state()).unwrap(), edited);
+    assert_eq!(opened.state().layers[0].tiles, raster_tiles);
+    assert_eq!(
+        opened.state().layers[0].mask.as_ref().unwrap().tiles,
+        mask_tiles
+    );
+    assert_eq!(
+        opened.state().layers[0].vector_paths[0],
+        engine.state().layers[0].vector_paths[0]
+    );
+    assert_eq!(opened.rgba(), engine.rgba());
+    drop(store);
+
+    let journal_path = root.join("mixed.journal");
+    let mut journal = paint_document::journal::Journal::new(journal_path.clone());
+    journal.append(engine.state()).unwrap();
+    let (recovered_state, damaged_tail) = journal.restore().unwrap();
+    assert!(!damaged_tail);
+    let recovered = Engine::from_state(recovered_state).unwrap();
+    assert_eq!(storage::encode(recovered.state()).unwrap(), edited);
+    assert_eq!(recovered.rgba(), engine.rgba());
+    drop(journal);
+    fs::remove_file(journal_path.with_extension("journal.lock")).unwrap();
+
+    let png_path = root.join("mixed.png");
+    storage::export_png(&png_path, &engine).unwrap();
+    let mut png_reader =
+        png::Decoder::new(std::io::BufReader::new(fs::File::open(&png_path).unwrap()))
+            .read_info()
+            .unwrap();
+    let mut png_pixels = vec![0; png_reader.output_buffer_size().unwrap()];
+    let png_info = png_reader.next_frame(&mut png_pixels).unwrap();
+    assert_eq!([png_info.width, png_info.height], [96, 64]);
+    assert_eq!(&png_pixels[..png_info.buffer_size()], engine.rgba());
+
+    let ora_path = root.join("mixed.ora");
+    paint_document::openraster::export(&ora_path, &engine).unwrap();
+    let mut archive = zip::ZipArchive::new(fs::File::open(&ora_path).unwrap()).unwrap();
+    let mut mimetype = Vec::new();
+    archive
+        .by_name("mimetype")
+        .unwrap()
+        .read_to_end(&mut mimetype)
+        .unwrap();
+    assert_eq!(mimetype, b"image/openraster");
+    assert!(archive.by_name("stack.xml").is_ok());
+    assert!(archive.by_name("data/layer0.png").is_ok());
+    assert_eq!(storage::encode(engine.state()).unwrap(), edited);
+
+    drop(archive);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

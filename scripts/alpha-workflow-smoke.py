@@ -239,6 +239,10 @@ def vector_control_handle(handle, anchor=0):
                 return tuple(map(float,values[3:]))
     return None
 
+def selection_bounds():
+    marker=event_marker('UI_TEST_SELECTION_BOUNDS')
+    return tuple(map(float,marker.split())) if marker else None
+
 def click_scaled_rect(rect):
     x,y,width,height,scale=rect
     click_at((x+width/2)*scale,(y+height/2)*scale)
@@ -978,6 +982,24 @@ def native_layer_mask_pixel_bytes(data, layer_id, x, y):
     if tile is None:
         return 255
     return tile[(y%64)*64+x%64]
+
+def native_layer_mask_changed_coordinates(before_data, after_data, layer_id):
+    """Return changed mask pixel coordinates, treating absent samples as white."""
+    _,_,before_masks=native_document_tables(before_data)
+    _,_,after_masks=native_document_tables(after_data)
+    before=before_masks.get(layer_id,{})
+    after=after_masks.get(layer_id,{})
+    changed=[]
+    white=b'\xff'*4096
+    for tile_x,tile_y in set(before)|set(after):
+        old=before.get((tile_x,tile_y),white)
+        new=after.get((tile_x,tile_y),white)
+        changed.extend(
+            (tile_x*64+index%64,tile_y*64+index//64,old_value,new_value)
+            for index,(old_value,new_value) in enumerate(zip(old,new))
+            if old_value!=new_value
+        )
+    return changed
 def native_layer_tiles(data):
     state=native_state_bytes(data)
     layer_id=state['selected']
@@ -2494,10 +2516,12 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: project.read_bytes()==blend_bytes,
                  'Redo restores the saved blend mode and opacity exactly')
 
-            # Make the mask paint test's selection state explicit. The selected
-            # box covers the copied artwork and the later brush dab stays inside.
+            # Make the mask paint test's selection state explicit, then retain
+            # both document- and client-space bounds so the real pointer test
+            # crosses the selection edge instead of painting only its interior.
             ctrl('d')
             key('m')
+            selection_bounds_count=event_marker_count('UI_TEST_SELECTION_BOUNDS')
             selection_commits=sum(line.startswith('UI_TEST_SELECTION_COMMITTED: ')
                                   for line in (directory/'application.log').read_text().splitlines())
             drag_at(500,280,580,360)
@@ -2507,6 +2531,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'the mask workflow establishes a fresh bounded selection through the canvas')
             assert (event_marker('UI_TEST_SELECTION_COMMITTED') or '').startswith('true '), \
                 'the mask test selection must be committed before painting'
+            selection_geometry=wait(
+                lambda:(selection_bounds() if
+                        event_marker_count('UI_TEST_SELECTION_BOUNDS')>selection_bounds_count
+                        else None),
+                'the selected region reports its live document/canvas mapping',
+            )
+            selection_left,selection_top,selection_right,selection_bottom,\
+                selection_client_left,selection_client_top,selection_client_right,\
+                selection_client_bottom=selection_geometry
             key('b')
 
             add_mask=scroll_layers_marker_into_view(
@@ -2556,10 +2589,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'closing Brush Library exposes the canvas without leaving mask-edit mode')
             assert event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} true', \
                 'dismissing Brush Library must preserve the active mask target'
-            # The selection used to create the copied layer is still active.
-            # Paint inside it so the mask transaction exercises selection
-            # clipping while remaining clear of the Layers panel at x < 368.
-            move(540,325);click_button(1,True);click_button(1,False)
+            # The selection is still active. Begin beyond its left edge and
+            # cross into it through the real mouse pipeline; the document
+            # assertion below verifies that no changed mask pixel escaped its
+            # document-space boundary.
+            boundary_strokes=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
+            crossing_start=selection_client_left-(selection_client_right-selection_client_left)*0.25
+            crossing_end=selection_client_left+(selection_client_right-selection_client_left)*0.55
+            crossing_y=(selection_client_top+selection_client_bottom)/2
+            drag_at(crossing_start,crossing_y,crossing_end,crossing_y)
+            wait(lambda:event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>boundary_strokes,
+                 'a real mouse stroke crosses the active selection boundary')
             wait(lambda: '*' in title(window),'mask brush stroke changes the native document')
             ctrl('s')
             wait(lambda: valid_project(project) and project.read_bytes()!=mask_added
@@ -2571,13 +2611,73 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             painted_mask=mask_tiles.get(copied_id,{})
             assert painted_mask and any(value<255 for tile in painted_mask.values() for value in tile), \
                 'the real mouse stroke must write non-white alpha-mask samples'
+            changed_mask_pixels=native_layer_mask_changed_coordinates(
+                mask_added,mask_painted,copied_id)
+            assert changed_mask_pixels, 'the boundary-crossing stroke must alter selected mask pixels'
+            assert all(selection_left<=x+0.5<selection_right
+                       and selection_top<=y+0.5<selection_bottom
+                       for x,y,_,_ in changed_mask_pixels), \
+                f'the real mouse stroke changed mask pixels beyond its selection: {changed_mask_pixels[:12]}'
             capture_window(window,'layers-panel-painted-mask')
+
+            # A second real stroke remains inside the canvas but wholly above
+            # the selected region. It must not create mask tiles, dirty the
+            # project, or add an undoable artwork transaction.
+            canvas_geometry=event_marker('UI_TEST_SYMMETRY_CANVAS')
+            assert canvas_geometry, 'the live canvas mapping is available for the outside-only stroke'
+            canvas_left,canvas_top,canvas_right,canvas_bottom,_,_=map(float,canvas_geometry.split())
+            outside_y=canvas_top+(selection_client_top-canvas_top)*0.5
+            assert canvas_top<outside_y<selection_client_top, \
+                f'test point is not between the document and selection bounds: {outside_y} {canvas_top} {selection_client_top}'
+            outside_strokes=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
+            drag_at(selection_client_left+(selection_client_right-selection_client_left)*0.2,
+                    outside_y,
+                    selection_client_right-(selection_client_right-selection_client_left)*0.2,
+                    outside_y)
+            wait(lambda:event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>outside_strokes,
+                 'an outside-only mouse stroke reaches the real application input pipeline')
+            time.sleep(0.2)
+            assert project.read_bytes()==mask_painted and '*' not in title(window), \
+                'an outside-only mask stroke must leave saved artwork and dirty state unchanged'
+
             ctrl('z');ctrl('s')
             wait(lambda: project.read_bytes()==mask_added,
                  'Undo removes mask-paint samples and preserves the editable mask')
             ctrl('y');ctrl('s')
             wait(lambda: project.read_bytes()==mask_painted,
                  'Redo restores mask-paint samples exactly')
+
+            # Stop Mask is an important routing boundary: the next brush
+            # transaction must target the selected raster layer while leaving
+            # the independently stored mask bytes unchanged.
+            click_mask_control(
+                layer_mask_edit_rect,
+                'The selected layer exposes Stop editing mask while mask mode is active',
+            )
+            wait(lambda:event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} false',
+                 'Stop editing mask exits mask-paint mode')
+            stop_mask_before=project.read_bytes()
+            stop_mask_raster_before=native_layer_tiles_bytes(stop_mask_before)
+            stop_mask_tiles_before=native_document_tables(stop_mask_before)[2]
+            raster_strokes=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
+            raster_x=(selection_client_left+selection_client_right)/2
+            raster_y=(selection_client_top+selection_client_bottom)/2
+            move(raster_x,raster_y);click_button(1,True);click_button(1,False)
+            wait(lambda:event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>raster_strokes,
+                 'a mouse brush stroke commits after mask editing stops')
+            ctrl('s')
+            wait(lambda:valid_project(project) and project.read_bytes()!=stop_mask_before
+                 and '*' not in title(window),
+                 'the post-mask brush stroke saves as raster content')
+            raster_after_stop=project.read_bytes()
+            assert native_layer_tiles_bytes(raster_after_stop)!=stop_mask_raster_before, \
+                'stopping mask mode must route the next brush transaction to raster tiles'
+            assert native_document_tables(raster_after_stop)[2]==stop_mask_tiles_before, \
+                'ordinary brush painting after Stop Mask must not alter mask tiles'
+            capture_window(window,'layers-stop-mask-raster-paint')
+            ctrl('z');ctrl('s')
+            wait(lambda:project.read_bytes()==stop_mask_before,
+                 'Undo restores the exact masked project after the raster routing check')
 
             # Reopen the actual masked v2 project through the app's file picker.
             ctrl('o');path_prompt();ctrl('Return')
@@ -3202,6 +3302,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                         curve_rect_count+3 else None)(vector_curve_segment_rect()),
                 'the selected line segment exposes its curve conversion action')
             curve_count=event_marker_count('UI_TEST_VECTOR_SEGMENT_CURVED')
+            created_handle_count=event_marker_count('UI_TEST_VECTOR_CONTROL_HANDLE')
             click_scaled_rect(curve_rect)
             wait(lambda:event_marker_count('UI_TEST_VECTOR_SEGMENT_CURVED')>curve_count,
                  'the curve action creates an editable cubic segment through the UI')
@@ -3234,6 +3335,68 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda:imported.read_bytes()==curve_after,
                  'Redo restores the exact editable cubic segment')
+
+            # Continue in the same live session and drag the handle created by
+            # this conversion. The prior workflow converted one path but used
+            # a separate fixture to exercise actual canvas-handle dragging.
+            new_handle=wait(
+                lambda:(lambda handle:handle if handle and
+                        event_marker_count('UI_TEST_VECTOR_CONTROL_HANDLE')>created_handle_count
+                        else None)(vector_control_handle('Outgoing',0)),
+                'the newly converted line exposes its own outgoing Bézier handle',
+            )
+            created_handle_move_count=event_marker_count('UI_TEST_VECTOR_HANDLE_MOVED')
+            hx,hy=round(new_handle[0]*new_handle[2]),round(new_handle[1]*new_handle[2])
+            drag_at(hx,hy,hx+18,hy-14)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_HANDLE_MOVED')>created_handle_move_count,
+                 'the newly created outgoing handle moves through the real canvas editor')
+            ctrl('s')
+            wait(lambda:valid_project(imported) and imported.read_bytes()!=curve_after
+                 and '*' not in title(window),
+                 'the continuous conversion-and-handle-edit workflow saves natively')
+            curve_handle_after=imported.read_bytes()
+            curve_handle_state=native_state_bytes(curve_handle_after)
+            curve_handle_layer=next(layer for layer in curve_handle_state['layers']
+                                    if layer['id']==curve_handle_state['selected'])
+            curve_handle_path=curve_handle_layer['vector_paths'][0]
+            curve_handle_segment=curve_handle_path['segments'][0]
+            assert curve_handle_segment['control1']!=curve_segment['control1'], \
+                'the handle created by line conversion must update its own outgoing control point'
+            assert native_values_near(curve_handle_segment['control2'],curve_segment['control2'])
+            assert native_values_near(curve_handle_segment['point'],curve_segment['point'])
+            assert native_document_tables(curve_handle_after)[1] \
+                ==native_document_tables(curve_after)[1]
+            assert native_document_tables(curve_handle_after)[2] \
+                ==native_document_tables(curve_after)[2]
+            capture_window(window,'vector-convert-and-edit-created-handle')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==curve_after,
+                 'Undo restores the converted segment before its handle was moved')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==curve_handle_after,
+                 'Redo restores the continuous handle edit exactly')
+
+            # Verify both operations remain ordered in native undo/redo.
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==curve_after,
+                 'the first ordered Undo removes the handle edit but retains conversion')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==curve_before,
+                 'the next Undo restores the line that preceded conversion')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==curve_after,
+                 'Redo reconstructs the cubic segment before its handle edit')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==curve_handle_after,
+                 'Redo reconstructs the moved handle after conversion')
+
+            reopened_curve_count=event_marker_count('UI_TEST_PROJECT_OPENED')
+            ctrl('o');path_prompt();ctrl('Return')
+            wait(lambda:event_marker_count('UI_TEST_PROJECT_OPENED')>reopened_curve_count,
+                 'the complete create-select-convert-drag workflow reopens through the app')
+            reopened_curve=imported.read_bytes()
+            assert native_projects_equivalent(curve_handle_after,reopened_curve), \
+                'reopening the continuously edited cubic path must preserve handle and document tables'
 
             # Load a checked native fixture containing a cubic segment so the
             # actual canvas handle editor is exercised with XTest, not just its

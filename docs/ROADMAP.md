@@ -5,6 +5,22 @@ workspace/accessibility work continues alongside Phase 9's raster painting and
 editing tools; unresolved visual polish does not block useful creative features.
 Artwork preservation and cross-platform validation apply to every track.
 
+## Canvas-first design handoff — active continuation
+
+The approved handoff starts from `64c2a3e` and supersedes any Phase-10-only
+request that was never submitted. The first slice closes missing mask and
+mixed raster/mask/vector test cases before replacing floating panels. Local
+engine tests now cover selection-boundary mask strokes, outside-only no-ops,
+mixed document save/reopen, journal recovery, PNG/OpenRaster exports, and vector
+handle Undo/Redo. The existing Linux XTest workflow now adds real application
+coverage for Stop Mask routing and an uninterrupted newly converted vector
+handle workflow; its hosted result is pending. The next implementation slice is
+the actual unified Inspector and canvas-space reservation, followed by compact
+layer/mask integration, references, and populated screenshot review. Do not
+count the current test checkpoint as the workspace overhaul or Phase 10
+completion. Preserve RPL v1/v2/v3 and the existing egui/winit, AccessKit, pen,
+recovery, and rendering architecture.
+
 ## Adopted product identity — BitchPixel
 
 - **Product identity:** BitchPixel is the chosen name, not a provisional candidate. Rust Paint Lab continues as the engineering repository, internal package/executable names and format terminology until those identifiers are migrated deliberately, without breaking existing projects or CI.

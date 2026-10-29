@@ -4099,6 +4099,7 @@ pub struct Studio {
     selection_transform: Option<SelectionTransformDrag>,
     test_selection_handles_logged: bool,
     test_shape_preview_bounds_logged: Option<[f32; 4]>,
+    test_selection_bounds_logged: bool,
     transform_offset: [f64; 2],
     transform_scale: f64,
     transform_angle: f64,
@@ -4363,6 +4364,7 @@ impl Studio {
             selection_transform: None,
             test_selection_handles_logged: false,
             test_shape_preview_bounds_logged: None,
+            test_selection_bounds_logged: false,
             transform_offset: [0.0; 2],
             transform_scale: 1.0,
             transform_angle: 0.0,
@@ -6180,6 +6182,7 @@ impl Studio {
                         Err(e) => e.to_string(),
                     };
                     if self.test_path_dialog {
+                        self.test_selection_bounds_logged = false;
                         crate::studio_log!(
                             "UI_TEST_SELECTION_COMMITTED: {} {}",
                             session.live().project().state().selection.is_some(),
@@ -12086,6 +12089,28 @@ impl Studio {
         self.workspace_center = [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0];
         if let Some(m) = self.mapping {
             session.live_mut().set_mapping(m);
+            if self.test_path_dialog
+                && !self.test_selection_bounds_logged
+                && let Some(selection) = session.live().project().state().selection.as_ref()
+                && let (Ok(client_top_left), Ok(client_bottom_right)) = (
+                    m.document_to_client([selection.bounds()[0], selection.bounds()[1]]),
+                    m.document_to_client([selection.bounds()[2], selection.bounds()[3]]),
+                )
+            {
+                let [left, top, right, bottom] = selection.bounds();
+                crate::studio_log!(
+                    "UI_TEST_SELECTION_BOUNDS: {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} {:.2}",
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    client_top_left[0],
+                    client_top_left[1],
+                    client_bottom_right[0],
+                    client_bottom_right[1]
+                );
+                self.test_selection_bounds_logged = true;
+            }
             if self.test_path_dialog {
                 let document = m.document_size();
                 if let (Ok(top_left), Ok(bottom_right)) = (
