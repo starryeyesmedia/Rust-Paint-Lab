@@ -1123,7 +1123,10 @@ passes. No project schema changed.
 GitHub Actions run
 [`40867515476`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40867515476)
 passed Windows and macOS. Its Linux alpha artwork step exceeded the old
-15-minute timeout, so the workflow now gives that unchanged step 25 minutes. The
-updated hosted workflow is pending for the new commit. The local Linux Xorg test
-and software GPU smoke do not validate physical S Pen behavior, Windows GUI
-startup, macOS startup, Narrator/NVDA, or power-loss durability.
+15-minute timeout, so the workflow now gives that unchanged step 25 minutes.
+The updated workflow passed all platforms in run
+[`40887124571`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40887124571),
+including the Linux artwork workflow, and produced the Windows canvas and
+stylus diagnostic artifacts. The local Linux Xorg test and hosted builds do not
+validate physical S Pen behavior, Windows GUI startup, macOS startup,
+Narrator/NVDA, or power-loss durability.

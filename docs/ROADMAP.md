@@ -838,10 +838,12 @@ the repeated round-trip and the UI regression without changing the format.
 Formatting, strict host/Windows GNU Clippy, all 366 workspace tests, workspace
 build, Windows GNU check, and llvmpipe GPU smoke pass locally. The XTest run
 completed with 64 screenshot captures; populated vector, narrow Layers/Reference,
-and light Home views were inspected. Hosted validation of the 25-minute Linux
-workflow change is pending because run `40867515476` used the previous 15-minute
-limit. Cubic authoring, object transforms, duplication, fill, and SVG
-interoperability remain open.
+and light Home views were inspected. Hosted run
+[`40887124571`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40887124571)
+passed Windows, Linux, and macOS with the 25-minute Linux workflow limit, and
+produced the Windows canvas/diagnostic and supported Linux/macOS alpha artifacts.
+Cubic authoring, object transforms, duplication, fill, and SVG interoperability
+remain open.
 
 ### Cubic handle editing and current validation — 2026-10-29
 

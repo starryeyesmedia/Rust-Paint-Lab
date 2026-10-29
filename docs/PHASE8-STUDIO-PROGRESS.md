@@ -3204,8 +3204,11 @@ Actions run
 [`40867515476`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40867515476)
 passed Windows and macOS but timed out the Linux alpha artwork workflow at its
 former 15-minute cap. CI now allows 25 minutes with all assertions retained. A
-new hosted run for this commit is pending. The local Xorg/llvmpipe results do not
+hosted run for this commit passed all Windows, Linux, and macOS jobs:
+[`40887124571`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40887124571).
+It produced Windows canvas/diagnostic, Linux x64, macOS ARM64, UI smoke, and
+Linux UI diagnostics artifacts. The local Xorg/llvmpipe results and CI do not
 validate Windows GUI startup, macOS startup, physical S Pen pressure/tilt or
 palm behavior, Narrator/NVDA, or power-loss durability. Phase 9 and Phase 10
-remain active. Next, require the hosted matrix to pass, then implement connected
-cubic-path creation and continue with vector fill and object transforms.
+remain active. Next, implement connected cubic-path creation and continue with
+vector fill and object transforms.
