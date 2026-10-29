@@ -2976,3 +2976,34 @@ thumbnail-only follow-up; the updated hosted workflow remains pending.
    mixed raster/vector operations. Preserve the known narrow-window panel issue
    for a separate coordinated-workspace improvement; do not expand vector scope
    into text or animation until the editable path workflow is dependable.
+
+### Latest validation follow-up — XTest fresh-event synchronization (2026-10-29)
+
+Actions run [`40817631458`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40817631458)
+passed Windows, Linux and macOS for vector commit `4a5a808`, producing the
+separate Windows canvas and stylus diagnostic artifacts. Run
+[`40818285789`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40818285789)
+for thumbnail optimization commit `d357580` failed in the Linux artwork test.
+Local reproduction identified stale event-marker waits in the XTest harness:
+after Undo/Redo it could accept an earlier selection/transform result, and a
+repeated mask toggle could accept the previous toggle before the new click had
+been processed. No artwork or vector rendering defect was observed in those
+reproductions.
+
+The harness now requires new selection, handle, transform-start, cancellation,
+and mask-state events by checking event counts before each input. It retains the
+original saved-byte, native metadata, dirty-state, and exact Undo/Redo
+assertions. On the thumbnail-optimized source, Python syntax validation and the
+complete Xorg/XTest workflow now pass locally with llvmpipe/OpenGL. The workflow
+created 61 screenshots and exercised painting, masks, vector create/move/delete,
+save/reopen, PNG/OpenRaster, and journal-based forced-process-termination
+recovery. Representative vector and populated recovery screenshots were
+inspected. This correction changes test synchronization only; no Rust runtime
+behavior changed. A fresh three-platform Actions result for the harness fix is
+required before the latest branch checkpoint is hosted-validated.
+
+The latest Rust code remains covered by the 352-test workspace run, strict
+Clippy, workspace build, Windows GNU check/Clippy, and llvmpipe GPU smoke recorded
+above. Continue with vector style editing and selection affordances before
+bounded node/handle editing; Phase 8.3, Phase 9 owner hardware validation, Phase
+10 and Phase 11 remain active.

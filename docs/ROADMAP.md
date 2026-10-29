@@ -782,3 +782,15 @@ accepted by run `40805980434`; new Phase 10 Actions validation is pending. Phase
 10 still needs node editing, Bézier handles, editable style controls, path
 transforms and richer object operations. Phase 11 animation/timelapse and later
 text/effects remain open.
+
+#### Latest vector validation correction
+
+Vector commit `4a5a808` passed all hosted platforms in Actions run
+[`40817631458`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40817631458).
+The following thumbnail optimization commit `d357580` had a Linux XTest failure
+in run `40818285789`; local reproduction traced it to the harness accepting stale
+selection, transform-cancel, and mask-toggle markers. The harness now requires
+fresh event counts and the complete 61-screenshot Xorg/XTest workflow passes
+locally against the optimized code. A new hosted matrix is required for this
+test-only correction; do not treat the earlier green run as validation of
+`d357580` or the harness update.

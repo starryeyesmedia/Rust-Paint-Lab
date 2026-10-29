@@ -944,3 +944,17 @@ seconds for the Layer preview in the local debug test run; this is a regression
 fixture measurement, not a hardware benchmark. The full Xorg/XTest workflow
 passed before this thumbnail-only follow-up; the targeted dense preview tests and
 workspace suite pass on the updated code, with the hosted UI workflow pending.
+
+The post-optimization full Xorg/XTest rerun initially exposed stale test waits,
+not an application regression: repeated selection/transform and mask events were
+matched by earlier log markers. The script now snapshots marker counts before
+input and waits for a new commit, handle report, transform start/cancel, or mask
+toggle event as appropriate. It preserves the native file byte comparisons and
+Undo/Redo assertions. After this correction, the complete Linux workflow passed
+locally on display `:102` with Mesa llvmpipe/OpenGL and generated 61 screenshots.
+The visible path-creation state and populated narrow dark Recovery view were
+inspected. GitHub run `40818285789` records the pre-correction harness failure;
+the corrected harness requires a fresh Actions run after its commit. The prior
+vector commit passed the Windows, Linux and macOS matrix in run
+[`40817631458`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40817631458),
+including separate Windows canvas and stylus diagnostic artifacts.

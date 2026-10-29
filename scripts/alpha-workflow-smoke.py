@@ -185,6 +185,10 @@ def event_marker(name):
            if line.startswith(name + ': ')]
     return lines[-1].partition(': ')[2] if lines else None
 
+def event_marker_count(name):
+    return sum(line.startswith(name + ': ')
+               for line in (directory/'application.log').read_text().splitlines())
+
 def selection_transform_handles():
     lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_SELECTION_TRANSFORM_HANDLES: ')]
@@ -2068,9 +2072,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             saved=project.read_bytes()
             # Keep the captured selection gesture on exposed portrait-canvas
             # pixels; the moved Layers panel occupies x=90..450.
+            selection_commits=event_marker_count('UI_TEST_SELECTION_COMMITTED')
             key('m');move(480,260);click_button(1,True);move(540,330);click_button(1,False)
-            wait(lambda: (lambda marker: marker if marker and marker.startswith('true ') else None)(
-                event_marker('UI_TEST_SELECTION_COMMITTED')),
+            wait(lambda: event_marker_count('UI_TEST_SELECTION_COMMITTED') > selection_commits
+                 and (event_marker('UI_TEST_SELECTION_COMMITTED') or '').startswith('true '),
                  'the real mouse drag commits a document-space selection before layer editing')
             assert '*' not in title(window), 'selection alone changed artwork'
             source_id=native_state(project)['selected']
@@ -2109,25 +2114,37 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Redo restores the moved pixel data byte for byte')
             # The move clears the active selection. Re-select its translated
             # screen-space rectangle before exercising the layer-copy workflow.
+            selection_commits=event_marker_count('UI_TEST_SELECTION_COMMITTED')
+            handle_reports=event_marker_count('UI_TEST_SELECTION_TRANSFORM_HANDLES')
             key('m');move(510,290);click_button(1,True);move(570,360);click_button(1,False)
-            wait(lambda: (lambda marker: marker if marker and marker.startswith('true ') else None)(
-                event_marker('UI_TEST_SELECTION_COMMITTED')),
+            wait(lambda: event_marker_count('UI_TEST_SELECTION_COMMITTED') > selection_commits
+                 and (event_marker('UI_TEST_SELECTION_COMMITTED') or '').startswith('true '),
                  'the moved artwork can be selected again for layer actions')
             before_copy=project.read_bytes()
             handles=wait(selection_transform_handles,
                          'selected artwork exposes visible scale and rotation handles')
+            wait(lambda: event_marker_count('UI_TEST_SELECTION_TRANSFORM_HANDLES') > handle_reports,
+                 'the newly selected artwork reports fresh transform-handle coordinates')
+            handles=selection_transform_handles()
             assert len(handles)==5 and handles[4]>0
             scale_handle=(handles[0],handles[1],handles[4])
             # A canceled scale preview is geometry-only and cannot enter history.
+            transform_starts=event_marker_count('UI_TEST_SELECTION_TRANSFORM_STARTED')
+            transform_cancels=event_marker_count('UI_TEST_SELECTION_TRANSFORM_CANCELLED')
             move(round(scale_handle[0]),round(scale_handle[1]));click_button(1,True)
+            wait(lambda: event_marker_count('UI_TEST_SELECTION_TRANSFORM_STARTED') > transform_starts,
+                 'the scale handle starts a fresh selection transform transaction')
             move(round(scale_handle[0]+12*scale_handle[2]),
                  round(scale_handle[1]+12*scale_handle[2]))
             key('Escape')
-            wait(lambda: event_marker('UI_TEST_SELECTION_TRANSFORM_CANCELLED')=='escape',
+            wait(lambda: event_marker_count('UI_TEST_SELECTION_TRANSFORM_CANCELLED') > transform_cancels
+                 and event_marker('UI_TEST_SELECTION_TRANSFORM_CANCELLED')=='escape',
                  'Escape cancels a proportional scale preview')
             click_button(1,False)
-            assert project.read_bytes()==before_copy and '*' not in title(window), \
-                'canceling a scale preview must not change document bytes or dirty state'
+            unchanged=project.read_bytes()==before_copy
+            clean='*' not in title(window)
+            assert unchanged and clean, \
+                f'canceling a scale preview must preserve document bytes and dirty state: bytes_unchanged={unchanged} title={title(window)!r}'
 
             def apply_selection_handle(kind, dx, dy, baseline, message):
                 current_handles=wait(selection_transform_handles,
@@ -2440,10 +2457,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
 
             def verify_mask_edit(marker_name, expected_event, marker_fn, description, validate):
                 before=project.read_bytes()
-                previous=event_marker(marker_name)
+                previous_count=event_marker_count(marker_name)
                 click_mask_control(marker_fn,description)
-                outcome=wait(lambda: (lambda value: value if value and value!=previous else None)(
-                    event_marker(marker_name)),description+' changes the document')
+                outcome=wait(lambda: (lambda value: value if event_marker_count(marker_name)>previous_count
+                                      and value else None)(event_marker(marker_name)),
+                             description+' changes the document')
                 assert outcome==expected_event(outcome), \
                     f'{description} targeted unexpected state: {outcome}'
                 ctrl('s')
@@ -2476,8 +2494,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # Exercise the reverse checkbox transition from the disabled state as
             # well. Save each state and walk history both directions byte-exactly.
             enabled_before=project.read_bytes()
+            disabled_events=event_marker_count('UI_TEST_LAYER_MASK_ENABLED')
             click_mask_control(layer_mask_enabled_rect,'The mask-enabled checkbox can disable the mask')
-            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} false',
+            wait(lambda: event_marker_count('UI_TEST_LAYER_MASK_ENABLED')>disabled_events
+                 and event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} false',
                  'the mask-enabled checkbox disables the mask through its real UI control')
             ctrl('s')
             wait(lambda: project.read_bytes()!=enabled_before and '*' not in title(window),
@@ -2485,8 +2505,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             disabled_again=project.read_bytes()
             validate_disabled(enabled_before,disabled_again)
 
+            enabled_events=event_marker_count('UI_TEST_LAYER_MASK_ENABLED')
             click_mask_control(layer_mask_enabled_rect,'Disabled mask can be enabled again')
-            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} true',
+            wait(lambda: event_marker_count('UI_TEST_LAYER_MASK_ENABLED')>enabled_events
+                 and event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} true',
                  'the mask-enabled checkbox restores the mask through its real UI control')
             ctrl('s')
             wait(lambda: project.read_bytes()!=disabled_again and '*' not in title(window),
