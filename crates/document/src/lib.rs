@@ -1018,6 +1018,60 @@ impl Engine {
         })
     }
 
+    /// Split the segment after one anchor and return the new anchor index.
+    pub fn insert_vector_path_anchor(
+        &mut self,
+        id: u64,
+        after_anchor: usize,
+    ) -> Result<usize, PaintError> {
+        let selected_index = after_anchor.checked_add(1).ok_or(PaintError::Invalid)?;
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.insert_anchor_after(after_anchor)?;
+            Ok(())
+        })?;
+        Ok(selected_index)
+    }
+
+    /// Remove one anchor and return the neighboring anchor selected afterward.
+    pub fn remove_vector_path_anchor(
+        &mut self,
+        id: u64,
+        anchor: usize,
+    ) -> Result<usize, PaintError> {
+        let mut selected_index = 0;
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            selected_index = path.remove_anchor(anchor)?;
+            Ok(())
+        })?;
+        Ok(selected_index)
+    }
+
     /// Remove one editable path from its visible, unlocked owner layer.
     pub fn remove_vector_path(&mut self, id: u64) -> Result<(), PaintError> {
         self.edit(|state| {

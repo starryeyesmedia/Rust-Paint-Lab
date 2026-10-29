@@ -158,6 +158,122 @@ impl VectorPath {
         Ok(())
     }
 
+    /// Insert an anchor halfway along the segment following `index`. Cubic
+    /// segments are split with De Casteljau's algorithm, retaining the same
+    /// curve while making the split point independently editable.
+    pub fn insert_anchor_after(&mut self, index: usize) -> Result<usize, PaintError> {
+        if self.segments.len() >= MAX_VECTOR_SEGMENTS_PER_PATH {
+            return Err(PaintError::Limit);
+        }
+        let anchors = self.anchor_points();
+        let start = anchors.get(index).copied().ok_or(PaintError::Invalid)?;
+        if index + 1 >= anchors.len() {
+            return Err(PaintError::Invalid);
+        }
+        let segment = self
+            .segments
+            .get(index)
+            .cloned()
+            .ok_or(PaintError::Invalid)?;
+        let (first, second) = match segment {
+            VectorSegment::LineTo { point } => {
+                let middle = midpoint(start, point);
+                (
+                    VectorSegment::LineTo { point: middle },
+                    VectorSegment::LineTo { point },
+                )
+            }
+            VectorSegment::CubicTo {
+                control1,
+                control2,
+                point,
+            } => {
+                let q0 = midpoint(start, control1);
+                let q1 = midpoint(control1, control2);
+                let q2 = midpoint(control2, point);
+                let r0 = midpoint(q0, q1);
+                let r1 = midpoint(q1, q2);
+                let middle = midpoint(r0, r1);
+                (
+                    VectorSegment::CubicTo {
+                        control1: q0,
+                        control2: r0,
+                        point: middle,
+                    },
+                    VectorSegment::CubicTo {
+                        control1: r1,
+                        control2: q2,
+                        point,
+                    },
+                )
+            }
+            VectorSegment::Close => return Err(PaintError::Invalid),
+        };
+        let mut candidate = self.clone();
+        candidate.segments.splice(index..=index, [first, second]);
+        candidate.validate()?;
+        *self = candidate;
+        Ok(index + 1)
+    }
+
+    /// Whether this anchor can be removed without approximating adjacent
+    /// curves. Interior removal currently joins two line segments exactly;
+    /// endpoint removal drops one adjacent segment.
+    pub fn can_remove_anchor(&self, index: usize) -> bool {
+        let anchors = self.anchor_points();
+        if anchors.len() <= 2 || index >= anchors.len() {
+            return false;
+        }
+        if index == 0 {
+            return matches!(
+                self.segments.first(),
+                Some(VectorSegment::LineTo { .. } | VectorSegment::CubicTo { .. })
+            );
+        }
+        if index + 1 == anchors.len() {
+            return matches!(
+                self.segments.get(index - 1),
+                Some(VectorSegment::LineTo { .. } | VectorSegment::CubicTo { .. })
+            );
+        }
+        matches!(
+            (self.segments.get(index - 1), self.segments.get(index)),
+            (
+                Some(VectorSegment::LineTo { .. }),
+                Some(VectorSegment::LineTo { .. })
+            )
+        )
+    }
+
+    /// Remove an anchor without changing neighboring line geometry. Interior
+    /// anchors between cubic segments are rejected rather than silently
+    /// replacing a curve with an approximation.
+    pub fn remove_anchor(&mut self, index: usize) -> Result<usize, PaintError> {
+        if !self.can_remove_anchor(index) {
+            return Err(PaintError::Invalid);
+        }
+        let anchors = self.anchor_points();
+        let mut candidate = self.clone();
+        if index == 0 {
+            candidate.start = match candidate.segments.remove(0) {
+                VectorSegment::LineTo { point } | VectorSegment::CubicTo { point, .. } => point,
+                VectorSegment::Close => return Err(PaintError::Invalid),
+            };
+        } else if index + 1 == anchors.len() {
+            candidate.segments.remove(index - 1);
+        } else {
+            let point = match candidate.segments.get(index) {
+                Some(VectorSegment::LineTo { point }) => *point,
+                _ => return Err(PaintError::Invalid),
+            };
+            candidate.segments[index - 1] = VectorSegment::LineTo { point };
+            candidate.segments.remove(index);
+        }
+        candidate.validate()?;
+        *self = candidate;
+        Ok(index.saturating_sub(1).min(anchors.len() - 2))
+    }
+
     pub fn translate(&mut self, delta: [f64; 2]) -> Result<(), PaintError> {
         if !delta.iter().all(|value| value.is_finite()) {
             return Err(PaintError::Invalid);
@@ -228,6 +344,10 @@ fn valid_point(point: [f64; 2]) -> bool {
     point
         .iter()
         .all(|value| value.is_finite() && value.abs() <= MAX_VECTOR_COORDINATE)
+}
+
+fn midpoint(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]
 }
 
 fn translate_point(point: &mut [f64; 2], delta: [f64; 2]) {

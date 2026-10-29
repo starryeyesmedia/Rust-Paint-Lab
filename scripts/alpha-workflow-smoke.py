@@ -210,6 +210,16 @@ def vector_node_handle():
     marker=event_marker('UI_TEST_VECTOR_NODE_HANDLE')
     return tuple(map(float,marker.split())) if marker else None
 
+def vector_anchor_controls_rect():
+    return stable_window_rect_marker('UI_TEST_VECTOR_ANCHOR_CONTROLS_RECT')
+
+def vector_anchor_action_rect(action):
+    return stable_window_rect_marker(f'UI_TEST_VECTOR_ANCHOR_{action.upper()}_RECT')
+
+def click_scaled_rect(rect):
+    x,y,width,height,scale=rect
+    click_at((x+width/2)*scale,(y+height/2)*scale)
+
 def symmetry_mode_rect(label):
     prefix=f'UI_TEST_SYMMETRY_MODE_RECT: {label} '
     lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
@@ -2985,6 +2995,112 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda:imported.read_bytes()==node_after,
                  'Redo restores the saved vector anchor exactly')
 
+            # Anchor insertion and removal are real editing operations, not
+            # decorative node controls. Exercise their contextual popup with
+            # XTest pointer input and validate saved geometry, raster/mask
+            # isolation, thumbnail invalidation, and exact history replay.
+            insertion_before=imported.read_bytes()
+            insertion_before_state=native_state_bytes(insertion_before)
+            insertion_layer=next(layer for layer in insertion_before_state['layers']
+                                 if layer['id']==insertion_before_state['selected'])
+            insertion_path=insertion_layer['vector_paths'][0]
+            insertion_preview=layer_thumbnail_update(insertion_layer['id'])
+            anchor_controls_count=event_marker_count('UI_TEST_VECTOR_ANCHOR_CONTROLS_RECT')
+            anchor_controls=wait(
+                lambda:(lambda rect:rect if rect and
+                        event_marker_count('UI_TEST_VECTOR_ANCHOR_CONTROLS_RECT')>
+                        anchor_controls_count else None)(vector_anchor_controls_rect()),
+                'anchor editing exposes the accessible anchor selector')
+            click_scaled_rect(anchor_controls)
+            insert_rect_count=event_marker_count('UI_TEST_VECTOR_ANCHOR_INSERT_RECT')
+            insert_rect=wait(
+                lambda:(lambda rect:rect if rect and
+                        event_marker_count('UI_TEST_VECTOR_ANCHOR_INSERT_RECT')>insert_rect_count
+                        else None)(vector_anchor_action_rect('insert')),
+                'the anchor selector exposes midpoint insertion')
+            inserted_count=event_marker_count('UI_TEST_VECTOR_ANCHOR_INSERTED')
+            click_scaled_rect(insert_rect)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_ANCHOR_INSERTED')>inserted_count,
+                 'midpoint insertion dispatches through the document edit transaction')
+            ctrl('s')
+            wait(lambda:valid_project(imported) and imported.read_bytes()!=insertion_before
+                 and '*' not in title(window),
+                 'the inserted vector anchor is saved in the native project')
+            insertion_after=imported.read_bytes()
+            insertion_after_state=native_state_bytes(insertion_after)
+            insertion_after_layer=next(layer for layer in insertion_after_state['layers']
+                                       if layer['id']==insertion_after_state['selected'])
+            insertion_after_path=insertion_after_layer['vector_paths'][0]
+            assert len(insertion_after_path['segments'])==len(insertion_path['segments'])+1
+            first_segment=insertion_path['segments'][0]
+            first_half=insertion_after_path['segments'][0]
+            second_half=insertion_after_path['segments'][1]
+            if first_segment.get('kind')=='line_to':
+                first_endpoint=first_segment['point']
+                midpoint=[(insertion_path['start'][axis]+first_endpoint[axis])*0.5
+                          for axis in range(2)]
+                assert first_half=={'kind':'line_to','point':midpoint}
+                assert second_half==first_segment
+            else:
+                assert first_segment.get('kind')=='cubic_to', \
+                    f'unsupported vector segment in live insertion fixture: {first_segment}'
+                original_curve=first_segment
+                start=insertion_path['start']
+                control1=original_curve['control1']
+                control2=original_curve['control2']
+                endpoint=original_curve['point']
+                midpoint_pair=lambda a,b:[(a[axis]+b[axis])*0.5 for axis in range(2)]
+                q0=midpoint_pair(start,control1)
+                q1=midpoint_pair(control1,control2)
+                q2=midpoint_pair(control2,endpoint)
+                r0=midpoint_pair(q0,q1)
+                r1=midpoint_pair(q1,q2)
+                midpoint=midpoint_pair(r0,r1)
+                assert first_half=={'kind':'cubic_to',
+                    'control1':q0,'control2':r0,'point':midpoint}
+                assert second_half=={'kind':'cubic_to',
+                    'control1':r1,'control2':q2,'point':endpoint}
+            assert native_document_tables(insertion_after)[1] \
+                ==native_document_tables(insertion_before)[1], \
+                'inserting an editable vector anchor must not rasterize the path'
+            assert native_document_tables(insertion_after)[2] \
+                ==native_document_tables(insertion_before)[2], \
+                'inserting an editable vector anchor must preserve independent masks'
+            capture_window(window,'vector-node-editor-with-inserted-midpoint')
+            wait(lambda:(lambda update:update and insertion_preview
+                         and update[0]!=insertion_preview[0])(
+                             layer_thumbnail_update(insertion_layer['id'])),
+                 'inserting an anchor invalidates the owning layer thumbnail')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==insertion_before,
+                 'Undo removes the inserted anchor and restores the exact native document')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==insertion_after,
+                 'Redo restores the inserted anchor exactly')
+
+            delete_rect_count=event_marker_count('UI_TEST_VECTOR_ANCHOR_DELETE_RECT')
+            anchor_controls=wait(vector_anchor_controls_rect,
+                                 'the selected midpoint remains available for deletion')
+            click_scaled_rect(anchor_controls)
+            delete_rect=wait(
+                lambda:(lambda rect:rect if rect and
+                        event_marker_count('UI_TEST_VECTOR_ANCHOR_DELETE_RECT')>delete_rect_count
+                        else None)(vector_anchor_action_rect('delete')),
+                'the midpoint exposes an enabled exact line-anchor deletion action')
+            deleted_count=event_marker_count('UI_TEST_VECTOR_ANCHOR_DELETED')
+            click_scaled_rect(delete_rect)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_ANCHOR_DELETED')>deleted_count,
+                 'anchor deletion dispatches through the document edit transaction')
+            ctrl('s')
+            wait(lambda:imported.read_bytes()==insertion_before and '*' not in title(window),
+                 'deleting the midpoint restores the exact pre-insertion native document')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==insertion_after,
+                 'Undo restores the exact deleted midpoint')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==insertion_before,
+                 'Redo restores the exact line geometry after anchor deletion')
+
             # Width editing changes editable path metadata, leaves raster/mask
             # storage untouched, refreshes the layer preview, and commits one
             # undo transaction per gesture.
@@ -3628,7 +3744,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','layers-panel-white-mask-settings','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','layers-panel-white-mask-settings','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

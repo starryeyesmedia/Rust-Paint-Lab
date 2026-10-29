@@ -81,9 +81,11 @@ painting, configurable pen barrel behavior and transformed image placement.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
   non-destructive effects, and natural-media foundations. The first editable
   path slice now includes bounded line/cubic document geometry, stable IDs,
-  v3 persistence with v1/v2 reads, whole-path move/delete, undo/redo, live
-  preview, and PNG/OpenRaster flattening. Cubic creation and node/handle editing
-  remain open.
+  v3 persistence with v1/v2 reads, whole-path move/delete, per-anchor move,
+  exact segment subdivision, supported anchor removal, undo/redo, live preview,
+  and PNG/OpenRaster flattening. The V tool still authors polylines only;
+  independent cubic handle editing, path fills/transforms, SVG interchange, and
+  richer vector object workflows remain open.
 - Phase 11 — frame animation, onion skin, automatic per-action timelapse, and
   interoperability expansion.
 - Phase 12 — broader creative workflows and mobile-core reuse.
@@ -816,6 +818,22 @@ The current cross-platform Actions run is pending. The inspected narrow
 Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
 implement bounded, keyboard-accessible vector node movement and undo, then
 continue curve handles, fill and transforms without claiming Phase 10 complete.
+
+### Latest Phase 10 continuation — anchor insertion/removal (2026-10-29)
+
+Path anchors can now be split at exact midpoints and safely removed through the
+accessible node menu. The document model preserves cubic shape when subdividing
+with De Casteljau and refuses unsupported approximate interior-curve deletion.
+Native v3 layout and older project reads are unchanged. All 359 local workspace
+tests, strict host/Windows GNU Clippy, Windows GNU check, workspace build, GPU
+smoke, and the full 63-screenshot Linux Xorg/XTest artwork workflow pass on the
+current local source. The new workflow verified real insertion/deletion,
+thumbnail refresh, raster/mask isolation, and exact undo/redo; the midpoint
+editor screenshot was inspected. Parent commit `8a0b5a0` passed cross-platform
+Actions run [`40842835450`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40842835450).
+The anchor-operation follow-up requires its own hosted matrix. Continue next with editable cubic creation and independent
+handles, then path fills/transforms; Phase 8.3, 9 hardware validation, Phase 10,
+and Phase 11 remain active.
 
 ### Vector anchor movement — local integration checkpoint (2026-10-29)
 

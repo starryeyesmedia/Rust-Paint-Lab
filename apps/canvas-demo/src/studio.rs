@@ -2604,6 +2604,8 @@ pub(crate) enum Action {
     DeleteVectorPath(u64),
     SetVectorPathStyle(u64, [u8; 4], f64),
     MoveVectorPathAnchor(u64, usize, [f64; 2]),
+    InsertVectorPathAnchor(u64, usize),
+    DeleteVectorPathAnchor(u64, usize),
     Clear,
     Select(u64),
     Move(i32),
@@ -7284,6 +7286,54 @@ impl Studio {
                                                         "Drag a canvas anchor or enter exact coordinates here.",
                                                     );
                                                 }
+                                                ui.horizontal(|ui| {
+                                                    let insert = ui
+                                                        .add_enabled(
+                                                            next_index + 1 < anchors.len(),
+                                                            egui::Button::new("Insert midpoint"),
+                                                        )
+                                                        .on_hover_text(
+                                                            "Split the following segment without changing its line or cubic shape",
+                                                        );
+                                                    let remove = ui
+                                                        .add_enabled(
+                                                            path.can_remove_anchor(next_index),
+                                                            egui::Button::new("Delete anchor"),
+                                                        )
+                                                        .on_hover_text(
+                                                            "Remove this anchor; interior curve joins are disabled when an exact edit is not available",
+                                                        );
+                                                    if self.test_path_dialog {
+                                                        crate::studio_log!(
+                                                            "UI_TEST_VECTOR_ANCHOR_INSERT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                            insert.rect.left(),
+                                                            insert.rect.top(),
+                                                            insert.rect.width(),
+                                                            insert.rect.height(),
+                                                            ui.ctx().pixels_per_point()
+                                                        );
+                                                        crate::studio_log!(
+                                                            "UI_TEST_VECTOR_ANCHOR_DELETE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                            remove.rect.left(),
+                                                            remove.rect.top(),
+                                                            remove.rect.width(),
+                                                            remove.rect.height(),
+                                                            ui.ctx().pixels_per_point()
+                                                        );
+                                                    }
+                                                    if insert.clicked() {
+                                                        actions.push(Action::InsertVectorPathAnchor(
+                                                            path.id,
+                                                            next_index,
+                                                        ));
+                                                    }
+                                                    if remove.clicked() {
+                                                        actions.push(Action::DeleteVectorPathAnchor(
+                                                            path.id,
+                                                            next_index,
+                                                        ));
+                                                    }
+                                                });
                                                 self.vector_node_editor =
                                                     Some((editor_path, next_index, point));
                                             });
@@ -12694,6 +12744,58 @@ impl Studio {
                 if self.test_path_dialog {
                     crate::studio_log!(
                         "UI_TEST_VECTOR_NODE_POSITION_APPLIED: {id} {index} {:.2} {:.2}",
+                        point[0],
+                        point[1]
+                    );
+                }
+            }
+            Action::InsertVectorPathAnchor(id, after_anchor) => {
+                let index = project.insert_vector_path_anchor(id, after_anchor)?;
+                let point = project
+                    .state()
+                    .layers
+                    .iter()
+                    .find_map(|layer| {
+                        layer
+                            .vector_paths
+                            .iter()
+                            .find(|path| path.id == id)
+                            .and_then(|path| path.anchor_points().get(index).copied())
+                    })
+                    .ok_or(paint_document::PaintError::Invalid)?;
+                self.selected_vector_path = Some(id);
+                self.vector_node_editor = Some((id, index, point));
+                self.test_vector_node_rect_logged = false;
+                self.status = format!("Vector anchor {} inserted · Ctrl+Z to undo", index + 1);
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_VECTOR_ANCHOR_INSERTED: {id} {index} {:.2} {:.2}",
+                        point[0],
+                        point[1]
+                    );
+                }
+            }
+            Action::DeleteVectorPathAnchor(id, anchor) => {
+                let index = project.remove_vector_path_anchor(id, anchor)?;
+                let point = project
+                    .state()
+                    .layers
+                    .iter()
+                    .find_map(|layer| {
+                        layer
+                            .vector_paths
+                            .iter()
+                            .find(|path| path.id == id)
+                            .and_then(|path| path.anchor_points().get(index).copied())
+                    })
+                    .ok_or(paint_document::PaintError::Invalid)?;
+                self.selected_vector_path = Some(id);
+                self.vector_node_editor = Some((id, index, point));
+                self.test_vector_node_rect_logged = false;
+                self.status = format!("Vector anchor {} deleted · Ctrl+Z to undo", anchor + 1);
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_VECTOR_ANCHOR_DELETED: {id} {anchor} {index} {:.2} {:.2}",
                         point[0],
                         point[1]
                     );

@@ -72,9 +72,12 @@ editing is available from **Edit anchors**: drag an anchor on the canvas or
 choose it from the **Anchor N** menu and enter exact X/Y document coordinates.
 The drag remains provisional until release; Escape cancels it. One anchor move
 is one Undo/Redo transaction and moves adjacent cubic handles along with the
-anchor. The editor currently creates polylines only; anchor insertion/deletion,
-independent Bézier-handle controls, fills, scaling, rotation, and path duplication
-remain future work.
+anchor. The **Anchor N** menu can insert a midpoint without changing the
+following line or cubic segment. It can remove endpoints or an interior point
+between two lines; interior cubic joins stay disabled when exact geometry cannot
+be retained. Each operation is undoable and saved in the editable native file.
+The V tool still creates polylines only; independent Bézier-handle controls,
+fills, scaling, rotation, and path duplication remain future work.
 
 Use **G** to choose the Gradient tool. Select **Linear** or **Radial** in the
 contextual options, then drag across the canvas: linear uses the drag direction;

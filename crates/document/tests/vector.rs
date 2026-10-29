@@ -348,6 +348,127 @@ fn vector_anchor_edits_reject_invalid_indices_points_and_locked_owners_atomicall
 }
 
 #[test]
+fn line_anchor_insert_delete_and_history_restore_exact_geometry_and_pixels() {
+    let mut engine = blank();
+    let id = add_path(&mut engine);
+    let before = storage::encode(engine.state()).unwrap();
+    let pixels_before = engine.rgba();
+    let history_before = engine.undo_count();
+
+    let selected = engine.insert_vector_path_anchor(id, 0).unwrap();
+    assert_eq!(selected, 1);
+    let inserted_path = engine.state().layers[0].vector_paths[0].clone();
+    assert_eq!(
+        inserted_path.anchor_points(),
+        vec![[8.0, 12.0], [16.0, 12.0], [24.0, 12.0], [35.0, 20.0]]
+    );
+    assert_eq!(engine.rgba(), pixels_before);
+    assert_eq!(engine.undo_count(), history_before + 1);
+    let inserted = storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&inserted).unwrap()).unwrap();
+    assert_eq!(reopened.state().layers[0].vector_paths[0], inserted_path);
+    assert_eq!(reopened.rgba(), pixels_before);
+
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), inserted);
+
+    let selected = engine.remove_vector_path_anchor(id, 1).unwrap();
+    assert_eq!(selected, 0);
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert_eq!(engine.rgba(), pixels_before);
+    assert_eq!(engine.undo_count(), history_before + 2);
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), inserted);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+}
+
+#[test]
+fn cubic_anchor_insertion_splits_the_same_curve_and_curve_interior_delete_is_rejected() {
+    use paint_document::vector::VectorPath;
+
+    let mut path =
+        VectorPath::from_polyline(1, &[[8.0, 12.0], [56.0, 40.0]], [1, 2, 3, 255], 3.0).unwrap();
+    path.segments = vec![VectorSegment::CubicTo {
+        control1: [16.0, 60.0],
+        control2: [48.0, -8.0],
+        point: [56.0, 40.0],
+    }];
+    let original = path.clone();
+    assert_eq!(path.insert_anchor_after(0).unwrap(), 1);
+    assert_eq!(path.segments.len(), 2);
+    assert!(
+        path.segments
+            .iter()
+            .all(|segment| matches!(segment, VectorSegment::CubicTo { .. }))
+    );
+    for step in 0..=64 {
+        let t = f64::from(step) / 64.0;
+        let u = 1.0 - t;
+        let point = [
+            u.powi(3) * original.start[0]
+                + 3.0 * u.powi(2) * t * 16.0
+                + 3.0 * u * t.powi(2) * 48.0
+                + t.powi(3) * 56.0,
+            u.powi(3) * original.start[1]
+                + 3.0 * u.powi(2) * t * 60.0
+                + 3.0 * u * t.powi(2) * -8.0
+                + t.powi(3) * 40.0,
+        ];
+        assert!(
+            paint_document::vector::path_distance(&path, point) <= 0.25,
+            "split curve deviates at t={t}: {point:?}"
+        );
+    }
+    let after_split = path.clone();
+    assert!(!path.can_remove_anchor(1));
+    assert!(path.remove_anchor(1).is_err());
+    assert_eq!(path, after_split);
+}
+
+#[test]
+fn anchor_insert_delete_reject_invalid_indices_minimal_paths_and_locks_atomically() {
+    use paint_document::vector::VectorPath;
+
+    let mut path =
+        VectorPath::from_polyline(1, &[[8.0, 12.0], [24.0, 12.0]], [1, 2, 3, 255], 3.0).unwrap();
+    let before = path.clone();
+    assert!(path.insert_anchor_after(usize::MAX).is_err());
+    assert!(!path.can_remove_anchor(0));
+    assert!(path.remove_anchor(0).is_err());
+    assert_eq!(path, before);
+
+    let points: Vec<_> = (0..=paint_document::vector::MAX_VECTOR_SEGMENTS_PER_PATH)
+        .map(|index| [index as f64, 4.0])
+        .collect();
+    let mut capped = VectorPath::from_polyline(2, &points, [1, 2, 3, 255], 3.0).unwrap();
+    let capped_before = capped.clone();
+    assert!(capped.insert_anchor_after(0).is_err());
+    assert_eq!(capped, capped_before);
+
+    let mut engine = blank();
+    let id = add_path(&mut engine);
+    let before = storage::encode(engine.state()).unwrap();
+    let history = engine.undo_count();
+    assert!(engine.insert_vector_path_anchor(id, usize::MAX).is_err());
+    assert!(engine.remove_vector_path_anchor(id, usize::MAX).is_err());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert_eq!(engine.undo_count(), history);
+    engine
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    let locked = storage::encode(engine.state()).unwrap();
+    assert!(engine.insert_vector_path_anchor(id, 0).is_err());
+    assert!(engine.remove_vector_path_anchor(id, 1).is_err());
+    assert_eq!(storage::encode(engine.state()).unwrap(), locked);
+}
+
+#[test]
 fn layer_duplication_remaps_vector_ids_and_preserves_editable_order() {
     let mut engine = blank();
     let first_id = add_path(&mut engine);

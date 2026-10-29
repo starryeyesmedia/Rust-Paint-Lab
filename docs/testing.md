@@ -1004,5 +1004,37 @@ the 1800 × 2400 XTest artwork took 12.444 s for OpenRaster export in the UI and
 not a release build or hardware measurement. Hosted cross-platform Actions for
 these uncommitted changes are pending; the previous green Actions run validates
 only the prior commit. The node editor creates/moves anchors on existing
-polylines; it does not yet add/remove anchors, author cubic curves, expose
-independent Bézier handles, or edit fill/transforms.
+polylines and now inserts/deletes supported anchors as described below; it does
+not yet author cubic curves, expose independent Bézier handles, or edit
+fill/transforms.
+
+### Editable vector anchor operations — 2026-10-29
+
+`paint-document` now inserts an anchor at the exact midpoint of a line or cubic
+segment (cubic segments use De Casteljau subdivision) and removes endpoints or
+interior anchors between line segments without approximation. Unsupported
+interior cubic joins, malformed indices, locked layers, segment-limit overflow,
+and non-finite geometry are rejected without mutating the document. Each engine
+operation creates one undoable transaction. Native v3 save/reopen, rendered
+pixels, and raster/mask tile isolation are covered by:
+
+```sh
+cargo test --locked -p paint-document --test vector
+```
+
+The Linux XTest workflow opens the `Anchor N` menu with real pointer input,
+inserts a midpoint, checks saved line/cubic segment geometry, unchanged raster
+and mask storage, thumbnail invalidation, save, undo and redo, then deletes the
+midpoint and checks that the original project bytes return. The screenshot suite
+adds `vector-node-editor-with-inserted-midpoint`. The complete workflow passed
+locally on Xorg display `:102` with Mesa llvmpipe/OpenGL and produced 63 PNGs; I
+inspected the new populated anchor-editor screenshot. This environment lacks an
+`Xvfb` executable but had a reusable Xorg server for XTest.
+
+Local Rust 1.90 validation after the anchor-operation changes: formatting,
+strict host Clippy, strict Windows GNU target Clippy, workspace build, Windows
+GNU workspace check, all **359 workspace tests**, and the required llvmpipe GPU
+smoke pass. Parent commit `8a0b5a0` passed the Windows/Linux/macOS Actions matrix
+in run [`40842835450`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40842835450);
+the insertion/deletion follow-up still needs its own hosted run.
+This does not establish physical pen/hardware behavior.
