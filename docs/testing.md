@@ -905,6 +905,8 @@ layer duplication, and raster/OpenRaster flattening with:
 cargo test --locked -p paint-document --test vector
 cargo test --locked -p paint-document --lib vector::tests
 cargo test --locked -p canvas-demo --lib vector_creation_visibility_and_movement_invalidate_layer_thumbnails
+cargo test --locked -p paint-document --test vector dense_editable_paths_keep_document_and_layer_previews_tile_bounded
+cargo test --locked -p canvas-demo --lib dense_vector_layer_thumbnail_reuses_bounded_source_tile_rows
 ```
 
 The full Xorg/XTest application workflow creates a path through the V tool,
@@ -924,7 +926,7 @@ only the native `.rpl` format retains editable path objects.
 
 Latest local Phase 10 validation (2026-10-29): `cargo fmt --all -- --check`,
 strict host and Windows GNU Clippy, `cargo test --workspace --locked --quiet`
-(**350 passed**), `cargo build --workspace --locked`, Windows GNU workspace
+(**352 passed**), `cargo build --workspace --locked`, Windows GNU workspace
 check, the required llvmpipe GPU smoke, and the full Xorg/XTest artwork workflow
 all passed. The Xorg workflow generated 61 PNG screenshots. During forced-crash
 recovery, raster and mask tile tables compare byte-for-byte; JSON document and
@@ -932,3 +934,13 @@ vector metadata allow at most `1e-12` f64 serialization drift. The local
 graphics backend was Mesa llvmpipe/OpenGL on Xorg display `:102`; it does not
 validate a physical GPU, Windows/macOS GUI startup, or pen hardware. Hosted
 cross-platform Actions for this Phase 10 slice must pass after push.
+
+The Home and Layer thumbnail paths now rasterize and reuse at most one or two
+source-tile rows while sampling vector artwork; conservative control-point bounds
+skip unrelated paths per tile. Dense preview regressions use 8 paths and 8,192
+segments on a 2048 × 2048 document and confirm both thumbnails still contain the
+stroke. They completed in roughly 0.6 seconds for the Home preview and 0.5
+seconds for the Layer preview in the local debug test run; this is a regression
+fixture measurement, not a hardware benchmark. The full Xorg/XTest workflow
+passed before this thumbnail-only follow-up; the targeted dense preview tests and
+workspace suite pass on the updated code, with the hosted UI workflow pending.

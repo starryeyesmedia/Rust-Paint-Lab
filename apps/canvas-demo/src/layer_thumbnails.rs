@@ -8,7 +8,7 @@ use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 
 use egui::{Color32, Context, TextureHandle, TextureOptions};
-use paint_document::{Engine, Layer, TILE};
+use paint_document::{Engine, Layer, TILE, TILE_BYTES};
 
 pub const MAX_THUMBNAIL_WIDTH: usize = 96;
 pub const MAX_THUMBNAIL_HEIGHT: usize = 64;
@@ -169,29 +169,61 @@ pub fn layer_thumbnail_image(layer: &Layer, document_size: [u32; 2]) -> Thumbnai
     let height = document_size[1].max(1);
     let [preview_width, preview_height] = fit_size(width, height);
     let mut pixels = Vec::with_capacity(preview_width * preview_height);
+    // Cache only the one or two source tile rows sampled by this thumbnail row.
+    // This keeps temporary storage bounded to 2 MiB at maximum document width
+    // and rasterizes editable vector segments once per relevant tile instead of
+    // repeating path traversal for every 2×2 downsample point.
+    let tile_columns = width.div_ceil(TILE) as usize;
+    let mut tile_rows: Vec<(u32, Vec<Vec<u8>>)> = Vec::with_capacity(2);
 
     for y in 0..preview_height {
+        let source_rows = [0_u64, 1].map(|sample_y| {
+            ((4 * y as u64 + 2 * sample_y + 1) * u64::from(height) / (4 * preview_height as u64))
+                .min(u64::from(height - 1)) as u32
+        });
+        let needed_tile_rows = [source_rows[0] / TILE, source_rows[1] / TILE];
+        for tile_y in needed_tile_rows {
+            if tile_rows.iter().any(|(cached_y, _)| *cached_y == tile_y) {
+                continue;
+            }
+            let mut rendered = Vec::with_capacity(tile_columns);
+            for tile_x in 0..tile_columns {
+                let key = (tile_x as u32, tile_y);
+                let mut tile = layer
+                    .tiles
+                    .get(&key)
+                    .filter(|tile| tile.len() == TILE_BYTES)
+                    .map_or_else(|| vec![0; TILE_BYTES], |tile| tile.as_ref().clone());
+                paint_document::vector::rasterize_layer_tile(
+                    layer,
+                    key,
+                    [width, height],
+                    &mut tile,
+                );
+                rendered.push(tile);
+            }
+            tile_rows.push((tile_y, rendered));
+        }
+        tile_rows.retain(|(tile_y, _)| needed_tile_rows.contains(tile_y));
         for x in 0..preview_width {
             let mut channels = [0u32; 4];
             for sample_y in 0..2u64 {
+                let source_y = source_rows[sample_y as usize];
+                let tile_y = source_y / TILE;
+                let tile_row = &tile_rows
+                    .iter()
+                    .find(|(cached_y, _)| *cached_y == tile_y)
+                    .expect("sampled source tile row was prepared")
+                    .1;
                 for sample_x in 0..2u64 {
                     let source_x = ((4 * x as u64 + 2 * sample_x + 1) * u64::from(width)
                         / (4 * preview_width as u64))
                         .min(u64::from(width - 1)) as u32;
-                    let source_y = ((4 * y as u64 + 2 * sample_y + 1) * u64::from(height)
-                        / (4 * preview_height as u64))
-                        .min(u64::from(height - 1)) as u32;
                     let key = (source_x / TILE, source_y / TILE);
                     let mut pixel = [0; 4];
-                    if let Some(tile) = layer.tiles.get(&key) {
-                        let offset = ((source_y % TILE * TILE + source_x % TILE) * 4) as usize;
-                        pixel.copy_from_slice(&tile[offset..offset + 4]);
-                    }
-                    paint_document::vector::rasterize_paths_at_pixel(
-                        &layer.vector_paths,
-                        [f64::from(source_x) + 0.5, f64::from(source_y) + 0.5],
-                        &mut pixel,
-                    );
+                    let offset = ((source_y % TILE * TILE + source_x % TILE) * 4) as usize;
+                    pixel
+                        .copy_from_slice(&tile_row[(source_x / TILE) as usize][offset..offset + 4]);
                     let mask_alpha = layer
                         .mask
                         .as_ref()
@@ -562,6 +594,25 @@ mod tests {
         assert!(moved[0].colored_pixels > 0);
         assert_ne!(moved[0].fingerprint, created_fingerprint);
         assert_eq!(cache.rebuild_count(), 4);
+    }
+
+    #[test]
+    fn dense_vector_layer_thumbnail_reuses_bounded_source_tile_rows() {
+        let mut project = Engine::new(2048, 2048, 300).unwrap();
+        project.brush.size = 24.0;
+        for path_index in 0..8 {
+            let points = (0..=1_024)
+                .map(|index| {
+                    [
+                        100.0 + index as f64 / 1_024.0,
+                        1_010.0 + f64::from(index % 2) * 0.05 + f64::from(path_index) * 0.1,
+                    ]
+                })
+                .collect::<Vec<_>>();
+            project.add_vector_path(&points).unwrap();
+        }
+        let image = layer_thumbnail_image(&project.state().layers[0], [2048, 2048]);
+        assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
     }
 
     #[test]

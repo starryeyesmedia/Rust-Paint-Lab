@@ -1990,40 +1990,32 @@ impl Engine {
             )
         };
         let mut pixels = vec![0; width as usize * height as usize * 4];
+        // Downsample by source tile row. Compositing each source pixel directly
+        // would visit every editable path and segment once per preview sample;
+        // a bounded row cache instead rasterizes each 64×64 tile once and keeps
+        // at most one document tile row (1 MiB at the maximum width).
+        let tile_columns = self.state.width.div_ceil(TILE) as usize;
+        let mut composite_tile_row = Vec::with_capacity(tile_columns);
+        let mut cached_tile_y = None;
         for y in 0..height {
             let source_y = (((u64::from(y) * 2 + 1) * u64::from(self.state.height))
                 / (u64::from(height) * 2))
                 .min(u64::from(self.state.height - 1)) as u32;
+            let tile_y = source_y / TILE;
+            if cached_tile_y != Some(tile_y) {
+                composite_tile_row.clear();
+                composite_tile_row.extend(
+                    (0..tile_columns).map(|tile_x| self.composite_tile((tile_x as u32, tile_y))),
+                );
+                cached_tile_y = Some(tile_y);
+            }
             for x in 0..width {
                 let source_x = (((u64::from(x) * 2 + 1) * u64::from(self.state.width))
                     / (u64::from(width) * 2))
                     .min(u64::from(self.state.width - 1)) as u32;
-                let key = (source_x / TILE, source_y / TILE);
                 let source = (((source_y % TILE) * TILE + source_x % TILE) * 4) as usize;
-                let mut composite = [0u8; 4];
-                if let Some(background) = self.state.background {
-                    composite.copy_from_slice(&[background[0], background[1], background[2], 255]);
-                }
-                for layer in self.state.layers.iter().filter(|layer| layer.visible) {
-                    let mut pixel = [0; 4];
-                    if let Some(tile) = layer.tiles.get(&key) {
-                        pixel.copy_from_slice(&tile[source..source + 4]);
-                    }
-                    vector::rasterize_paths_at_pixel(
-                        &layer.vector_paths,
-                        [f64::from(source_x) + 0.5, f64::from(source_y) + 0.5],
-                        &mut pixel,
-                    );
-                    if let Some(mask) = layer.mask.as_ref().filter(|mask| mask.enabled) {
-                        let mask_offset = (source_y % TILE * TILE + source_x % TILE) as usize;
-                        let value = mask.tiles.get(&key).map_or(255, |tile| tile[mask_offset]);
-                        let alpha = if mask.inverted { 255 - value } else { value };
-                        for channel in &mut pixel {
-                            *channel = ((u16::from(*channel) * u16::from(alpha) + 127) / 255) as u8;
-                        }
-                    }
-                    over(&mut composite, &pixel, false, layer.opacity, layer.blend);
-                }
+                let tile = &composite_tile_row[(source_x / TILE) as usize];
+                let composite = &tile[source..source + 4];
                 let dest = ((y * width + x) * 4) as usize;
                 let alpha = u32::from(composite[3]);
                 for channel in 0..3 {

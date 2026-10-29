@@ -60,6 +60,12 @@ fn editable_path_renders_without_raster_mutation_and_roundtrips_in_v3() {
     assert_eq!(layer.vector_paths[0].segments.len(), 2);
     assert_eq!(pixel(&engine, 18, 12), [220, 40, 145, 255]);
     assert_eq!(engine.undo_count(), history_before + 1);
+    let (_, _, thumbnail) = engine.thumbnail_rgba(48, 32).unwrap();
+    assert!(
+        thumbnail
+            .chunks_exact(4)
+            .any(|pixel| pixel[0] > pixel[1] && pixel[2] > pixel[1] && pixel[3] > 0)
+    );
 
     let encoded = storage::encode(engine.state()).unwrap();
     assert_eq!(&encoded[..8], b"RPLALP03");
@@ -72,6 +78,38 @@ fn editable_path_renders_without_raster_mutation_and_roundtrips_in_v3() {
     assert_eq!(pixel(&engine, 18, 12), [0; 4]);
     assert!(engine.redo());
     assert_eq!(pixel(&engine, 18, 12), [220, 40, 145, 255]);
+}
+
+#[test]
+fn dense_editable_paths_keep_document_and_layer_previews_tile_bounded() {
+    let mut engine = Engine::new(2048, 2048, 300).unwrap();
+    engine.brush.size = 1.0;
+    for path_index in 0..8 {
+        let points = (0..=1_024)
+            .map(|index| {
+                [
+                    100.0 + index as f64 / 1_024.0,
+                    100.0 + f64::from(index % 2) * 0.05 + f64::from(path_index) * 0.1,
+                ]
+            })
+            .collect::<Vec<_>>();
+        engine.add_vector_path(&points).unwrap();
+    }
+    assert_eq!(
+        engine.state().layers[0]
+            .vector_paths
+            .iter()
+            .map(|path| path.segments.len())
+            .sum::<usize>(),
+        paint_document::vector::MAX_VECTOR_SEGMENTS
+    );
+
+    let (_, _, home_preview) = engine.thumbnail_rgba(128, 128).unwrap();
+    assert!(
+        home_preview
+            .chunks_exact(4)
+            .any(|pixel| pixel[0] > 0 && pixel[3] > 0)
+    );
 }
 
 #[test]

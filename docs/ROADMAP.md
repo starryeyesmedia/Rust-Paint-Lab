@@ -757,7 +757,7 @@ composite; OpenRaster reports path loss while `.rpl` retains path objects.
 RPL v3 stores vector metadata and a monotonic document-wide object-ID allocator;
 v1/v2 reading and the prior v1/v2 write choices remain. Resource limits bound
 path count, segment count, coordinate/width ranges, metadata size and estimated
-raster work. Eleven focused document tests cover v1/v2/v3 behavior, mixed masks,
+raster work. Twelve focused document tests cover v1/v2/v3 behavior, mixed masks,
 rendering, save/reopen, monotonic IDs, layer-duplication ID remapping,
 movement/deletion history, corruption rejection, and PNG/OpenRaster output.
 The real Xorg/XTest workflow now creates, saves/reopens, moves and deletes a path,
@@ -769,8 +769,13 @@ representative workspace and vector states inspected. A one-ULP-scale JSON f64
 round-trip difference is allowed only within `1e-12`; native raster/mask tile
 tables remain byte-identical during recovery. The full hosted Linux workflow
 previously took 596 seconds, four seconds under its former 10-minute cap; CI now
-allows 15 minutes without skipping checks. New cross-platform Actions remain
-pending after push.
+allows 15 minutes without skipping checks. The dense-path follow-up reuses
+bounded source-tile rows for Home and Layer thumbnails and culls paths by
+conservative bounds before tile rasterization. Two fixtures cover 8,192
+segments; their local debug timings were about 0.6 seconds and 0.5 seconds,
+respectively. The complete Xorg workflow above ran before this thumbnail-only
+follow-up; targeted dense-preview tests pass, and hosted Linux CI will exercise
+the updated UI code. Cross-platform Actions for the latest code remain pending.
 
 Phase 8.3, Phase 10 and Phase 11 remain active. The Phase 9 mask checkpoint is
 accepted by run `40805980434`; new Phase 10 Actions validation is pending. Phase

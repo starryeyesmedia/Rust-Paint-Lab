@@ -141,6 +141,34 @@ impl VectorPath {
         });
         bounds
     }
+
+    /// Cheap conservative bounds using the convex hull of cubic control points.
+    /// This is used to skip tile raster work before flattening path segments.
+    pub fn control_bounds(&self) -> [f64; 4] {
+        let mut bounds = [self.start[0], self.start[1], self.start[0], self.start[1]];
+        let mut include = |point: [f64; 2]| {
+            bounds[0] = bounds[0].min(point[0]);
+            bounds[1] = bounds[1].min(point[1]);
+            bounds[2] = bounds[2].max(point[0]);
+            bounds[3] = bounds[3].max(point[1]);
+        };
+        for segment in &self.segments {
+            match segment {
+                VectorSegment::LineTo { point } => include(*point),
+                VectorSegment::CubicTo {
+                    control1,
+                    control2,
+                    point,
+                } => {
+                    include(*control1);
+                    include(*control2);
+                    include(*point);
+                }
+                VectorSegment::Close => {}
+            }
+        }
+        bounds
+    }
 }
 
 fn valid_point(point: [f64; 2]) -> bool {
@@ -282,8 +310,16 @@ pub fn rasterize_layer_tile(layer: &Layer, key: (u32, u32), document: [u32; 2], 
 
     let mut coverage = [0.0_f32; (TILE * TILE) as usize];
     for path in layer.vector_paths.iter().filter(|path| path.visible) {
-        coverage.fill(0.0);
         let radius = path.width * 0.5 + 0.5;
+        let bounds = path.control_bounds();
+        if bounds[2] + radius < origin[0]
+            || bounds[0] - radius >= right
+            || bounds[3] + radius < origin[1]
+            || bounds[1] - radius >= bottom
+        {
+            continue;
+        }
+        coverage.fill(0.0);
         for_each_flat_segment(path, |a, b| {
             let min_x = (a[0].min(b[0]) - radius - origin[0]).floor().max(0.0) as u32;
             let min_y = (a[1].min(b[1]) - radius - origin[1]).floor().max(0.0) as u32;
@@ -362,6 +398,12 @@ mod tests {
             width: 2.0,
         };
         path.validate().unwrap();
+        let bounds = path.control_bounds();
+        for point in flattened_points(&path) {
+            assert!(point[0] >= bounds[0] && point[0] <= bounds[2]);
+            assert!(point[1] >= bounds[1] && point[1] <= bounds[3]);
+        }
+        assert_eq!(bounds, [0.0, 0.0, 20.0, 10.0]);
         let first = path_distance(&path, [10.0, 5.0]);
         assert_eq!(first, path_distance(&path, [10.0, 5.0]));
         assert!(first < 3.0, "distance={first}");

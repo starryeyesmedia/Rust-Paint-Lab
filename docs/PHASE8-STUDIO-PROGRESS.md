@@ -2933,9 +2933,10 @@ creates polylines only; node/handle editing, path fill, transformations beyond
 whole-path translation, and vector style editing remain future work.
 
 Verification on this checkpoint: Rust 1.90 formatting and strict Clippy pass;
-the full workspace suite passes **350 tests**; workspace build and Windows GNU
+the full workspace suite passes **352 tests**; workspace build and Windows GNU
 target check/Clippy pass; and the required llvmpipe/OpenGL offscreen GPU smoke
-passes. The complete Linux/Xorg/XTest application workflow passes, including
+passes. The complete Linux/Xorg/XTest application workflow passed on vector
+commit `4a5a808`, including
 existing painting, masks, save/reopen and exports; live vector create/move/delete,
 save/reopen and OpenRaster flattening; plus forced process termination after a
 durably journaled recovery checkpoint with its paired snapshot removed. Recovery
@@ -2953,6 +2954,16 @@ behavior were not physically tested in this continuation. The 15-minute hosted
 Linux artwork-workflow timeout provides margin above the previously measured
 Phase 9 run. Cross-platform Actions for the new commit must pass before calling
 the Phase 10 checkpoint hosted-validated.
+
+A post-commit performance review found that Home and Layer thumbnails sampled
+editable paths per output pixel. Both now reuse bounded source-tile rows, and the
+tile rasterizer skips paths whose conservative cubic-control bounds do not
+intersect the current tile. A dense fixture with 8,192 line segments completes
+the document thumbnail test in about 0.6 seconds and the 96 × 64 layer preview
+in about 0.5 seconds in this local debug build. These deterministic regression
+workloads exercise the maximum accepted segment count; timings are observations,
+not hardware performance claims. The full Xorg workflow was not rerun after this
+thumbnail-only follow-up; the updated hosted workflow remains pending.
 
 ### Continue from this checkpoint
 
