@@ -1,4 +1,7 @@
-use paint_document::{Engine, storage, vector::VectorSegment};
+use paint_document::{
+    Engine, storage,
+    vector::{VectorHandle, VectorSegment},
+};
 use sha2::{Digest, Sha256};
 use std::{fs, io::Read, path::PathBuf};
 
@@ -345,6 +348,175 @@ fn vector_anchor_edits_reject_invalid_indices_points_and_locked_owners_atomicall
     let locked_state = storage::encode(engine.state()).unwrap();
     assert!(engine.move_vector_path_anchor(id, 1, [20.0, 20.0]).is_err());
     assert_eq!(storage::encode(engine.state()).unwrap(), locked_state);
+}
+
+#[test]
+fn cubic_handle_edits_preserve_other_geometry_and_roundtrip_as_individual_transactions() {
+    let mut engine = blank();
+    let id = engine
+        .add_vector_path(&[[8.0, 12.0], [40.0, 18.0]])
+        .unwrap();
+    engine
+        .edit(|state| {
+            state.layers[0].vector_paths[0].segments = vec![VectorSegment::CubicTo {
+                control1: [12.0, 30.0],
+                control2: [34.0, -2.0],
+                point: [40.0, 18.0],
+            }];
+            Ok(())
+        })
+        .unwrap();
+    let before = storage::encode(engine.state()).unwrap();
+    let pixels_before = engine.rgba();
+    let history_before = engine.undo_count();
+    assert_eq!(
+        engine.state().layers[0].vector_paths[0].control_handle(0, VectorHandle::Outgoing),
+        Some([12.0, 30.0])
+    );
+    assert_eq!(
+        engine.state().layers[0].vector_paths[0].control_handle(1, VectorHandle::Incoming),
+        Some([34.0, -2.0])
+    );
+    assert_eq!(
+        engine.state().layers[0].vector_paths[0].control_handle(0, VectorHandle::Incoming),
+        None
+    );
+
+    engine
+        .move_vector_path_handle(id, 0, VectorHandle::Outgoing, [18.0, 36.0])
+        .unwrap();
+    let outgoing = engine.state().layers[0].vector_paths[0].clone();
+    assert_eq!(outgoing.start, [8.0, 12.0]);
+    assert_eq!(outgoing.anchor_points(), vec![[8.0, 12.0], [40.0, 18.0]]);
+    assert_eq!(
+        outgoing.segments[0],
+        VectorSegment::CubicTo {
+            control1: [18.0, 36.0],
+            control2: [34.0, -2.0],
+            point: [40.0, 18.0],
+        }
+    );
+    assert_ne!(engine.rgba(), pixels_before);
+    assert!(engine.state().layers[0].tiles.is_empty());
+    assert_eq!(engine.undo_count(), history_before + 1);
+    let outgoing_bytes = storage::encode(engine.state()).unwrap();
+    let reopened = Engine::from_state(storage::decode(&outgoing_bytes).unwrap()).unwrap();
+    assert_eq!(reopened.state().layers[0].vector_paths[0], outgoing);
+    assert_eq!(reopened.rgba(), engine.rgba());
+
+    engine
+        .move_vector_path_handle(id, 1, VectorHandle::Incoming, [32.0, 4.0])
+        .unwrap();
+    let after = storage::encode(engine.state()).unwrap();
+    assert_eq!(
+        engine.state().layers[0].vector_paths[0].control_handle(1, VectorHandle::Incoming),
+        Some([32.0, 4.0])
+    );
+    assert_eq!(engine.undo_count(), history_before + 2);
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), outgoing_bytes);
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert!(engine.redo());
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), after);
+}
+
+#[test]
+fn cubic_handle_edits_reject_missing_segments_invalid_points_and_locked_layers() {
+    let mut engine = blank();
+    let id = engine
+        .add_vector_path(&[[8.0, 12.0], [40.0, 18.0]])
+        .unwrap();
+    engine
+        .edit(|state| {
+            state.layers[0].vector_paths[0].segments[0] = VectorSegment::CubicTo {
+                control1: [12.0, 30.0],
+                control2: [34.0, -2.0],
+                point: [40.0, 18.0],
+            };
+            Ok(())
+        })
+        .unwrap();
+    let before = storage::encode(engine.state()).unwrap();
+    let history = engine.undo_count();
+    for (anchor, handle, point) in [
+        (usize::MAX, VectorHandle::Incoming, [20.0, 20.0]),
+        (0, VectorHandle::Incoming, [20.0, 20.0]),
+        (2, VectorHandle::Outgoing, [20.0, 20.0]),
+        (0, VectorHandle::Outgoing, [f64::NAN, 20.0]),
+        (0, VectorHandle::Outgoing, [16_385.0, 20.0]),
+    ] {
+        assert!(
+            engine
+                .move_vector_path_handle(id, anchor, handle, point)
+                .is_err()
+        );
+        assert_eq!(storage::encode(engine.state()).unwrap(), before);
+        assert_eq!(engine.undo_count(), history);
+    }
+    engine
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    let locked = storage::encode(engine.state()).unwrap();
+    assert!(
+        engine
+            .move_vector_path_handle(id, 0, VectorHandle::Outgoing, [20.0, 20.0])
+            .is_err()
+    );
+    assert_eq!(storage::encode(engine.state()).unwrap(), locked);
+}
+
+#[test]
+fn repeated_native_roundtrips_preserve_cubic_f64_coordinates_exactly() {
+    let mut engine = blank();
+    let id = engine
+        .add_vector_path(&[
+            [574.7176368375326, 1870.3735881841878],
+            [900.3792811643632, 1876.5793504734806],
+        ])
+        .unwrap();
+    engine
+        .edit(|state| {
+            let path = state.layers[0]
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(paint_document::PaintError::Invalid)?;
+            path.segments = vec![
+                VectorSegment::CubicTo {
+                    control1: [683.1450912250218, 1761.9461337966986],
+                    control2: [659.518836690486, 2009.1995970890173],
+                    point: [692.4970810777455, 1959.7322305081277],
+                },
+                VectorSegment::LineTo {
+                    point: [900.3792811643632, 1876.5793504734806],
+                },
+            ];
+            Ok(())
+        })
+        .unwrap();
+    let expected = engine.state().layers[0].vector_paths[0].clone();
+    let mut encoded = storage::encode(engine.state()).unwrap();
+
+    for cycle in 0..8 {
+        let decoded = storage::decode(&encoded).unwrap();
+        let restored = decoded.layers[0]
+            .vector_paths
+            .iter()
+            .find(|path| path.id == id)
+            .unwrap();
+        assert_eq!(
+            restored, &expected,
+            "vector geometry drifted in cycle {cycle}"
+        );
+        let next = storage::encode(&decoded).unwrap();
+        assert_eq!(next, encoded, "native bytes drifted in cycle {cycle}");
+        encoded = next;
+    }
 }
 
 #[test]

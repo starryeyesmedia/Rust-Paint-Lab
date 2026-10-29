@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
     use crate::studio_icons::{self, Icon};
+    use paint_document::vector::{VectorHandle, VectorPath, VectorSegment};
 
     fn app_context() -> egui::Context {
         let context = egui::Context::default();
@@ -49,6 +50,61 @@ mod tests {
         assert!(
             labels.contains("New document"),
             "document action missing from tree: {labels}"
+        );
+    }
+
+    #[test]
+    fn cubic_handle_editor_exposes_named_keyboard_adjustable_controls() {
+        let context = app_context();
+        context.enable_accesskit();
+        let mut path =
+            VectorPath::from_polyline(7, &[[8.0, 12.0], [48.0, 32.0]], [140, 70, 220, 255], 3.0)
+                .unwrap();
+        path.segments[0] = VectorSegment::CubicTo {
+            control1: [14.0, 32.0],
+            control2: [40.0, 4.0],
+            point: [48.0, 32.0],
+        };
+        let mut selected = Some((path.id, 0, VectorHandle::Outgoing));
+        let mut actions = Vec::new();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::vector_handle_editor_contents(
+                    ui,
+                    &path,
+                    0,
+                    &mut selected,
+                    &mut actions,
+                    false,
+                );
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("Bezier handle controls are represented in the AccessKit tree");
+        let nodes = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in [
+            "Incoming handle",
+            "Outgoing handle",
+            "Vector Outgoing handle X position",
+            "Vector Outgoing handle Y position",
+            "Apply handle position",
+        ] {
+            assert!(nodes.contains(label), "{label} missing from tree: {nodes}");
+        }
+        assert!(
+            nodes.contains("role: Button") && nodes.contains("role: SpinButton"),
+            "handle selection and coordinate editing need keyboard control semantics: {nodes}"
+        );
+        assert!(
+            actions.is_empty(),
+            "rendering controls must not edit the path"
         );
     }
 

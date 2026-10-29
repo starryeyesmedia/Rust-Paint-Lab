@@ -554,6 +554,12 @@ impl ApplicationHandler<AppEvent> for App {
         self.tick = Instant::now();
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
+            && matches!(event, WindowEvent::KeyboardInput { ref event, .. }
+                if event.physical_key == PhysicalKey::Code(KeyCode::KeyS))
+        {
+            canvas_demo::studio_log!("UI_TEST_APP_KEY_S: received");
+        }
         self.check_capture();
         if let Some(g) = &mut self.graphics
             && let Some(studio) = &mut g.studio
@@ -643,7 +649,20 @@ impl ApplicationHandler<AppEvent> for App {
                             .is_some_and(|id| {
                                 egui::TextEdit::load_state(&studio.context, id).is_some()
                             });
-                        if focused_text_edit {
+                        if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
+                            && event.physical_key == PhysicalKey::Code(KeyCode::KeyS)
+                        {
+                            canvas_demo::studio_log!(
+                                "UI_TEST_SAVE_SHORTCUT_KEY: control={} focused_text={}",
+                                self.modifiers.control_key(),
+                                focused_text_edit
+                            );
+                        }
+                        if text_editor_owns_key(
+                            focused_text_edit,
+                            self.modifiers.control_key(),
+                            event.physical_key,
+                        ) {
                             return Ok(());
                         }
                         if !studio.blocks_canvas()
@@ -1030,6 +1049,44 @@ fn run() -> Result<(), Failure> {
         return Err(error.into());
     }
     Ok(())
+}
+
+fn text_editor_owns_key(
+    focused_text_edit: bool,
+    control: bool,
+    key: winit::keyboard::PhysicalKey,
+) -> bool {
+    focused_text_edit && !matches!((control, key), (true, PhysicalKey::Code(KeyCode::KeyS)))
+}
+
+#[cfg(test)]
+mod keyboard_shortcut_tests {
+    use super::text_editor_owns_key;
+    use winit::keyboard::{KeyCode, PhysicalKey};
+
+    #[test]
+    fn save_remains_available_while_a_numeric_editor_has_focus() {
+        assert!(!text_editor_owns_key(
+            true,
+            true,
+            PhysicalKey::Code(KeyCode::KeyS)
+        ));
+        assert!(text_editor_owns_key(
+            true,
+            false,
+            PhysicalKey::Code(KeyCode::KeyS)
+        ));
+        assert!(text_editor_owns_key(
+            true,
+            true,
+            PhysicalKey::Code(KeyCode::KeyZ)
+        ));
+        assert!(!text_editor_owns_key(
+            false,
+            false,
+            PhysicalKey::Code(KeyCode::KeyB)
+        ));
+    }
 }
 
 #[cfg(target_os = "windows")]

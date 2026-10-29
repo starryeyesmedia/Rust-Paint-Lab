@@ -1018,6 +1018,32 @@ impl Engine {
         })
     }
 
+    /// Move one Bézier control handle as a single history transaction.
+    pub fn move_vector_path_handle(
+        &mut self,
+        id: u64,
+        anchor: usize,
+        handle: vector::VectorHandle,
+        point: [f64; 2],
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.move_control_handle(anchor, handle, point)
+        })
+    }
+
     /// Split the segment after one anchor and return the new anchor index.
     pub fn insert_vector_path_anchor(
         &mut self,

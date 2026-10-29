@@ -52,9 +52,13 @@ changing the version 3 record layout; adjacent cubic handles retain their
 offsets. It can split a segment at its midpoint (De Casteljau for cubic model
 segments) and delete an endpoint or an interior anchor between two line
 segments. Interior curve-anchor deletion is refused when it would require an
-approximation. The current drawing tool still authors polylines only; separate
-Bézier-handle editing, path fills, scale/rotation, and SVG round-trip are not
-implemented. No decompression is used. The reader validates checksum, bounded
+approximation. Existing cubic segments now expose independent incoming and
+outgoing handle editing through canvas drag and numeric controls. The drawing
+tool still authors polylines only; cubic creation, path fills, scale/rotation,
+and SVG round-trip are not implemented. The document crate enables serde_json's
+`float_roundtrip` feature so repeated v3 load/save cycles retain exact `f64`
+path coordinates; this does not change the v1/v2/v3 record layout. No
+decompression is used. The reader validates checksum, bounded
 lengths/counts, metadata and tile data before returning a document. It does not
 deserialize GPU objects or platform handles.
 

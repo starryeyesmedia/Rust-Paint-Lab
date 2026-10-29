@@ -919,10 +919,31 @@ mask journal/recovery workflow and the existing painting/export regressions.
 
 V draws a connected polyline on an empty canvas area. Dragging a visible path
 moves the whole object; the contextual Delete path action removes it as one
-undoable transaction. Cubic Bézier metadata and deterministic flattening are
-supported by the document model, but the current tool does not yet create curves
-or expose node/handle editing. OpenRaster and PNG rasterize vectors on export;
-only the native `.rpl` format retains editable path objects.
+undoable transaction. Anchor selection, movement, insertion and supported
+deletion are available from the node editor. Existing cubic Bézier segments
+expose independent incoming/outgoing handle drag and numeric edit controls; the
+creation tool still authors polylines only. OpenRaster and PNG rasterize vectors
+on export; only the native `.rpl` format retains editable path objects.
+
+Exact native cubic-coordinate stability is covered by:
+
+```sh
+cargo test --locked -p paint-document --test vector repeated_native_roundtrips_preserve_cubic_f64_coordinates_exactly
+```
+
+The test encodes, decodes and re-encodes nontrivial `f64` path coordinates for
+eight consecutive cycles, requiring both exact model equality and unchanged
+native bytes. The document crate enables serde_json's `float_roundtrip` parser
+feature; this improves numeric preservation without changing the RPL v3 schema
+and does not alter v1/v2 compatibility.
+
+The Xorg/XTest artwork workflow also injects a valid cubic path fixture, opens it
+through the application, edits an outgoing control handle by pointer, and
+verifies the saved coordinate, unchanged raster and mask tile tables, native
+reopen, and exact Undo/Redo. The editor exposes keyboard-accessible named X/Y
+controls plus an Apply action, represented in the AccessKit tree. A canvas
+mapping captured at pointer-down remains in use through pointer-up so contextual
+reflow after path selection cannot translate artwork on a stationary click.
 
 Latest local Phase 10 validation (2026-10-29): `cargo fmt --all -- --check`,
 strict host and Windows GNU Clippy, `cargo test --workspace --locked --quiet`
@@ -1038,3 +1059,43 @@ smoke pass. Parent commit `8a0b5a0` passed the Windows/Linux/macOS Actions matri
 in run [`40842835450`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40842835450);
 the insertion/deletion follow-up still needs its own hosted run.
 This does not establish physical pen/hardware behavior.
+
+### Cubic control handles and complete local regression — 2026-10-29
+
+The Xorg/XTest artwork workflow now selects, drags, and applies numeric edits to
+incoming/outgoing Bézier handles on an editable cubic path. It saves/reopens the
+path, checks that raster/mask tile tables are unchanged, and verifies exact
+Undo/Redo. A Color Mixer redo assertion found least-significant f64 metadata
+drift during repeated native JSON reads; `serde_json`'s `float_roundtrip`
+feature now retains exact geometry. The regression runs eight encode/decode
+cycles and also passes through the application workflow. No project schema
+changed.
+
+Validated locally with Rust 1.90:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo build --workspace --locked
+cargo check --workspace --locked --target x86_64-pc-windows-gnu
+cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
+RPL_REQUIRE_GPU=1 WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 XDG_RUNTIME_DIR=/tmp/bp-runtime \
+  cargo test --locked -p canvas-demo --test gpu_smoke -- --nocapture
+DISPLAY=:102 WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 XDG_RUNTIME_DIR=/tmp/bp-runtime \
+  RPL_KEEP_ALPHA_TEMP=1 RPL_UI_SCREENSHOT_DIR=/tmp/bp-vector-handles-smoke \
+  python3 scripts/alpha-workflow-smoke.py
+```
+
+All **364 workspace test cases** passed. The required GPU smoke used Mesa llvmpipe
+and passed its replay/live preview, commit/cancel, clipping, raster preview,
+Undo/Redo checks. The full Linux Xorg/XTest workflow passed the painting,
+masking, save/reopen, PNG/OpenRaster, recovery, gradients, shapes, vector handles,
+and history assertions; it generated 64 PNGs. I visually inspected the cubic
+handle workspace, mask editing, populated light Home, populated narrow Recovery,
+and populated narrow Layers/Reference captures. The XTest run measured OpenRaster
+export of the 1800 × 2400 vector fixture at 12.834 seconds in this debug-build,
+llvmpipe environment; this is not a release or hardware performance result.
+Windows GNU checks are compile/lint validation only, and hosted Actions for this
+working tree are pending. Windows GUI startup, macOS GUI startup, physical pen,
+Narrator/NVDA, and power-loss durability were not exercised here.

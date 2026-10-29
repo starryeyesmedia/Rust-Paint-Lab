@@ -3126,3 +3126,50 @@ physical pen behavior. Phase 10 remains active. Next, push this isolated slice,
 require the updated Linux scenario and cross-platform matrix to pass, then
 continue with authored cubic curves and independent handle editing while
 preserving v3 compatibility.
+
+### Cubic control-handle editing and full integration regression — local checkpoint (2026-10-29)
+
+Selected RPL v3 paths that already contain cubic segments now expose their
+incoming and outgoing control handles in the canvas editor. Artists can drag a
+handle, or select it and enter X/Y document coordinates through named
+keyboard-accessible fields. Preview remains provisional until Apply/release;
+Escape, focus loss, resize/DPI changes, tool changes, and replay-mode changes
+discard the active preview. The engine transaction changes one control point,
+preserves both anchors and the other control point, rejects invalid coordinates
+and locked/hidden owner layers atomically, and participates in native save,
+Undo, and Redo. The RPL v3 schema is unchanged, and v1/v2 compatibility is
+preserved.
+
+The full Linux Xorg/XTest artwork workflow passed on display `:102` using Mesa
+llvmpipe/OpenGL. In addition to existing mask, painting, export and
+journal-durable process-kill coverage, it created, saved, reopened, selected,
+edited, and reverted an editable cubic path through real UI interactions. It
+checked anchor and handle edits, midpoint insertion/deletion, width changes,
+thumbnail invalidation, exact native undo/redo, and unchanged raster/mask tile
+tables. The Color Mixer save/undo/redo regression exposed floating-point
+coordinate drift on repeated native reads; enabling serde_json's
+`float_roundtrip` parser feature removed that metadata drift. An eight-cycle
+native-byte/geometry regression and a live UI save/undo/redo reproduction now
+pass. This changes numeric decoding only; no file schema changed.
+
+Rust 1.90 formatting, strict host Clippy, all **364 workspace test cases**,
+workspace build, Windows GNU target check and strict target Clippy, and required
+software-GPU smoke pass locally. The complete Xorg/XTest workflow passed and
+generated 64 PNG captures. I inspected the cubic-handle editor, mask editing,
+light Home with real project previews, populated narrow recovery, and the
+populated narrow Layers/Reference state. The narrow workspace remains crowded
+when several large panels are open. OpenRaster export with dense cubic geometry
+remains expensive in this debug/llvmpipe setup; no physical-hardware performance
+claim is made. GitHub Actions for these uncommitted changes are pending. Windows
+GNU checks do not establish Windows GUI startup or S Pen behavior, and macOS
+startup is not locally exercised.
+
+Phase 9 mask behavior remains accepted by its earlier Windows/Linux/macOS
+workflow; this local rerun also re-exercised it. Phase 10 remains in progress:
+the path tool still creates polylines, and interactive cubic creation, vector
+fill, object transforms/duplication, SVG interoperability, Narrator/NVDA
+usability, and physical S Pen validation remain incomplete. Continue with an
+interactive cubic-creation workflow and native transaction tests, then evaluate
+vector object transforms without changing v3 until a concrete schema need is
+demonstrated. Do not declare Phase 8.3, Phase 9 hardware validation, or Phase 10
+complete.

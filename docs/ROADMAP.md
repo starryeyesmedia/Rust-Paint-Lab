@@ -819,6 +819,29 @@ Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
 implement bounded, keyboard-accessible vector node movement and undo, then
 continue curve handles, fill and transforms without claiming Phase 10 complete.
 
+### Cubic handle editing and current validation — 2026-10-29
+
+The local Phase 10 continuation adds incoming/outgoing Bézier handle selection,
+canvas dragging, and named keyboard-accessible X/Y controls for existing cubic
+paths. Handle movement is provisional until commit, preserves the other path
+geometry, and is an undoable RPL v3 transaction. serde_json's `float_roundtrip`
+feature was enabled after the full save/undo/redo XTest found least-significant
+coordinate drift across repeated native reads; eight-cycle native-byte tests and
+the UI mixer regression now pass with exact results. This is a parser feature
+change only: v1/v2/v3 schemas and their compatibility behavior are unchanged.
+
+Current local validation: Rust 1.90 formatting, strict workspace and Windows
+GNU-target Clippy, 364 workspace test cases, workspace build, Windows GNU
+workspace check, required llvmpipe GPU smoke, and full Linux Xorg/XTest artwork
+workflow pass. The XTest workflow produced 64 PNGs; the populated cubic-handle,
+mask-editing, Home, narrow Recovery, and narrow Layers/Reference captures were
+visually inspected. These results are local and do not yet validate hosted
+Actions, Windows GUI startup, macOS startup, physical S Pen behavior, or
+Narrator/NVDA. The 640 × 480 multi-panel layout remains crowded. Continue with
+interactive cubic path creation and a complete save/reopen/undo/redo workflow;
+then assess vector transforms and fill. Phase 8.3, Phase 9 hardware validation,
+Phase 10, and Phase 11 remain active.
+
 ### Latest Phase 10 continuation — anchor insertion/removal (2026-10-29)
 
 Path anchors can now be split at exact midpoints and safely removed through the

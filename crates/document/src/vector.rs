@@ -42,6 +42,12 @@ pub enum VectorSegment {
     Close,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VectorHandle {
+    Incoming,
+    Outgoing,
+}
+
 impl VectorPath {
     pub fn from_polyline(
         id: u64,
@@ -152,6 +158,56 @@ impl VectorPath {
         }
         if let Some(VectorSegment::CubicTo { control1, .. }) = candidate.segments.get_mut(index) {
             translate_point(control1, delta);
+        }
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Return a cubic control handle adjacent to an anchor. Incoming handles
+    /// belong to the segment ending at the anchor; outgoing handles belong to
+    /// the segment starting at it.
+    pub fn control_handle(&self, anchor: usize, handle: VectorHandle) -> Option<[f64; 2]> {
+        let segment_index = match handle {
+            VectorHandle::Incoming => anchor.checked_sub(1)?,
+            VectorHandle::Outgoing => anchor,
+        };
+        match self.segments.get(segment_index)? {
+            VectorSegment::CubicTo {
+                control1, control2, ..
+            } => Some(match handle {
+                VectorHandle::Incoming => *control2,
+                VectorHandle::Outgoing => *control1,
+            }),
+            VectorSegment::LineTo { .. } | VectorSegment::Close => None,
+        }
+    }
+
+    /// Move one control point without changing its anchors or the other handle.
+    pub fn move_control_handle(
+        &mut self,
+        anchor: usize,
+        handle: VectorHandle,
+        point: [f64; 2],
+    ) -> Result<(), PaintError> {
+        if !valid_point(point) {
+            return Err(PaintError::Invalid);
+        }
+        let segment_index = match handle {
+            VectorHandle::Incoming => anchor.checked_sub(1).ok_or(PaintError::Invalid)?,
+            VectorHandle::Outgoing => anchor,
+        };
+        let mut candidate = self.clone();
+        let segment = candidate
+            .segments
+            .get_mut(segment_index)
+            .ok_or(PaintError::Invalid)?;
+        match (segment, handle) {
+            (VectorSegment::CubicTo { control1, .. }, VectorHandle::Outgoing) => *control1 = point,
+            (VectorSegment::CubicTo { control2, .. }, VectorHandle::Incoming) => *control2 = point,
+            (VectorSegment::LineTo { .. } | VectorSegment::Close, _) => {
+                return Err(PaintError::Invalid);
+            }
         }
         candidate.validate()?;
         *self = candidate;

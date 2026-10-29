@@ -430,3 +430,25 @@ when draft saving fails, close is blocked and the artist can retry, Save As, or
 cancel. Recovery snapshots and journals remain a separate fallback path. This does
 not claim protection from forced termination or sudden power loss beyond existing
 recovery evidence.
+
+## Phase 10 cubic path editing
+
+Vector paths remain editable metadata attached to their owning raster layer;
+raster tiles are derived for compositing and export. The V tool can select,
+move, style, insert and remove supported anchors. For native v3 paths that
+already contain cubic segments, the selected anchor exposes independent
+incoming/outgoing control points. Artists can drag a handle on the canvas or
+select it and enter document-space X/Y coordinates with an explicit Apply
+action. `VectorHandle` identifies the adjacent segment endpoint relationship;
+the document transaction changes only that control point and rejects malformed
+coordinates or locked/hidden owner layers. A provisional handle preview is
+rendered before commit; Escape or input interruption discards it. Undo/Redo
+retains full editable path geometry. No GPU/windowing dependencies are added to
+`paint-document`, and the RPL v3 record layout remains unchanged. The current
+path tool still creates polylines; interactive cubic creation, fills, object
+transforms, and SVG interoperability remain future work.
+
+Native document JSON uses serde_json's `float_roundtrip` feature. This prevents
+repeated load/save cycles from perturbing cubic control coordinates and makes
+save/undo/redo stable for mixed raster/vector documents. It does not alter v1,
+v2, or v3 schemas and improves numeric decoding for earlier supported formats.

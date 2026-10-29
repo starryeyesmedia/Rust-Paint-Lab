@@ -12,7 +12,7 @@ safe Rust with no GPU or GUI dependency. Cargo.lock pins the complete graph.
 | winit | 0.30.13 exact | Desktop window/input lifecycle | Apache-2.0 |
 | egui / egui-winit / egui-wgpu | 0.33.3 exact | Functional workspace controls and integration | MIT OR Apache-2.0 |
 | pollster | 0.4.0 exact | Initialization future executor | MIT OR Apache-2.0 |
-| serde / serde_json | 1.0.229 / 1.0.154 | Metadata, brush presets and workspace preferences | MIT OR Apache-2.0 |
+| serde / serde_json | 1.0.229 / 1.0.154 | Versioned document/preset metadata; the document crate enables `float_roundtrip` to preserve native vector `f64` coordinates across load/save cycles | MIT OR Apache-2.0 |
 | sha2 | 0.10.9 | Native project SHA-256 integrity | MIT OR Apache-2.0 |
 | png | 0.18.1 | PNG import/export | MIT OR Apache-2.0 |
 | zip | 9.0.5 exact | Bounded OpenRaster ZIP, deflate only | MIT |

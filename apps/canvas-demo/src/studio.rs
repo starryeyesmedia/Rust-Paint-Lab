@@ -14,6 +14,7 @@ use paint_document::{
     },
     recovery::Recovery,
     storage::{self, Store},
+    vector::VectorHandle,
 };
 use std::{path::PathBuf, time::Instant};
 use winit::window::Window;
@@ -2604,6 +2605,7 @@ pub(crate) enum Action {
     DeleteVectorPath(u64),
     SetVectorPathStyle(u64, [u8; 4], f64),
     MoveVectorPathAnchor(u64, usize, [f64; 2]),
+    MoveVectorPathHandle(u64, usize, VectorHandle, [f64; 2]),
     InsertVectorPathAnchor(u64, usize),
     DeleteVectorPathAnchor(u64, usize),
     Clear,
@@ -2618,6 +2620,104 @@ pub(crate) enum Action {
     ClearLayerMask(u64),
     RemoveLayerMask(u64),
     EditLayerMask(u64, bool),
+}
+
+pub(crate) fn vector_handle_editor_contents(
+    ui: &mut egui::Ui,
+    path: &paint_document::vector::VectorPath,
+    anchor: usize,
+    selected: &mut Option<(u64, usize, VectorHandle)>,
+    actions: &mut Vec<Action>,
+    emit_test_markers: bool,
+) {
+    ui.horizontal(|ui| {
+        for (handle, label) in [
+            (VectorHandle::Incoming, "Incoming"),
+            (VectorHandle::Outgoing, "Outgoing"),
+        ] {
+            let available = path.control_handle(anchor, handle).is_some();
+            let is_selected = *selected == Some((path.id, anchor, handle));
+            let button = ui
+                .add_enabled_ui(available, |ui| {
+                    ui.selectable_label(is_selected, format!("{label} handle"))
+                })
+                .inner;
+            if emit_test_markers {
+                crate::studio_log!(
+                    "UI_TEST_VECTOR_HANDLE_SELECTOR_RECT: {handle:?} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                    button.rect.left(),
+                    button.rect.top(),
+                    button.rect.width(),
+                    button.rect.height(),
+                    ui.ctx().pixels_per_point()
+                );
+            }
+            if button.clicked() {
+                *selected = Some((path.id, anchor, handle));
+            }
+        }
+    });
+    if let Some((handle_path, handle_anchor, handle)) = selected.filter(|(id, index, handle)| {
+        *id == path.id && *index == anchor && path.control_handle(*index, *handle).is_some()
+    }) && let Some(mut point) = path.control_handle(handle_anchor, handle)
+    {
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            let x = ui.add(
+                egui::DragValue::new(&mut point[0])
+                    .speed(0.5)
+                    .range(
+                        -paint_document::vector::MAX_VECTOR_COORDINATE
+                            ..=paint_document::vector::MAX_VECTOR_COORDINATE,
+                    )
+                    .prefix("X "),
+            );
+            x.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::DragValue,
+                    ui.is_enabled(),
+                    format!("Vector {handle:?} handle X position"),
+                )
+            });
+            changed |= x.changed();
+            let y = ui.add(
+                egui::DragValue::new(&mut point[1])
+                    .speed(0.5)
+                    .range(
+                        -paint_document::vector::MAX_VECTOR_COORDINATE
+                            ..=paint_document::vector::MAX_VECTOR_COORDINATE,
+                    )
+                    .prefix("Y "),
+            );
+            y.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::DragValue,
+                    ui.is_enabled(),
+                    format!("Vector {handle:?} handle Y position"),
+                )
+            });
+            changed |= y.changed();
+        });
+        let apply = ui.add_enabled(changed, egui::Button::new("Apply handle position"));
+        if emit_test_markers {
+            crate::studio_log!(
+                "UI_TEST_VECTOR_HANDLE_APPLY_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                apply.rect.left(),
+                apply.rect.top(),
+                apply.rect.width(),
+                apply.rect.height(),
+                ui.ctx().pixels_per_point()
+            );
+        }
+        if apply.clicked() {
+            actions.push(Action::MoveVectorPathHandle(
+                handle_path,
+                handle_anchor,
+                handle,
+                point,
+            ));
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -3981,11 +4081,18 @@ pub struct Studio {
     gradient_preview_texture: Option<egui::TextureHandle>,
     gradient_preview_key: Option<GradientPreviewKey>,
     edit_pointer: Option<u64>,
+    /// Canvas-to-document mapping captured when the current edit gesture began.
+    /// Context controls can reflow the canvas after selection; using the new
+    /// mapping for PointerUp would otherwise turn a stationary click into a
+    /// small, unintended vector-path translation.
+    edit_mapping: Option<CanvasMapping>,
     edit_points: Vec<[f64; 2]>,
     selected_vector_path: Option<u64>,
     vector_drag_path: Option<u64>,
     vector_drag_node: Option<(u64, usize)>,
+    vector_drag_handle: Option<(u64, usize, VectorHandle)>,
     vector_node_editor: Option<(u64, usize, [f64; 2])>,
+    vector_handle_editor: Option<(u64, usize, VectorHandle)>,
     test_vector_node_rect_logged: bool,
     pending_vector_style: Option<(u64, [u8; 4], f64)>,
     selection_transform: Option<SelectionTransformDrag>,
@@ -4242,11 +4349,14 @@ impl Studio {
             gradient_preview_texture: None,
             gradient_preview_key: None,
             edit_pointer: None,
+            edit_mapping: None,
             edit_points: Vec::new(),
             selected_vector_path: None,
             vector_drag_path: None,
             vector_drag_node: None,
+            vector_drag_handle: None,
             vector_node_editor: None,
+            vector_handle_editor: None,
             test_vector_node_rect_logged: false,
             pending_vector_style: None,
             selection_transform: None,
@@ -4988,9 +5098,11 @@ impl Studio {
             E::Focused(false) | E::CursorLeft { .. } | E::Resized(_) | E::ScaleFactorChanged { .. }
         ) {
             self.edit_pointer = None;
+            self.edit_mapping = None;
             self.edit_points.clear();
             self.vector_drag_path = None;
             self.vector_drag_node = None;
+            self.vector_drag_handle = None;
         }
         if self.selected_vector_path.is_some_and(|path_id| {
             !session
@@ -5003,6 +5115,7 @@ impl Studio {
         }) {
             self.selected_vector_path = None;
             self.vector_node_editor = None;
+            self.vector_handle_editor = None;
         }
         if self
             .pending_vector_style
@@ -5565,16 +5678,22 @@ impl Studio {
         }
         if phase == Phase::Cancel {
             self.edit_pointer = None;
+            self.edit_mapping = None;
             self.edit_points.clear();
             self.vector_drag_path = None;
             self.vector_drag_node = None;
+            self.vector_drag_handle = None;
             if self.test_path_dialog && gradient_tool {
                 crate::studio_log!("UI_TEST_GRADIENT_CANCELLED: pointer");
             }
             return true;
         }
-        let Some(mut position) = self
-            .mapping
+        let pointer_mapping = if captured {
+            self.edit_mapping.or(self.mapping)
+        } else {
+            self.mapping
+        };
+        let Some(mut position) = pointer_mapping
             .and_then(|m| m.routing_viewport().to_document(client).ok())
             .map(|p| p.0)
         else {
@@ -5591,6 +5710,7 @@ impl Studio {
         }
         match phase {
             Phase::Down if self.edit_pointer.is_none() => {
+                self.edit_mapping = self.mapping;
                 self.test_shape_preview_bounds_logged = None;
                 session.mouse(MouseEvent::Interrupted, 0);
                 if self.tool == EditTool::Eyedropper {
@@ -5614,9 +5734,57 @@ impl Studio {
                         .live()
                         .project()
                         .hit_test_vector_path(position, hit_tolerance);
-                    if let Some(path_id) = hit {
+                    let selected_handle = self
+                        .vector_node_editor
+                        .filter(|(path_id, _, _)| self.selected_vector_path == Some(*path_id))
+                        .and_then(|(path_id, anchor_index, _)| {
+                            session
+                                .live()
+                                .project()
+                                .state()
+                                .layers
+                                .iter()
+                                .find_map(|layer| {
+                                    layer
+                                        .vector_paths
+                                        .iter()
+                                        .find(|path| path.id == path_id)
+                                        .and_then(|path| {
+                                            [VectorHandle::Incoming, VectorHandle::Outgoing]
+                                                .into_iter()
+                                                .filter_map(|handle| {
+                                                    let point =
+                                                        path.control_handle(anchor_index, handle)?;
+                                                    let distance = (point[0] - position[0])
+                                                        .hypot(point[1] - position[1]);
+                                                    Some((handle, point, distance))
+                                                })
+                                                .min_by(|left, right| left.2.total_cmp(&right.2))
+                                                .map(|(handle, point, distance)| {
+                                                    (path_id, anchor_index, handle, point, distance)
+                                                })
+                                        })
+                                })
+                        })
+                        .filter(|(_, _, _, _, distance)| *distance <= hit_tolerance);
+                    if let Some((path_id, anchor_index, handle, point, _)) = selected_handle {
+                        self.selected_vector_path = Some(path_id);
+                        self.vector_handle_editor = Some((path_id, anchor_index, handle));
+                        self.edit_pointer = Some(id);
+                        self.vector_drag_handle = Some((path_id, anchor_index, handle));
+                        self.edit_points = vec![point, point];
+                        self.status = format!(
+                            "Vector {handle:?} handle selected · drag to adjust · Esc cancels"
+                        );
+                        if self.test_path_dialog {
+                            crate::studio_log!(
+                                "UI_TEST_VECTOR_HANDLE_DRAG_STARTED: {path_id} {anchor_index} {handle:?}"
+                            );
+                        }
+                    } else if let Some(path_id) = hit {
                         if self.selected_vector_path != Some(path_id) {
                             self.vector_node_editor = None;
+                            self.vector_handle_editor = None;
                             self.test_vector_node_rect_logged = false;
                         }
                         self.selected_vector_path = Some(path_id);
@@ -5683,7 +5851,9 @@ impl Studio {
                         self.selected_vector_path = None;
                         self.vector_drag_path = None;
                         self.vector_drag_node = None;
+                        self.vector_drag_handle = None;
                         self.vector_node_editor = None;
+                        self.vector_handle_editor = None;
                         self.edit_pointer = Some(id);
                         self.edit_points = vec![position];
                         self.status = "Drawing editable vector path · Esc cancels".into();
@@ -5741,7 +5911,49 @@ impl Studio {
             }
             Phase::Move | Phase::Up if captured => {
                 if vector_tool {
-                    if let Some((path_id, anchor_index)) = self.vector_drag_node {
+                    if let Some((path_id, anchor_index, handle)) = self.vector_drag_handle {
+                        self.edit_points[1] = position;
+                        if phase == Phase::Up {
+                            let result = session.live_mut().project_mut().move_vector_path_handle(
+                                path_id,
+                                anchor_index,
+                                handle,
+                                position,
+                            );
+                            let result_debug = format!("{result:?}");
+                            self.edit_pointer = None;
+                            self.vector_drag_handle = None;
+                            self.edit_points.clear();
+                            self.status = match result {
+                                Ok(()) => {
+                                    format!("Vector {handle:?} handle moved · Ctrl+Z to undo")
+                                }
+                                Err(error) => error.to_string(),
+                            };
+                            if self.test_path_dialog {
+                                let actual =
+                                    session.live().project().state().layers.iter().find_map(
+                                        |layer| {
+                                            layer.vector_paths.iter().find_map(|path| {
+                                                (path.id == path_id)
+                                                    .then(|| {
+                                                        path.control_handle(anchor_index, handle)
+                                                    })
+                                                    .flatten()
+                                            })
+                                        },
+                                    );
+                                crate::studio_log!(
+                                    "UI_TEST_VECTOR_HANDLE_MOVED: {path_id} {anchor_index} {handle:?} {:.2} {:.2} result={result_debug} actual={actual:?} revision={} saved_revision={} dirty={}",
+                                    position[0],
+                                    position[1],
+                                    session.live().project().revision,
+                                    session.live().project().saved_revision,
+                                    session.live().project().dirty()
+                                );
+                            }
+                        }
+                    } else if let Some((path_id, anchor_index)) = self.vector_drag_node {
                         self.edit_points[1] = position;
                         if phase == Phase::Up {
                             let result = session.live_mut().project_mut().move_vector_path_anchor(
@@ -5751,6 +5963,7 @@ impl Studio {
                             );
                             self.edit_pointer = None;
                             self.vector_drag_node = None;
+                            self.vector_drag_handle = None;
                             self.edit_points.clear();
                             self.status = match result {
                                 Ok(()) => {
@@ -5976,6 +6189,9 @@ impl Studio {
             }
             _ => {}
         }
+        if phase == Phase::Up && self.edit_pointer.is_none() {
+            self.edit_mapping = None;
+        }
         true
     }
 
@@ -6013,9 +6229,11 @@ impl Studio {
     pub fn tool_shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
         self.edit_pointer = None;
+        self.edit_mapping = None;
         self.edit_points.clear();
         self.vector_drag_path = None;
         self.vector_drag_node = None;
+        self.vector_drag_handle = None;
         self.selection_transform = None;
         if key == 'y' {
             self.symmetry_panel_open = !self.symmetry_panel_open;
@@ -6290,9 +6508,11 @@ impl Studio {
             return true;
         }
         if self.edit_pointer.take().is_some() {
+            self.edit_mapping = None;
             self.edit_points.clear();
             self.vector_drag_path = None;
             self.vector_drag_node = None;
+            self.vector_drag_handle = None;
             self.status = if self.tool == EditTool::Gradient {
                 "Gradient preview cancelled".into()
             } else if self.tool == EditTool::VectorPath {
@@ -7236,6 +7456,7 @@ impl Studio {
                                                 });
                                                 if next_index != selected_index {
                                                     point = anchors[next_index];
+                                                    self.vector_handle_editor = None;
                                                     self.test_vector_node_rect_logged = false;
                                                     if self.test_path_dialog {
                                                         crate::studio_log!(
@@ -7285,6 +7506,31 @@ impl Studio {
                                                     ui.weak(
                                                         "Drag a canvas anchor or enter exact coordinates here.",
                                                     );
+                                                }
+                                                if path.segments.iter().any(|segment| {
+                                                    matches!(segment, paint_document::vector::VectorSegment::CubicTo { .. })
+                                                }) {
+                                                    let handles_section =
+                                                        ui.collapsing("Bezier handles", |ui| {
+                                                        vector_handle_editor_contents(
+                                                            ui,
+                                                            &path,
+                                                            next_index,
+                                                            &mut self.vector_handle_editor,
+                                                            actions,
+                                                            self.test_path_dialog,
+                                                        );
+                                                    });
+                                                    if self.test_path_dialog {
+                                                        crate::studio_log!(
+                                                            "UI_TEST_VECTOR_HANDLES_SECTION_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                            handles_section.header_response.rect.left(),
+                                                            handles_section.header_response.rect.top(),
+                                                            handles_section.header_response.rect.width(),
+                                                            handles_section.header_response.rect.height(),
+                                                            ui.ctx().pixels_per_point()
+                                                        );
+                                                    }
                                                 }
                                                 ui.horizontal(|ui| {
                                                     let insert = ui
@@ -8227,11 +8473,14 @@ impl Studio {
             if old_tool != self.tool {
                 session.mouse(MouseEvent::Interrupted, 0);
                 self.edit_pointer = None;
+                self.edit_mapping = None;
                 self.edit_points.clear();
                 self.vector_drag_path = None;
                 self.vector_drag_node = None;
+                self.vector_drag_handle = None;
                 if self.tool != EditTool::VectorPath {
                     self.vector_node_editor = None;
+                    self.vector_handle_editor = None;
                 }
             }
 
@@ -11478,9 +11727,11 @@ impl Studio {
             self.touches.clear();
             self.pan_cursor = None;
             self.edit_pointer = None;
+            self.edit_mapping = None;
             self.edit_points.clear();
             self.vector_drag_path = None;
             self.vector_drag_node = None;
+            self.vector_drag_handle = None;
         }
         if let Some(theme) = window.theme() {
             self.system_dark = theme == winit::window::Theme::Dark;
@@ -11828,51 +12079,64 @@ impl Studio {
                                 .cloned()
                         })
                 });
-                let vector_points = if let Some((path_id, anchor_index)) = self.vector_drag_node {
-                    selected_path
-                        .as_ref()
-                        .filter(|path| path.id == path_id)
-                        .and_then(|path| {
-                            let mut preview = path.clone();
-                            preview
-                                .move_anchor(anchor_index, self.edit_points[1])
-                                .ok()?;
-                            Some(paint_document::vector::flattened_points(&preview))
-                        })
-                        .unwrap_or_default()
-                } else if let Some(path_id) = self.vector_drag_path {
-                    let delta = [
-                        self.edit_points[1][0] - self.edit_points[0][0],
-                        self.edit_points[1][1] - self.edit_points[0][1],
-                    ];
-                    selected_path
-                        .as_ref()
-                        .filter(|path| path.id == path_id)
-                        .map(paint_document::vector::flattened_points)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|point| [point[0] + delta[0], point[1] + delta[1]])
-                        .collect::<Vec<_>>()
-                } else if self.edit_pointer.is_some() {
-                    self.edit_points.clone()
-                } else if let Some(path_id) = self.selected_vector_path {
-                    session
-                        .live()
-                        .project()
-                        .state()
-                        .layers
-                        .iter()
-                        .find_map(|layer| {
-                            layer
-                                .vector_paths
-                                .iter()
-                                .find(|path| path.id == path_id)
-                                .map(paint_document::vector::flattened_points)
-                        })
-                        .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
+                let vector_points =
+                    if let Some((path_id, anchor_index, handle)) = self.vector_drag_handle {
+                        selected_path
+                            .as_ref()
+                            .filter(|path| path.id == path_id)
+                            .and_then(|path| {
+                                let mut preview = path.clone();
+                                preview
+                                    .move_control_handle(anchor_index, handle, self.edit_points[1])
+                                    .ok()?;
+                                Some(paint_document::vector::flattened_points(&preview))
+                            })
+                            .unwrap_or_default()
+                    } else if let Some((path_id, anchor_index)) = self.vector_drag_node {
+                        selected_path
+                            .as_ref()
+                            .filter(|path| path.id == path_id)
+                            .and_then(|path| {
+                                let mut preview = path.clone();
+                                preview
+                                    .move_anchor(anchor_index, self.edit_points[1])
+                                    .ok()?;
+                                Some(paint_document::vector::flattened_points(&preview))
+                            })
+                            .unwrap_or_default()
+                    } else if let Some(path_id) = self.vector_drag_path {
+                        let delta = [
+                            self.edit_points[1][0] - self.edit_points[0][0],
+                            self.edit_points[1][1] - self.edit_points[0][1],
+                        ];
+                        selected_path
+                            .as_ref()
+                            .filter(|path| path.id == path_id)
+                            .map(paint_document::vector::flattened_points)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|point| [point[0] + delta[0], point[1] + delta[1]])
+                            .collect::<Vec<_>>()
+                    } else if self.edit_pointer.is_some() {
+                        self.edit_points.clone()
+                    } else if let Some(path_id) = self.selected_vector_path {
+                        session
+                            .live()
+                            .project()
+                            .state()
+                            .layers
+                            .iter()
+                            .find_map(|layer| {
+                                layer
+                                    .vector_paths
+                                    .iter()
+                                    .find(|path| path.id == path_id)
+                                    .map(paint_document::vector::flattened_points)
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
                 let points: Vec<_> = vector_points
                     .into_iter()
                     .filter_map(|point| mapping.to_clip(point).ok())
@@ -11901,14 +12165,82 @@ impl Studio {
                     && let Some(path) = selected_path.as_ref().filter(|path| path.id == path_id)
                 {
                     let mut preview = path.clone();
-                    let preview_path = self.vector_drag_node.is_some_and(|(id, _)| id == path_id)
-                        && preview
-                            .move_anchor(
-                                selected_index,
+                    let preview_path = if let Some((_, anchor_index, handle)) =
+                        self.vector_drag_handle.filter(|(id, _, _)| *id == path_id)
+                    {
+                        preview
+                            .move_control_handle(
+                                anchor_index,
+                                handle,
                                 self.edit_points.get(1).copied().unwrap_or(path.start),
                             )
-                            .is_ok();
+                            .is_ok()
+                    } else {
+                        self.vector_drag_node.is_some_and(|(id, _)| id == path_id)
+                            && preview
+                                .move_anchor(
+                                    selected_index,
+                                    self.edit_points.get(1).copied().unwrap_or(path.start),
+                                )
+                                .is_ok()
+                    };
                     let preview = if preview_path { &preview } else { path };
+                    if let Some(anchor) = preview.anchor_points().get(selected_index).copied()
+                        && let Ok(anchor_clip) = mapping.to_clip(anchor)
+                    {
+                        let anchor_screen = egui::pos2(
+                            (anchor_clip[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
+                            (1.0 - anchor_clip[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
+                        );
+                        for handle in [VectorHandle::Incoming, VectorHandle::Outgoing] {
+                            let Some(point) = preview.control_handle(selected_index, handle) else {
+                                continue;
+                            };
+                            let Ok(clip) = mapping.to_clip(point) else {
+                                continue;
+                            };
+                            let center = egui::pos2(
+                                (clip[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
+                                (1.0 - clip[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
+                            );
+                            let selected = self.vector_handle_editor
+                                == Some((path_id, selected_index, handle));
+                            let active_drag =
+                                self.vector_drag_handle == Some((path_id, selected_index, handle));
+                            let color = if selected || active_drag {
+                                egui::Color32::from_rgb(255, 190, 96)
+                            } else {
+                                egui::Color32::from_rgb(94, 220, 205)
+                            };
+                            output.shapes.push(egui::epaint::ClippedShape {
+                                clip_rect: central,
+                                shape: egui::Shape::line_segment(
+                                    [anchor_screen, center],
+                                    egui::Stroke::new(1.5, color),
+                                ),
+                            });
+                            output.shapes.push(egui::epaint::ClippedShape {
+                                clip_rect: central,
+                                shape: egui::Shape::circle_filled(center, 5.5, color),
+                            });
+                            output.shapes.push(egui::epaint::ClippedShape {
+                                clip_rect: central,
+                                shape: egui::Shape::circle_stroke(
+                                    center,
+                                    5.5,
+                                    egui::Stroke::new(1.2, egui::Color32::from_rgb(28, 20, 44)),
+                                ),
+                            });
+                            if self.test_path_dialog {
+                                crate::studio_log!(
+                                    "UI_TEST_VECTOR_CONTROL_HANDLE: {path_id} {selected_index} {handle:?} {:.2} {:.2} {:.2}",
+                                    center.x,
+                                    center.y,
+                                    output.pixels_per_point
+                                );
+                            }
+                        }
+                    }
                     for (index, anchor) in preview.anchor_points().into_iter().enumerate() {
                         let Some(clip) = mapping.to_clip(anchor).ok() else {
                             continue;
@@ -12749,6 +13081,18 @@ impl Studio {
                     );
                 }
             }
+            Action::MoveVectorPathHandle(id, index, handle, point) => {
+                project.move_vector_path_handle(id, index, handle, point)?;
+                self.vector_handle_editor = Some((id, index, handle));
+                self.status = format!("Vector {handle:?} handle moved · Ctrl+Z to undo");
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_VECTOR_HANDLE_POSITION_APPLIED: {id} {index} {handle:?} {:.2} {:.2}",
+                        point[0],
+                        point[1]
+                    );
+                }
+            }
             Action::InsertVectorPathAnchor(id, after_anchor) => {
                 let index = project.insert_vector_path_anchor(id, after_anchor)?;
                 let point = project
@@ -13087,6 +13431,14 @@ impl Studio {
             }
             Action::Save | Action::SaveAs => {
                 project.sync_brush_settings();
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_PROJECT_SAVE: begin revision={} saved_revision={} dirty={}",
+                        project.revision,
+                        project.saved_revision,
+                        project.dirty()
+                    );
+                }
                 if matches!(a, Action::SaveAs) || self.store.is_none() {
                     let path = native_project_path(std::path::Path::new(&self.path));
                     let mut replacement = Store::new(path.clone());
@@ -13101,6 +13453,14 @@ impl Studio {
                     self.close_ready = true;
                 }
                 self.status = "Editable project saved; previous valid file retained as .bak".into();
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_PROJECT_SAVE: complete revision={} saved_revision={} dirty={}",
+                        project.revision,
+                        project.saved_revision,
+                        project.dirty()
+                    );
+                }
                 let path = self.store.as_ref().unwrap().path.clone();
                 self.cache_home_thumbnail(&path, project);
                 self.remember(&path);

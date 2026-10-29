@@ -216,6 +216,26 @@ def vector_anchor_controls_rect():
 def vector_anchor_action_rect(action):
     return stable_window_rect_marker(f'UI_TEST_VECTOR_ANCHOR_{action.upper()}_RECT')
 
+def vector_handles_section_rect():
+    return stable_window_rect_marker('UI_TEST_VECTOR_HANDLES_SECTION_RECT')
+
+def vector_handle_selector_rect(handle):
+    prefix=f'UI_TEST_VECTOR_HANDLE_SELECTOR_RECT: {handle} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    return tuple(map(float,lines[-1].split()[:5]))
+
+def vector_control_handle(handle, anchor=0):
+    prefix='UI_TEST_VECTOR_CONTROL_HANDLE: '
+    for line in reversed((directory/'application.log').read_text().splitlines()):
+        if line.startswith(prefix):
+            values=line.partition(prefix)[2].split()
+            if len(values)==6 and values[1]==str(anchor) and values[2]==handle:
+                return tuple(map(float,values[3:]))
+    return None
+
 def click_scaled_rect(rect):
     x,y,width,height,scale=rect
     click_at((x+width/2)*scale,(y+height/2)*scale)
@@ -847,6 +867,17 @@ def recovery_complete_count():
 def native_state_bytes(data):
     n=struct.unpack('<I',data[8:12])[0]
     return json.loads(data[12:12+n])
+
+def replace_native_state(data,state):
+    """Replace bounded v3 metadata while preserving checked raster/mask tables."""
+    assert data[:8]==b'RPLALP03' and hashlib.sha256(data[:-32]).digest()==data[-32:]
+    metadata=struct.unpack('<I',data[8:12])[0]
+    tables=data[12+metadata:-32]
+    encoded=json.dumps(state,separators=(',',':'),allow_nan=False).encode('utf-8')
+    body=data[:8]+struct.pack('<I',len(encoded))+encoded+tables
+    result=body+hashlib.sha256(body).digest()
+    assert valid_project_bytes(result) is not None
+    return result
 def native_document_tables(data):
     """Read bounded raster/mask tables from an already checksummed RPL file."""
     assert len(data)>=48 and data[:8] in (b'RPLALP01',b'RPLALP02',b'RPLALP03')
@@ -877,6 +908,19 @@ def native_document_tables(data):
     assert offset==checksum_offset, 'native raster/mask tile tables do not match document length'
     return state,layers,masks
 
+def native_values_near(left, right):
+    """Compare JSON values allowing only tiny f64 serialization roundoff."""
+    if isinstance(left,bool) or isinstance(right,bool): return left==right
+    if isinstance(left,(int,float)) and isinstance(right,(int,float)):
+        return abs(float(left)-float(right))<=1e-12
+    if isinstance(left,dict) and isinstance(right,dict):
+        return left.keys()==right.keys() and all(
+            native_values_near(left[key],right[key]) for key in left)
+    if isinstance(left,list) and isinstance(right,list):
+        return len(left)==len(right) and all(
+            native_values_near(a,b) for a,b in zip(left,right))
+    return left==right
+
 def native_projects_equivalent(left, right):
     """Compare restored projects exactly except sub-picopixel JSON float noise."""
     if valid_project_bytes(left) is None or valid_project_bytes(right) is None:
@@ -885,16 +929,8 @@ def native_projects_equivalent(left, right):
         return False
     left_state,left_layers,left_masks=native_document_tables(left)
     right_state,right_layers,right_masks=native_document_tables(right)
-    def near(a,b):
-        if isinstance(a,bool) or isinstance(b,bool): return a==b
-        if isinstance(a,(int,float)) and isinstance(b,(int,float)):
-            return abs(float(a)-float(b))<=1e-12
-        if isinstance(a,dict) and isinstance(b,dict):
-            return a.keys()==b.keys() and all(near(a[key],b[key]) for key in a)
-        if isinstance(a,list) and isinstance(b,list):
-            return len(a)==len(b) and all(near(x,y) for x,y in zip(a,b))
-        return a==b
-    return near(left_state,right_state) and left_layers==right_layers and left_masks==right_masks
+    return native_values_near(left_state,right_state) \
+        and left_layers==right_layers and left_masks==right_masks
 def native_layer_pixel(path, x, y):
     return native_layer_pixel_bytes(path.read_bytes(),x,y)
 def native_layer_pixel_bytes(data, x, y):
@@ -3101,6 +3137,143 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda:imported.read_bytes()==insertion_before,
                  'Redo restores the exact line geometry after anchor deletion')
 
+            # Load a checked native fixture containing a cubic segment so the
+            # actual canvas handle editor is exercised with XTest, not just its
+            # document API or Accessibility tree. The metadata rewrite keeps
+            # all raster/mask tables and the existing native v3 checksum valid.
+            cubic_state=native_state_bytes(insertion_before)
+            cubic_layer=next(layer for layer in cubic_state['layers']
+                             if layer['id']==cubic_state['selected'])
+            cubic_path=cubic_layer['vector_paths'][0]
+            cubic_start=cubic_path['start']
+            cubic_end=cubic_path['segments'][0]['point']
+            span=[cubic_end[axis]-cubic_start[axis] for axis in range(2)]
+            cubic_path['segments'][0]={
+                'kind':'cubic_to',
+                'control1':[cubic_start[0]+span[0]*0.28,
+                            cubic_start[1]-max(18.0,abs(span[0])*0.42)],
+                'control2':[cubic_start[0]+span[0]*0.72,
+                            cubic_end[1]+max(18.0,abs(span[0])*0.42)],
+                'point':cubic_end,
+            }
+            cubic_fixture=replace_native_state(insertion_before,cubic_state)
+            imported.write_bytes(cubic_fixture)
+            assert native_document_tables(cubic_fixture)[1] \
+                ==native_document_tables(insertion_before)[1]
+            assert native_document_tables(cubic_fixture)[2] \
+                ==native_document_tables(insertion_before)[2]
+            opened_cubic_count=event_marker_count('UI_TEST_PROJECT_OPENED')
+            ctrl('o');path_prompt();ctrl('Return')
+            wait(lambda:event_marker_count('UI_TEST_PROJECT_OPENED')>opened_cubic_count,
+                 'the live workspace reopens a valid native project with cubic geometry')
+            ctrl('s')
+            wait(lambda:valid_project(imported) and '*' not in title(window),
+                 'the application canonicalizes the cubic fixture before handle editing')
+            handle_before=imported.read_bytes()
+            handle_before_state=native_state_bytes(handle_before)
+            handle_layer=next(layer for layer in handle_before_state['layers']
+                              if layer['id']==handle_before_state['selected'])
+            handle_path_before=handle_layer['vector_paths'][0]
+            handle_segment_before=handle_path_before['segments'][0]
+            assert handle_segment_before['kind']=='cubic_to'
+            handle_raster_before=native_document_tables(handle_before)[1]
+            handle_masks_before=native_document_tables(handle_before)[2]
+
+            # Open the path's accessible anchor controls, expand Bezier handles,
+            # select the outgoing control and drag its visible canvas handle.
+            key('b');key('v')
+            path_select_count=event_marker_count('UI_TEST_VECTOR_PATH_SELECTED')
+            click_at(585,560)
+            selected_cubic=wait(
+                lambda:(lambda marker:marker if marker and
+                        event_marker_count('UI_TEST_VECTOR_PATH_SELECTED')>path_select_count
+                        else None)(event_marker('UI_TEST_VECTOR_PATH_SELECTED')),
+                'the reopened cubic path is selectable on the canvas')
+            assert int(selected_cubic)==int(handle_path_before['id'])
+            # Selecting the path adds contextual controls and can reflow the
+            # canvas. A stationary click must not translate the path because
+            # PointerUp should keep using the mapping captured at PointerDown.
+            ctrl('s')
+            wait(lambda:'*' not in title(window),
+                 'selecting a vector path leaves the native document settled')
+            selected_bytes=imported.read_bytes()
+            selected_state=native_state_bytes(selected_bytes)
+            selected_layer=next(layer for layer in selected_state['layers']
+                                if layer['id']==selected_state['selected'])
+            selected_path=next(path for path in selected_layer['vector_paths']
+                               if path['id']==handle_path_before['id'])
+            assert native_projects_equivalent(handle_before,selected_bytes), \
+                'a stationary path-selection click must not translate geometry when contextual controls reflow'
+            handle_before=selected_bytes
+            handle_path_before=selected_path
+            handle_segment_before=handle_path_before['segments'][0]
+            handle_raster_before=native_document_tables(handle_before)[1]
+            handle_masks_before=native_document_tables(handle_before)[2]
+            edit_nodes_count=event_marker_count('UI_TEST_VECTOR_NODE_EDITING')
+            edit_nodes=wait(lambda:stable_window_rect_marker('UI_TEST_VECTOR_EDIT_NODES_RECT'),
+                            'the selected cubic path exposes its anchor editor')
+            click_scaled_rect(edit_nodes)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_NODE_EDITING')>edit_nodes_count
+                 and event_marker('UI_TEST_VECTOR_NODE_EDITING')
+                 ==f"{handle_path_before['id']} true",
+                 'the cubic path enters its real anchor editing mode')
+            anchor_menu=wait(vector_anchor_controls_rect,
+                             'the cubic anchor editor exposes anchor selection')
+            handles_section_count=event_marker_count('UI_TEST_VECTOR_HANDLES_SECTION_RECT')
+            handle_selector_count=event_marker_count('UI_TEST_VECTOR_HANDLE_SELECTOR_RECT')
+            click_scaled_rect(anchor_menu)
+            handles_section=wait(
+                lambda:(lambda rect:rect if rect and
+                        event_marker_count('UI_TEST_VECTOR_HANDLES_SECTION_RECT')>
+                        handles_section_count else None)(vector_handles_section_rect()),
+                'the selected cubic anchor exposes its Bezier controls')
+            if event_marker_count('UI_TEST_VECTOR_HANDLE_SELECTOR_RECT')<=handle_selector_count:
+                click_scaled_rect(handles_section)
+            outgoing_rect=wait(
+                lambda:(lambda rect:rect if rect and
+                        event_marker_count('UI_TEST_VECTOR_HANDLE_SELECTOR_RECT')>
+                        handle_selector_count else None)(vector_handle_selector_rect('Outgoing')),
+                                'the Bezier editor exposes its outgoing control selector')
+            click_scaled_rect(outgoing_rect)
+            control=wait(lambda:vector_control_handle('Outgoing',0),
+                          'the selected cubic control is drawn as a movable canvas handle')
+            capture_window(window,'vector-cubic-handles')
+            handle_move_count=event_marker_count('UI_TEST_VECTOR_HANDLE_MOVED')
+            hx,hy=round(control[0]*control[2]),round(control[1]*control[2])
+            drag_at(hx,hy,hx+18,hy-14)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_HANDLE_MOVED')>handle_move_count,
+                 'dragging a Bezier control commits through the document transaction')
+            ctrl('s')
+            wait(lambda:valid_project(imported) and imported.read_bytes()!=handle_before
+                 and '*' not in title(window),
+                 'the moved Bezier control is saved in the editable native project')
+            handle_after=imported.read_bytes()
+            handle_after_state=native_state_bytes(handle_after)
+            handle_layer_after=next(layer for layer in handle_after_state['layers']
+                                    if layer['id']==handle_after_state['selected'])
+            handle_path_after=handle_layer_after['vector_paths'][0]
+            handle_segment_after=handle_path_after['segments'][0]
+            assert handle_segment_after['kind']=='cubic_to'
+            assert handle_segment_after['control1']!=handle_segment_before['control1'], \
+                f"outgoing handle did not update control1: before={handle_segment_before} after={handle_segment_after} event={event_marker('UI_TEST_VECTOR_HANDLE_MOVED')}"
+            assert native_values_near(handle_segment_after['control2'],
+                                      handle_segment_before['control2'])
+            assert native_values_near(handle_segment_after['point'],
+                                      handle_segment_before['point'])
+            assert native_values_near(handle_path_after['start'],handle_path_before['start'])
+            assert native_values_near(handle_path_after['segments'][1:],
+                                      handle_path_before['segments'][1:])
+            assert native_document_tables(handle_after)[1]==handle_raster_before, \
+                'editing cubic handles must not write derived geometry into raster tiles'
+            assert native_document_tables(handle_after)[2]==handle_masks_before, \
+                'editing cubic handles must preserve independent masks'
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==handle_before,
+                 'Undo restores the exact native cubic geometry before handle movement')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==handle_after,
+                 'Redo restores the moved cubic handle exactly')
+
             # Width editing changes editable path metadata, leaves raster/mask
             # storage untouched, refreshes the layer preview, and commits one
             # undo transaction per gesture.
@@ -3744,7 +3917,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','layers-panel-white-mask-settings','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','layers-panel-white-mask-settings','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
