@@ -239,6 +239,11 @@ commit/cancel, selection and bounded history lifecycle without modifying source
 raster bytes. Mask tiles share the document's tile-count budget. OpenRaster export
 applies enabled masks to per-layer pixels and reports that mask editability is
 flattened; the native `.rpl` remains editable.
+The application exposes mask operations in the selected layer's expandable
+settings panel: Add, Edit/Stop, Enable/Disable, Invert, Clear, and Remove are
+direct actions rather than nested popovers. This keeps the painting mode and
+metadata controls reachable when the Layers list is scrolled or the window is
+compact, while all edits still enter normal document transactions.
 
 Recovery writes a bounded append-only sequence of complete native snapshot records
 alongside the existing atomic snapshot and verified backup. Replay selects the most

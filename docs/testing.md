@@ -733,6 +733,23 @@ history verification. Existing shape, gradient, PNG/OpenRaster, reference
 isolation, and forced-crash journal recovery steps still run in that same
 application workflow.
 
+### Editable layer masks — real XTest regression
+
+The mask workflow uses the selected layer's expandable settings rather than a
+nested Actions submenu. The Linux artwork smoke opens the rendered controls by
+their stable UI markers, clicks Add white mask, saves `.rpl` v2, and reopens that
+file through the application picker. It then enters brush mask mode and paints
+with XTest, verifies saved mask tiles changed while every source raster tile
+remained byte-identical, and checks exact Undo/Redo. It clicks the Enabled
+checkbox both ways, Invert, Clear to white, and Remove. Each change is validated
+against parsed saved state and its own exact history round trip; removing the
+last mask writes a readable v1 project, and undo returns to the exact v2 state.
+The later OpenRaster UI step must still report flattened masks. Document tests
+cover preview/cancel, brush/eraser, selection clipping, effective alpha
+compositing, source tile preservation, malformed v2 records, recovery and v1/v2
+round trips. A hosted run is required to validate the expanded XTest interactions;
+`cargo test` does not substitute for the Linux window workflow.
+
 On 2026-10-27 the local run passed **275 workspace tests**, formatting, strict
 Clippy, workspace build, Windows GNU workspace check/Clippy, the required
 llvmpipe/OpenGL offscreen GPU smoke, and the full Linux/Xorg/XTest artwork flow.

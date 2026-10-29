@@ -2839,3 +2839,48 @@ pressure/tilt and mask workflows need separate hardware validation.
    begin a Phase 10 editable vector path slice only after native format and
    interoperability boundaries are designed and tested. Phase 11 animation and
    timelapse remain unimplemented.
+
+## Mask workflow follow-up — direct selected-layer controls (2026-10-29)
+
+Actions run [`40762059402`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40762059402)
+completed Windows and macOS successfully. The Linux artwork workflow saved an
+`RPLALP02` project after adding a white mask, then timed out after clicking the
+nested `Layer Actions → Layer mask → Edit mask with Brush` path. The run page
+contains the failing assertion and a bounded tail of application markers; its
+Linux diagnostics and screenshot artifacts are listed on the run, but their
+binary download endpoints are inaccessible through this environment's GitHub
+API proxy. The failure was therefore localized to the nested UI action path,
+not inferred from a screenshot.
+
+The full set of mask operations now lives in the selected layer's expandable
+settings. This removes the nested popup level and exposes direct, named controls
+for Add, Edit, Enable/Disable, Invert, Clear, and Remove while keeping the
+ordinary row Actions menu compact. XTest now clicks those rendered controls,
+reopens the saved v2 document through the application's file picker, verifies
+each operation in serialized state, and walks exact Undo/Redo bytes. It verifies
+that disable/enable retains mask and raster tiles, invert preserves mask samples,
+clear returns samples to white, and removing the last mask safely writes v1;
+undo restores the v2 state. A document regression additionally checks
+selection-clipped mask paint, rendered alpha compositing, and unchanged raster
+tiles.
+
+Local Rust 1.90 formatting, strict workspace Clippy, all **336 workspace tests**,
+workspace build, Windows GNU workspace check/Clippy, Python test-harness validation, and the
+required llvmpipe GPU smoke pass. The Linux Xorg/XTest workflow cannot be run in
+this checkout because Xvfb is unavailable; the direct-control change and all six
+UI mask operations still require the next hosted Linux artwork workflow. Round 1
+is not accepted until that workflow and the Windows/Linux/macOS matrix pass.
+No physical Windows mask, advanced S Pen, Narrator/NVDA, or power-loss testing
+was performed.
+
+### Next exact steps
+
+1. Commit and push the direct selected-layer mask workflow and its XTest changes.
+2. Inspect the new Windows, Linux, and macOS Actions conclusions. Require the
+   complete Linux artwork workflow, mask save/reopen, all six UI operations,
+   OpenRaster flattening disclosure, and both Windows application artifacts.
+3. Only after Round 1 passes, begin the bounded Phase 10 vector foundation:
+   mixed raster/vector layer representation, stable path IDs, RPL v3 migration
+   with v1/v2 reads, safe path validation, editable path save/reopen and
+   transactional undo/redo. Continue Round 3/4 increments after that vertical
+   slice is verified; do not declare any phase complete.

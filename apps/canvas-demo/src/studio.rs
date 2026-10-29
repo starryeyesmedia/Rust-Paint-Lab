@@ -2628,10 +2628,6 @@ struct LayerMenuTarget {
     has_selection: bool,
     opacity: u8,
     blend: Blend,
-    mask_enabled: bool,
-    mask_inverted: bool,
-    mask_exists: bool,
-    editing_mask: bool,
 }
 
 pub(crate) struct LayerDragUi<'a> {
@@ -2838,79 +2834,7 @@ fn layer_actions_menu(
         ui.close();
     }
     ui.separator();
-    let mask_menu = ui.menu_button("Layer mask", |ui| {
-        if !target.mask_exists {
-            let add = ui.button("Add white mask");
-            if target.emit_test_markers {
-                crate::studio_log!(
-                    "UI_TEST_LAYER_MASK_ADD_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                    add.rect.left(),
-                    add.rect.top(),
-                    add.rect.width(),
-                    add.rect.height(),
-                    ui.ctx().pixels_per_point(),
-                );
-            }
-            if add.clicked() {
-                actions.push(Action::AddLayerMask(target.id));
-                ui.close();
-            }
-            ui.small("Paint black to hide pixels; white reveals them.");
-            return;
-        }
-        let edit_label = if target.editing_mask {
-            "Stop editing mask"
-        } else {
-            "Edit mask with Brush"
-        };
-        let edit = ui.button(edit_label);
-        if target.emit_test_markers {
-            crate::studio_log!(
-                "UI_TEST_LAYER_MASK_EDIT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                edit.rect.left(),
-                edit.rect.top(),
-                edit.rect.width(),
-                edit.rect.height(),
-                ui.ctx().pixels_per_point(),
-            );
-        }
-        if edit.clicked() {
-            actions.push(Action::EditLayerMask(target.id, !target.editing_mask));
-            ui.close();
-        }
-        let mut enabled = target.mask_enabled;
-        if ui.checkbox(&mut enabled, "Mask enabled").changed() {
-            actions.push(Action::SetLayerMaskEnabled(target.id, enabled));
-        }
-        if ui.button("Invert mask").clicked() {
-            actions.push(Action::InvertLayerMask(target.id));
-            ui.close();
-        }
-        if ui.button("Clear mask to white").clicked() {
-            actions.push(Action::ClearLayerMask(target.id));
-            ui.close();
-        }
-        if ui.button("Remove mask").clicked() {
-            actions.push(Action::RemoveLayerMask(target.id));
-            ui.close();
-        }
-        ui.small(if target.mask_inverted {
-            "Inverted · black reveals"
-        } else {
-            "Normal · black hides"
-        });
-        ui.small("Mask edits are saved in .rpl and support Undo.");
-    });
-    if target.emit_test_markers {
-        crate::studio_log!(
-            "UI_TEST_LAYER_MASK_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-            mask_menu.response.rect.left(),
-            mask_menu.response.rect.top(),
-            mask_menu.response.rect.width(),
-            mask_menu.response.rect.height(),
-            ui.ctx().pixels_per_point(),
-        );
-    }
+    ui.small("Mask actions are in Selected layer settings.");
     ui.separator();
     let bring_forward = ui.add_enabled(
         target.layer_index + 1 < target.layer_count,
@@ -2986,6 +2910,7 @@ fn selected_layer_settings(
     project: &mut Engine,
     actions: &mut Vec<Action>,
     test_mode: bool,
+    editing_mask: Option<u64>,
 ) {
     if let Some(layer) = project
         .state()
@@ -2997,7 +2922,12 @@ fn selected_layer_settings(
         let mut percent = f32::from(layer.opacity) * (100.0 / 255.0);
         let mut opacity = layer.opacity;
         let mut blend = layer.blend;
+        let mask_exists = layer.mask.is_some();
+        let mut mask_enabled = layer.mask.as_ref().is_none_or(|mask| mask.enabled);
+        let mask_inverted = layer.mask.as_ref().is_some_and(|mask| mask.inverted);
+        let is_editing_mask = editing_mask == Some(id);
         let mut changed = false;
+        let mut mask_enabled_changed = false;
         let settings_width = ui.available_width().clamp(180.0, 260.0);
         let settings = egui::CollapsingHeader::new("Selected layer settings")
             .id_salt(("layer-settings", id))
@@ -3074,6 +3004,114 @@ fn selected_layer_settings(
                             );
                         }
                         changed |= blend != layer.blend;
+
+                        ui.separator();
+                        ui.label(crate::ui_tokens::type_text(
+                            "Layer mask",
+                            crate::ui_tokens::TypeRole::SectionTitle,
+                            ui.visuals().text_color(),
+                        ));
+                        if !mask_exists {
+                            let add = ui.button("Add white mask");
+                            add.widget_info(|| {
+                                egui::WidgetInfo::labeled(
+                                    egui::WidgetType::Button,
+                                    ui.is_enabled(),
+                                    "Add white layer mask",
+                                )
+                            });
+                            if test_mode {
+                                crate::studio_log!(
+                                    "UI_TEST_LAYER_MASK_ADD_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    add.rect.left(), add.rect.top(), add.rect.width(),
+                                    add.rect.height(), ui.ctx().pixels_per_point(),
+                                );
+                            }
+                            if add.clicked() {
+                                actions.push(Action::AddLayerMask(id));
+                            }
+                        } else {
+                            let edit = ui.button(if is_editing_mask {
+                                "Stop editing mask"
+                            } else {
+                                "Edit mask with Brush"
+                            });
+                            edit.widget_info(|| {
+                                egui::WidgetInfo::labeled(
+                                    egui::WidgetType::Button,
+                                    ui.is_enabled(),
+                                    if is_editing_mask {
+                                        "Stop editing layer mask"
+                                    } else {
+                                        "Edit layer mask with brush"
+                                    },
+                                )
+                            });
+                            if test_mode {
+                                crate::studio_log!(
+                                    "UI_TEST_LAYER_MASK_EDIT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    edit.rect.left(), edit.rect.top(), edit.rect.width(),
+                                    edit.rect.height(), ui.ctx().pixels_per_point(),
+                                );
+                            }
+                            if edit.clicked() {
+                                if test_mode {
+                                    crate::studio_log!(
+                                        "UI_TEST_LAYER_MASK_EDIT_CLICKED: {id} {}",
+                                        !is_editing_mask
+                                    );
+                                }
+                                actions.push(Action::EditLayerMask(id, !is_editing_mask));
+                            }
+                            let enabled = ui.checkbox(&mut mask_enabled, "Mask enabled");
+                            if test_mode {
+                                crate::studio_log!(
+                                    "UI_TEST_LAYER_MASK_ENABLED_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    enabled.rect.left(), enabled.rect.top(), enabled.rect.width(),
+                                    enabled.rect.height(), ui.ctx().pixels_per_point(),
+                                );
+                            }
+                            mask_enabled_changed = enabled.changed();
+                            let invert = ui.button("Invert mask");
+                            if test_mode {
+                                crate::studio_log!(
+                                    "UI_TEST_LAYER_MASK_INVERT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    invert.rect.left(), invert.rect.top(), invert.rect.width(),
+                                    invert.rect.height(), ui.ctx().pixels_per_point(),
+                                );
+                            }
+                            if invert.clicked() {
+                                actions.push(Action::InvertLayerMask(id));
+                            }
+                            let clear = ui.button("Clear mask to white");
+                            if test_mode {
+                                crate::studio_log!(
+                                    "UI_TEST_LAYER_MASK_CLEAR_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    clear.rect.left(), clear.rect.top(), clear.rect.width(),
+                                    clear.rect.height(), ui.ctx().pixels_per_point(),
+                                );
+                            }
+                            if clear.clicked() {
+                                actions.push(Action::ClearLayerMask(id));
+                            }
+                            let remove = ui.button("Remove mask");
+                            if test_mode {
+                                crate::studio_log!(
+                                    "UI_TEST_LAYER_MASK_REMOVE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    remove.rect.left(), remove.rect.top(), remove.rect.width(),
+                                    remove.rect.height(), ui.ctx().pixels_per_point(),
+                                );
+                            }
+                            if remove.clicked() {
+                                actions.push(Action::RemoveLayerMask(id));
+                            }
+                            ui.small(if mask_inverted {
+                                "Inverted · black reveals"
+                            } else {
+                                "Normal · black hides"
+                            });
+                            ui.small("Saved in .rpl · each mask action supports Undo");
+                        }
                     },
                 );
             });
@@ -3097,6 +3135,9 @@ fn selected_layer_settings(
                 opacity,
                 blend,
             ));
+        }
+        if mask_enabled_changed {
+            actions.push(Action::SetLayerMaskEnabled(id, mask_enabled));
         }
     }
 }
@@ -3246,7 +3287,7 @@ pub(crate) fn layer_flyout_contents(
         ui.separator();
     }
     if !compact {
-        selected_layer_settings(ui, project, actions, test_mode);
+        selected_layer_settings(ui, project, actions, test_mode, editing_mask);
         ui.separator();
     }
     for (row_index, (id, mut name, mut visible, mut locked, thumbnail)) in
@@ -3261,22 +3302,13 @@ pub(crate) fn layer_flyout_contents(
                     .iter()
                     .position(|layer| layer.id == id)
                     .unwrap_or(0);
-                let (opacity, blend, mask_enabled, mask_inverted, mask_exists) = project
+                let (opacity, blend) = project
                     .state()
                     .layers
                     .iter()
                     .find(|layer| layer.id == id)
-                    .map(|layer| {
-                        let mask = layer.mask.as_ref();
-                        (
-                            layer.opacity,
-                            layer.blend,
-                            mask.is_none_or(|mask| mask.enabled),
-                            mask.is_some_and(|mask| mask.inverted),
-                            mask.is_some(),
-                        )
-                    })
-                    .unwrap_or((255, Blend::Normal, true, false, false));
+                    .map(|layer| (layer.opacity, layer.blend))
+                    .unwrap_or((255, Blend::Normal));
                 let menu_target = LayerMenuTarget {
                     id,
                     layer_count,
@@ -3289,10 +3321,6 @@ pub(crate) fn layer_flyout_contents(
                     has_selection: project.state().selection.is_some(),
                     opacity,
                     blend,
-                    mask_enabled,
-                    mask_inverted,
-                    mask_exists,
-                    editing_mask: editing_mask == Some(id),
                 };
                 let rename_id = egui::Id::new(("layer-flyout-name", id));
                 let mut focus_rename = false;
@@ -3586,7 +3614,7 @@ pub(crate) fn layer_flyout_contents(
             });
     }
     if compact {
-        selected_layer_settings(ui, project, actions, test_mode);
+        selected_layer_settings(ui, project, actions, test_mode, editing_mask);
     }
 }
 
@@ -12017,10 +12045,23 @@ impl Studio {
                 } else {
                     "Layer mask disabled · source mask retained".into()
                 };
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_LAYER_MASK_ENABLED: {id} {enabled}");
+                }
             }
             Action::InvertLayerMask(id) => {
                 project.invert_layer_mask(id)?;
                 self.status = "Layer mask inverted · Ctrl+Z to restore".into();
+                if self.test_path_dialog {
+                    let inverted = project
+                        .state()
+                        .layers
+                        .iter()
+                        .find(|layer| layer.id == id)
+                        .and_then(|layer| layer.mask.as_ref())
+                        .is_some_and(|mask| mask.inverted);
+                    crate::studio_log!("UI_TEST_LAYER_MASK_INVERTED: {id} {inverted}");
+                }
             }
             Action::ClearLayerMask(id) => {
                 project.clear_layer_mask(id)?;
@@ -12035,6 +12076,9 @@ impl Studio {
                     self.mask_editing_layer = None;
                 }
                 self.status = "Layer mask removed · Ctrl+Z to restore".into();
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_LAYER_MASK_REMOVED: {id}");
+                }
             }
             Action::EditLayerMask(id, editing) => {
                 if editing {
@@ -12333,9 +12377,11 @@ mod tests {
         home_sections_stacked, layer_actions_menu, native_project_path, quick_document_card_layout,
         recent_artwork_preview_height, recent_gallery_layout, recent_project_matches,
         recognize_quick_shape, recovery_checkpoint_label, recovery_source_label,
-        selection_move_offset, selection_transform_handle_at, selection_transform_handles,
-        selection_transform_matrix, symmetry_origin_from_client, transform_selection_outline,
+        selected_layer_settings, selection_move_offset, selection_transform_handle_at,
+        selection_transform_handles, selection_transform_matrix, symmetry_origin_from_client,
+        transform_selection_outline,
     };
+    use paint_document::Engine;
     use paint_document::brush::{Brush, BrushKind};
     use std::path::{Path, PathBuf};
 
@@ -12623,10 +12669,6 @@ mod tests {
                         has_selection: true,
                         opacity: 255,
                         blend: paint_document::Blend::Normal,
-                        mask_enabled: true,
-                        mask_inverted: false,
-                        mask_exists: false,
-                        editing_mask: false,
                     },
                     &mut actions,
                     &mut focus_rename,
@@ -12648,8 +12690,8 @@ mod tests {
             "selection copy is missing from the keyboard/screen-reader action list: {nodes}"
         );
         assert!(
-            nodes.contains("Layer mask"),
-            "the editable mask workflow must be reachable from layer actions: {nodes}"
+            nodes.contains("Mask actions are in Selected layer settings."),
+            "layer Actions must direct keyboard and screen-reader users to the contextual mask controls: {nodes}"
         );
         assert!(
             nodes.contains("role: Button"),
@@ -12658,6 +12700,92 @@ mod tests {
         assert!(
             actions.is_empty(),
             "rendering the menu must not mutate artwork"
+        );
+    }
+
+    #[test]
+    fn selected_layer_mask_controls_are_named_accesskit_actions() {
+        let context = egui::Context::default();
+        crate::ui_tokens::install(&context);
+        context.style_mut(|style| style.animation_time = 0.0);
+        context.enable_accesskit();
+        let mut project = Engine::new(32, 32, 300).unwrap();
+        let layer_id = project.state().selected;
+        let mut actions = Vec::new();
+        let _ = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                selected_layer_settings(ui, &mut project, &mut actions, false, None);
+            });
+        });
+        let header_pos = egui::pos2(80.0, 30.0);
+        let open_header = egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(header_pos),
+                egui::Event::PointerButton {
+                    pos: header_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos: header_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let output = context.run(open_header, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                selected_layer_settings(ui, &mut project, &mut actions, false, None);
+            });
+        });
+        let labels = output
+            .platform_output
+            .accesskit_update
+            .expect("layer settings emit AccessKit semantics")
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(labels.contains("Add white layer mask"), "{labels}");
+
+        project.add_layer_mask(layer_id).unwrap();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                selected_layer_settings(ui, &mut project, &mut actions, false, None);
+            });
+        });
+        let labels = output
+            .platform_output
+            .accesskit_update
+            .expect("masked layer settings retain AccessKit semantics")
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in [
+            "Edit layer mask with brush",
+            "Mask enabled",
+            "Invert mask",
+            "Clear mask to white",
+            "Remove mask",
+        ] {
+            assert!(
+                labels.contains(label),
+                "{label} missing from the tree: {labels}"
+            );
+        }
+        assert!(
+            labels.contains("role: CheckBox"),
+            "mask enabled state must use checkbox semantics: {labels}"
+        );
+        assert!(
+            actions.is_empty(),
+            "rendering mask controls must not mutate artwork"
         );
     }
 

@@ -1,3 +1,4 @@
+use paint_document::editing::{Selection, SelectionKind};
 use paint_document::{Engine, LayerMask, MASK_TILE_BYTES, StrokeMode, TILE_BYTES, storage};
 use paint_input::Tool;
 use paint_stroke::{
@@ -159,6 +160,47 @@ fn mask_controls_are_undoable_and_affect_the_composite_without_touching_raster()
     engine.undo();
     assert!(engine.state().layers[0].mask.is_some());
     assert_eq!(pixel(&engine, 16, 16)[3], 0);
+}
+
+#[test]
+fn mask_paint_obeys_selection_and_composites_without_mutating_raster_tiles() {
+    let mut engine = empty_canvas();
+    engine.brush.size = 20.0;
+    stroke(&mut engine, 1, StrokeMode::Paint);
+    let raster_tiles = engine.state().layers[0].tiles.clone();
+    engine.add_layer_mask(1).unwrap();
+    engine
+        .set_selection(Some(
+            Selection::new(SelectionKind::Rectangle, vec![[12.0, 12.0], [20.0, 20.0]]).unwrap(),
+        ))
+        .unwrap();
+    engine.brush.color = [0, 0, 0];
+    engine.brush.size = 8.0;
+    engine
+        .apply_with_mode(
+            &StrokeCommand::BeginStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(16.0, 16.0, 4),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::CommitStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(16.0, 16.0, 5),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+
+    let mask = engine.state().layers[0].mask.as_ref().unwrap();
+    assert_eq!(mask.tiles[&(0, 0)][16 * 64 + 16], 0);
+    assert_eq!(mask.tiles[&(0, 0)][16 * 64 + 10], 255);
+    assert_eq!(pixel(&engine, 16, 16), [0, 0, 0, 0]);
+    assert_eq!(pixel(&engine, 10, 16), [240, 20, 10, 255]);
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
 }
 
 #[test]

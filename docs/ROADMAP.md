@@ -710,3 +710,20 @@ so this checkpoint's full XTest/screenshot run and cross-platform hosted CI are
 pending; no physical stylus result is claimed. Phase 9 remains active. Next is
 versioned, v1-compatible layer-mask storage and compositing design; Phase 10
 vector/text and Phase 11 timelapse/animation remain open work.
+
+### Editable masks — direct controls and final Round 1 validation pending
+
+The failing Linux XTest in Actions run [`40762059402`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40762059402)
+timed out entering mask-brush mode through the nested Layer Actions submenu,
+after the v2 mask had already saved. Mask operations have now moved to direct
+controls in the expandable selected-layer settings; Add/Edit/Enable/Disable/
+Invert/Clear/Remove are individually named, keyboard-accessible, and operate on
+the same document transactions. XTest now saves and reopens a masked project,
+checks all control states plus exact Undo/Redo and v1/v2 transitions, and keeps
+the existing OpenRaster flattening check. A new document test covers actual
+selection clipping, effective compositing, and raster-tile preservation. Local
+Rust, Windows GNU cross-check, full workspace suite/build, Python harness, and
+llvmpipe smoke pass. The checkout lacks Xvfb, so the new real-window workflow
+and all-platform Actions run remain mandatory before accepting Round 1. Only
+then proceed to the first Phase 10 mixed raster/vector path and native-format
+vertical slice. Phase 8.3, Phase 9, Phase 10, and Phase 11 remain active.

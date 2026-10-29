@@ -489,16 +489,28 @@ def layer_copy_selection_menu_rect():
 def layer_move_selection_menu_rect():
     return layer_menu_action_rect('MOVE_SELECTION')
 
-def layer_mask_menu_rect():
-    marker=layer_menu_action_rect('MASK')
-    return marker if marker and len(marker)==5 else None
-
 def layer_mask_add_rect():
     marker=stable_marker('UI_TEST_LAYER_MASK_ADD_RECT')
     return tuple(map(float,marker.split())) if marker else None
 
 def layer_mask_edit_rect():
     marker=stable_marker('UI_TEST_LAYER_MASK_EDIT_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_mask_enabled_rect():
+    marker=stable_marker('UI_TEST_LAYER_MASK_ENABLED_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_mask_invert_rect():
+    marker=stable_marker('UI_TEST_LAYER_MASK_INVERT_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_mask_clear_rect():
+    marker=stable_marker('UI_TEST_LAYER_MASK_CLEAR_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_mask_remove_rect():
+    marker=stable_marker('UI_TEST_LAYER_MASK_REMOVE_RECT')
     return tuple(map(float,marker.split())) if marker else None
 
 def layer_settings_header():
@@ -2294,24 +2306,29 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: project.read_bytes()==blend_bytes,
                  'Redo restores the saved blend mode and opacity exactly')
 
-            def open_selected_layer_mask_menu():
-                more=scroll_layers_marker_into_view(
-                    layer_more_button_rect,
-                    'selected layer Actions button scrolls into the Layers viewport',
-                )
-                opened=layer_actions_open_count()
-                click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
-                wait(lambda: layer_actions_open_count()>opened,
-                     'selected layer Actions opens for the mask workflow')
-                menu=wait(layer_mask_menu_rect,'layer Actions exposes the real Layer mask submenu')
-                click_at((menu[0]+menu[2]/2)*menu[4],(menu[1]+menu[3]/2)*menu[4])
+            # Make the mask paint test's selection state explicit. The selected
+            # box covers the copied artwork and the later brush dab stays inside.
+            ctrl('d')
+            key('m')
+            selection_commits=sum(line.startswith('UI_TEST_SELECTION_COMMITTED: ')
+                                  for line in (directory/'application.log').read_text().splitlines())
+            drag_at(500,280,580,360)
+            wait(lambda: sum(line.startswith('UI_TEST_SELECTION_COMMITTED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>
+                 selection_commits,
+                 'the mask workflow establishes a fresh bounded selection through the canvas')
+            assert (event_marker('UI_TEST_SELECTION_COMMITTED') or '').startswith('true '), \
+                'the mask test selection must be committed before painting'
+            key('b')
 
-            open_selected_layer_mask_menu()
-            add_mask=wait(layer_mask_add_rect,'Layer mask submenu exposes Add white mask')
+            add_mask=scroll_layers_marker_into_view(
+                layer_mask_add_rect,
+                'Selected layer settings exposes the direct Add white mask control',
+            )
             click_at((add_mask[0]+add_mask[2]/2)*add_mask[4],
                      (add_mask[1]+add_mask[3]/2)*add_mask[4])
             wait(lambda: event_marker('UI_TEST_LAYER_MASK_ADDED')==str(copied_id),
-                 'the actual layer action adds a non-destructive mask')
+                 'the selected-layer control adds a non-destructive mask')
             ctrl('s')
             wait(lambda: valid_project(project) and project.read_bytes()!=blend_bytes
                  and project.read_bytes()[:8]==b'RPLALP02' and '*' not in title(window),
@@ -2322,15 +2339,24 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert mask_layer['mask']['enabled'] and not mask_layer['mask']['inverted']
             assert native_layer_mask_pixel_bytes(mask_added,copied_id,0,0)==255, \
                 'missing mask samples must remain fully revealing'
+            capture_window(window,'layers-panel-white-mask-settings')
 
-            open_selected_layer_mask_menu()
-            edit_mask=wait(layer_mask_edit_rect,'Layer mask submenu exposes Edit mask with Brush')
+            edit_mask=scroll_layers_marker_into_view(
+                layer_mask_edit_rect,
+                'Selected layer settings exposes the direct Edit mask with Brush control',
+            )
             click_at((edit_mask[0]+edit_mask[2]/2)*edit_mask[4],
                      (edit_mask[1]+edit_mask[3]/2)*edit_mask[4])
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_EDIT_CLICKED')==f'{copied_id} True',
+                 'the direct mask control receives its real pointer click')
             wait(lambda: event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} True',
                  'the selected layer enters native brush mask-paint mode')
+            capture_window(window,'layers-panel-mask-editing')
             before_mask_pixels=native_layer_tiles_bytes(mask_added)
-            move(700,500);click_button(1,True);click_button(1,False)
+            # The selection used to create the copied layer is still active.
+            # Paint inside it so the mask transaction exercises selection
+            # clipping while remaining clear of the Layers panel at x < 368.
+            move(540,325);click_button(1,True);click_button(1,False)
             wait(lambda: '*' in title(window),'mask brush stroke changes the native document')
             ctrl('s')
             wait(lambda: valid_project(project) and project.read_bytes()!=mask_added
@@ -2342,12 +2368,129 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             painted_mask=mask_tiles.get(copied_id,{})
             assert painted_mask and any(value<255 for tile in painted_mask.values() for value in tile), \
                 'the real mouse stroke must write non-white alpha-mask samples'
+            capture_window(window,'layers-panel-painted-mask')
             ctrl('z');ctrl('s')
             wait(lambda: project.read_bytes()==mask_added,
                  'Undo removes mask-paint samples and preserves the editable mask')
             ctrl('y');ctrl('s')
             wait(lambda: project.read_bytes()==mask_painted,
                  'Redo restores mask-paint samples exactly')
+
+            # Reopen the actual masked v2 project through the app's file picker.
+            ctrl('o');path_prompt();ctrl('Return')
+            wait(lambda: valid_project(project) and project.read_bytes()==mask_painted,
+                 'the application reopens the complete editable v2 mask project')
+
+            def click_mask_control(marker_fn, description):
+                control=scroll_layers_marker_into_view(marker_fn,description)
+                click_at((control[0]+control[2]/2)*control[4],
+                         (control[1]+control[3]/2)*control[4])
+
+            def verify_mask_edit(marker_name, expected_event, marker_fn, description, validate):
+                before=project.read_bytes()
+                previous=event_marker(marker_name)
+                click_mask_control(marker_fn,description)
+                outcome=wait(lambda: (lambda value: value if value and value!=previous else None)(
+                    event_marker(marker_name)),description+' changes the document')
+                assert outcome==expected_event(outcome), \
+                    f'{description} targeted unexpected state: {outcome}'
+                ctrl('s')
+                wait(lambda: valid_project(project) and project.read_bytes()!=before
+                     and '*' not in title(window),description+' saves to the native project')
+                after=project.read_bytes()
+                validate(before,after)
+                ctrl('z');ctrl('s')
+                wait(lambda: project.read_bytes()==before,
+                     'Undo restores the exact pre-action mask project')
+                ctrl('y');ctrl('s')
+                wait(lambda: project.read_bytes()==after,
+                     'Redo restores the exact saved mask action')
+                ctrl('z');ctrl('s')
+                wait(lambda: project.read_bytes()==before,
+                     'the mask action is undone before the next control check')
+
+            raster_before_mask_controls=native_layer_tiles_bytes(mask_painted)
+            def validate_disabled(before, after):
+                state=native_state_bytes(after)
+                layer=next(item for item in state['layers'] if item['id']==copied_id)
+                assert not layer['mask']['enabled']
+                assert native_document_tables(after)[1]==native_layer_tiles_bytes(before)
+                assert native_document_tables(after)[2]==native_document_tables(before)[2]
+            verify_mask_edit(
+                'UI_TEST_LAYER_MASK_ENABLED',lambda value:f'{copied_id} False',
+                layer_mask_enabled_rect,'Disabling the layer mask',validate_disabled,
+            )
+
+            # Exercise the reverse checkbox transition from the disabled state as
+            # well. Save each state and walk history both directions byte-exactly.
+            enabled_before=project.read_bytes()
+            click_mask_control(layer_mask_enabled_rect,'The mask-enabled checkbox can disable the mask')
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} False',
+                 'the mask-enabled checkbox disables the mask through its real UI control')
+            ctrl('s')
+            wait(lambda: project.read_bytes()!=enabled_before and '*' not in title(window),
+                 'disabling the mask saves its native metadata')
+            disabled_again=project.read_bytes()
+            validate_disabled(enabled_before,disabled_again)
+
+            click_mask_control(layer_mask_enabled_rect,'Disabled mask can be enabled again')
+            wait(lambda: event_marker('UI_TEST_LAYER_MASK_ENABLED')==f'{copied_id} True',
+                 'the mask-enabled checkbox restores the mask through its real UI control')
+            ctrl('s')
+            wait(lambda: project.read_bytes()!=disabled_again and '*' not in title(window),
+                 're-enabling the mask saves its native metadata')
+            enabled_again=project.read_bytes()
+            enabled_state=native_state_bytes(enabled_again)
+            enabled_layer=next(item for item in enabled_state['layers'] if item['id']==copied_id)
+            assert enabled_layer['mask']['enabled']
+            assert native_document_tables(enabled_again)[2]==native_document_tables(enabled_before)[2]
+            assert native_document_tables(enabled_again)[1]==native_layer_tiles_bytes(enabled_before)
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==disabled_again,
+                 'Undo disables the mask again after its explicit re-enable')
+            ctrl('y');ctrl('s')
+            wait(lambda: project.read_bytes()==enabled_again,
+                 'Redo restores the explicitly re-enabled mask exactly')
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==disabled_again,
+                 'Undo restores the disabled state exactly')
+            ctrl('z');ctrl('s')
+            wait(lambda: project.read_bytes()==enabled_before,
+                 'Undo of the original disable restores the painted enabled mask')
+
+            def validate_inverted(before, after):
+                state=native_state_bytes(after)
+                layer=next(item for item in state['layers'] if item['id']==copied_id)
+                assert layer['mask']['enabled'] and layer['mask']['inverted']
+                assert native_document_tables(after)[2]==native_document_tables(before)[2]
+                assert native_document_tables(after)[1]==native_layer_tiles_bytes(before)
+            verify_mask_edit(
+                'UI_TEST_LAYER_MASK_INVERTED',lambda value:f'{copied_id} True',
+                layer_mask_invert_rect,'Inverting the editable layer mask',validate_inverted,
+            )
+
+            def validate_cleared(before, after):
+                state=native_state_bytes(after)
+                layer=next(item for item in state['layers'] if item['id']==copied_id)
+                assert layer['mask']['enabled'] and not layer['mask']['inverted']
+                assert native_document_tables(after)[2].get(copied_id,{})=={}
+                assert native_document_tables(after)[1]==native_layer_tiles_bytes(before)
+            verify_mask_edit(
+                'UI_TEST_LAYER_MASK_CLEARED',lambda value:f'{copied_id}',
+                layer_mask_clear_rect,'Clearing the layer mask to white',validate_cleared,
+            )
+
+            def validate_removed(before, after):
+                assert after[:8]==b'RPLALP01', \
+                    'removing the only mask should return to the compatible v1 container'
+                assert next(item for item in native_state_bytes(after)['layers']
+                            if item['id']==copied_id)['mask'] is None
+                assert native_layer_tiles_bytes(after)==native_layer_tiles_bytes(before)
+            verify_mask_edit(
+                'UI_TEST_LAYER_MASK_REMOVED',lambda value:f'{copied_id}',
+                layer_mask_remove_rect,'Removing the editable layer mask',validate_removed,
+            )
+            assert native_layer_tiles_bytes(project.read_bytes())==raster_before_mask_controls
             key('m');key('b')
             saved=mask_painted
 
@@ -3058,7 +3201,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','layers-panel-white-mask-settings','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -3074,7 +3217,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; QuickShape line/rectangle/ellipse recognition, incomplete-gesture rejection, cancellation and exact undo/redo; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; canvas scale/rotation handles with cancelled previews, pixel changes, save and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; QuickShape line/rectangle/ellipse recognition, incomplete-gesture rejection, cancellation and exact undo/redo; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; canvas scale/rotation handles with cancelled previews, pixel changes, save and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; Add/Edit/Enable/Disable/Invert/Clear/Remove editable masks with v1/v2 reopen, compositing, raster-tile integrity and exact undo/redo; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise
@@ -3087,5 +3230,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             lines=(directory/'application.log').read_text().splitlines()
             relevant=[line for line in lines if line.startswith(('UI_TEST_','TEST_PATH_DIALOG:','Canvas adapter:'))]
             print('\n'.join(relevant[-60:]))
+            mask_trace=[line for line in relevant
+                        if line.startswith(('UI_TEST_LAYER_MASK_',
+                                            'UI_TEST_LAYER_SETTINGS_HEADER_RECT:',
+                                            'UI_TEST_LAYER_OPACITY_SLIDER_RECT:',
+                                            'UI_TEST_LAYER_BLEND_COMBO_RECT:'))]
+            print('ALPHA_WORKFLOW_MASK_TRACE_BEGIN')
+            print('\n'.join(mask_trace[-80:]))
+            print('ALPHA_WORKFLOW_MASK_TRACE_END')
             recovery=[line for line in relevant if line.startswith('UI_TEST_RECOVERY_')]
             print('\n'.join(recovery[-24:]))
