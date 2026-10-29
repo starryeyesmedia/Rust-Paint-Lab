@@ -150,40 +150,53 @@ fn layer_rgba(width: u32, height: u32, layer: &Layer) -> Result<Vec<u8>, PaintEr
         .and_then(|bytes| usize::try_from(bytes).ok())
         .ok_or(PaintError::Limit)?;
     let mut rgba = vec![0; byte_count];
-    for (&(tile_x, tile_y), tile) in &layer.tiles {
-        let origin_x = tile_x.checked_mul(TILE).ok_or(PaintError::Limit)?;
-        let origin_y = tile_y.checked_mul(TILE).ok_or(PaintError::Limit)?;
-        let valid_width = TILE.min(width.saturating_sub(origin_x));
-        let valid_height = TILE.min(height.saturating_sub(origin_y));
-        for y in 0..valid_height {
-            for x in 0..valid_width {
-                let source = ((y * TILE + x) * 4) as usize;
-                let source_alpha = u32::from(tile[source + 3]);
-                if source_alpha == 0 {
-                    continue;
+    for tile_y in 0..height.div_ceil(TILE) {
+        for tile_x in 0..width.div_ceil(TILE) {
+            let origin_x = tile_x.checked_mul(TILE).ok_or(PaintError::Limit)?;
+            let origin_y = tile_y.checked_mul(TILE).ok_or(PaintError::Limit)?;
+            let valid_width = TILE.min(width.saturating_sub(origin_x));
+            let valid_height = TILE.min(height.saturating_sub(origin_y));
+            let mut content = [0; crate::TILE_BYTES];
+            if let Some(tile) = layer.tiles.get(&(tile_x, tile_y)) {
+                content.copy_from_slice(tile);
+            }
+            crate::vector::rasterize_layer_tile(
+                layer,
+                (tile_x, tile_y),
+                [width, height],
+                &mut content,
+            );
+            for y in 0..valid_height {
+                for x in 0..valid_width {
+                    let source = ((y * TILE + x) * 4) as usize;
+                    let source_alpha = u32::from(content[source + 3]);
+                    if source_alpha == 0 {
+                        continue;
+                    }
+                    let alpha = if let Some(mask) = layer.mask.as_ref().filter(|mask| mask.enabled)
+                    {
+                        let mask_offset = (y * TILE + x) as usize;
+                        let value = mask
+                            .tiles
+                            .get(&(tile_x, tile_y))
+                            .map_or(255, |mask_tile| mask_tile[mask_offset]);
+                        u32::from(if mask.inverted { 255 - value } else { value })
+                    } else {
+                        255
+                    };
+                    let alpha = (source_alpha * alpha + 127) / 255;
+                    if alpha == 0 {
+                        continue;
+                    }
+                    let destination = (((origin_y + y) * width + origin_x + x) * 4) as usize;
+                    for channel in 0..3 {
+                        rgba[destination + channel] = ((u32::from(content[source + channel]) * 255
+                            + source_alpha / 2)
+                            / source_alpha)
+                            .min(255) as u8;
+                    }
+                    rgba[destination + 3] = alpha as u8;
                 }
-                let alpha = if let Some(mask) = layer.mask.as_ref().filter(|mask| mask.enabled) {
-                    let mask_offset = (y * TILE + x) as usize;
-                    let value = mask
-                        .tiles
-                        .get(&(tile_x, tile_y))
-                        .map_or(255, |mask_tile| mask_tile[mask_offset]);
-                    u32::from(if mask.inverted { 255 - value } else { value })
-                } else {
-                    255
-                };
-                let alpha = (source_alpha * alpha + 127) / 255;
-                if alpha == 0 {
-                    continue;
-                }
-                let destination = (((origin_y + y) * width + origin_x + x) * 4) as usize;
-                for channel in 0..3 {
-                    rgba[destination + channel] = ((u32::from(tile[source + channel]) * 255
-                        + source_alpha / 2)
-                        / source_alpha)
-                        .min(255) as u8;
-                }
-                rgba[destination + 3] = alpha as u8;
             }
         }
     }
@@ -361,6 +374,7 @@ pub fn load(path: &Path) -> Result<State, PaintError> {
             opacity: (opacity * 255.0).round() as u8,
             blend,
             mask: None,
+            vector_paths: Vec::new(),
             tiles,
         });
     }

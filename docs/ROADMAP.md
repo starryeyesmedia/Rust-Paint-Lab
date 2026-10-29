@@ -79,7 +79,11 @@ painting, configurable pen barrel behavior and transformed image placement.
   integration commit is still required to confirm hosted platform jobs. Next:
   selection transforms and QuickShape, then guides/symmetry and brush expansion.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
-  non-destructive effects, and natural-media foundations.
+  non-destructive effects, and natural-media foundations. The first editable
+  path slice now includes bounded line/cubic document geometry, stable IDs,
+  v3 persistence with v1/v2 reads, whole-path move/delete, undo/redo, live
+  preview, and PNG/OpenRaster flattening. Cubic creation and node/handle editing
+  remain open.
 - Phase 11 — frame animation, onion skin, automatic per-action timelapse, and
   interoperability expansion.
 - Phase 12 — broader creative workflows and mobile-core reuse.
@@ -732,6 +736,44 @@ The 2026-10-29 local validation also passed all 336 workspace tests, formatting,
 strict Clippy, workspace build, Windows GNU check/Clippy, test metadata check,
 and llvmpipe GPU smoke; the Xorg workflow generated 59 PNGs. I inspected the
 mask-editing, painted-mask, and populated-recovery screenshots. The hosted
-cross-platform run and both Windows artifacts remain required before Round 1
-acceptance; do not begin the Phase 10 vector slice until that gate is green.
-Phase 8.3, Phase 9, Phase 10, and Phase 11 remain active.
+cross-platform gate passed in Actions run
+[`40805980434`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40805980434).
+Linux completed the full artwork/mask workflow and screenshots, Windows produced
+both the canvas and stylus diagnostic artifacts and passed visible startup, and
+macOS passed its startup smoke/package job. Round 1 is accepted as a validated
+implementation checkpoint; physical Windows mask/S Pen behavior remains a
+separate owner evaluation.
+
+### Phase 10 — initial editable vector path slice, locally validated
+
+The current implementation adds editable line and cubic path objects inside
+raster layers. V selects the canvas path tool: drag on empty artwork creates a
+polyline, clicking a path selects it, dragging moves the whole path, and the
+contextual Delete path action is undoable. Paths remain separate from raster
+tiles but share layer ordering, visibility, opacity, blend modes, masks, history,
+thumbnails and derived canvas/export compositing. PNG and OpenRaster flatten the
+composite; OpenRaster reports path loss while `.rpl` retains path objects.
+
+RPL v3 stores vector metadata and a monotonic document-wide object-ID allocator;
+v1/v2 reading and the prior v1/v2 write choices remain. Resource limits bound
+path count, segment count, coordinate/width ranges, metadata size and estimated
+raster work. Eleven focused document tests cover v1/v2/v3 behavior, mixed masks,
+rendering, save/reopen, monotonic IDs, layer-duplication ID remapping,
+movement/deletion history, corruption rejection, and PNG/OpenRaster output.
+The real Xorg/XTest workflow now creates, saves/reopens, moves and deletes a path,
+checks Undo/Redo, and verifies OpenRaster flattening alongside prior mask,
+painting, export and forced-crash journal-recovery workflows. It passes locally
+with strict Rust checks, the workspace build, Windows GNU target check/Clippy,
+and the llvmpipe GPU smoke; 61 populated screenshots were generated and
+representative workspace and vector states inspected. A one-ULP-scale JSON f64
+round-trip difference is allowed only within `1e-12`; native raster/mask tile
+tables remain byte-identical during recovery. The full hosted Linux workflow
+previously took 596 seconds, four seconds under its former 10-minute cap; CI now
+allows 15 minutes without skipping checks. New cross-platform Actions remain
+pending after push.
+
+Phase 8.3, Phase 10 and Phase 11 remain active. The Phase 9 mask checkpoint is
+accepted by run `40805980434`; new Phase 10 Actions validation is pending. Phase
+10 still needs node editing, Bézier handles, editable style controls, path
+transforms and richer object operations. Phase 11 animation/timelapse and later
+text/effects remain open.

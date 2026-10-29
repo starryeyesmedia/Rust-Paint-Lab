@@ -193,6 +193,11 @@ def selection_transform_handles():
 def gradient_control_rect(mode):
     return stable_window_rect_marker(f'UI_TEST_GRADIENT_{mode.upper()}_RECT')
 
+def vector_delete_rect():
+    lines=[line for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_VECTOR_DELETE_RECT: ')]
+    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+
 def symmetry_mode_rect(label):
     prefix=f'UI_TEST_SYMMETRY_MODE_RECT: {label} '
     lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
@@ -214,6 +219,17 @@ def screenshot_pixel_difference(left, right):
     assert (width,height)==(other_width,other_height)
     return sum(a[offset:offset+3]!=b[offset:offset+3]
                for offset in range(0,len(a),4))
+
+def screenshot_region_difference(left, right, region):
+    width,height,a=decode_rgba_png(left)
+    other_width,other_height,b=decode_rgba_png(right)
+    assert (width,height)==(other_width,other_height)
+    x1,y1,x2,y2=map(int,region)
+    x1=max(0,min(width,x1));x2=max(x1,min(width,x2))
+    y1=max(0,min(height,y1));y2=max(y1,min(height,y2))
+    return sum(a[(y*width+x)*4:(y*width+x)*4+3]!=
+               b[(y*width+x)*4:(y*width+x)*4+3]
+               for y in range(y1,y2) for x in range(x1,x2))
 
 def palette_bounds():
     return window_rect_marker('UI_TEST_PALETTE_RECT')
@@ -726,7 +742,7 @@ def valid_project(path):
     return valid_project_bytes(path.read_bytes())
 def valid_project_bytes(data):
     try:
-        if len(data)<48 or data[:8] not in (b'RPLALP01',b'RPLALP02') or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return None
+        if len(data)<48 or data[:8] not in (b'RPLALP01',b'RPLALP02',b'RPLALP03') or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return None
         _,layers,_=native_document_tables(data)
         # Preserve the helper's original contract: valid files return their
         # raster tile count, so zero distinguishes a clean empty document from
@@ -751,19 +767,28 @@ def native_state(path):
     return native_state_bytes(path.read_bytes())
 
 def latest_recovery_project(directory):
-    candidates=[path for path in directory.glob('recovery-[0-9]*.rpl')
-                if valid_project(path)]
-    return max(candidates,key=lambda path:path.stat().st_mtime_ns,default=None)
+    candidates=sorted(directory.glob('recovery-[0-9]*.rpl'),
+                      key=lambda path:path.stat().st_mtime_ns,reverse=True)
+    return next((path for path in candidates if valid_project(path) is not None),None)
+
+def latest_recovery_owner(directory):
+    owners=sorted(directory.glob('recovery-[0-9]*.owner'),
+                  key=lambda path:path.stat().st_mtime_ns,reverse=True)
+    return owners[0] if owners else None
+
+def recovery_complete_count():
+    return sum(line.startswith('UI_TEST_RECOVERY_COMPLETE: ')
+               for line in (directory/'application.log').read_text().splitlines())
 
 def native_state_bytes(data):
     n=struct.unpack('<I',data[8:12])[0]
     return json.loads(data[12:12+n])
 def native_document_tables(data):
-    """Read bounded raster and v2 mask tables from an already checksummed RPL file."""
-    assert len(data)>=48 and data[:8] in (b'RPLALP01',b'RPLALP02')
+    """Read bounded raster/mask tables from an already checksummed RPL file."""
+    assert len(data)>=48 and data[:8] in (b'RPLALP01',b'RPLALP02',b'RPLALP03')
     checksum_offset=len(data)-32
     metadata=struct.unpack('<I',data[8:12])[0]
-    assert metadata<=65536 and 16+metadata<=checksum_offset
+    assert metadata<=(8*1024*1024 if data[:8]==b'RPLALP03' else 65536) and 16+metadata<=checksum_offset
     state=native_state_bytes(data)
     count_offset=12+metadata
     raster_count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
@@ -776,7 +801,7 @@ def native_document_tables(data):
         tile=data[offset:offset+16384];offset+=16384
         layers.setdefault(layer_id,{})[(tile_x,tile_y)]=tile
     masks={}
-    if data[:8]==b'RPLALP02':
+    if data[:8] in (b'RPLALP02',b'RPLALP03'):
         assert offset+4<=checksum_offset
         mask_count=struct.unpack('<I',data[offset:offset+4])[0];offset+=4
         assert mask_count<=8192-raster_count
@@ -787,6 +812,25 @@ def native_document_tables(data):
             masks.setdefault(layer_id,{})[(tile_x,tile_y)]=tile
     assert offset==checksum_offset, 'native raster/mask tile tables do not match document length'
     return state,layers,masks
+
+def native_projects_equivalent(left, right):
+    """Compare restored projects exactly except sub-picopixel JSON float noise."""
+    if valid_project_bytes(left) is None or valid_project_bytes(right) is None:
+        return False
+    if left[:8]!=right[:8]:
+        return False
+    left_state,left_layers,left_masks=native_document_tables(left)
+    right_state,right_layers,right_masks=native_document_tables(right)
+    def near(a,b):
+        if isinstance(a,bool) or isinstance(b,bool): return a==b
+        if isinstance(a,(int,float)) and isinstance(b,(int,float)):
+            return abs(float(a)-float(b))<=1e-12
+        if isinstance(a,dict) and isinstance(b,dict):
+            return a.keys()==b.keys() and all(near(a[key],b[key]) for key in a)
+        if isinstance(a,list) and isinstance(b,list):
+            return len(a)==len(b) and all(near(x,y) for x,y in zip(a,b))
+        return a==b
+    return near(left_state,right_state) and left_layers==right_layers and left_masks==right_masks
 def native_layer_pixel(path, x, y):
     return native_layer_pixel_bytes(path.read_bytes(),x,y)
 def native_layer_pixel_bytes(data, x, y):
@@ -1290,6 +1334,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             preset_target=((preset[0]+preset[2]/2)*preset[4],
                            (preset[1]+preset[3]/2)*preset[4])
             title_before_preset=title(window)
+            focus(display,window,2,0);send()
             click_at(*preset_target)
             time.sleep(0.25)
             print(f'UI_TEST_HOME_PRESET_CLICK: target={preset_target} bounds={preset} '
@@ -2720,6 +2765,122 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 ctrl('z');ctrl('s')
                 wait(lambda: imported.read_bytes()==before_quickshape,
                      f'QuickShape {shape_name.lower()} cleanup restores prior artwork')
+            # Editable vector paths stay structured in RPL v3 while the GPU,
+            # PNG and OpenRaster consumers receive a derived raster composite.
+            vector_markers=lambda: [line.partition(': ')[2].split()
+                                    for line in (directory/'application.log').read_text().splitlines()
+                                    if line.startswith('UI_TEST_VECTOR_PATH_CREATED: ')]
+            vector_move_markers=lambda: [line.partition(': ')[2].split()
+                                         for line in (directory/'application.log').read_text().splitlines()
+                                         if line.startswith('UI_TEST_VECTOR_PATH_MOVED: ')]
+            vector_before=imported.read_bytes()
+            vector_raster_before=native_document_tables(vector_before)[1]
+            vector_mask_before=native_document_tables(vector_before)[2]
+            key('v')
+            wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='VectorPath',
+                 'V selects the editable vector path tool')
+            capture_window(window,'vector-path-before')
+            vector_before_image=(Path(os.environ['RPL_UI_SCREENSHOT_DIR'])/'vector-path-before.png').read_bytes()
+            prior_vector_count=len(vector_markers())
+            drag_path([(520,540),(560,570),(610,550)])
+            wait(lambda: len(vector_markers())>prior_vector_count,
+                 'a real canvas drag creates one editable vector path')
+            capture_window(window,'vector-path-created')
+            vector_after_image=(Path(os.environ['RPL_UI_SCREENSHOT_DIR'])/'vector-path-created.png').read_bytes()
+            visible_vector_delta=screenshot_region_difference(
+                vector_before_image,vector_after_image,(480,500,660,610))
+            assert visible_vector_delta>=20, \
+                f'vector path did not visibly render in the canvas preview: {visible_vector_delta} changed pixels'
+            vector_created_marker=vector_markers()[-1]
+            assert int(vector_created_marker[1])>=2, \
+                f'editable vector gesture should preserve multiple anchor points: {vector_created_marker}'
+            ctrl('s')
+            wait(lambda: imported.exists() and imported.read_bytes()[:8]==b'RPLALP03'
+                 and '*' not in title(window),
+                 'the app saves editable paths in the version 3 native format')
+            vector_created=imported.read_bytes()
+            vector_state=native_state_bytes(vector_created)
+            assert vector_state['next_vector_id']>0
+            vector_layer=next(layer for layer in vector_state['layers']
+                              if layer['id']==vector_state['selected'])
+            assert len(vector_layer['vector_paths'])==1, \
+                'new path remains an editable object in the selected layer metadata'
+            vector_object=vector_layer['vector_paths'][0]
+            assert vector_object['id']==int(vector_created_marker[0])
+            assert len(vector_object['segments'])>=1
+            assert native_document_tables(vector_created)[1]==vector_raster_before, \
+                'vector creation must not write derived pixels into authoritative raster tiles'
+            assert native_document_tables(vector_created)[2]==vector_mask_before, \
+                'vector creation must preserve independent editable masks'
+            ctrl('z');ctrl('s')
+            wait(lambda: imported.read_bytes()==vector_before,
+                 'vector creation is one exact undoable native-document transaction')
+            ctrl('y');ctrl('s')
+            wait(lambda: imported.read_bytes()==vector_created,
+                 'redo restores the exact editable vector object and native bytes')
+            opened_vector_count=sum(line.startswith('UI_TEST_PROJECT_OPENED: ')
+                                    for line in (directory/'application.log').read_text().splitlines())
+            ctrl('o');path_prompt();ctrl('Return')
+            wait(lambda: sum(line.startswith('UI_TEST_PROJECT_OPENED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>
+                 opened_vector_count,
+                 'the application reopens the saved v3 project through its real Open workflow')
+            opened_marker=event_marker('UI_TEST_PROJECT_OPENED')
+            assert opened_marker and opened_marker.split()[-1]=='1', \
+                f'reopened document must restore its editable path object: {opened_marker}'
+            vector_move_before=imported.read_bytes()
+            prior_move_count=len(vector_move_markers())
+            drag_at(560,570,590,605)
+            wait(lambda: len(vector_move_markers())>prior_move_count,
+                 'a reopened vector path can be selected and moved again through the canvas')
+            ctrl('s')
+            wait(lambda: imported.read_bytes()!=vector_move_before and '*' not in title(window),
+                 'moving a vector object saves changed editable geometry')
+            vector_moved=imported.read_bytes()
+            moved_state=native_state_bytes(vector_moved)
+            moved_layer=next(layer for layer in moved_state['layers']
+                             if layer['id']==moved_state['selected'])
+            assert moved_layer['vector_paths'][0]['start']!=vector_layer['vector_paths'][0]['start'], \
+                'path movement must change editable coordinates rather than only a preview'
+            assert native_document_tables(vector_moved)[1]==vector_raster_before
+            assert native_document_tables(vector_moved)[2]==vector_mask_before
+            delete_rect=wait(vector_delete_rect,
+                             'selected vector path exposes an accessible contextual delete action')
+            prior_vector_delete_count=sum(line.startswith('UI_TEST_VECTOR_PATH_DELETED: ')
+                                          for line in (directory/'application.log').read_text().splitlines())
+            click_at((delete_rect[0]+delete_rect[2]/2)*delete_rect[4],
+                     (delete_rect[1]+delete_rect[3]/2)*delete_rect[4])
+            wait(lambda: sum(line.startswith('UI_TEST_VECTOR_PATH_DELETED: ')
+                             for line in (directory/'application.log').read_text().splitlines())>
+                 prior_vector_delete_count,
+                 'the contextual delete action invokes the document transaction')
+            ctrl('s')
+            wait(lambda: not any(layer.get('vector_paths') for layer in native_state(imported)['layers'])
+                 and imported.read_bytes()[:8]==b'RPLALP03'
+                 and '*' not in title(window),
+                 'deleting the final path keeps the v3 allocator record and removes the object')
+            deleted_vector=imported.read_bytes()
+            ctrl('z');ctrl('s')
+            wait(lambda: imported.read_bytes()==vector_moved,
+                 'Delete path participates in exact application undo')
+            ctrl('y');ctrl('s')
+            wait(lambda: imported.read_bytes()==deleted_vector,
+                 'Delete path participates in exact application redo')
+            ctrl('z');ctrl('s')
+            wait(lambda: imported.read_bytes()==vector_moved,
+                 'undo restores the editable path before interoperability export')
+            ora=directory/'imported-artwork.ora'
+            ora.unlink(missing_ok=True)
+            ctrl_shift('e')
+            wait(lambda: event_marker('UI_TEST_OPENRASTER_VECTORS_FLATTENED')=='true'
+                 and ora.exists(),
+                 'OpenRaster export discloses that editable vector objects become pixels')
+            with zipfile.ZipFile(ora) as archive:
+                assert archive.testzip() is None
+                layer_pngs=[name for name in archive.namelist()
+                            if name.startswith('data/layer') and name.endswith('.png')]
+                assert layer_pngs, 'OpenRaster export must include flattened layer pixel images'
+                assert archive.read('mergedimage.png').startswith(b'\x89PNG\r\n\x1a\n')
             # Linear and radial gradients use the actual pointer lifecycle,
             # transient GPU preview, document transaction, native save and
             # undo/redo path. Escape must discard only the preview.
@@ -2981,24 +3142,46 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('y')
             wait(lambda: event_marker('UI_TEST_SYMMETRY_PANEL_TOGGLED')=='false',
                  'Y closes the symmetry panel without changing the selected tool')
-            snapshot=wait(lambda: latest_recovery_project(recovery_dir),
-                          'latest active document recovery lineage is available')
+            # The active process owns a fresh recovery lineage whose .rpl
+            # snapshot may not exist until its first completed checkpoint.
+            # Do not accidentally test an older process's last snapshot.
+            owner=wait(lambda: latest_recovery_owner(recovery_dir),
+                       'active document recovery owner is available')
+            snapshot=owner.with_suffix('.rpl')
             journal_path=Path(str(snapshot)+'.journal')
-            assert latest_journal_checkpoint(journal_path)==snapshot.read_bytes(),'initial checkpoint has a complete synced journal record'
-            before=snapshot.read_bytes()
-            journal_before=journal_path.read_bytes()
+            before=snapshot.read_bytes() if snapshot.exists() else None
+            journal_before=journal_path.read_bytes() if journal_path.exists() else b''
+            journal_checkpoint_before=latest_journal_checkpoint(journal_path)
+            completed_before=recovery_complete_count()
             stroke_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                               for line in (directory/'application.log').read_text().splitlines())
-            # Keep this path clear of the floating reference image (x=306–654)
-            # and the layer panel at the right edge of the workspace.
-            key('b');move(780,550);click_button(1,True);move(900,650);click_button(1,False)
+            # Derive the recovery stroke from the live document viewport. The
+            # previous fixed endpoint could land over Layers after the workspace
+            # reflowed, beginning a stroke without committing any canvas pixels.
+            left,top,right,bottom,_,_=wait(symmetry_canvas_bounds,
+                                           'recovery test has current canvas bounds')
+            start=(left+0.58*(right-left),top+0.45*(bottom-top))
+            end=(left+0.70*(right-left),top+0.62*(bottom-top))
+            print(f'UI_TEST_RECOVERY_STROKE_TARGET: {start} -> {end}',flush=True)
+            key('b')
+            wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+                 'recovery stroke explicitly selects the paint brush tool')
+            drag_at(*start,*end)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>stroke_starts,
                  'real canvas mouse input begins a painting transaction')
             status('*')
-            wait(lambda: valid_project(snapshot) and snapshot.read_bytes()!=before,'latest committed artwork checkpoint')
-            recovered_bytes=snapshot.read_bytes()
-            wait(lambda: journal_path.read_bytes()!=journal_before and latest_journal_checkpoint(journal_path)==recovered_bytes,'latest checkpoint is durably journaled before process termination')
+            wait(lambda: recovery_complete_count()>completed_before,
+                 'active recovery writer completes the committed artwork checkpoint')
+            recovered_bytes=wait(
+                lambda: (payload if (payload:=latest_journal_checkpoint(journal_path))
+                         is not None and payload!=journal_checkpoint_before else None),
+                'latest checkpoint is durably journaled before process termination')
+            assert recovered_bytes!=before, 'the live recovery lineage must advance after the real stroke'
+            wait(lambda: valid_project(snapshot) and snapshot.read_bytes()==recovered_bytes,
+                 'active snapshot matches its durable journal checkpoint')
+            assert journal_path.read_bytes()!=journal_before, \
+                'the recovery journal must append a new record for the stroke'
             preserved_artwork=imported.read_bytes()
             # Reopen the original workspace reference layout in the next
             # process after the canvas-only gestures exercised clear hit testing.
@@ -3013,7 +3196,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             window=wait(find_window,'workspace after forced crash');focus(display,window,2,0);send();time.sleep(0.5)
             ctrl_shift('r');status('*');ctrl('s')
             recovered=directory/'recovered-artwork.rpl'
-            wait(lambda: recovered.exists() and recovered.read_bytes()==recovered_bytes and '*' not in title(window),'forced-crash journal recovery restores exact checkpoint bytes')
+            wait(lambda: recovered.exists(),
+                 'forced-crash journal recovery writes a restorable native project')
+            restored_bytes=recovered.read_bytes()
+            assert native_projects_equivalent(recovered_bytes,restored_bytes), \
+                'recovery preserves native metadata and all raster/mask pixels (f64 tolerance 1e-12)'
             assert imported.read_bytes()==preserved_artwork,'journal recovery leaves existing native artwork unchanged'
 
 

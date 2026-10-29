@@ -59,6 +59,18 @@ selected layer's visibility/lock and active selection, are rasterized into that
 layer, and form one Ctrl+Z/Ctrl+Y transaction. Saved projects and PNG exports
 include committed shapes; shape geometry is not separately editable after commit.
 
+Use **V** to create an editable vector polyline. Drag on an empty canvas to place
+connected anchor points; the current brush color, opacity, and size set the new
+path's initial stroke. Click a visible path and drag it to move the complete
+object; the contextual **Delete path** action removes it with Undo support.
+**Escape** discards a path still being drawn or a move preview. Paths remain
+separate from raster tiles, share the selected layer's ordering/mask/visibility,
+and render with deterministic antialiasing. `.rpl` version 3 stores and reopens
+their editable line/cubic geometry and stable IDs; PNG and OpenRaster render them
+as pixels, and the OpenRaster export status discloses that flattening. Node
+editing, Bezier handle controls, fills, scaling, rotation, and path duplication
+are not part of this first vector slice.
+
 Use **G** to choose the Gradient tool. Select **Linear** or **Radial** in the
 contextual options, then drag across the canvas: linear uses the drag direction;
 radial uses the first point as its center and the drag length as its radius. The

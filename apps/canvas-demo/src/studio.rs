@@ -2601,6 +2601,7 @@ pub(crate) enum Action {
     MoveSelectionToLayer,
     DeleteLayer(u64),
     ClearLayer(u64),
+    DeleteVectorPath(u64),
     Clear,
     Select(u64),
     Move(i32),
@@ -3688,6 +3689,7 @@ enum EditTool {
     ShapeRectangle,
     ShapeEllipse,
     QuickShape,
+    VectorPath,
     Gradient,
 }
 
@@ -3894,6 +3896,7 @@ pub struct Studio {
     test_home_preset_rect_logged: Option<[i32; 5]>,
     test_hidden_reference_wheel_logged: bool,
     test_strong_text_contrast_logged: bool,
+    test_vector_delete_rect_logged: bool,
     confirm: Option<Action>,
     pub close_requested: bool,
     pub close_ready: bool,
@@ -3964,6 +3967,8 @@ pub struct Studio {
     gradient_preview_key: Option<GradientPreviewKey>,
     edit_pointer: Option<u64>,
     edit_points: Vec<[f64; 2]>,
+    selected_vector_path: Option<u64>,
+    vector_drag_path: Option<u64>,
     selection_transform: Option<SelectionTransformDrag>,
     test_selection_handles_logged: bool,
     test_shape_preview_bounds_logged: Option<[f32; 4]>,
@@ -4142,6 +4147,7 @@ impl Studio {
             test_home_preset_rect_logged: None,
             test_hidden_reference_wheel_logged: false,
             test_strong_text_contrast_logged: false,
+            test_vector_delete_rect_logged: false,
             confirm: None,
             close_requested: false,
             close_ready: false,
@@ -4218,6 +4224,8 @@ impl Studio {
             gradient_preview_key: None,
             edit_pointer: None,
             edit_points: Vec::new(),
+            selected_vector_path: None,
+            vector_drag_path: None,
             selection_transform: None,
             test_selection_handles_logged: false,
             test_shape_preview_bounds_logged: None,
@@ -4958,6 +4966,18 @@ impl Studio {
         ) {
             self.edit_pointer = None;
             self.edit_points.clear();
+            self.vector_drag_path = None;
+        }
+        if self.selected_vector_path.is_some_and(|path_id| {
+            !session
+                .live()
+                .project()
+                .state()
+                .layers
+                .iter()
+                .any(|layer| layer.vector_paths.iter().any(|path| path.id == path_id))
+        }) {
+            self.selected_vector_path = None;
         }
         if let Some(phase) = phase
             && let Some(position) = self.mouse_position
@@ -5467,6 +5487,7 @@ impl Studio {
                 | EditTool::QuickShape
         );
         let gradient_tool = self.tool == EditTool::Gradient;
+        let vector_tool = self.tool == EditTool::VectorPath;
         if matches!(
             self.tool,
             EditTool::Brush | EditTool::Smudge | EditTool::ColorMix
@@ -5514,6 +5535,7 @@ impl Studio {
         if phase == Phase::Cancel {
             self.edit_pointer = None;
             self.edit_points.clear();
+            self.vector_drag_path = None;
             if self.test_path_dialog && gradient_tool {
                 crate::studio_log!("UI_TEST_GRADIENT_CANCELLED: pointer");
             }
@@ -5526,7 +5548,7 @@ impl Studio {
         else {
             return true;
         };
-        if (shape_tool || gradient_tool) && captured {
+        if (shape_tool || gradient_tool || vector_tool) && captured {
             let size = session.live().project().state();
             position[0] = position[0].clamp(0.0, f64::from(size.width));
             position[1] = position[1].clamp(0.0, f64::from(size.height));
@@ -5543,6 +5565,36 @@ impl Studio {
                     match session.live().project().eyedropper(position) {
                         Ok(c) => session.live_mut().project_mut().brush.color = c,
                         Err(e) => self.status = e.to_string(),
+                    }
+                } else if vector_tool {
+                    let hit_tolerance = self
+                        .mapping
+                        .and_then(|mapping| {
+                            let origin = mapping.document_to_client([0.0, 0.0]).ok()?;
+                            let unit = mapping.document_to_client([1.0, 0.0]).ok()?;
+                            let pixels_per_document =
+                                (unit[0] - origin[0]).hypot(unit[1] - origin[1]);
+                            (pixels_per_document.is_finite() && pixels_per_document > 0.0)
+                                .then_some(8.0 / pixels_per_document)
+                        })
+                        .unwrap_or(8.0);
+                    let hit = session
+                        .live()
+                        .project()
+                        .hit_test_vector_path(position, hit_tolerance);
+                    if let Some(path_id) = hit {
+                        self.selected_vector_path = Some(path_id);
+                        self.vector_drag_path = Some(path_id);
+                        self.edit_pointer = Some(id);
+                        self.edit_points = vec![position, position];
+                        self.status =
+                            format!("Vector path {path_id} selected · drag to move · Esc cancels");
+                    } else {
+                        self.selected_vector_path = None;
+                        self.vector_drag_path = None;
+                        self.edit_pointer = Some(id);
+                        self.edit_points = vec![position];
+                        self.status = "Drawing editable vector path · Esc cancels".into();
                     }
                 } else if selection_tool
                     && !session.live().active()
@@ -5596,7 +5648,61 @@ impl Studio {
                 }
             }
             Phase::Move | Phase::Up if captured => {
-                if quick_shape_tool {
+                if vector_tool {
+                    if let Some(path_id) = self.vector_drag_path {
+                        self.edit_points[1] = position;
+                        if phase == Phase::Up {
+                            let start = self.edit_points[0];
+                            let delta = [position[0] - start[0], position[1] - start[1]];
+                            let result = session
+                                .live_mut()
+                                .project_mut()
+                                .translate_vector_path(path_id, delta);
+                            self.edit_pointer = None;
+                            self.vector_drag_path = None;
+                            self.edit_points.clear();
+                            self.status = match result {
+                                Ok(()) => format!("Vector path {path_id} moved · Ctrl+Z to undo"),
+                                Err(error) => error.to_string(),
+                            };
+                            if self.test_path_dialog {
+                                crate::studio_log!(
+                                    "UI_TEST_VECTOR_PATH_MOVED: {path_id} {:.2} {:.2}",
+                                    delta[0],
+                                    delta[1]
+                                );
+                            }
+                        }
+                    } else {
+                        match append_lasso_point(&mut self.edit_points, position) {
+                            LassoAppend::LimitReached => {
+                                self.edit_pointer = None;
+                                self.edit_points.clear();
+                                self.status = "Vector path cancelled: limit is 1024 points".into();
+                                return true;
+                            }
+                            LassoAppend::Unchanged | LassoAppend::Added => {}
+                        }
+                        if phase == Phase::Up {
+                            let points = std::mem::take(&mut self.edit_points);
+                            self.edit_pointer = None;
+                            self.status =
+                                match session.live_mut().project_mut().add_vector_path(&points) {
+                                    Ok(path_id) => {
+                                        self.selected_vector_path = Some(path_id);
+                                        if self.test_path_dialog {
+                                            crate::studio_log!(
+                                                "UI_TEST_VECTOR_PATH_CREATED: {path_id} {}",
+                                                points.len()
+                                            );
+                                        }
+                                        "Editable vector path created · Ctrl+Z to undo".into()
+                                    }
+                                    Err(error) => error.to_string(),
+                                };
+                        }
+                    }
+                } else if quick_shape_tool {
                     match append_lasso_point(&mut self.edit_points, position) {
                         LassoAppend::LimitReached => {
                             self.edit_pointer = None;
@@ -5722,7 +5828,7 @@ impl Studio {
                 } else {
                     self.edit_points[1] = position;
                 }
-                if phase == Phase::Up && !shape_tool && !gradient_tool {
+                if phase == Phase::Up && !shape_tool && !gradient_tool && !vector_tool {
                     self.test_selection_handles_logged = false;
                     let kind = match self.tool {
                         EditTool::Rectangle => SelectionKind::Rectangle,
@@ -5785,6 +5891,7 @@ impl Studio {
         session.mouse(MouseEvent::Interrupted, 0);
         self.edit_pointer = None;
         self.edit_points.clear();
+        self.vector_drag_path = None;
         self.selection_transform = None;
         if key == 'y' {
             self.symmetry_panel_open = !self.symmetry_panel_open;
@@ -5825,6 +5932,7 @@ impl Studio {
             'o' => EditTool::ShapeEllipse,
             'q' => EditTool::QuickShape,
             'g' => EditTool::Gradient,
+            'v' => EditTool::VectorPath,
             _ => EditTool::Brush,
         };
         if self.tool != EditTool::Brush {
@@ -5840,6 +5948,7 @@ impl Studio {
                 | EditTool::ShapeRectangle
                 | EditTool::ShapeEllipse
                 | EditTool::QuickShape
+                | EditTool::VectorPath
                 | EditTool::Gradient
         ) {
             self.brush_flyout_open = false;
@@ -6055,14 +6164,19 @@ impl Studio {
         }
         if self.edit_pointer.take().is_some() {
             self.edit_points.clear();
+            self.vector_drag_path = None;
             self.status = if self.tool == EditTool::Gradient {
                 "Gradient preview cancelled".into()
+            } else if self.tool == EditTool::VectorPath {
+                "Vector path preview cancelled".into()
             } else {
                 "Shape preview cancelled".into()
             };
             if self.test_path_dialog {
                 if self.tool == EditTool::Gradient {
                     crate::studio_log!("UI_TEST_GRADIENT_CANCELLED: escape");
+                } else if self.tool == EditTool::VectorPath {
+                    crate::studio_log!("UI_TEST_VECTOR_PATH_CANCELLED: escape");
                 } else {
                     crate::studio_log!("UI_TEST_SHAPE_CANCELLED");
                 }
@@ -6665,6 +6779,7 @@ impl Studio {
                             ui.label("B Brush · G Gradient · C Color · M / E selection");
                             ui.label("Y Drawing symmetry and guides");
                             ui.label("K Lasso · I Eyedropper · S Smudge · X Color Mixer · L Line · R Rectangle · O Ellipse");
+                            ui.label("V Editable vector path · drag an existing path to move it");
                             ui.label("Shift constrains line angles and shape proportions");
                             ui.label("Ctrl+N New · Ctrl+O Open · Ctrl+S Save");
                             ui.label("Ctrl+L Floating Layers panel");
@@ -6910,6 +7025,55 @@ impl Studio {
                                         self.brush_flyout_open = false;
                                     }
                                     ui.label("Q · draw a straight line or close a loop");
+                                } else if self.tool == EditTool::VectorPath {
+                                    ui.strong("Vector Path");
+                                    let project = session.live_mut().project_mut();
+                                    ui.add_sized(
+                                        [156.0, 34.0],
+                                        egui::Slider::new(&mut project.brush.size, 1.0..=256.0)
+                                            .text("Stroke width"),
+                                    );
+                                    ui.add_sized(
+                                        [142.0, 34.0],
+                                        egui::Slider::new(&mut project.brush.opacity, 0.0..=1.0)
+                                            .text("Opacity"),
+                                    );
+                                    let color = project.brush.color;
+                                    if color_swatch(
+                                        ui,
+                                        color,
+                                        "New path color · open color controls",
+                                        false,
+                                        32.0,
+                                    ) {
+                                        self.color_flyout_open = !self.color_flyout_open;
+                                        self.brush_flyout_open = false;
+                                    }
+                                    if let Some(id) = self.selected_vector_path.filter(|id| {
+                                        project.state().layers.iter().any(|layer| {
+                                            !layer.locked
+                                                && layer.visible
+                                                && layer.vector_paths.iter().any(|path| path.id == *id)
+                                        })
+                                    }) {
+                                        ui.label(format!("Selected path · {id}"));
+                                        let response = ui.button("Delete path");
+                                        if self.test_path_dialog && !self.test_vector_delete_rect_logged {
+                                            self.test_vector_delete_rect_logged = true;
+                                            crate::studio_log!(
+                                                "UI_TEST_VECTOR_DELETE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                response.rect.left(),
+                                                response.rect.top(),
+                                                response.rect.width(),
+                                                response.rect.height(),
+                                                ui.ctx().pixels_per_point()
+                                            );
+                                        }
+                                        if response.clicked() {
+                                            actions.push(Action::DeleteVectorPath(id));
+                                        }
+                                    }
+                                    ui.weak("V · drag to draw; drag a path to move · Esc cancels");
                                 } else if self.tool == EditTool::Gradient {
                                     ui.strong("Gradient");
                                     let linear = ui.selectable_value(
@@ -6994,6 +7158,7 @@ impl Studio {
                                         | EditTool::ShapeRectangle
                                         | EditTool::ShapeEllipse
                                         | EditTool::QuickShape
+                                        | EditTool::VectorPath
                                         | EditTool::Gradient => unreachable!("handled above"),
                                     });
                                     if has_selection
@@ -7224,6 +7389,13 @@ impl Studio {
                                 crate::studio_icons::Icon::Line,
                                 "Draw line",
                                 "L",
+                                2,
+                            ),
+                            (
+                                EditTool::VectorPath,
+                                crate::studio_icons::Icon::Path,
+                                "Editable vector path",
+                                "V",
                                 2,
                             ),
                             (
@@ -7616,6 +7788,7 @@ impl Studio {
                 session.mouse(MouseEvent::Interrupted, 0);
                 self.edit_pointer = None;
                 self.edit_points.clear();
+                self.vector_drag_path = None;
             }
 
             egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
@@ -10862,6 +11035,7 @@ impl Studio {
             self.pan_cursor = None;
             self.edit_pointer = None;
             self.edit_points.clear();
+            self.vector_drag_path = None;
         }
         if let Some(theme) = window.theme() {
             self.system_dark = theme == winit::window::Theme::Dark;
@@ -11193,7 +11367,74 @@ impl Studio {
         if session.mode() == crate::interaction::Mode::Live
             && let Some(mapping) = self.mapping
         {
-            if self.edit_pointer.is_some()
+            if self.tool == EditTool::VectorPath {
+                let vector_points = if let Some(path_id) = self.vector_drag_path {
+                    let delta = [
+                        self.edit_points[1][0] - self.edit_points[0][0],
+                        self.edit_points[1][1] - self.edit_points[0][1],
+                    ];
+                    session
+                        .live()
+                        .project()
+                        .state()
+                        .layers
+                        .iter()
+                        .find_map(|layer| {
+                            layer
+                                .vector_paths
+                                .iter()
+                                .find(|path| path.id == path_id)
+                                .map(paint_document::vector::flattened_points)
+                        })
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|point| [point[0] + delta[0], point[1] + delta[1]])
+                        .collect::<Vec<_>>()
+                } else if self.edit_pointer.is_some() {
+                    self.edit_points.clone()
+                } else if let Some(path_id) = self.selected_vector_path {
+                    session
+                        .live()
+                        .project()
+                        .state()
+                        .layers
+                        .iter()
+                        .find_map(|layer| {
+                            layer
+                                .vector_paths
+                                .iter()
+                                .find(|path| path.id == path_id)
+                                .map(paint_document::vector::flattened_points)
+                        })
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                let points: Vec<_> = vector_points
+                    .into_iter()
+                    .filter_map(|point| mapping.to_clip(point).ok())
+                    .map(|point| {
+                        egui::pos2(
+                            (point[0] + 1.0) * size[0] as f32 / 2.0 / output.pixels_per_point,
+                            (1.0 - point[1]) * size[1] as f32 / 2.0 / output.pixels_per_point,
+                        )
+                    })
+                    .collect();
+                if points.len() >= 2 {
+                    for (width, color) in [
+                        (4.0, egui::Color32::from_black_alpha(220)),
+                        (1.8, egui::Color32::from_rgb(205, 128, 255)),
+                    ] {
+                        output.shapes.push(egui::epaint::ClippedShape {
+                            clip_rect: central,
+                            shape: egui::Shape::line(
+                                points.clone(),
+                                egui::Stroke::new(width, color),
+                            ),
+                        });
+                    }
+                }
+            } else if self.edit_pointer.is_some()
                 && self.tool == EditTool::QuickShape
                 && self.edit_points.len() >= 2
             {
@@ -11768,6 +12009,7 @@ impl Studio {
                 let next = Recovery::start(&paint_document::recovery::directory()?)?;
                 self.invalidate_document_thumbnail_cache();
                 *project = Engine::from_state(state)?;
+                self.selected_vector_path = None;
                 project.revision = 1;
                 self.recovery = Some(next);
                 self.store = None;
@@ -11782,8 +12024,14 @@ impl Studio {
                     .layers
                     .iter()
                     .any(|layer| layer.mask.as_ref().is_some_and(|mask| mask.enabled));
+                let vectors_flattened = project
+                    .state()
+                    .layers
+                    .iter()
+                    .any(|layer| !layer.vector_paths.is_empty());
                 if self.test_path_dialog {
                     crate::studio_log!("UI_TEST_OPENRASTER_MASKS_FLATTENED: {masks_flattened}");
+                    crate::studio_log!("UI_TEST_OPENRASTER_VECTORS_FLATTENED: {vectors_flattened}");
                 }
                 if self.test_path_dialog {
                     crate::studio_log!("UI_TEST_OPENRASTER_EXPORT_STARTED: true");
@@ -11802,7 +12050,11 @@ impl Studio {
                         started.elapsed().as_secs_f64()
                     );
                 }
-                self.status = if masks_flattened {
+                self.status = if masks_flattened && vectors_flattened {
+                    "OpenRaster exported: masks and editable vector paths were flattened into layer pixels; the .rpl source retains editing. Locks, presets and history are omitted".into()
+                } else if vectors_flattened {
+                    "OpenRaster exported: editable vector paths were flattened into layer pixels; the .rpl source retains paths. Locks, presets and history are omitted".into()
+                } else if masks_flattened {
                     "OpenRaster exported: layer masks were flattened into layer pixels; the .rpl source keeps editable masks. Locks, presets and history are omitted".into()
                 } else {
                     "OpenRaster exported: raster layers retained; background becomes a layer. Locks, presets and history are omitted".into()
@@ -11939,6 +12191,16 @@ impl Studio {
                 project.clear_layer_by_id(id)?;
                 if self.test_path_dialog {
                     crate::studio_log!("UI_TEST_LAYER_CONTEXT_CLEARED: {id}");
+                }
+            }
+            Action::DeleteVectorPath(id) => {
+                project.remove_vector_path(id)?;
+                if self.selected_vector_path == Some(id) {
+                    self.selected_vector_path = None;
+                }
+                self.status = "Vector path deleted · Ctrl+Z to undo".into();
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_VECTOR_PATH_DELETED: {id}");
                 }
             }
             Action::Clear => project.clear_layer()?,
@@ -12208,6 +12470,20 @@ impl Studio {
                 self.store = Some(store);
                 self.cache_home_thumbnail(&path, project);
                 self.remember(&path);
+                self.selected_vector_path = None;
+                if self.test_path_dialog {
+                    let vector_count: usize = project
+                        .state()
+                        .layers
+                        .iter()
+                        .map(|layer| layer.vector_paths.len())
+                        .sum();
+                    crate::studio_log!(
+                        "UI_TEST_PROJECT_OPENED: {} {}",
+                        path.display(),
+                        vector_count
+                    );
+                }
                 self.last_submitted = u64::MAX;
                 self.welcome = false;
             }

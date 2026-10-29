@@ -893,3 +893,42 @@ GitHub Actions runs the same workflow under `xvfb-run` with Mesa Vulkan. The
 current local execution used the dedicated Xorg display `:102` and llvmpipe GL;
 it validated software-rendered interaction, not physical pen pressure, pen tilt,
 Windows GUI behavior or hardware latency.
+
+## Editable vector-path slice
+
+The Phase 10 first slice stores line and cubic path geometry in the owning
+raster layer while keeping its tile map authoritative for raster pixels. Test
+the path model, v1/v2 compatibility, v3 persistence, recovery journal, history,
+layer duplication, and raster/OpenRaster flattening with:
+
+```sh
+cargo test --locked -p paint-document --test vector
+cargo test --locked -p paint-document --lib vector::tests
+cargo test --locked -p canvas-demo --lib vector_creation_visibility_and_movement_invalidate_layer_thumbnails
+```
+
+The full Xorg/XTest application workflow creates a path through the V tool,
+checks the live canvas preview, saves and reopens it through the Open workflow,
+moves and deletes the object with exact undo/redo checks, then confirms
+OpenRaster rasterizes the path. The saved RPL v3 raster and mask tile tables must
+remain unchanged by vector creation; path metadata and the monotonic ID allocator
+are checksum-covered. The test also exercises the previously accepted Phase 9
+mask journal/recovery workflow and the existing painting/export regressions.
+
+V draws a connected polyline on an empty canvas area. Dragging a visible path
+moves the whole object; the contextual Delete path action removes it as one
+undoable transaction. Cubic Bézier metadata and deterministic flattening are
+supported by the document model, but the current tool does not yet create curves
+or expose node/handle editing. OpenRaster and PNG rasterize vectors on export;
+only the native `.rpl` format retains editable path objects.
+
+Latest local Phase 10 validation (2026-10-29): `cargo fmt --all -- --check`,
+strict host and Windows GNU Clippy, `cargo test --workspace --locked --quiet`
+(**350 passed**), `cargo build --workspace --locked`, Windows GNU workspace
+check, the required llvmpipe GPU smoke, and the full Xorg/XTest artwork workflow
+all passed. The Xorg workflow generated 61 PNG screenshots. During forced-crash
+recovery, raster and mask tile tables compare byte-for-byte; JSON document and
+vector metadata allow at most `1e-12` f64 serialization drift. The local
+graphics backend was Mesa llvmpipe/OpenGL on Xorg display `:102`; it does not
+validate a physical GPU, Windows/macOS GUI startup, or pen hardware. Hosted
+cross-platform Actions for this Phase 10 slice must pass after push.

@@ -2902,3 +2902,66 @@ S Pen validation; Narrator/NVDA and power-loss behavior also remain unverified.
    with v1/v2 reads, safe path validation, editable path save/reopen and
    transactional undo/redo. Continue Round 3/4 increments after that vertical
    slice is verified; do not declare any phase complete.
+
+## Phase 9 validation closure and Phase 10 vector-path checkpoint (2026-10-29)
+
+The Phase 9 editable-mask checkpoint was accepted by GitHub Actions run
+[`40805980434`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40805980434).
+That accepted base remains intact; this continuation adds the first Phase 10
+editable-vector slice rather than replacing the raster document model.
+
+Raster layers now optionally carry bounded editable vector paths. A path stores a
+stable ID, line and cubic segments, visibility, sRGB stroke color and document
+pixel width. The model validates finite geometry and memory/work limits, supports
+path hit testing and translation, shares native transactions and layer order,
+and preserves monotonic IDs across delete, duplicate, save and reopen. `.rpl`
+uses `RPLALP03` only when vector state requires it and keeps legacy v1/v2 projects
+readable; masks remain v2 when no vectors are present. Native saves, backups,
+journals and recovery snapshots include editable geometry. Rendering composites
+vector strokes over raster pixels within each layer before its mask, blend mode
+and opacity. PNG and OpenRaster export derive pixels from vectors; those formats
+do not retain path editability.
+
+The canvas V tool creates connected line paths, selects and moves complete paths,
+and deletes a selected path as one undoable transaction. It exercises the real
+input router, previews without writing committed raster tiles, and includes the
+path's final pointer sample. Tests cover model bounds, cubic flattening metadata,
+selection/movement/deletion, exact Undo/Redo, duplication IDs, compatibility,
+v3 corruption and resource limits, journal recovery, thumbnails, and PNG/ORA
+flattening. Cubic paths are accepted by the document model but the UI currently
+creates polylines only; node/handle editing, path fill, transformations beyond
+whole-path translation, and vector style editing remain future work.
+
+Verification on this checkpoint: Rust 1.90 formatting and strict Clippy pass;
+the full workspace suite passes **350 tests**; workspace build and Windows GNU
+target check/Clippy pass; and the required llvmpipe/OpenGL offscreen GPU smoke
+passes. The complete Linux/Xorg/XTest application workflow passes, including
+existing painting, masks, save/reopen and exports; live vector create/move/delete,
+save/reopen and OpenRaster flattening; plus forced process termination after a
+durably journaled recovery checkpoint with its paired snapshot removed. Recovery
+preserves raster and mask tile bytes exactly and vector/document metadata to
+`1e-12` for f64 JSON round-trip drift. The workflow produced 61 populated PNG
+screenshots. I inspected the vector canvas, wide Home, narrow Layers/Reference,
+and narrow dark recovery states. The screenshot confirms the vector is visible
+and selected; the compact Layers/Reference pair still leaves too little canvas
+area at 640 × 480 and remains a known workspace limitation.
+
+The local UI run used Xorg display `:102` with Mesa llvmpipe/OpenGL because this
+environment has no `xvfb-run`; this is software-rendered Linux automation, not a
+physical-GPU test. Windows S Pen, Narrator/NVDA, macOS runtime, and power-loss
+behavior were not physically tested in this continuation. The 15-minute hosted
+Linux artwork-workflow timeout provides margin above the previously measured
+Phase 9 run. Cross-platform Actions for the new commit must pass before calling
+the Phase 10 checkpoint hosted-validated.
+
+### Continue from this checkpoint
+
+1. Push the verified vector slice and require the current Windows, Linux and
+   macOS Actions jobs, including separate Windows canvas and stylus artifacts.
+2. Keep the native v1/v2 fixtures and v3 recovery tests while implementing
+   vector style editing and explicit path selection affordances, then add
+   keyboard-accessible node/handle editing with bounded geometry and undo.
+3. Extend the live application workflow to assert path style changes and more
+   mixed raster/vector operations. Preserve the known narrow-window panel issue
+   for a separate coordinated-workspace improvement; do not expand vector scope
+   into text or animation until the editable path workflow is dependable.

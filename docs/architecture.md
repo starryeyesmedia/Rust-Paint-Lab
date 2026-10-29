@@ -141,9 +141,13 @@ Future components have distinct responsibilities:
    coordinates to GPU units with explicit range checks at this boundary.
 6. **Document model:** `paint-document` owns sparse raster tiles, editable layers
    and alpha masks, bounded undo/redo, provisional brush transactions, and checked
-   native storage; only Commit finalizes a stroke transaction. It is OS/UI/GPU-
-   independent. Unmasked `.rpl` files retain version 1; documents with masks use
-   version 2 and continue to read version 1. See the alpha format and overdrive
+   native storage; only Commit finalizes a raster stroke transaction. It is
+   OS/UI/GPU-independent. Unmasked projects retain v1, mask projects use v2,
+   and editable vector path metadata/allocator use v3; all existing v1/v2
+   projects continue to read. Vector paths share raster-layer ordering and mask
+   compositing, while raster pixels are derived only for display/export. The
+   first path editor creates freehand polylines and moves whole objects; node
+   editing and fills remain future work. See the alpha format and overdrive
    progress document for current boundaries.
 
 The separate canvas demo now implements a bounded command consumer and renderer

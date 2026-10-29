@@ -182,10 +182,16 @@ pub fn layer_thumbnail_image(layer: &Layer, document_size: [u32; 2]) -> Thumbnai
                         / (4 * preview_height as u64))
                         .min(u64::from(height - 1)) as u32;
                     let key = (source_x / TILE, source_y / TILE);
-                    let Some(tile) = layer.tiles.get(&key) else {
-                        continue;
-                    };
-                    let offset = ((source_y % TILE * TILE + source_x % TILE) * 4) as usize;
+                    let mut pixel = [0; 4];
+                    if let Some(tile) = layer.tiles.get(&key) {
+                        let offset = ((source_y % TILE * TILE + source_x % TILE) * 4) as usize;
+                        pixel.copy_from_slice(&tile[offset..offset + 4]);
+                    }
+                    paint_document::vector::rasterize_paths_at_pixel(
+                        &layer.vector_paths,
+                        [f64::from(source_x) + 0.5, f64::from(source_y) + 0.5],
+                        &mut pixel,
+                    );
                     let mask_alpha = layer
                         .mask
                         .as_ref()
@@ -199,7 +205,7 @@ pub fn layer_thumbnail_image(layer: &Layer, document_size: [u32; 2]) -> Thumbnai
                         .unwrap_or(255);
                     for channel in 0..4 {
                         channels[channel] +=
-                            (u32::from(tile[offset + channel]) * u32::from(mask_alpha) + 127) / 255;
+                            (u32::from(pixel[channel]) * u32::from(mask_alpha) + 127) / 255;
                     }
                 }
             }
@@ -239,6 +245,36 @@ fn layer_signature(layer: &Layer, document_size: [u32; 2]) -> u64 {
     layer.id.hash(&mut hasher);
     document_size.hash(&mut hasher);
     layer.opacity.hash(&mut hasher);
+    for path in &layer.vector_paths {
+        path.id.hash(&mut hasher);
+        path.visible.hash(&mut hasher);
+        path.width.to_bits().hash(&mut hasher);
+        path.stroke.hash(&mut hasher);
+        for coordinate in path.start {
+            coordinate.to_bits().hash(&mut hasher);
+        }
+        for segment in &path.segments {
+            match segment {
+                paint_document::vector::VectorSegment::LineTo { point } => {
+                    0_u8.hash(&mut hasher);
+                    for coordinate in point {
+                        coordinate.to_bits().hash(&mut hasher);
+                    }
+                }
+                paint_document::vector::VectorSegment::CubicTo {
+                    control1,
+                    control2,
+                    point,
+                } => {
+                    1_u8.hash(&mut hasher);
+                    for coordinate in control1.iter().chain(control2).chain(point) {
+                        coordinate.to_bits().hash(&mut hasher);
+                    }
+                }
+                paint_document::vector::VectorSegment::Close => 2_u8.hash(&mut hasher),
+            }
+        }
+    }
     for (key, tile) in &layer.tiles {
         key.hash(&mut hasher);
         (std::sync::Arc::as_ptr(tile) as *const u8 as usize).hash(&mut hasher);
@@ -317,6 +353,7 @@ mod tests {
             opacity,
             blend: Blend::Normal,
             mask: None,
+            vector_paths: Vec::new(),
             tiles: std::collections::BTreeMap::from([((0, 0), Arc::new(bytes))]),
         }
     }
@@ -482,6 +519,49 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("rpl.lock"));
         let _ = std::fs::remove_file(path.with_extension("rpl.bak"));
+    }
+
+    #[test]
+    fn vector_creation_visibility_and_movement_invalidate_layer_thumbnails() {
+        let context = Context::default();
+        let mut project = Engine::new(128, 64, 300).unwrap();
+        project.brush.color = [220, 40, 145];
+        project.brush.size = 4.0;
+        let mut cache = LayerThumbnailCache::default();
+        cache.refresh(&context, 0, &project);
+        let empty = image_fingerprint(cache.image(1).unwrap());
+
+        let path_id = project
+            .add_vector_path(&[[12.0, 14.0], [72.0, 42.0], [116.0, 20.0]])
+            .unwrap();
+        let created = cache.refresh(&context, 0, &project);
+        assert_eq!(created.len(), 1);
+        assert!(created[0].colored_pixels > 0);
+        let created_fingerprint = created[0].fingerprint;
+        assert_ne!(created_fingerprint, empty);
+
+        project
+            .edit(|state| {
+                state.layers[0].vector_paths[0].visible = false;
+                Ok(())
+            })
+            .unwrap();
+        let hidden = cache.refresh(&context, 0, &project);
+        assert_eq!(hidden.len(), 1);
+        assert_eq!(hidden[0].fingerprint, empty);
+
+        project
+            .edit(|state| {
+                state.layers[0].vector_paths[0].visible = true;
+                Ok(())
+            })
+            .unwrap();
+        project.translate_vector_path(path_id, [8.0, 0.0]).unwrap();
+        let moved = cache.refresh(&context, 0, &project);
+        assert_eq!(moved.len(), 1);
+        assert!(moved[0].colored_pixels > 0);
+        assert_ne!(moved[0].fingerprint, created_fingerprint);
+        assert_eq!(cache.rebuild_count(), 4);
     }
 
     #[test]

@@ -519,6 +519,7 @@ impl Engine {
                 opacity: 255,
                 blend: Blend::Normal,
                 mask: None,
+                vector_paths: Vec::new(),
                 tiles,
             });
             state.selected = id;
@@ -650,6 +651,7 @@ impl Engine {
                     Blend::Normal
                 },
                 mask: source_mask,
+                vector_paths: Vec::new(),
                 tiles,
             };
             state.layers.insert(source_index + 1, copied_layer);
