@@ -10,6 +10,20 @@ import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii, shutil, mat
 import xml.etree.ElementTree as ET
 import subprocess
 import time
+from app_log_index import ApplicationLogIndex
+
+application_log_index=ApplicationLogIndex()
+
+def application_log_lines():
+    return application_log_index.refresh(directory/'application.log')
+
+def application_log_contains(text):
+    application_log_lines()
+    return application_log_index.count_text(text) > 0
+
+def application_log_count(text):
+    application_log_lines()
+    return application_log_index.count_text(text)
 
 if os.environ.get('RPL_KEEP_ALPHA_TEMP'):
     _TemporaryDirectory=tempfile.TemporaryDirectory
@@ -99,23 +113,23 @@ def wait(predicate, description, seconds=15):
     raise AssertionError(f'Timeout: {description}; last observed value: {detail}')
 
 def brush_rect():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_BRUSH_RECT: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def brush_preview_rect():
     prefix='UI_TEST_ACTIVE_BRUSH_PREVIEW_BOUNDS: '
-    active=[line for line in (directory/'application.log').read_text().splitlines()
+    active=[line for line in application_log_lines()
             if line.startswith(prefix)]
     if active:
         return tuple(map(float,active[-1].partition(': ')[2].split()))
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_BRUSH_PREVIEW_BOUNDS: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def quick_brush_preset_rect(kind):
     prefix=f'UI_TEST_QUICK_PRESET_RECT: {kind} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -123,7 +137,7 @@ def quick_brush_preset_rect(kind):
 
 def inspector_layout():
     prefix='UI_TEST_INSPECTOR_LAYOUT: '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -142,7 +156,7 @@ def inspector_layout_matches(placement, tab):
 
 def inspector_brush_preset_rect(kind):
     prefix=f'UI_TEST_INSPECTOR_BRUSH_PRESET_RECT: {kind} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if not lines:
         return None
@@ -150,7 +164,7 @@ def inspector_brush_preset_rect(kind):
 
 def inspector_tab_rect(name):
     prefix=f'UI_TEST_INSPECTOR_TAB_RECT: {name} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -158,7 +172,7 @@ def inspector_tab_rect(name):
 
 def inspector_tab_picker_rect():
     prefix='UI_TEST_INSPECTOR_TAB_PICKER_RECT: '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -166,7 +180,7 @@ def inspector_tab_picker_rect():
 
 def inspector_tab_option_rect(name):
     prefix=f'UI_TEST_INSPECTOR_TAB_OPTION_RECT: {name} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -174,7 +188,7 @@ def inspector_tab_option_rect(name):
 
 def color_hex_rect():
     prefix='UI_TEST_COLOR_HEX_RECT: '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -182,7 +196,7 @@ def color_hex_rect():
 
 def inspector_scroll_clip_rect():
     prefix='UI_TEST_INSPECTOR_SCROLL_CONTENT: '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if not lines or 'clip=' not in lines[-1]:
         return None
@@ -207,17 +221,17 @@ def select_quick_brush(kind):
          f'{kind} preset applies its real brush settings')
 
 def brush_narrow_layout():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_BRUSH_NARROW_LAYOUT: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def brush_narrow_visible_card():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_BRUSH_NARROW_CARD_VISIBLE: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def brush_narrow_visible_card_count():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_BRUSH_NARROW_VISIBLE_CARDS: ')]
     return int(lines[-1].partition(': ')[2]) if lines else None
 
@@ -226,19 +240,19 @@ def brush_narrow_visible_cards_ready():
     return count if count is not None and count>=2 else None
 
 def brush_preset_preview_count():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_BRUSH_PRESET_PREVIEWS: ')]
     return int(lines[-1].partition(': ')[2]) if lines else 0
 
 def color_palette_marker(name):
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith(name + ': ')]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
     return tuple(map(float,lines[-1].partition(': ')[2].split()))
 
 def hue_wheel_rect():
-    log=(directory/'application.log').read_text().splitlines()
+    log=application_log_lines()
     for prefix in ('UI_TEST_INSPECTOR_COLOR_WHEEL_RECT: ', 'UI_TEST_HUE_WHEEL_RECT: '):
         lines=[line for line in log if line.startswith(prefix)]
         if len(lines)>=2 and lines[-1]==lines[-2]:
@@ -249,7 +263,7 @@ def original_saved_color_rect():
     return color_palette_marker('UI_TEST_COLOR_ORIGINAL_SWATCH_RECT')
 
 def current_brush_rgb():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_COLOR_CURRENT_RGB: ')]
     return tuple(map(int,lines[-1].partition(': ')[2].split())) if lines else None
 
@@ -261,28 +275,24 @@ def wheel_point(hue, bounds):
             (y+height/2+radius*math.sin(angle))*scale)
 
 def stable_marker(name):
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
-           if line.startswith(name + ': ')]
-    if len(lines)<2 or lines[-1]!=lines[-2]:
-        return None
-    return lines[-1].partition(': ')[2]
+    application_log_lines()
+    return application_log_index.stable_value(name)
 
 def event_marker(name):
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
-           if line.startswith(name + ': ')]
-    return lines[-1].partition(': ')[2] if lines else None
+    application_log_lines()
+    return application_log_index.value(name)
 
 def event_marker_count(name):
-    return sum(line.startswith(name + ': ')
-               for line in (directory/'application.log').read_text().splitlines())
+    application_log_lines()
+    return application_log_index.count(name)
 
 def event_line_count(prefix):
     """Count exact log-line prefixes when the marker has extra fields."""
-    return sum(line.startswith(prefix)
-               for line in (directory/'application.log').read_text().splitlines())
+    application_log_lines()
+    return application_log_index.count_prefix(prefix)
 
 def selection_transform_handles():
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith('UI_TEST_SELECTION_TRANSFORM_HANDLES: ')]
     return tuple(map(float,lines[-1].split())) if lines else None
 
@@ -290,7 +300,7 @@ def gradient_control_rect(mode):
     return stable_window_rect_marker(f'UI_TEST_GRADIENT_{mode.upper()}_RECT')
 
 def vector_delete_rect():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_VECTOR_DELETE_RECT: ')]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -302,7 +312,7 @@ def vector_width_rect():
 
 def vector_action_rect(action):
     prefix=f'UI_TEST_VECTOR_ACTION_RECT: {action} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -311,7 +321,7 @@ def vector_action_rect(action):
 def vector_action_marker_count(action):
     prefix=f'UI_TEST_VECTOR_ACTION_RECT: {action} '
     return sum(line.startswith(prefix)
-               for line in (directory/'application.log').read_text().splitlines())
+               for line in application_log_lines())
 
 def vector_actions_menu_rect():
     return stable_window_rect_marker('UI_TEST_VECTOR_ACTIONS_MENU_RECT')
@@ -339,6 +349,13 @@ def vector_node_handle():
     marker=event_marker('UI_TEST_VECTOR_NODE_HANDLE')
     return tuple(map(float,marker.split())) if marker else None
 
+def vector_node_editor_state():
+    marker=event_marker('UI_TEST_VECTOR_NODE_EDITOR_STATE')
+    if marker is None:
+        return None
+    path_id, editing=marker.split()
+    return int(path_id), editing=='true'
+
 def vector_anchor_controls_rect():
     return stable_window_rect_marker('UI_TEST_VECTOR_ANCHOR_CONTROLS_RECT')
 
@@ -359,7 +376,7 @@ def vector_smoothing_rect():
 
 def vector_close_rect():
     prefix='UI_TEST_VECTOR_CLOSE_RECT: '
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -370,7 +387,7 @@ def vector_close_rect():
 
 def vector_fill_rect():
     prefix='UI_TEST_VECTOR_FILL_RECT: '
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -381,7 +398,7 @@ def vector_fill_rect():
 
 def vector_pointer_samples():
     prefix='UI_TEST_VECTOR_POINTER_SAMPLE: '
-    return [line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    return [line.partition(prefix)[2] for line in application_log_lines()
             if line.startswith(prefix)][-12:]
 
 def vector_handles_section_rect():
@@ -397,7 +414,7 @@ def vector_editor_popup_open():
 
 def canvas_mapping_marker():
     prefix='UI_TEST_SYMMETRY_CANVAS: '
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -418,7 +435,7 @@ def document_point_to_canvas(point, mapping):
 
 def vector_handle_selector_rect(handle):
     prefix=f'UI_TEST_VECTOR_HANDLE_SELECTOR_RECT: {handle} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if not lines:
         return None
@@ -426,7 +443,7 @@ def vector_handle_selector_rect(handle):
 
 def vector_control_handle(handle, anchor=0):
     prefix='UI_TEST_VECTOR_CONTROL_HANDLE: '
-    for line in reversed((directory/'application.log').read_text().splitlines()):
+    for line in reversed(application_log_lines()):
         if line.startswith(prefix):
             values=line.partition(prefix)[2].split()
             if len(values)==6 and values[1]==str(anchor) and values[2]==handle:
@@ -448,9 +465,20 @@ def click_and_hold_scaled_rect(rect, duration=0.12):
     time.sleep(duration)
     click_button(1,False)
 
+def click_scaled_rect_through_frame(rect, frame_marker):
+    x,y,width,height,scale=rect
+    move(round((x+width/2)*scale),round((y+height/2)*scale))
+    click_button(1,True)
+    pressed_frames=event_marker_count(frame_marker)
+    try:
+        wait(lambda:event_marker_count(frame_marker)>pressed_frames,
+             f'{frame_marker} renders while the pointer remains pressed')
+    finally:
+        click_button(1,False)
+
 def symmetry_mode_rect(label):
     prefix=f'UI_TEST_SYMMETRY_MODE_RECT: {label} '
-    lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line[len(prefix):] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -485,18 +513,18 @@ def palette_bounds():
     return window_rect_marker('UI_TEST_PALETTE_RECT')
 
 def palette_chrome_clearance():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_PALETTE_CHROME_CLEARANCE: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def home_content_bounds():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_HOME_CONTENT_BOUNDS: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def window_rect_marker(name):
     prefix=name + ': '
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith(prefix)]
     return tuple(map(float,lines[-1].split()[:5])) if lines else None
 
@@ -511,7 +539,7 @@ def window_size(window):
 
 def home_preset_card_rect(name='Portrait'):
     prefix=f'UI_TEST_HOME_PRESET_CARD_RECT|{name}|'
-    lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line[len(prefix):] for line in application_log_lines()
            if line.startswith(prefix)]
     return tuple(map(float,lines[-1].split()[:5])) if lines else None
 
@@ -542,12 +570,8 @@ def assert_new_document_name_and_create_visible(width, height):
     return name, create
 
 def stable_window_rect_marker(name):
-    prefix=name + ': '
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
-           if line.startswith(prefix)]
-    if len(lines)<2 or lines[-1]!=lines[-2]:
-        return None
-    return tuple(map(float,lines[-1].split()[:5]))
+    marker=stable_marker(name)
+    return tuple(map(float,marker.split()[:5])) if marker is not None else None
 
 def settled_window_rect_marker(name):
     # Panels can reflow for a frame after their visibility changes. Avoid
@@ -559,7 +583,7 @@ def settled_window_rect_marker(name):
 
 def stable_format_preview_rect(label):
     prefix=f'UI_TEST_FORMAT_PREVIEW_RECT|{label}|'
-    lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line[len(prefix):] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -567,7 +591,7 @@ def stable_format_preview_rect(label):
 
 def stable_format_card_rect(label):
     prefix=f'UI_TEST_FORMAT_CARD_RECT|{label}|'
-    lines=[line[len(prefix):] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line[len(prefix):] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -587,7 +611,7 @@ def reference_image_rect():
 
 def reference_inspector_rect():
     prefix='UI_TEST_REFERENCE_INSPECTOR_RECT: '
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -609,7 +633,7 @@ def rects_overlap(left, right):
 
 def assert_slogan_contrast(theme):
     prefix=f'UI_TEST_HOME_SLOGAN_CONTRAST: {theme} '
-    line=next((line for line in reversed((directory/'application.log').read_text().splitlines())
+    line=next((line for line in reversed(application_log_lines())
                if line.startswith(prefix)),None)
     assert line is not None,f'{theme} Home did not report the approved slogan contrast'
     contrast=float(line.partition(prefix)[2])
@@ -617,7 +641,7 @@ def assert_slogan_contrast(theme):
 
 def assert_strong_text_contrast(theme):
     prefix=f'UI_TEST_STRONG_TEXT_CONTRAST: {theme} '
-    line=next((line for line in reversed((directory/'application.log').read_text().splitlines())
+    line=next((line for line in reversed(application_log_lines())
                if line.startswith(prefix)),None)
     assert line is not None,f'{theme} theme did not report its strong-text foreground contrast'
     contrast=float(line.partition(prefix)[2])
@@ -643,7 +667,7 @@ def layer_front_row_id():
     # Wait until the row-order marker reflects the settled frame after layer
     # creation or selection. A single latest marker can still describe the
     # previously selected layer for one frame while the Add action is applied.
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -651,7 +675,7 @@ def layer_front_row_id():
 
 def layer_thumbnail_update(layer_id):
     prefix='UI_TEST_LAYER_THUMBNAIL_UPDATED: '
-    for line in reversed((directory/'application.log').read_text().splitlines()):
+    for line in reversed(application_log_lines()):
         if line.startswith(prefix):
             values=line.partition(': ')[2].split()
             if int(values[0])==layer_id:
@@ -675,14 +699,14 @@ def layer_lock_button_rect():
 
 def layer_row_rect(row_index):
     prefix='UI_TEST_LAYER_ROW_RECT: '
-    rows=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    rows=[line.partition(': ')[2] for line in application_log_lines()
           if line.startswith(prefix) and line.partition(': ')[2].split()[0]==str(row_index)]
     if len(rows)<2 or rows[-1]!=rows[-2]:
         return None
     return tuple(map(float,rows[-1].split()))
 
 def reference_layout_rects():
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith('UI_TEST_REFERENCE_LAYOUT_RECT: ')]
     by_index={}
     for line in lines:
@@ -704,11 +728,11 @@ def reference_last_window_rect():
 
 def reference_floating_window_count():
     return sum(line.startswith('UI_TEST_REFERENCE_WINDOW_RECT: ')
-               for line in (directory/'application.log').read_text().splitlines())
+               for line in application_log_lines())
 
 def reference_window_rect(index):
     prefix=f'UI_TEST_REFERENCE_LAYOUT_RECT: {index} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if not lines: return None
     values=tuple(map(float,lines[-1].split()))
@@ -720,7 +744,7 @@ def layers_panel_open():
 
 def compact_reference_active():
     prefix='UI_TEST_COMPACT_REFERENCE_ACTIVE: '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -728,7 +752,7 @@ def compact_reference_active():
 
 def compact_reference_navigation():
     prefix='UI_TEST_REFERENCE_COMPACT_NAV: '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -741,7 +765,7 @@ def compact_reference_window_rect():
         return None
     index=active[0]
     prefix=f'UI_TEST_REFERENCE_LAYOUT_RECT: {index} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -753,7 +777,7 @@ def compact_reference_image_rect():
         return None
     index=active[0]
     prefix=f'UI_TEST_REFERENCE_COMPACT_IMAGE_RECT: {index} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -768,7 +792,7 @@ def layer_row_id(row_index):
 
 def layer_drag_handle_rect(row_index):
     prefix='UI_TEST_LAYER_DRAG_HANDLE_RECT: '
-    rows=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    rows=[line.partition(': ')[2] for line in application_log_lines()
           if line.startswith(prefix) and line.partition(': ')[2].split()[0]==str(row_index)]
     if len(rows)<2 or rows[-1]!=rows[-2]:
         return None
@@ -776,10 +800,10 @@ def layer_drag_handle_rect(row_index):
 
 def layer_actions_open_count():
     return sum(line.startswith('UI_TEST_LAYER_ACTIONS_OPENED: ')
-               for line in (directory/'application.log').read_text().splitlines())
+               for line in application_log_lines())
 
 def layer_menu_action_rect(action):
-    lines=(directory/'application.log').read_text().splitlines()
+    lines=application_log_lines()
     start=max((i for i,line in enumerate(lines)
                if line.startswith('UI_TEST_LAYER_ACTIONS_OPENED: ')),default=-1)
     prefix=f'UI_TEST_LAYER_{action}_MENU_RECT: '
@@ -820,7 +844,7 @@ def layer_mask_remove_rect():
     return tuple(map(float,marker.split())) if marker else None
 
 def mask_status_contrast():
-    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(': ')[2] for line in application_log_lines()
            if line.startswith('UI_TEST_MASK_STATUS_CONTRAST: ')]
     if not lines:
         return None
@@ -844,7 +868,7 @@ def layer_blend_combo_rect():
 
 def layer_blend_option_rect(mode):
     prefix=f'UI_TEST_LAYER_BLEND_OPTION_RECT: {mode} '
-    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
@@ -874,24 +898,24 @@ def layer_context_delete_count():
     return int(marker.split()[0]) if marker else None
 
 def recovery_preview_target():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_RECOVERY_PREVIEW_TARGET: ')]
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
     return tuple(map(float,lines[-1].partition(': ')[2].split()))
 
 def recovery_preview_image_rect():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_RECOVERY_PREVIEW_IMAGE_RECT: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def recovery_modal_bounds():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_RECOVERY_MODAL_BOUNDS: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def home_recent_card_rect():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_HOME_RECENT_CARD_GEOMETRY: ')]
     cards=[tuple(map(float,line.partition(': ')[2].split())) for line in lines[-8:]]
     if not cards:
@@ -908,7 +932,7 @@ def home_recent_thumbnail_rect():
     return tuple(map(float,marker.split())) if marker else None
 
 def top_palette_clearance():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
+    lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_TOP_PALETTE_CLEARANCE: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
@@ -1107,7 +1131,7 @@ def status(text):
 
 def active_brush_size():
     values = [line.partition(': ')[2] for line in
-              (directory/'application.log').read_text().splitlines()
+              application_log_lines()
               if line.startswith('UI_TEST_BRUSH_SIZE: ')]
     return float(values[-1]) if values else None
 
@@ -1182,7 +1206,7 @@ def latest_recovery_owner(directory):
 
 def recovery_complete_count():
     return sum(line.startswith('UI_TEST_RECOVERY_COMPLETE: ')
-               for line in (directory/'application.log').read_text().splitlines())
+               for line in application_log_lines())
 
 def native_state_bytes(data):
     n=struct.unpack('<I',data[8:12])[0]
@@ -1778,13 +1802,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # Let font/layout requests settle before testing drawing ownership.
             time.sleep(0.5)
             resize_window(window,1280,800)
-            wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: light' in (directory / 'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_HOME_HEADLINE_CONTRAST: light'),
                  'light Home headline is rendered at accessible contrast')
             assert_slogan_contrast('light')
             assert_strong_text_contrast('light')
-            wait(lambda: 'UI_TEST_HOME_QUICK_START_VISIBLE' in (directory / 'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_HOME_QUICK_START_VISIBLE'),
                  'first-run Home uses its hero for actual quick-start canvas actions')
-            wait(lambda: 'UI_TEST_HOME_SURFACE_CLEAR: enabled' in (directory / 'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_HOME_SURFACE_CLEAR: enabled'),
                  'Home clears the document viewport to the active application theme')
             capture_window(window,'home-light-normal')
             resize_window(window,1920,1080)
@@ -1820,12 +1844,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 f'visible Portrait quick-start card did not dispatch after three real clicks: {preset_target} {preset}'
             print(f'UI_TEST_HOME_PRESET_CLICK: target={preset_target} bounds={preset} '
                   f'title={title_before_preset!r}->{title(window)!r}',flush=True)
-            wait(lambda: 'UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1' in
-                 (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1'),
                  'selecting the Home Portrait preset creates a named 1800x2400 painting document directly')
             capture_window(window,'home-preset-created')
             ctrl('n');new_document_prompt();time.sleep(0.25)
-            wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 1,
+            wait(lambda: application_log_count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 1,
                  'light New Artwork interface has rendered before capture')
             assert_new_document_name_and_create_visible(1280,800)
             capture_window(window,'new-artwork-light-normal')
@@ -1842,11 +1865,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 f'Create action is not visible after scrolling the narrow dialog: {create}'
             capture_window(window,'new-artwork-light-narrow-scrolled')
             created_before=sum(line.startswith('UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1')
-                               for line in (directory/'application.log').read_text().splitlines())
+                               for line in application_log_lines())
             click_at((create[0]+create[2]/2)*create[4],
                      (create[1]+create[3]/2)*create[4])
             wait(lambda: sum(line.startswith('UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1')
-                             for line in (directory/'application.log').read_text().splitlines())>created_before,
+                             for line in application_log_lines())>created_before,
                  'the visible narrow-dialog Create action creates the selected native document')
             resize_window(window,1280,800)
             capture_window(window,'canvas-workspace-light')
@@ -2002,7 +2025,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'the movable palette selects painting without opening another panel')
             unpinned_reference_frames=sum(
                 line.startswith('UI_TEST_REFERENCE_IMAGE_VISIBLE:')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )
             ctrl('b')
             wait(lambda: event_marker('UI_TEST_INSPECTOR_SHORTCUT') == 'Brush',
@@ -2022,7 +2045,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 f'Brush Inspector exceeded its 480pt dock plus resize-grip bounds: {brush_inspector_rect[2]:.1f}'
             time.sleep(0.2)
             assert sum(line.startswith('UI_TEST_REFERENCE_IMAGE_VISIBLE:')
-                       for line in (directory/'application.log').read_text().splitlines()) == unpinned_reference_frames, \
+                       for line in application_log_lines()) == unpinned_reference_frames, \
                 'unpinning references must hide their canvas overlays while another Inspector tab is open'
             resize_window(window,640,480)
             narrow_layout=wait(
@@ -2054,9 +2077,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'narrow Inspector exposes a complete brush preset before scrolling',
             )
             assert visible_count>=1, f'narrow Brush gallery should expose a complete preset, got {visible_count}'
-            wait(lambda: 'UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden=' in (directory/'application.log').read_text()
-                 and 'UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden=false references_hidden=2' in
-                     (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden=')
+                 and application_log_contains('UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden=false references_hidden=2'),
                  'compact Inspector hides floating references without changing saved references')
             assert len(json.loads(prefs.read_text()).get('references',[]))==2, \
                 'compact Inspector must preserve both reference layouts'
@@ -2071,7 +2093,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'Ctrl+B opens Brush in the unified Inspector for keyboard users')
             key('Escape')
             assert process.poll() is None, 'Escape closed the application instead of dismissing Inspector'
-            wait(lambda: (directory/'application.log').read_text().count('UI_TEST_ESCAPE_DISMISSED: workspace controls') >= 2,
+            wait(lambda: application_log_count('UI_TEST_ESCAPE_DISMISSED: workspace controls') >= 2,
                  'Escape dismisses the keyboard-opened Inspector')
             key('F6')
             wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Brush',
@@ -2106,14 +2128,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('c')
             wait(lambda: event_marker('UI_TEST_INSPECTOR_SHORTCUT')=='Color',
                  'C opens Color in the unified Inspector for keyboard users')
-            wait(lambda: 'UI_TEST_COLOR_PALETTE_READY: 3' in (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_COLOR_PALETTE_READY: 3'),
                  'Color panel restores the three saved workspace swatches')
             time.sleep(0.25)
             capture_window(window,'color-controls-light')
             add_bounds=wait(lambda: color_palette_marker('UI_TEST_COLOR_PALETTE_ADD_RECT'), 'Save current color control is laid out')
             remove_bounds=wait(lambda: color_palette_marker('UI_TEST_COLOR_PALETTE_REMOVE_RECT'), 'saved swatch remove control is laid out')
             click_at((add_bounds[0]+add_bounds[2]/2)*add_bounds[4],(add_bounds[1]+add_bounds[3]/2)*add_bounds[4])
-            wait(lambda: 'UI_TEST_COLOR_PALETTE_ADD_CLICKED' in (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_COLOR_PALETTE_ADD_CLICKED'),
                  'clicking Save current color activates its actual UI control')
             wait(lambda: len(json.loads(prefs.read_text()).get('saved_color_swatches',[]))==4,
                  'Save current color persists a reusable workspace swatch')
@@ -2132,7 +2154,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             remove_bounds=wait(lambda: color_palette_marker('UI_TEST_COLOR_PALETTE_REMOVE_RECT'),
                                'the current saved-color remove control is laid out after palette reflow')
             click_at((remove_bounds[0]+remove_bounds[2]/2)*remove_bounds[4],(remove_bounds[1]+remove_bounds[3]/2)*remove_bounds[4])
-            wait(lambda: 'UI_TEST_COLOR_SWATCH_REMOVAL_REQUESTED' in (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_COLOR_SWATCH_REMOVAL_REQUESTED'),
                  'the current saved-color remove button receives the pointer action')
             wait(lambda: len(json.loads(prefs.read_text()).get('saved_color_swatches',[]))==3,
                  'Remove saved color updates workspace preferences')
@@ -2236,7 +2258,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             previously_selected_layer=wait(layer_front_row_id,
                                            'the existing top layer has a settled selection marker')
             ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
-            wait(lambda: 'UI_TEST_LAYERS_ADDED: 3' in (directory/'application.log').read_text(), 'Layers panel contains three real editable layers')
+            wait(lambda: application_log_contains('UI_TEST_LAYERS_ADDED: 3'), 'Layers panel contains three real editable layers')
             populated_layer_id=wait(
                 lambda:(lambda layer_id:layer_id if layer_id!=previously_selected_layer else None)(
                     layer_front_row_id()),
@@ -2247,11 +2269,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert empty_thumbnail[1]==0 and empty_thumbnail[2]==0, f'new layer should begin transparent, got {empty_thumbnail}'
             print(f'UI_TEST_LAYER_THUMBNAIL_BASELINE: {populated_layer_id} {empty_thumbnail[0]:016x} {empty_thumbnail[1]} {empty_thumbnail[2]}',flush=True)
             paint_start_count=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                                  for line in (directory/'application.log').read_text().splitlines())
+                                  for line in application_log_lines())
             paint_commit_count=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
             key('b');drag_at(460,250,550,330)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>paint_start_count,
+                             for line in application_log_lines())>paint_start_count,
                  'painting on the selected layer uses the ordinary input pipeline')
             wait(lambda: event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>paint_commit_count,
                  'the selected-layer brush transaction commits before thumbnail validation')
@@ -2262,7 +2284,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     'painting refreshes the actual selected-layer thumbnail content',
                 )
             except AssertionError as error:
-                observed_updates=[line for line in (directory/'application.log').read_text().splitlines()
+                observed_updates=[line for line in application_log_lines()
                                   if line.startswith(f'UI_TEST_LAYER_THUMBNAIL_UPDATED: {populated_layer_id} ')]
                 raise AssertionError(
                     f'{error}; thumbnail baseline={empty_thumbnail}, recent updates={observed_updates[-5:]}'
@@ -2297,12 +2319,12 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert restored_thumbnail[1]==0 and restored_thumbnail[2]==0
             visibility_marker_count=sum(
                 line.startswith('UI_TEST_LAYER_VISIBILITY_BUTTON_RECT: ')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )
             resize_window(window,640,480)
             wait(lambda: sum(
                 line.startswith('UI_TEST_LAYER_VISIBILITY_BUTTON_RECT: ')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )>visibility_marker_count,
                  'the layer controls have been rendered again after narrowing the viewport')
             wait(lambda: 'viewport=640.0x480.0' in (event_marker('UI_TEST_COMPACT_PLAN') or ''),
@@ -2413,19 +2435,19 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='menu',
                  'Escape closes the compact layer menu before the Layers panel')
             menu_state_count=sum(line.startswith('UI_TEST_LAYER_MENU_STATE: ')
-                                 for line in (directory/'application.log').read_text().splitlines())
+                                 for line in application_log_lines())
             time.sleep(0.25)
             assert sum(line.startswith('UI_TEST_LAYER_MENU_STATE: ')
-                       for line in (directory/'application.log').read_text().splitlines()) == menu_state_count, \
+                       for line in application_log_lines()) == menu_state_count, \
                 'Escape must dismiss the compact layer menu before resizing'
             front_row_marker_count=sum(
                 line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )
             resize_window(window,1280,800)
             wait(lambda: sum(
                 line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )>front_row_marker_count,
                  'the full-size layer row has been laid out after widening the viewport')
             front_row=wait(layer_front_row_rect,'frontmost layer row offers its contextual actions')
@@ -2443,14 +2465,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'layer context Duplicate targets the clicked layer and creates an editable copy')
             row_count_before_undo=sum(
                 line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )
             ctrl('z')
             wait(lambda: history_layer_count()==3,
                  'undo removes the context-menu duplicate without changing the other layers')
             wait(lambda: sum(
                 line.startswith('UI_TEST_LAYER_FRONT_ROW_RECT: ')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )>row_count_before_undo,
                  'the restored front layer has been laid out after undoing duplication')
             front_id=layer_front_row_id()
@@ -2464,7 +2486,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 send_backward=wait(lambda: layer_menu_action_rect('SEND_BACKWARD'),
                                    'Send backward is available for a non-bottom layer')
             except AssertionError:
-                lines=(directory/'application.log').read_text().splitlines()
+                lines=application_log_lines()
                 start=max((i for i,line in enumerate(lines)
                            if line.startswith('UI_TEST_LAYER_ACTIONS_OPENED: ')),default=-1)
                 print('UI_TEST_LAYER_REORDER_MENU_DIAGNOSTIC:\n'+'\n'.join(lines[start:][-80:]),
@@ -2473,13 +2495,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'layers-reorder-send-backward-menu')
             move_click_count=sum(
                 line.startswith('UI_TEST_LAYER_MOVE_MENU_CLICKED: ')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )
             click_at((send_backward[0]+16)*send_backward[4],
                      (send_backward[1]+send_backward[3]/2)*send_backward[4])
             wait(lambda: sum(
                 line.startswith('UI_TEST_LAYER_MOVE_MENU_CLICKED: ')
-                for line in (directory/'application.log').read_text().splitlines()
+                for line in application_log_lines()
             )>move_click_count,
                  'Send backward receives the real pointer click in the Layers menu')
             wait(lambda: event_marker('UI_TEST_LAYER_CONTEXT_MOVED') is not None,
@@ -2496,10 +2518,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: event_marker('UI_TEST_LAYER_SELECTED')==str(front_id),
                  'direct layer-row selection targets the layer to clear')
             paint_count=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                            for line in (directory/'application.log').read_text().splitlines())
+                            for line in application_log_lines())
             key('b');drag_at(460,250,550,330)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>paint_count,
+                             for line in application_log_lines())>paint_count,
                  'the targeted front layer receives raster content through the real mouse pipeline')
             before_clear_thumbnail=wait(
                 lambda: (lambda value: value if value and value[2]>0 else None)(
@@ -2555,17 +2577,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             target=wait(lambda: layer_row_rect(2),
                         'backmost populated layer exposes a drop target')
             drag_count=sum(line.startswith('UI_TEST_LAYER_DRAG_REORDERED: ')
-                           for line in (directory/'application.log').read_text().splitlines())
+                           for line in application_log_lines())
             drag_start_count=sum(line.startswith('UI_TEST_LAYER_DRAG_STARTED: ')
-                                 for line in (directory/'application.log').read_text().splitlines())
+                                 for line in application_log_lines())
             scale=drag[6]
             drag_at((drag[2]+drag[4]/2)*scale,(drag[3]+drag[5]/2)*scale,
                     (target[2]+target[4]/2)*target[6],(target[3]+target[5]/2)*target[6])
             wait(lambda: sum(line.startswith('UI_TEST_LAYER_DRAG_STARTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>drag_start_count,
+                             for line in application_log_lines())>drag_start_count,
                  'layer drag grip starts a pointer transaction')
             wait(lambda: sum(line.startswith('UI_TEST_LAYER_DRAG_REORDERED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>drag_count,
+                             for line in application_log_lines())>drag_count,
                  'dragging a layer row commits one targeted reorder transaction')
             wait(lambda: layer_row_id(2)==order_before[0],
                  'dragging the frontmost layer onto the last row moves it to the back')
@@ -2575,7 +2597,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             name_rect=wait(layer_front_name_rect,'frontmost layer name remains a native context-menu target')
             right_click_at((name_rect[0]+name_rect[2]/2)*name_rect[4],
                            (name_rect[1]+name_rect[3]/2)*name_rect[4])
-            wait(lambda: 'UI_TEST_LAYER_NATIVE_CONTEXT_OPENED' in (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_LAYER_NATIVE_CONTEXT_OPENED'),
                  'right-clicking a layer name opens its native context menu')
             key('Escape')
             move(460,250);click_button(1,True);move(550,350);click_button(1,False)
@@ -2683,14 +2705,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert project.read_bytes()==saved and '*' not in title(window), \
                 'cancelling the selection move must leave artwork and save state unchanged'
             drag_commit_count=sum(line.startswith('UI_TEST_SELECTION_DRAG_COMMITTED: ')
-                                  for line in (directory/'application.log').read_text().splitlines())
+                                  for line in application_log_lines())
             transform_starts=event_marker_count('UI_TEST_SELECTION_TRANSFORM_STARTED')
             move(*selection_point);click_button(1,True);move(selection_point[0]+30,selection_point[1]+30)
             wait(lambda: event_marker_count('UI_TEST_SELECTION_TRANSFORM_STARTED')>transform_starts,
                  'a second pointer inside the selection begins its committed move')
             click_button(1,False)
             wait(lambda: sum(line.startswith('UI_TEST_SELECTION_DRAG_COMMITTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>
+                             for line in application_log_lines())>
                  drag_commit_count,
                  'dragging inside the selection moves the selected raster pixels')
             wait(lambda: '*' in title(window),
@@ -2750,14 +2772,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 point=(x,y) if kind=='Scale' else (rx,ry)
                 commit_count=sum(line.startswith('UI_TEST_SELECTION_TRANSFORM_COMMITTED: ')
                                  and f' {kind} ' in line
-                                 for line in (directory/'application.log').read_text().splitlines())
+                                 for line in application_log_lines())
                 move(round(point[0]),round(point[1]));click_button(1,True)
                 move(round(point[0]+dx*handle_scale),
                      round(point[1]+dy*handle_scale))
                 click_button(1,False)
                 wait(lambda: sum(line.startswith('UI_TEST_SELECTION_TRANSFORM_COMMITTED: ')
                                  and f' {kind} ' in line
-                                 for line in (directory/'application.log').read_text().splitlines())>
+                                 for line in application_log_lines())>
                      commit_count,
                      message)
                 wait(lambda: '*' in title(window),
@@ -2972,10 +2994,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('m')
             selection_bounds_count=event_marker_count('UI_TEST_SELECTION_BOUNDS')
             selection_commits=sum(line.startswith('UI_TEST_SELECTION_COMMITTED: ')
-                                  for line in (directory/'application.log').read_text().splitlines())
+                                  for line in application_log_lines())
             drag_at(500,280,580,360)
             wait(lambda: sum(line.startswith('UI_TEST_SELECTION_COMMITTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>
+                             for line in application_log_lines())>
                  selection_commits,
                  'the mask workflow establishes a fresh bounded selection through the canvas')
             assert (event_marker('UI_TEST_SELECTION_COMMITTED') or '').startswith('true '), \
@@ -3411,17 +3433,16 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             recovery_preview_fixture=recovery_dir/'recovery-visual-review.rpl'
             shutil.copyfile(project,recovery_preview_fixture)
             ctrl_shift('m');time.sleep(0.4)
-            wait(lambda: 'UI_TEST_RECOVERY_LABEL: Visual review' in (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_RECOVERY_LABEL: Visual review'),
                  'recovery manager displays a readable, artwork-backed preview fixture')
-            light_recovery_contrast = next(line for line in (directory/'application.log').read_text().splitlines()
+            light_recovery_contrast = next(line for line in application_log_lines()
                 if line.startswith('UI_TEST_RECOVERY_LABEL_CONTRAST: light '))
             assert float(light_recovery_contrast.rsplit(' ',1)[1]) >= 4.5, 'light recovery label contrast is below 4.5:1'
             preview_target=wait(recovery_preview_target,'recovery preview button geometry')
             capture_window(window,'recovery-manager-preview-target')
             left,top,width,height,scale,content_top=preview_target
-            application_log=directory/'application.log'
             hover_count=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_HOVERED')
-                            for line in application_log.read_text().splitlines())
+                            for line in application_log_lines())
             click_x=round((left+width/2)*scale)
             click_y=None
             # Window-manager client offsets can differ from egui's viewport
@@ -3432,7 +3453,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 candidate_y=round((top+height/2)*scale)+offset
                 move(click_x,candidate_y)
                 hovered=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_HOVERED')
-                            for line in application_log.read_text().splitlines())
+                            for line in application_log_lines())
                 if hovered>hover_count:
                     click_y=candidate_y
                     break
@@ -3440,7 +3461,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 f'pointer movement did not reach the recovery preview button: target={preview_target}, hover markers={hover_count}->{hovered}'
             print(f'UI_TEST_RECOVERY_PREVIEW_HIT: {click_x} {click_y}', flush=True)
             click_button(1,True);click_button(1,False)
-            wait(lambda: 'UI_TEST_RECOVERY_PREVIEW_VISIBLE' in (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_RECOVERY_PREVIEW_VISIBLE'),
                  'recovery manager renders the requested native artwork preview')
             time.sleep(0.25)
             capture_window(window,'recovery-manager-populated-light')
@@ -3474,7 +3495,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # engine. Escape drops a live preview without mutating native data;
             # each committed primitive survives save/reopen and has one undo.
             shape_markers=lambda: [line.partition(': ')[2].split()
-                                   for line in (directory/'application.log').read_text().splitlines()
+                                   for line in application_log_lines()
                                    if line.startswith('UI_TEST_SHAPE_COMMITTED: ')]
             preview_base=imported.read_bytes()
             shape_before=len(shape_markers())
@@ -3532,11 +3553,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 wait(lambda: imported.read_bytes()==shape_bytes and '*' not in title(window),
                      f'{kind} redo restores the saved shape pixels exactly')
             quickshape_markers=lambda: [line.partition(': ')[2].split()
-                                        for line in (directory/'application.log').read_text().splitlines()
+                                        for line in application_log_lines()
                                         if line.startswith('UI_TEST_QUICKSHAPE_COMMITTED: ')]
             quickshape_rejections=sum(
                 line.startswith('UI_TEST_QUICKSHAPE_REJECTED: ')
-                for line in (directory/'application.log').read_text().splitlines())
+                for line in application_log_lines())
             quickshape_base=imported.read_bytes()
             key('q');wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='QuickShape',
                            'Q selects the accessible QuickShape tool')
@@ -3545,7 +3566,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'Escape during a QuickShape gesture must not mutate document pixels'
             drag_path([(480,300),(520,340),(480,340)])
             wait(lambda: sum(line.startswith('UI_TEST_QUICKSHAPE_REJECTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>
+                             for line in application_log_lines())>
                  quickshape_rejections,
                  'unrecognized open polygon is safely rejected without document mutation')
             assert imported.read_bytes()==quickshape_base, \
@@ -3598,10 +3619,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # Editable vector paths stay structured in RPL v3 while the GPU,
             # PNG and OpenRaster consumers receive a derived raster composite.
             vector_markers=lambda: [line.partition(': ')[2].split()
-                                    for line in (directory/'application.log').read_text().splitlines()
+                                    for line in application_log_lines()
                                     if line.startswith('UI_TEST_VECTOR_PATH_CREATED: ')]
             vector_move_markers=lambda: [line.partition(': ')[2].split()
-                                         for line in (directory/'application.log').read_text().splitlines()
+                                         for line in application_log_lines()
                                          if line.startswith('UI_TEST_VECTOR_PATH_MOVED: ')]
             vector_before=imported.read_bytes()
             vector_raster_before=native_document_tables(vector_before)[1]
@@ -3649,11 +3670,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: imported.read_bytes()==vector_created,
                  'redo restores the exact editable vector object and native bytes')
             opened_vector_count=sum(line.startswith('UI_TEST_PROJECT_OPENED: ')
-                                    for line in (directory/'application.log').read_text().splitlines())
+                                    for line in application_log_lines())
             picker_frames=event_marker_count('UI_TEST_FILE_PICKER_CANCEL_RECT')
             ctrl('o');path_prompt(picker_frames);ctrl('Return')
             wait(lambda: sum(line.startswith('UI_TEST_PROJECT_OPENED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>
+                             for line in application_log_lines())>
                  opened_vector_count,
                  'the application reopens the saved v3 project through its real Open workflow')
             opened_marker=event_marker('UI_TEST_PROJECT_OPENED')
@@ -4080,23 +4101,36 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             handle_raster_before=native_document_tables(handle_before)[1]
             handle_masks_before=native_document_tables(handle_before)[2]
             edit_nodes_count=event_marker_count('UI_TEST_VECTOR_NODE_EDITING')
+            edit_state_count=event_marker_count('UI_TEST_VECTOR_NODE_EDITOR_STATE')
+            node_handle_count=event_marker_count('UI_TEST_VECTOR_NODE_HANDLE')
             edit_nodes=wait(lambda:stable_window_rect_marker('UI_TEST_VECTOR_EDIT_NODES_RECT'),
                             'the selected cubic path exposes its anchor editor')
-            click_scaled_rect(edit_nodes)
+            edit_nodes_frame_count=event_marker_count('UI_TEST_VECTOR_EDIT_NODES_RECT')
+            # Keep the pointer down across a rendered frame. A press/release
+            # sent in one XTest batch can be coalesced by winit/egui on the
+            # hosted software renderer, so the visible toggle may never see
+            # a complete click. The state and node-handle checks below prove
+            # that the actual editor is active and rendered, not just that a
+            # click callback or shortcut was observed.
+            click_scaled_rect_through_frame(
+                edit_nodes,'UI_TEST_VECTOR_EDIT_NODES_RECT')
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_EDIT_NODES_RECT')>
+                 edit_nodes_frame_count+2,
+                 'the anchor-edit control processes its release and subsequent redraws')
             # Prefer the visible control, then use the equivalent documented
             # keyboard command if the window manager drops this early toolbar
             # click after closing the native picker. Both routes must reach
             # the same real vector editor state.
             for _ in range(30):
-                if (event_marker_count('UI_TEST_VECTOR_NODE_EDITING')>edit_nodes_count
-                        and event_marker('UI_TEST_VECTOR_NODE_EDITING')
-                        ==f"{handle_path_before['id']} true"):
+                if (event_marker_count('UI_TEST_VECTOR_NODE_EDITOR_STATE')>edit_state_count
+                        and vector_node_editor_state()
+                        ==(int(handle_path_before['id']), True)):
                     break
                 time.sleep(0.05)
             keyboard_anchor_fallback = not (
-                event_marker_count('UI_TEST_VECTOR_NODE_EDITING')>edit_nodes_count
-                and event_marker('UI_TEST_VECTOR_NODE_EDITING')
-                ==f"{handle_path_before['id']} true")
+                event_marker_count('UI_TEST_VECTOR_NODE_EDITOR_STATE')>edit_state_count
+                and vector_node_editor_state()
+                ==(int(handle_path_before['id']), True))
             if keyboard_anchor_fallback:
                 shortcut_count=event_marker_count('UI_TEST_VECTOR_NODE_SHORTCUT')
                 key('h')
@@ -4109,6 +4143,28 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  and event_marker('UI_TEST_VECTOR_NODE_EDITING')
                  ==f"{handle_path_before['id']} true",
                  'the cubic path enters its real anchor editing mode')
+            def rendered_cubic_anchor_editor():
+                state_count=event_marker_count('UI_TEST_VECTOR_NODE_EDITOR_STATE')
+                state=vector_node_editor_state()
+                handles=event_marker_count('UI_TEST_VECTOR_NODE_HANDLE')
+                handle=vector_node_handle()
+                if (state_count>edit_state_count
+                        and state==(int(handle_path_before['id']), True)
+                        and handles>node_handle_count
+                        and handle is not None
+                        and int(handle[0])==int(handle_path_before['id'])):
+                    return state, handle
+                return None
+            try:
+                wait(rendered_cubic_anchor_editor,
+                     'the cubic path enters anchor editing and renders its selected node')
+            except AssertionError as error:
+                raise AssertionError(
+                    f'{error}; state={vector_node_editor_state()!r}; '
+                    f'editing events={event_marker_count("UI_TEST_VECTOR_NODE_EDITING")-edit_nodes_count}; '
+                    f'node handles={event_marker_count("UI_TEST_VECTOR_NODE_HANDLE")-node_handle_count}; '
+                    f'last handle={vector_node_handle()!r}'
+                ) from error
             anchor_menu=wait(vector_anchor_controls_rect,
                              'the cubic anchor editor exposes anchor selection')
             handles_section_count=event_marker_count('UI_TEST_VECTOR_HANDLES_SECTION_RECT')
@@ -4429,10 +4485,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                              else None,
                              'selected vector path exposes an accessible contextual delete action')
             prior_vector_delete_count=sum(line.startswith('UI_TEST_VECTOR_PATH_DELETED: ')
-                                          for line in (directory/'application.log').read_text().splitlines())
+                                          for line in application_log_lines())
             click_and_hold_scaled_rect(delete_rect)
             wait(lambda: sum(line.startswith('UI_TEST_VECTOR_PATH_DELETED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>
+                             for line in application_log_lines())>
                  prior_vector_delete_count,
                  'the contextual delete action invokes the document transaction')
             ctrl('s')
@@ -4675,7 +4731,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'gradient controls expose accessible Linear and Radial modes')
             gradient_base=imported.read_bytes()
             cancellation_count=sum(line.startswith('UI_TEST_GRADIENT_CANCELLED: ')
-                                   for line in (directory/'application.log').read_text().splitlines())
+                                   for line in application_log_lines())
             move(620,610)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
                 capture_window(window,'gradient-preview-before')
@@ -4692,18 +4748,18 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 print(f'UI_TEST_GRADIENT_PREVIEW_PIXELS: {visible_gradient_pixels}', flush=True)
             key('Escape');click_button(1,False)
             wait(lambda: sum(line.startswith('UI_TEST_GRADIENT_CANCELLED: escape')
-                             for line in (directory/'application.log').read_text().splitlines())>cancellation_count,
+                             for line in application_log_lines())>cancellation_count,
                  'Escape cancels a gradient preview without committing artwork')
             assert imported.read_bytes()==gradient_base, \
                 'cancelled gradient preview must leave existing native artwork byte-for-byte unchanged'
             linear_before=imported.read_bytes()
             linear_count=sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())
+                             for line in application_log_lines())
             drag_at(480,180,620,610)
             wait(lambda: sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>linear_count,
+                             for line in application_log_lines())>linear_count,
                  'canvas drag commits a linear gradient through the document engine')
-            linear_marker=(directory/'application.log').read_text().split('UI_TEST_GRADIENT_COMMITTED: ')[-1].splitlines()[0].split()
+            linear_marker=event_marker('UI_TEST_GRADIENT_COMMITTED').split()
             assert linear_marker[0]=='Linear', f'linear mode committed a different gradient: {linear_marker}'
             ctrl('s')
             wait(lambda: valid_project(imported) and imported.read_bytes()!=linear_before and '*' not in title(window),
@@ -4727,12 +4783,12 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: event_marker('UI_TEST_GRADIENT_MODE')=='Radial',
                  'Radial selector changes the active gradient mode')
             radial_count=sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())
+                             for line in application_log_lines())
             drag_at(480,180,620,610)
             wait(lambda: sum(line.startswith('UI_TEST_GRADIENT_COMMITTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>radial_count,
+                             for line in application_log_lines())>radial_count,
                  'canvas drag commits a radial gradient through the document engine')
-            radial_marker=(directory/'application.log').read_text().split('UI_TEST_GRADIENT_COMMITTED: ')[-1].splitlines()[0].split()
+            radial_marker=event_marker('UI_TEST_GRADIENT_COMMITTED').split()
             assert radial_marker[0]=='Radial', f'radial mode committed a different gradient: {radial_marker}'
             ctrl('s')
             wait(lambda: valid_project(imported) and imported.read_bytes()!=linear_before and '*' not in title(window),
@@ -4762,11 +4818,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='Smudge',
                  'S selects the document-backed Smudge tool')
             smudge_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                              for line in (directory/'application.log').read_text().splitlines())
+                              for line in application_log_lines())
             smudge_commits=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
             drag_at(520,350,600,390)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>smudge_starts,
+                             for line in application_log_lines())>smudge_starts,
                  'Smudge uses the ordinary routed canvas pointer lifecycle')
             wait(lambda:event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>smudge_commits,
                  'the primary-button release commits the Smudge transaction before saving')
@@ -4812,11 +4868,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL')=='ColorMix',
                  'X selects the document-backed Color Mixer tool')
             color_mix_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                                 for line in (directory/'application.log').read_text().splitlines())
+                                 for line in application_log_lines())
             color_mix_commits=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
             drag_at(520,350,600,390)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>color_mix_starts,
+                             for line in application_log_lines())>color_mix_starts,
                  'Color Mixer uses the ordinary routed canvas pointer lifecycle')
             wait(lambda:event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>color_mix_commits,
                  'the primary-button release commits the Color Mixer transaction before saving')
@@ -4875,7 +4931,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             origin_button=wait(symmetry_origin_button_rect,
                                'symmetry panel exposes an accessible direct-origin control')
             starts_before_origin=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                                     for line in (directory/'application.log').read_text().splitlines())
+                                     for line in application_log_lines())
             click_at((origin_button[0]+origin_button[2]/2)*origin_button[4],
                      (origin_button[1]+origin_button[3]/2)*origin_button[4])
             wait(lambda: event_marker('UI_TEST_SYMMETRY_ORIGIN_ARMED')=='true',
@@ -4897,7 +4953,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert imported.read_bytes()==symmetry_base, \
                 'placing the symmetry origin must not change artwork or its saved project'
             assert sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                       for line in (directory/'application.log').read_text().splitlines()) == starts_before_origin, \
+                       for line in application_log_lines()) == starts_before_origin, \
                 'the click used to place the symmetry origin must never start a painting stroke'
             center_before_cancel=tuple(persisted_center)
             origin_button=wait(symmetry_origin_button_rect,
@@ -4918,10 +4974,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             start=(left+0.72*(right-left),top+0.43*(bottom-top))
             end=(left+0.79*(right-left),top+0.48*(bottom-top))
             stroke_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                              for line in (directory/'application.log').read_text().splitlines())
+                              for line in application_log_lines())
             drag_at(*start,*end)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>stroke_starts,
+                             for line in application_log_lines())>stroke_starts,
                  'symmetry-painted mouse input traverses Processor and Router')
             ctrl('s')
             wait(lambda: valid_project(imported) and imported.read_bytes()!=symmetry_base
@@ -4970,7 +5026,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             journal_checkpoint_before=latest_journal_checkpoint(journal_path)
             completed_before=recovery_complete_count()
             stroke_starts=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                              for line in (directory/'application.log').read_text().splitlines())
+                              for line in application_log_lines())
             # Derive the recovery stroke from the live document viewport. The
             # previous fixed endpoint could land over Layers after the workspace
             # reflowed, beginning a stroke without committing any canvas pixels.
@@ -4984,7 +5040,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'recovery stroke explicitly selects the paint brush tool')
             drag_at(*start,*end)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
-                             for line in (directory/'application.log').read_text().splitlines())>stroke_starts,
+                             for line in application_log_lines())>stroke_starts,
                  'real canvas mouse input begins a painting transaction')
             status('*')
             wait(lambda: recovery_complete_count()>completed_before,
@@ -5031,7 +5087,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert any(thumb_directory.glob('rpl-*.png')),'saved artwork generated a Home thumbnail cache entry'
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'Home after reopening saved artwork');focus(display,window,2,0);send();time.sleep(0.5)
-            wait(lambda: 'UI_TEST_HOME_RECENT_PREVIEW_VISIBLE' in (directory / 'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_HOME_RECENT_PREVIEW_VISIBLE'),
                  'recent Home screenshot renders a real cached project thumbnail')
             resize_window(window,1920,1080)
             card_bounds=wait(home_recent_card_rect,'recent-artwork card layout at wide size')
@@ -5058,11 +5114,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             )
             cancel_marker='UI_TEST_FILE_PICKER_CANCELLED'
             cancel_count=sum(line.startswith(cancel_marker)
-                             for line in (directory/'application.log').read_text().splitlines())
+                             for line in application_log_lines())
             click_at((cancel_x+cancel_width/2)*cancel_scale,
                      (cancel_y+cancel_height/2)*cancel_scale)
             wait(lambda: sum(line.startswith(cancel_marker)
-                             for line in (directory/'application.log').read_text().splitlines())>cancel_count,
+                             for line in application_log_lines())>cancel_count,
                  'Cancel click reaches the file-picker action')
             wait(lambda: 'TEST FILE PICKER' not in title(window),
                  'Cancel returns to Home from the open-project tile')
@@ -5085,7 +5141,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert valid_project(visual_checkpoint),'dark-theme recovery fixture is a valid native project'
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'dark Home after saved artwork restart');focus(display,window,2,0);send();time.sleep(0.5)
-            wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: dark' in (directory / 'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_HOME_HEADLINE_CONTRAST: dark'),
                  'dark Home headline is rendered at accessible contrast')
             assert_slogan_contrast('dark')
             assert_strong_text_contrast('dark')
@@ -5097,7 +5153,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,640,480);capture_window(window,'home-dark-narrow')
             resize_window(window,1280,800)
             ctrl('n');new_document_prompt()
-            wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 2,
+            wait(lambda: application_log_count('UI_TEST_NEW_ARTWORK_VISIBLE') >= 2,
                  'dark New Artwork interface has rendered before capture')
             assert_new_document_name_and_create_visible(1280,800)
             time.sleep(0.25);capture_window(window,'new-artwork-dark-normal')
@@ -5106,15 +5162,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'new-artwork-dark-narrow')
             wheel_forwarded_marker='UI_TEST_NEW_DOCUMENT_WHEEL_FORWARDED: '
             forwarded_wheel_count=sum(line.startswith(wheel_forwarded_marker)
-                                      for line in (directory/'application.log').read_text().splitlines())
+                                      for line in application_log_lines())
             reference_zoom_count=event_marker_count('UI_TEST_REFERENCE_WHEEL_ZOOM')
             wheel_at(320,430,notches=8);time.sleep(0.25)
             wait(lambda: sum(line.startswith(wheel_forwarded_marker)
-                             for line in (directory/'application.log').read_text().splitlines())
+                             for line in application_log_lines())
                  >forwarded_wheel_count,
                  'wheel input at the saved Reference position is forwarded to the visible New Artwork dialog')
             forwarded_wheel_routes=[line.partition(wheel_forwarded_marker)[2]
-                                    for line in (directory/'application.log').read_text().splitlines()
+                                    for line in application_log_lines()
                                     if line.startswith(wheel_forwarded_marker)]
             assert forwarded_wheel_routes[-1] in ('reference=none','reference=hidden'), \
                 f'a hidden Reference viewport must not consume New Artwork scrolling: {forwarded_wheel_routes[-1]}'
@@ -5128,8 +5184,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'new-artwork-dark-narrow-scrolled')
             click_at((dark_create[0]+dark_create[2]/2)*dark_create[4],
                      (dark_create[1]+dark_create[3]/2)*dark_create[4])
-            wait(lambda: 'UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1' in
-                 (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1'),
                  'dark narrow New Artwork Create action creates its document')
             resize_window(window,1280,800);time.sleep(0.4)
             capture_window(window,'canvas-workspace-dark-toolbar-top')
@@ -5204,13 +5259,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             key('Escape');time.sleep(0.2)
             ctrl_shift('m');time.sleep(0.35)
             assert any(p.name.startswith('recovery-') and p.suffix=='.rpl' and valid_project(p) for p in recovery_dir.iterdir()), 'dark recovery manager has a valid checkpoint entry'
-            wait(lambda: 'UI_TEST_RECOVERY_LABEL_CONTRAST: dark ' in (directory/'application.log').read_text(),
+            wait(lambda: application_log_contains('UI_TEST_RECOVERY_LABEL_CONTRAST: dark '),
                  'dark recovery entry uses readable text contrast')
-            dark_recovery_contrast = next(line for line in reversed((directory/'application.log').read_text().splitlines())
+            dark_recovery_contrast = next(line for line in reversed(application_log_lines())
                 if line.startswith('UI_TEST_RECOVERY_LABEL_CONTRAST: dark '))
             assert float(dark_recovery_contrast.rsplit(' ',1)[1]) >= 4.5, 'dark recovery label contrast is below 4.5:1'
             dark_hover_count=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_HOVERED')
-                                 for line in (directory/'application.log').read_text().splitlines())
+                                 for line in application_log_lines())
             target=wait(recovery_preview_target,'dark recovery preview target geometry')
             click_x=round((target[0]+target[2]/2)*target[4])
             click_y=None
@@ -5218,16 +5273,16 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 candidate=round((target[1]+target[3]/2)*target[4])+offset
                 move(click_x,candidate)
                 hovered=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_HOVERED')
-                            for line in (directory/'application.log').read_text().splitlines())
+                            for line in application_log_lines())
                 if hovered>dark_hover_count:
                     click_y=candidate
                     break
             assert click_y is not None,'dark recovery preview button did not receive pointer hover'
             visible_count=sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_VISIBLE')
-                              for line in (directory/'application.log').read_text().splitlines())
+                              for line in application_log_lines())
             click_button(1,True);click_button(1,False)
             wait(lambda: sum(line.startswith('UI_TEST_RECOVERY_PREVIEW_VISIBLE')
-                             for line in (directory/'application.log').read_text().splitlines())>visible_count,
+                             for line in application_log_lines())>visible_count,
                  'dark recovery manager renders the requested artwork preview')
             capture_window(window,'recovery-manager-populated-dark')
             resize_window(window,640,480);capture_window(window,'recovery-manager-populated-dark-narrow')
@@ -5269,7 +5324,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # Keep runner diagnostics bounded and leave room for Python's
             # traceback. The full app log remains in the uploaded diagnostics
             # artifact when the workflow reaches its always-run upload step.
-            lines=(directory/'application.log').read_text().splitlines()
+            lines=application_log_lines()
             relevant=[line for line in lines if line.startswith(('UI_TEST_','TEST_PATH_DIALOG:','Canvas adapter:'))]
             print('\n'.join(relevant[-60:]))
             mask_trace=[line for line in relevant

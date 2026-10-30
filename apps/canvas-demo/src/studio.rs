@@ -4370,6 +4370,7 @@ pub struct Studio {
     vector_drag_handle: Option<(u64, usize, VectorHandle)>,
     vector_node_editor: Option<(u64, usize, [f64; 2])>,
     vector_handle_editor: Option<(u64, usize, VectorHandle)>,
+    test_vector_node_editor_state: Option<(u64, bool)>,
     canvas_input_exclusions: Vec<egui::Rect>,
     test_vector_node_rect_logged: bool,
     pending_vector_style: Option<(u64, [u8; 4], f64)>,
@@ -4649,6 +4650,7 @@ impl Studio {
             vector_drag_handle: None,
             vector_node_editor: None,
             vector_handle_editor: None,
+            test_vector_node_editor_state: None,
             canvas_input_exclusions: Vec::new(),
             test_vector_node_rect_logged: false,
             pending_vector_style: None,
@@ -14889,6 +14891,19 @@ impl Studio {
                     self.autosave_schedule.retry_later(now);
                 }
             }
+        }
+        let vector_node_editor_state = self.selected_vector_path.map(|path_id| {
+            (
+                path_id,
+                self.vector_node_editor
+                    .is_some_and(|(editor_path, _, _)| editor_path == path_id),
+            )
+        });
+        if self.test_path_dialog && vector_node_editor_state != self.test_vector_node_editor_state {
+            if let Some((path_id, editing)) = vector_node_editor_state {
+                crate::studio_log!("UI_TEST_VECTOR_NODE_EDITOR_STATE: {path_id} {editing}");
+            }
+            self.test_vector_node_editor_state = vector_node_editor_state;
         }
         self.input
             .handle_platform_output(window, output.platform_output.clone());

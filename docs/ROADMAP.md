@@ -864,6 +864,19 @@ Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
 implement bounded, keyboard-accessible vector node movement and undo, then
 continue curve handles, fill and transforms without claiming Phase 10 complete.
 
+### Current Phase 10 validation blocker — 2026-10-30
+
+Run [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+passed Windows and macOS but failed Linux while entering the reopened cubic
+path's anchor editor. The smoke now holds the visible control through a rendered
+frame and asserts the actual selected-path editor state and fresh rendered
+handle, while preserving the existing editing-event assertion. State-transition
+diagnostics and incremental smoke-log indexing were added. Rust, Python helper,
+Windows-target, and llvmpipe checks pass locally; this shell has no usable Xvfb
+display, so the updated full Linux UI workflow and cross-platform Actions run
+are pending. Keep Phase 10 validation open until the hosted Linux workflow
+passes. Continue vector implementation only after this regression is resolved.
+
 ### Current local continuation — editable line-to-cubic conversion (2026-10-29)
 
 The Phase 10 node editor can convert an adjacent line segment to an editable

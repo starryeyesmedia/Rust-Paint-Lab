@@ -3416,3 +3416,43 @@ validate Windows GUI startup, macOS startup, physical S Pen pressure/tilt or
 palm behavior, Narrator/NVDA, or power-loss durability. Phase 9 and Phase 10
 remain active. Next, implement connected cubic-path creation and continue with
 vector fill and object transforms.
+
+### Linux anchor-editor workflow regression — instrumentation and pending rerun (2026-10-30)
+
+Hosted Actions run
+[`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+passed its Windows and macOS jobs but timed out in the Linux alpha artwork
+workflow while waiting for the reopened cubic path to enter anchor-edit mode.
+The failing step followed conversion, save/reopen, path selection, and the
+visible **Edit anchors** action; the old automation issued an unframed click,
+then used `H` as a fallback, and only observed the historical editing-event
+marker. The supplied traceback ended with that assertion still observing false.
+
+The regression instrumentation now waits for the edit button to be rendered
+while the primary pointer is held, waits through its release/redraw, and checks
+the actual selected-path editor state plus a fresh rendered node-handle marker.
+The original `UI_TEST_VECTOR_NODE_EDITING` assertion remains intact. A
+test-only transition marker reports the selected path ID and real editor state
+when the Linux UI-test mode is active. This distinguishes missed input from a
+state/rendering defect; it does not alter normal vector editing or bypass the
+visible control. Hosted execution of this updated sequence is still required
+before calling the regression fixed.
+
+The same change replaces repeated whole-file log reads in the long UI workflow
+with a persistent incremental index. On a preserved 18,093,773-byte log with
+265,835 lines, 1,000 repeated marker/prefix queries completed in 0.246 seconds
+at 88,576 KiB peak RSS. Two Python tests cover partial-line append, cached
+marker/prefix/text counts, stable values, and truncation. CI runs these tests on
+all three operating systems.
+
+Local verification for this checkpoint: Rust 1.90 formatting, strict workspace
+Clippy, all 394 workspace test cases, workspace build, Windows MSVC and GNU
+target workspace checks, strict Windows GNU Clippy, Python smoke-helper tests,
+and the required llvmpipe GPU smoke pass. The latest Linux Xorg/XTest workflow
+could not be repeated in this shell because it has no Xvfb binary or usable
+Xauthority file. An earlier local capture from the predecessor workflow was
+visually inspected and shows the selected Edit anchors state and rendered
+handles, but it does not validate the updated input synchronization. The exact
+updated full workflow and Windows/Linux/macOS Actions matrix remain pending.
+Keep Phase 10 active and do not declare this regression closed until the hosted
+Linux artwork workflow passes.

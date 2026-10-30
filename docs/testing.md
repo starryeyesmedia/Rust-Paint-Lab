@@ -1243,3 +1243,15 @@ path is still represented by path commands, checks that vector-only omissions
 are reported, and compares the `.rpl` source bytes before and after export. It
 also captures the `vector-svg-export` UI state. SVG import and unsupported SVG
 shape/style features remain future work.
+
+The GitHub Actions matrix also runs the portable Python helper tests with:
+
+```sh
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+These cover incremental GUI smoke-log appends, partial lines, cached event
+counts, stable values, and truncation. The Linux anchor-editor scenario keeps
+the real Edit anchors click, then verifies the selected path's live editor state
+and a rendered anchor handle; event markers alone are not considered proof of
+the interaction.

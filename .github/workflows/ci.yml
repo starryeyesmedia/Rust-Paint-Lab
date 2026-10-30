@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install pinned toolchain
         run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+      - name: Test incremental GUI smoke log indexing
+        run: python -m unittest discover -s scripts -p "test_*.py"
       - name: Install Linux display and software GPU prerequisites
         if: runner.os == 'Linux'
         run: |
