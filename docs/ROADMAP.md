@@ -864,7 +864,7 @@ Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
 implement bounded, keyboard-accessible vector node movement and undo, then
 continue curve handles, fill and transforms without claiming Phase 10 complete.
 
-### Current Phase 10 validation blocker — 2026-10-30
+### Phase 10 Linux anchor-editor regression — verified test synchronization (2026-10-30)
 
 Run [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
 passed Windows and macOS but failed Linux while entering the reopened cubic
@@ -872,10 +872,15 @@ path's anchor editor. The smoke now holds the visible control through a rendered
 frame and asserts the actual selected-path editor state and fresh rendered
 handle, while preserving the existing editing-event assertion. State-transition
 diagnostics and incremental smoke-log indexing were added. Rust, Python helper,
-Windows-target, and llvmpipe checks pass locally; this shell has no usable Xvfb
-display, so the updated full Linux UI workflow and cross-platform Actions run
-are pending. Keep Phase 10 validation open until the hosted Linux workflow
-passes. Continue vector implementation only after this regression is resolved.
+Windows-target, and llvmpipe checks pass locally. The updated full Linux
+Xorg/XTest artwork workflow completed with 78 screenshots; the `H` fallback
+entered the actual editor and rendered an anchor handle, while the pointer click
+did not activate in this Xvfb run. Hosted run
+[`41102591526`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41102591526)
+passed Windows, Linux, and macOS on commit `03790ef`. The editor-state timeout
+is resolved in automated validation; direct pointer activation remains a
+separate follow-up to diagnose. Phase 8.3, Phase 9 physical checks, Phase 10,
+and Phase 11 remain active.
 
 ### Current local continuation — editable line-to-cubic conversion (2026-10-29)
 

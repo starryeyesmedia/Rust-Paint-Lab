@@ -3417,7 +3417,7 @@ palm behavior, Narrator/NVDA, or power-loss durability. Phase 9 and Phase 10
 remain active. Next, implement connected cubic-path creation and continue with
 vector fill and object transforms.
 
-### Linux anchor-editor workflow regression — instrumentation and pending rerun (2026-10-30)
+### Linux anchor-editor workflow regression — verified test synchronization (2026-10-30)
 
 Hosted Actions run
 [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
@@ -3433,10 +3433,18 @@ while the primary pointer is held, waits through its release/redraw, and checks
 the actual selected-path editor state plus a fresh rendered node-handle marker.
 The original `UI_TEST_VECTOR_NODE_EDITING` assertion remains intact. A
 test-only transition marker reports the selected path ID and real editor state
-when the Linux UI-test mode is active. This distinguishes missed input from a
-state/rendering defect; it does not alter normal vector editing or bypass the
-visible control. Hosted execution of this updated sequence is still required
-before calling the regression fixed.
+when the Linux UI-test mode is active. The new assertion therefore checks the
+real editor and geometry rather than weakening the previous assertion to a
+button click. The existing `H` fallback remains an actual, documented app
+shortcut.
+
+In the updated local run, the visible control did not activate under XTest even
+after the held-frame barrier; the `H` fallback did enter editing for the same
+selected path, emitted the original editing event, and rendered its anchor
+handle. The additional state observation confirmed the transition. This
+supports an XTest click/timing or event-observation issue rather than a failure
+in the keyboard route or editor rendering. Do not claim that the pointer-click
+path was validated; investigating that path remains useful follow-up work.
 
 The same change replaces repeated whole-file log reads in the long UI workflow
 with a persistent incremental index. On a preserved 18,093,773-byte log with
@@ -3448,11 +3456,16 @@ all three operating systems.
 Local verification for this checkpoint: Rust 1.90 formatting, strict workspace
 Clippy, all 394 workspace test cases, workspace build, Windows MSVC and GNU
 target workspace checks, strict Windows GNU Clippy, Python smoke-helper tests,
-and the required llvmpipe GPU smoke pass. The latest Linux Xorg/XTest workflow
-could not be repeated in this shell because it has no Xvfb binary or usable
-Xauthority file. An earlier local capture from the predecessor workflow was
-visually inspected and shows the selected Edit anchors state and rendered
-handles, but it does not validate the updated input synchronization. The exact
-updated full workflow and Windows/Linux/macOS Actions matrix remain pending.
-Keep Phase 10 active and do not declare this regression closed until the hosted
-Linux artwork workflow passes.
+and the required llvmpipe GPU smoke pass. The updated full Linux Xorg/XTest
+artwork workflow completed successfully with 78 PNG captures under a
+temporarily extracted Xvfb and llvmpipe; it exercised the complete drawing,
+vector, save/reopen, export, recovery, and screenshot paths. I inspected the
+`vector-node-editor.png` capture, which visibly shows the selected anchor and
+handles. Hosted run
+[`41102591526`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41102591526)
+passed Windows, Linux, and macOS for commit `03790ef`. This does not test
+physical stylus behavior or Windows/macOS GUI startup. The full local smoke's
+Python process reached about 1.37 GiB RSS late in its run; the independent
+incremental log-index benchmark stayed below 87 MiB. Continue to monitor that
+test-process memory separately from application memory. Phase 8.3, Phase 9
+hardware checks, Phase 10, and Phase 11 remain active.
