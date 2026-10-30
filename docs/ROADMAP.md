@@ -7,27 +7,32 @@ Artwork preservation and cross-platform validation apply to every track.
 
 ## Canvas-first design handoff — active implementation
 
-The current local implementation starts from `688db12` on
-`feature/studio-overdrive-phase-8`. It unifies Layers, Brush, Edit, Color and
-References in one contextual Inspector, adapts to narrow windows without
-overwriting roomy workspace preferences, and preserves a tested minimum canvas
-strip in the 640×480 layout. Layers and masks remain connected to document
-transactions; references remain workspace-only and are excluded from artwork
-exports. The compact picker order and safe edge placement were corrected from
-full-window XTest findings.
+The canvas-first design was integrated in commit `bd73664`: Layers, Brush,
+Edit, Color and References share one contextual Inspector, which adapts to
+narrow windows without overwriting roomy workspace preferences and retains a
+clear 640×480 canvas strip. Layers and masks use real document transactions;
+references remain workspace-only and stay out of artwork exports. The full
+Linux Xorg/XTest workflow produced 75 populated screenshots for this slice.
+Actions run [`41039508985`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41039508985)
+passed on Windows, Linux and macOS.
 
-Phase 10's existing vector work includes editable cubic paths and transactional
-scale, rotation and duplication; RPL v3 remains unchanged and v1/v2 stay
-readable. Local validation now passes 384 workspace tests, formatting, strict
-host and Windows GNU-target Clippy, workspace build/check, and required Vulkan
-llvmpipe GPU smoke. The full Linux Xorg/XTest workflow passed and produced 75
-populated screenshots, which were inspected for narrow and wide Home, New
-Artwork, canvas, Layers, References and Recovery states. This does not validate
-the owner's physical GPU, stylus or screen readers. Hosted Windows/Linux/macOS
-CI for this continuation remains pending until the changes are pushed. Do not
-count this as Phase 8.3 or Phase 10 completion. Next, continue vector creation
-with a tested optional curve-smoothing workflow while preserving the existing
-workspace and native format.
+Phase 10 continues at commit [`95b098c`](https://github.com/starryeyesmedia/Rust-Paint-Lab/commit/95b098c)
+with optional deterministic freehand-to-cubic creation in the existing V tool.
+It preserves all input anchors, joins curves with shared tangents, captures the
+setting at pointer-down, and keeps polyline authoring as the backward-compatible
+default. Workspace preferences default the new option to off; editable objects
+still use the existing `.rpl` v3 schema, leaving v1/v2 reads unaffected. Local
+verification passes 388 workspace tests, strict host and Windows GNU Clippy,
+workspace build/check, Vulkan llvmpipe GPU smoke, and the full Linux Xorg/XTest
+artwork workflow with 76 screenshots. I inspected the new `vector-smoothed-path`
+capture. The Actions run for `95b098c` is pending until it is pushed; the
+preceding Inspector slice is green. Software GPU validation does not validate
+the owner's physical GPU, S Pen or native screen readers.
+
+Phase 8.3 remains active. Next, implement closed vector paths and editable fills
+as a complete document/render/export transaction, then address SVG
+interoperability separately. Do not treat the current vector slice, screenshots
+or automated checks as Phase 8.3 or Phase 10 completion.
 
 ## Adopted product identity — BitchPixel
 

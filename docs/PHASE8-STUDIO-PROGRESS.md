@@ -1,5 +1,44 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Phase 10 — connected cubic path authoring (2026-10-30)
+
+Commit [`95b098c`](https://github.com/starryeyesmedia/Rust-Paint-Lab/commit/95b098c)
+adds an opt-in **Smooth new paths** setting to the existing V tool. Freehand
+samples are converted deterministically to connected editable cubic Bézier
+segments through every captured anchor. The first and last anchors remain exact
+and interior joins share tangents. The preference is workspace-only, defaults
+off (including when loading older preferences), and is captured at pointer-down
+so changing a control cannot alter an active gesture. Polyline behavior remains
+the default.
+
+The document API creates the path in one undoable transaction and renders it
+from the existing v3 vector object data. Raster and mask tiles remain
+authoritative and unchanged; no native project schema migration was needed.
+Tests cover invalid and over-limit input, C1 tangent continuity, exact anchor
+preservation, rendering, v3 save/reopen, raster isolation, exact Undo/Redo and
+backward-compatible preference loading. The real Xorg/XTest artwork workflow
+enabled the actual contextual control, drew with the V tool, verified exact
+saved pointer endpoints, cubic segment count, raster/mask isolation, undo/redo,
+application reopen and persisted workspace choice. It passed alongside the
+existing mask, QuickShape, gradient, recovery and export workflow.
+
+Local Rust 1.90 validation passed: formatting, strict workspace Clippy, all
+**388 tests across 24 targets**, workspace build, Windows GNU workspace check
+and strict Windows GNU Clippy. Required Vulkan offscreen GPU smoke passed on
+Mesa llvmpipe (`CPU` adapter). The complete Linux Xorg/XTest run generated 76
+screenshots; I inspected `vector-smoothed-path` at 1280×800 and confirmed the
+enabled control and resulting curve are visible in the running workspace. This
+is software-rendered automated validation, not Windows/macOS GUI, Iris Xe, S Pen,
+Narrator or NVDA validation. The preceding Inspector commit passed Actions run
+[`41039508985`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41039508985)
+on Windows, Linux and macOS; this commit still needs its own hosted run after
+push.
+
+Phase 8.3 remains active. Next Phase 10 slice: implement closed vector paths
+with editable fill behavior and document/render/export coverage, preserving
+v1/v2/v3 reads and using a schema change only if an explicit compatibility
+design requires it. SVG interoperability remains a separate follow-up.
+
 ## Canvas-first Inspector and reference integration — local validation (2026-10-30)
 
 This continuation starts from `688db12` on `feature/studio-overdrive-phase-8`.
@@ -42,13 +81,14 @@ passed. This validates software rendering and automated UI interaction, not the
 owner's Intel Iris Xe laptop or S Pen hardware. Cross-platform hosted Actions for
 this commit are pending until it is pushed; the previous green Actions runs do
 not cover this continuation. Windows/macOS GUI execution and hardware
-accessibility checks remain separate validation tasks.
+accessibility checks remain separate validation tasks. This commit passed the
+Windows/Linux/macOS matrix and produced its Windows/Linux canvas artifacts in
+Actions run [`41039508985`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41039508985).
 
-Phase 10 already has editable cubic paths and undoable path transforms; this
-checkpoint adds no new document schema. Next, continue vector authoring with a
-deterministic optional smooth-path creation mode, exact geometry/document
-round-trip tests, and XTest coverage. Phase 8.3 and Phase 10 remain active. Do
-not merge, release, or infer hardware validation from CI.
+Phase 10 already has editable cubic paths and undoable path transforms; the
+next continuation adds optional smooth-path creation without changing the
+document schema. Phase 8.3 and Phase 10 remain active. Do not merge, release, or
+infer hardware validation from CI.
 
 ## Canvas-first design handoff — regression coverage checkpoint (2026-10-29)
 
