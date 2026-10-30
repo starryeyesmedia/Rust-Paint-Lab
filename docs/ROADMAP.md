@@ -26,8 +26,12 @@ PNG/OpenRaster exports and hit-testing without becoming raster tiles. Local
 verification passes 391 workspace tests, strict host and Windows GNU Clippy,
 workspace build/check, llvmpipe/GL GPU smoke, and the full Linux Xorg/XTest
 workflow with 77 screenshots. I inspected the `vector-filled-path` capture.
-Cross-platform Actions for the new fill checkpoint are pending push; software
-GPU testing does not validate the owner's Iris Xe, S Pen or native screen-reader
+Actions run [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+passed Windows and macOS, including Windows GUI startup and artifact packaging,
+but failed Ubuntu's alpha artwork workflow at step 11. Its public annotation
+truncated the underlying assertion; the workflow now retains a concise final
+log excerpt in the job summary for diagnosis on the next run. Software GPU
+testing does not validate the owner's Iris Xe, S Pen or native screen-reader
 behavior.
 
 The current local continuation adds vector-only SVG export for supported line
@@ -36,7 +40,9 @@ colors/alpha, and layer opacity. A real UI test parses the exported file,
 checks native `.rpl` source integrity, and validates document-specific omission
 disclosure. SVG import and complete raster/mask/document round-trip are not
 implemented. The full Linux Xorg/XTest workflow passes with 78 captures and 394
-workspace tests pass locally; a new cross-platform Actions run is pending push.
+workspace tests pass locally. Run [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+failed only on the Ubuntu alpha artwork step; diagnose and fix it before calling
+this slice cross-platform verified.
 
 Phase 8.3 and Phase 10 remain active. The next UI slice corrects compact
 Inspector navigation to match the handoff's Layers/Brush/Edit/Color/References

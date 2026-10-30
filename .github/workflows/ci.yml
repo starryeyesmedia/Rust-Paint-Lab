@@ -87,9 +87,14 @@ jobs:
           cat /tmp/alpha-workflow.log
           if [ "$outcome" -ne 0 ]; then
             python3 - <<'PYTHON'
+          import os
           from pathlib import Path
-          text=Path('/tmp/alpha-workflow.log').read_text()[-6000:]
-          print('::error title=Alpha artwork workflow::'+text.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+          detail=Path('/tmp/alpha-workflow.log').read_text(errors='replace')[-2800:]
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as summary:
+              summary.write('### Linux alpha artwork workflow failure details\n\n```text\n')
+              summary.write(detail)
+              summary.write('\n```\n')
+          print('::error title=Alpha artwork workflow::'+detail.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
           PYTHON
           fi
           exit "$outcome"

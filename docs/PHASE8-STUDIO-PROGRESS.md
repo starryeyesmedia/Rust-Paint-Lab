@@ -27,13 +27,19 @@ the actual `vector-svg-export.png`, populated narrow Inspector, and high-contras
 Home captures. The narrow populated Layers inspector remains crowded and is
 still an open canvas-first layout issue.
 
-These are local results on the dirty implementation; the cross-platform Actions
-matrix is pending push. The host GPU was llvmpipe/GL and does not establish Iris
-Xe performance, Windows/macOS GUI startup, S Pen behavior, or Narrator/NVDA
-operation. Phase 8.3, Phase 9 hardware validation, and Phase 10 remain active.
-Next: push this slice and verify the Windows/Linux/macOS matrix; then correct the
-Inspector tab order/compact navigation from the handoff and continue practical
-vector-tool authoring through the real workspace.
+These are local results; hosted run
+[`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+passed Windows and macOS, including Windows canvas/diagnostic packaging and
+startup, but failed Ubuntu step 11 (`Linux alpha artwork workflow smoke`) with
+exit code 1 after 11m 17s. Its public annotation is truncated before the
+assertion; the environment blocks `api.github.com` and unauthenticated artifact
+downloads. The workflow now puts the final 2,800 characters of this failure log
+into the step summary and annotation so the next run exposes the assertion. No
+test has been weakened. The host GPU was llvmpipe/GL and does not establish Iris
+Xe performance, advanced S Pen behavior, or Narrator/NVDA operation. Phase 8.3,
+Phase 9 hardware validation, and Phase 10 remain active. Next: identify and fix
+the actual failing Linux assertion, rerun the matrix, then correct the compact
+Inspector tab order/navigation and continue vector-tool authoring.
 
 ## Phase 10 — closed vector paths and editable fills (2026-10-30)
 
