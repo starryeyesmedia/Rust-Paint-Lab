@@ -66,7 +66,14 @@ mod tests {
                         (crate::workspace::InspectorTab::Brush, "Brush"),
                         (crate::workspace::InspectorTab::Edit, "Edit"),
                     ] {
-                        crate::studio::inspector_tab_button(ui, &mut selected, tab, label, 64.0);
+                        crate::studio::inspector_tab_button_named(
+                            ui,
+                            &mut selected,
+                            tab,
+                            label,
+                            label,
+                            64.0,
+                        );
                     }
                 });
                 ui.horizontal(|ui| {
@@ -74,7 +81,14 @@ mod tests {
                         (crate::workspace::InspectorTab::Color, "Color"),
                         (crate::workspace::InspectorTab::References, "References"),
                     ] {
-                        crate::studio::inspector_tab_button(ui, &mut selected, tab, label, 96.0);
+                        crate::studio::inspector_tab_button_named(
+                            ui,
+                            &mut selected,
+                            tab,
+                            label,
+                            label,
+                            96.0,
+                        );
                     }
                 });
             });

@@ -62,7 +62,7 @@ fn default_workspace_controls_size() -> [f32; 2] {
 }
 
 fn default_inspector_width() -> f32 {
-    336.0
+    320.0
 }
 
 fn default_compact_inspector_position() -> [f32; 2] {
@@ -694,7 +694,7 @@ mod tests {
         assert_eq!(preferences.color_flyout_position, [104.0, 300.0]);
         assert_eq!(preferences.workspace_controls_position, [820.0, 88.0]);
         assert_eq!(preferences.workspace_controls_size, [360.0, 620.0]);
-        assert_eq!(preferences.inspector_width, 336.0);
+        assert_eq!(preferences.inspector_width, 320.0);
         assert_eq!(preferences.compact_inspector_position, [8.0, 56.0]);
         assert_eq!(preferences.compact_inspector_size, [256.0, 420.0]);
         assert!(!preferences.new_document.transparent);

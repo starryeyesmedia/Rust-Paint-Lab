@@ -1,57 +1,54 @@
 # Phase 8 — Creative Studio Overdrive progress
 
-## Canvas-first Inspector and reference integration — local checkpoint (2026-10-30)
+## Canvas-first Inspector and reference integration — local validation (2026-10-30)
 
-The approved handoff continues from local commit `e6dab95` on
-`feature/studio-overdrive-phase-8`. Phase 9's mask workflow itself was already
-validated by cross-platform Actions run
-[`40805980434`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40805980434);
-the separate mask and mixed-document regressions committed in `e6dab95` extend
-coverage for selection clipping, outside-only no-op history, raster/mask
-isolation, journal restoration, native round trips and PNG/OpenRaster export.
+This continuation starts from `688db12` on `feature/studio-overdrive-phase-8`.
+It completes the tabbed Layers / Brush / Edit / Color / References Inspector
+integration and the outstanding application-workflow regressions. The Inspector
+docks beside the canvas on roomy windows and becomes a bounded floating drawer
+on constrained windows. A 640×480 regression preserves a 319-point clear canvas
+strip beside the movable palette. The drawer is kept inside the viewport, its
+temporary dimensions do not overwrite roomy saved preferences, and the
+References destination appears early enough in the compact picker to remain
+clickable above the status area.
 
-The current implementation introduces a unified Layers / Brush / Edit / Color /
-References Inspector. On large windows it docks while reserving at least 320
-points for the canvas; constrained layouts use a bounded drawer or full sheet.
-Temporary responsive dimensions do not replace roomy saved preferences. The
-Layers view leads with the stack and exposes selected-layer controls and
-contextual operations through the real document model. Its accessible tab
-destinations are represented as selected radio controls.
+The Layers section uses the actual document state, cached bounded raster
+thumbnails, accessible visibility/lock controls, contextual actions and
+selection-aware clear with undo. Brush and color controls are reached through
+the shared Inspector. The Reference section keeps multiple independently
+selectable boards with pan/zoom, opacity, positioning and import controls;
+pinning displays only the selected image as a bounded canvas overlay. Reference
+pixels remain outside the project raster and all artwork exports. The selected
+reference viewport remains available for input routing while the Inspector or
+picture-in-picture is shown.
 
-Reference images now appear in an image-first Inspector board with multiple
-independently selectable images, pan/zoom, opacity, center/remove and import
-controls. Optional pinning displays only the selected reference as a draggable
-picture-in-picture capped at 24% of the unobstructed canvas. Imported pixels
-remain workspace-only. Review found that a legacy-window cleanup pass cleared
-the selected preview viewport even when the new Inspector/PIP displayed it; the
-viewport is now retained for the active image so gesture routing can continue.
-The Linux XTest scenario now exercises reference drag-pan and wheel zoom as well
-as pin placement and bounds.
+The full Linux Xorg/XTest workflow passed, including populated Layers and mask
+operations, narrow Inspector navigation, multiple references, shape/gradient
+painting, editable vector transforms, undo/redo, save/reopen, PNG/OpenRaster,
+and journal recovery. It captured **75 rendered screenshots** in
+`/tmp/bpx-inspector-checkpoint-68`. I inspected dark and light Home at narrow and
+wide sizes, New Artwork, populated dark Layers, populated dark References,
+populated light Recovery, and the narrow canvas. The populated panels remain in
+bounds and scroll to their lower controls; the compact References picker and
+selected image are visible in the narrow screenshot. Home content is scrollable
+at 640×480, so the lower recent-artwork section is reached by scrolling. These
+screenshots show the actual running UI, not design mockups.
 
-Phase 10 continues with document transactions for bounded uniform path scale,
-rotation and duplication. They keep vector metadata editable, share existing
-undo/redo, native v3 persistence and raster/mask isolation, and do not change the
-file schema. Document regressions cover these operations through save/reopen and
-history. This is a continuation slice, not completion of vector authoring or
-Phase 10.
+Local Rust 1.90 validation passed: formatting; strict workspace Clippy; **384
+tests across 24 targets**; workspace build; Windows GNU workspace check and
+strict target Clippy. The required Vulkan offscreen GPU smoke passed on Mesa
+llvmpipe (`CPU` adapter), and the complete Linux XTest application workflow
+passed. This validates software rendering and automated UI interaction, not the
+owner's Intel Iris Xe laptop or S Pen hardware. Cross-platform hosted Actions for
+this commit are pending until it is pushed; the previous green Actions runs do
+not cover this continuation. Windows/macOS GUI execution and hardware
+accessibility checks remain separate validation tasks.
 
-After the reference-viewport correction, the complete workspace suite passed
-**381 tests across 24 targets**. Rust 1.90 formatting, strict host Clippy,
-workspace build, Windows GNU workspace check and strict target Clippy all pass.
-The required llvmpipe/OpenGL GPU smoke passed, and the Python XTest workflow
-compiles. This shell has no X display/Xvfb, so no current rendered screenshot or
-local XTest result is claimed. The existing local GitHub CLI token is invalid,
-so the new hosted Linux XTest, screenshot inspection, Windows/Linux/macOS CI, and
-push are pending. The last confirmed cross-platform application run remains
-[`40887124571`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40887124571)
-for an earlier commit; it does not validate this Inspector integration.
-
-Exact next steps: commit the verified implementation; restore valid GitHub
-authentication and push this branch; require the complete Linux Xorg/XTest plus
-Windows and macOS jobs; inspect populated Inspector, Layers, References and PIP
-screenshots from that run; fix observed defects before continuing Phase 10
-through UI-tested path transforms and further cubic creation/fill workflows.
-Do not merge, release, or declare Phase 8.3/Phase 10 complete.
+Phase 10 already has editable cubic paths and undoable path transforms; this
+checkpoint adds no new document schema. Next, continue vector authoring with a
+deterministic optional smooth-path creation mode, exact geometry/document
+round-trip tests, and XTest coverage. Phase 8.3 and Phase 10 remain active. Do
+not merge, release, or infer hardware validation from CI.
 
 ## Canvas-first design handoff — regression coverage checkpoint (2026-10-29)
 

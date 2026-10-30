@@ -7,30 +7,27 @@ Artwork preservation and cross-platform validation apply to every track.
 
 ## Canvas-first design handoff — active implementation
 
-The handoff regression slice is committed locally at `e6dab95` on
-`feature/studio-overdrive-phase-8`; it adds selection-clipped mask painting and
-mixed raster/mask/vector save, recovery, Undo/Redo, PNG, and OpenRaster coverage.
-The earlier Phase 9 mask workflow passed its cross-platform Actions checkpoint
-in run [`40805980434`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40805980434).
-The current uncommitted continuation replaces the independent Brush/Color/
-Layers/References workspace panels with a tabbed Inspector, keeps a minimum
-canvas viewport at desktop sizes, adapts to a drawer or full sheet on constrained
-windows, and presents one selected reference as an optional bounded canvas PIP.
-Layer-stack controls remain connected to the document engine. A regression found
-during review also preserves the active reference viewport while the Inspector
-or PIP is visible, so touch and pointer gestures continue to target the image.
+The current local implementation starts from `688db12` on
+`feature/studio-overdrive-phase-8`. It unifies Layers, Brush, Edit, Color and
+References in one contextual Inspector, adapts to narrow windows without
+overwriting roomy workspace preferences, and preserves a tested minimum canvas
+strip in the 640×480 layout. Layers and masks remain connected to document
+transactions; references remain workspace-only and are excluded from artwork
+exports. The compact picker order and safe edge placement were corrected from
+full-window XTest findings.
 
-Phase 10 continues in the same implementation with undoable vector path scale,
-rotation, and duplication transactions; RPL v3 is unchanged and v1/v2 remain
-readable. Local Rust validation passes 381 tests, formatting, strict host and
-Windows GNU-target Clippy, workspace build/check, and the llvmpipe GPU smoke.
-The current environment has no X display/Xvfb and its GitHub token is invalid,
-so the new Linux XTest/screenshots and hosted matrix have not yet been verified.
-Do not count this local checkpoint as a completed workspace overhaul or Phase 10
-completion. Continue after hosted validation with populated Inspector visual
-review, layer/mask ergonomics, and further editable vector creation/fill work.
-Preserve RPL v1/v2/v3 and the existing egui/winit, AccessKit, pen, recovery, and
-rendering architecture.
+Phase 10's existing vector work includes editable cubic paths and transactional
+scale, rotation and duplication; RPL v3 remains unchanged and v1/v2 stay
+readable. Local validation now passes 384 workspace tests, formatting, strict
+host and Windows GNU-target Clippy, workspace build/check, and required Vulkan
+llvmpipe GPU smoke. The full Linux Xorg/XTest workflow passed and produced 75
+populated screenshots, which were inspected for narrow and wide Home, New
+Artwork, canvas, Layers, References and Recovery states. This does not validate
+the owner's physical GPU, stylus or screen readers. Hosted Windows/Linux/macOS
+CI for this continuation remains pending until the changes are pushed. Do not
+count this as Phase 8.3 or Phase 10 completion. Next, continue vector creation
+with a tested optional curve-smoothing workflow while preserving the existing
+workspace and native format.
 
 ## Adopted product identity — BitchPixel
 

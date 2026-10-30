@@ -712,6 +712,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 PhysicalKey::Code(KeyCode::KeyG) => Some('g'),
                                 PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
                                 PhysicalKey::Code(KeyCode::KeyV) => Some('v'),
+                                PhysicalKey::Code(KeyCode::KeyH) => Some('h'),
                                 _ => None,
                             };
                             if let Some(key) = key {
@@ -835,6 +836,11 @@ impl ApplicationHandler<AppEvent> for App {
                     self.tick = now;
                     self.session.advance_replay(self.elapsed)?;
                     if let Some(g) = &mut self.graphics {
+                        let presented = g.draw(&mut self.session)?;
+                        // The frame can apply a save, undo, redo, or other
+                        // document operation while it is being drawn. Build
+                        // the window title afterward so its dirty marker
+                        // matches the state that was just presented.
                         let title = if g.studio.is_some() && self.session.mode() == Mode::Live {
                             format!(
                                 "BitchPixel — {} — {}×{}{}",
@@ -891,11 +897,12 @@ impl ApplicationHandler<AppEvent> for App {
                         } else {
                             title
                         };
-                        let presented = g.draw(&mut self.session)?;
-                        // Publish the ready title only after the first layout and frame.
-                        if presented {
-                            g.window.set_title(&title);
-                        }
+                        // Window metadata remains useful even when a surface
+                        // frame timed out or had to be recreated. In
+                        // particular, saving after Undo/Redo must clear the
+                        // dirty marker independently of whether this redraw
+                        // could be presented.
+                        g.window.set_title(&title);
                         if g.studio.as_ref().is_some_and(|s| s.close_ready) {
                             event_loop.exit();
                         }
