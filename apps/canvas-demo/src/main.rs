@@ -699,7 +699,13 @@ impl ApplicationHandler<AppEvent> for App {
                                 PhysicalKey::Code(KeyCode::KeyM) => Some('m'),
                                 PhysicalKey::Code(KeyCode::KeyQ) => Some('q'),
                                 PhysicalKey::Code(KeyCode::KeyE) => {
-                                    Some(if self.modifiers.shift_key() { 'q' } else { 'e' })
+                                    Some(if self.modifiers.alt_key() {
+                                        'r'
+                                    } else if self.modifiers.shift_key() {
+                                        'q'
+                                    } else {
+                                        'e'
+                                    })
                                 }
                                 PhysicalKey::Code(KeyCode::KeyK) => Some('k'),
                                 PhysicalKey::Code(KeyCode::KeyS) => Some('s'),
@@ -744,7 +750,13 @@ impl ApplicationHandler<AppEvent> for App {
                                     Some(if self.modifiers.shift_key() { 'a' } else { 'o' })
                                 }
                                 PhysicalKey::Code(KeyCode::KeyE) => {
-                                    Some(if self.modifiers.shift_key() { 'q' } else { 'e' })
+                                    Some(if self.modifiers.alt_key() {
+                                        'r'
+                                    } else if self.modifiers.shift_key() {
+                                        'q'
+                                    } else {
+                                        'e'
+                                    })
                                 }
                                 PhysicalKey::Code(KeyCode::KeyR) if self.modifiers.shift_key() => {
                                     Some('v')

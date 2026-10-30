@@ -1222,3 +1222,24 @@ native v3 reopen, and exact Undo/Redo. RPL v1/v2 reading and the v3 schema are
 unchanged. Application-level vector manipulation still requires the Linux
 XTest workflow; Windows GNU cross-checks do not establish native GUI or pen
 behavior.
+
+## Vector-only SVG export
+
+The SVG exporter writes visible editable line/cubic paths and closed even-odd
+fills, preserving path order, visibility, stroke/fill color and alpha, and layer
+opacity. It excludes the document background, raster pixels, and masks and
+reports non-Normal layer blending as unsupported. Native project data is never modified, and existing
+export files are not overwritten.
+
+Run serializer and no-clobber checks with:
+
+```sh
+cargo test --locked -p paint-document --test svg
+```
+
+The Linux Xorg/XTest application workflow invokes Ctrl+Alt+E on a populated
+editable vector document, parses the resulting SVG, checks that a cubic filled
+path is still represented by path commands, checks that vector-only omissions
+are reported, and compares the `.rpl` source bytes before and after export. It
+also captures the `vector-svg-export` UI state. SVG import and unsupported SVG
+shape/style features remain future work.

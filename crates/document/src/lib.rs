@@ -8,6 +8,7 @@ pub mod openraster;
 pub mod recent;
 pub mod stabilization;
 pub mod storage;
+pub mod svg;
 pub mod vector;
 use brush::{Brush, BrushKind};
 use paint_stroke::{StrokeCommand, StrokeId, StrokeSample};

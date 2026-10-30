@@ -1,5 +1,40 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Phase 10 — vector-only SVG export integration (2026-10-30, local checkpoint)
+
+Added bounded SVG export for the editable line and cubic paths already supported
+by the native document model. Output preserves document dimensions, path and
+layer ordering, layer visibility/opacity, path visibility, supported stroke/fill
+color and alpha, and even-odd fills. SVG writes are capped at 16 MiB and use a
+synchronized temporary file plus no-clobber publication; they never replace an
+existing export or change the source `.rpl`. No dependency or native-format
+change was required. The UI offers File → “SVG vector paths only…” and
+Ctrl+Alt+E, then reports the omissions applicable to the actual document.
+Background color, raster pixels, masks and non-Normal blend behavior are not
+represented; SVG import, arbitrary SVG content and complete document round-trip
+are explicitly unsupported.
+
+Regression coverage parses the XML, checks cubic/fill geometry and style data,
+verifies output ordering attributes and escaping, checks the no-overwrite rule,
+distinguishes transparent from solid-background reports, and compares native
+source bytes around a real UI export. Rust 1.90 validation passes: formatting,
+strict host Clippy, workspace build, Windows GNU workspace check and strict
+target Clippy, **394 workspace tests**, and required llvmpipe/GL GPU smoke. The
+full Linux Xorg/XTest artwork workflow passes with **78 screenshots** and
+exercises the Phase 9 mask actions, vector authoring/editing/fill/save/reopen,
+PNG/OpenRaster, recovery, and the new SVG export/status assertions. I inspected
+the actual `vector-svg-export.png`, populated narrow Inspector, and high-contrast
+Home captures. The narrow populated Layers inspector remains crowded and is
+still an open canvas-first layout issue.
+
+These are local results on the dirty implementation; the cross-platform Actions
+matrix is pending push. The host GPU was llvmpipe/GL and does not establish Iris
+Xe performance, Windows/macOS GUI startup, S Pen behavior, or Narrator/NVDA
+operation. Phase 8.3, Phase 9 hardware validation, and Phase 10 remain active.
+Next: push this slice and verify the Windows/Linux/macOS matrix; then correct the
+Inspector tab order/compact navigation from the handoff and continue practical
+vector-tool authoring through the real workspace.
+
 ## Phase 10 — closed vector paths and editable fills (2026-10-30)
 
 The continuation from `85e5375` adds closed-path and fill editing to the existing

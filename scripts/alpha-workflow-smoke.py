@@ -7,6 +7,7 @@ path, screenshots, user input recording, or additional Python packages.
 import ctypes as c
 from pathlib import Path
 import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii, shutil, math, re
+import xml.etree.ElementTree as ET
 import subprocess
 import time
 
@@ -316,9 +317,23 @@ def vector_actions_menu_rect():
     return stable_window_rect_marker('UI_TEST_VECTOR_ACTIONS_MENU_RECT')
 
 def open_vector_actions_menu():
-    menu=wait(vector_actions_menu_rect,
-              'the selected path exposes its compact Path actions menu')
-    click_scaled_rect(menu)
+    for attempt in range(2):
+        action_count=vector_action_marker_count('scale_down')
+        menu=wait(vector_actions_menu_rect,
+                  'the selected path exposes its compact Path actions menu')
+        # A press/release pair in one XTest batch can be coalesced before egui
+        # sees a full pointer-down frame. Keep the button held through redraw,
+        # then wait for an item inside the popup rather than trusting the
+        # persistent rectangle marker for the closed menu button.
+        click_and_hold_scaled_rect(menu)
+        try:
+            wait(lambda:vector_action_rect('scale_down')
+                 if vector_action_marker_count('scale_down')>action_count else None,
+                 'Path actions popup renders its Scale −10% menu item', seconds=2)
+            return
+        except AssertionError:
+            if process.poll() is not None or attempt == 1:
+                raise
 
 def vector_node_handle():
     marker=event_marker('UI_TEST_VECTOR_NODE_HANDLE')
@@ -4415,8 +4430,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                              'selected vector path exposes an accessible contextual delete action')
             prior_vector_delete_count=sum(line.startswith('UI_TEST_VECTOR_PATH_DELETED: ')
                                           for line in (directory/'application.log').read_text().splitlines())
-            click_at((delete_rect[0]+delete_rect[2]/2)*delete_rect[4],
-                     (delete_rect[1]+delete_rect[3]/2)*delete_rect[4])
+            click_and_hold_scaled_rect(delete_rect)
             wait(lambda: sum(line.startswith('UI_TEST_VECTOR_PATH_DELETED: ')
                              for line in (directory/'application.log').read_text().splitlines())>
                  prior_vector_delete_count,
@@ -4588,6 +4602,55 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'the reopened path preserves editable cubic geometry, fill, and tile tables'
             assert json.loads(prefs.read_text()).get('smooth_vector_paths') is True, \
                 'opening artwork must not reset the workspace smooth-path preference'
+
+            svg_path=directory/'imported-artwork.svg'
+            svg_path.unlink(missing_ok=True)
+            svg_before=imported.read_bytes()
+            ctrl_alt('e')
+            wait(lambda:svg_path.is_file()
+                 and event_marker('UI_TEST_SVG_EXPORT') is not None,
+                 'Ctrl+Alt+E exports the current editable vector paths to SVG')
+            svg_report=dict(field.split('=',1) for field in
+                            event_marker('UI_TEST_SVG_EXPORT').split())
+            assert int(svg_report['paths'])>=1
+            assert int(svg_report['raster_omitted'])>=1, \
+                'the UI reports raster layers excluded from vector-only export'
+            expected_background_omitted=(
+                native_state_bytes(svg_before).get('background') is not None
+            )
+            assert svg_report['background_omitted']==str(expected_background_omitted).lower(), \
+                'the SVG export reports background omission only for an actual document background'
+            svg_status=wait(lambda:event_marker('UI_TEST_SVG_STATUS'),
+                            'the application publishes the SVG export status after writing the file')
+            assert svg_status.startswith(f"SVG exported with {int(svg_report['paths'])} editable paths")
+            expected_omissions=[]
+            if expected_background_omitted:
+                expected_omissions.append('background color')
+            if int(svg_report['raster_omitted']):
+                expected_omissions.append('raster pixels')
+            if int(svg_report['masks_omitted']):
+                expected_omissions.append('layer masks')
+            if int(svg_report['blend_omitted']):
+                expected_omissions.append('non-Normal blend behavior')
+            for omission in expected_omissions:
+                assert omission in svg_status, f'SVG status discloses omitted {omission}'
+            if not expected_omissions:
+                assert 'Omitted from SVG' not in svg_status
+            assert imported.read_bytes()==svg_before, \
+                'SVG export must not change the source native project'
+            svg_root=ET.parse(svg_path).getroot()
+            svg_ns='{http://www.w3.org/2000/svg}'
+            # Paths are nested in layer groups so opacity and native layer
+            # identity survive the vector-only export. Traverse descendants.
+            svg_paths=list(svg_root.iter(f'{svg_ns}path'))
+            assert len(svg_paths)==int(svg_report['paths'])
+            assert any(path.get('fill-rule')=='evenodd'
+                       and path.get('fill') not in (None,'none')
+                       and ' C ' in path.get('d','')
+                       and path.get('d','').endswith(' Z')
+                       for path in svg_paths), \
+                'SVG output retains closed filled paths as editable cubic geometry'
+            capture_window(window,'vector-svg-export')
 
             ora=directory/'imported-artwork.ora'
             ora.unlink(missing_ok=True)
@@ -5180,7 +5243,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-controls-direct','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','vector-filled-path','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-controls-direct','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','vector-filled-path','vector-svg-export','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

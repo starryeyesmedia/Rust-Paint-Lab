@@ -2656,6 +2656,7 @@ pub(crate) enum Action {
     CancelPlacedImage,
     ImportOra,
     ExportOra,
+    ExportSvg,
     Recover(PathBuf),
     Recent(PathBuf),
     RemoveRecovery(PathBuf),
@@ -3072,6 +3073,7 @@ enum FileRequest {
     PlaceImage,
     ImportOra,
     ExportOra,
+    ExportSvg,
     AddReferences,
 }
 impl FileRequest {
@@ -3085,6 +3087,7 @@ impl FileRequest {
             Self::PlaceImage => return None,
             Self::ImportOra => Action::ImportOra,
             Self::ExportOra => Action::ExportOra,
+            Self::ExportSvg => Action::ExportSvg,
             Self::AddReferences => return None,
         })
     }
@@ -6928,6 +6931,12 @@ impl Studio {
                 .to_string_lossy()
                 .into();
         }
+        if key == 'r' {
+            self.path = PathBuf::from(&self.path)
+                .with_extension("svg")
+                .to_string_lossy()
+                .into();
+        }
         if key == 'e' {
             self.path = PathBuf::from(&self.path)
                 .with_extension("png")
@@ -6940,6 +6949,7 @@ impl Studio {
             's' => Action::Save,
             'e' => Action::Export,
             'q' => Action::ExportOra,
+            'r' => Action::ExportSvg,
             'f' => Action::Fill(false),
             'd' => Action::Deselect,
             'x' => Action::Fill(true),
@@ -7245,6 +7255,14 @@ impl Studio {
                                         .to_string_lossy()
                                         .into();
                                     self.picker = Some(FileRequest::ExportOra);
+                                    ui.close();
+                                }
+                                if ui.button("SVG vector paths only…").clicked() {
+                                    self.path = PathBuf::from(&self.path)
+                                        .with_extension("svg")
+                                        .to_string_lossy()
+                                        .into();
+                                    self.picker = Some(FileRequest::ExportSvg);
                                     ui.close();
                                 }
                             });
@@ -14081,6 +14099,9 @@ impl Studio {
                     FileRequest::ExportOra => {
                         ("Export OpenRaster", "OpenRaster image", vec!["ora"], true)
                     }
+                    FileRequest::ExportSvg => {
+                        ("Export SVG vector paths", "SVG image", vec!["svg"], true)
+                    }
                     FileRequest::AddReferences => (
                         "Add reference images",
                         "Reference images",
@@ -15170,6 +15191,50 @@ impl Studio {
                 } else {
                     "OpenRaster exported: raster layers retained; background becomes a layer. Locks, presets and history are omitted".into()
                 };
+            }
+            Action::ExportSvg => {
+                let report =
+                    paint_document::svg::export(std::path::Path::new(&self.path), project.state())?;
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_SVG_EXPORT: paths={} raster_omitted={} masks_omitted={} blend_omitted={} background_omitted={}",
+                        report.vector_paths,
+                        report.raster_layers_omitted,
+                        report.masked_layers_omitted,
+                        report.non_normal_blend_layers_omitted,
+                        report.background_omitted
+                    );
+                }
+                self.status = if report.has_omissions() {
+                    let mut omitted = Vec::new();
+                    if report.background_omitted {
+                        omitted.push("background color");
+                    }
+                    if report.raster_layers_omitted != 0 {
+                        omitted.push("raster pixels");
+                    }
+                    if report.masked_layers_omitted != 0 {
+                        omitted.push("layer masks");
+                    }
+                    if report.non_normal_blend_layers_omitted != 0 {
+                        omitted.push("non-Normal blend behavior");
+                    }
+                    format!(
+                        "SVG exported with {} editable paths. Omitted from SVG: {}. Use PNG for a complete image",
+                        report.vector_paths,
+                        omitted.join(", ")
+                    )
+                } else if report.vector_paths == 0 {
+                    "SVG exported with no visible vector paths; raster artwork is available through PNG export".into()
+                } else {
+                    format!(
+                        "SVG exported with {} editable vector paths",
+                        report.vector_paths
+                    )
+                };
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_SVG_STATUS: {}", self.status);
+                }
             }
             Action::RemoveRecovery(path) => {
                 paint_document::recovery::remove(&paint_document::recovery::directory()?, &path)?;

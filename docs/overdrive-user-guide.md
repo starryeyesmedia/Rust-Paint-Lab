@@ -230,7 +230,8 @@ Keyboard: `[` / `]` reduce/increase brush size by ten percent; Shift+`[` / Shift
 make fine one-percent changes. The size is bounded from 1 to 256 px and the
 shortcut is ignored while a text field is active. Ctrl+Z/Y undo/redo; Ctrl+S save;
 Ctrl+N New Document; Ctrl+O open project
-picker; Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
+picker; Ctrl+E export PNG; Ctrl+Alt+E exports visible editable vector paths as
+SVG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
 Ctrl+L opens or closes the floating Layers panel; Ctrl+Shift+N adds a layer;
 Ctrl+Shift+M opens or closes the
 artwork recovery manager; Escape closes an active Brush/Color/Layers panel before
@@ -344,6 +345,12 @@ masks to layer pixels and reports that mask editability is flattened. Import
 rejects external groups, masks, nonzero offsets, and unsupported blend modes.
 Save `.rpl` afterward. See openraster.md for exact capabilities/limits. External
 application interoperability still needs testing.
+
+SVG: **SVG vector paths only** / Ctrl+Alt+E writes the visible editable line and
+cubic paths with supported strokes, fills, path order, and layer opacity. This
+is a vector-only interchange: the document background, raster pixels, and masks are omitted, and
+non-Normal layer blend behavior is not represented. Use PNG for a complete
+flattened image or `.rpl` to preserve all editable content.
 
 Ctrl+Shift+R restores the latest inactive recovery into a new unsaved document.
 If the latest journal entry is incomplete/corrupt, recovery uses the previous

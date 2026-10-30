@@ -125,6 +125,14 @@ It refuses to overwrite an existing export. Native projects retain editable rast
 layers, masks, and version 3/4 vector paths. OpenRaster export applies each enabled
 mask and rasterizes vector paths into layer PNGs and reports that those features
 are flattened; the `.rpl` remains the editable source.
+SVG export is an explicit vector-only interchange: it writes visible line/cubic
+paths, path visibility, supported stroke/fill colors, even-odd fills, layer order,
+and layer opacity as editable SVG groups/paths. The document background, raster
+pixels, and masks are omitted; non-Normal layer blending is not represented, and
+the UI reports each omission. It does not replace the native
+`.rpl` document and never overwrites an existing file. SVG import, shape elements,
+text, gradients, clipping, transforms, and arbitrary SVG style/CSS are not yet
+supported.
 Compositing is explicitly encoded-sRGB premultiplied arithmetic, not full
 linear-light or ICC color management.
 

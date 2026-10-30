@@ -152,6 +152,11 @@ Future components have distinct responsibilities:
    handles, and can close paths and apply an even-odd fill. Unfilled paths keep
    the v3 schema; a fill is a single undoable v4 document edit. See the alpha
    format and overdrive progress document for limits and current boundaries.
+The SVG exporter writes these editable line/cubic objects in document order and
+preserves path visibility, color/opacity, even-odd fill, and layer opacity. It is
+deliberately vector-only; the document background, raster tiles, and masks are
+reported as omitted, and non-Normal blend modes are not represented. Import, SVG shape elements, text,
+gradients, transforms, and CSS remain future work.
 
 The separate canvas demo now implements a bounded command consumer and renderer
 for synthetic playback and interactive mouse drawing. The physical-pixel winit
