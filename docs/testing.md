@@ -896,14 +896,17 @@ Windows GUI behavior or hardware latency.
 
 ## Editable vector-path slice
 
-The Phase 10 first slice stores line and cubic path geometry in the owning
+The Phase 10 vector slice stores line and cubic path geometry in the owning
 raster layer while keeping its tile map authoritative for raster pixels. Test
-the path model, v1/v2 compatibility, v3 persistence, recovery journal, history,
-layer duplication, and raster/OpenRaster flattening with:
+the path model, v1/v2/v3 compatibility, v4 filled-path persistence, recovery
+journal, history, layer duplication, and raster/OpenRaster flattening with:
 
 ```sh
 cargo test --locked -p paint-document --test vector
 cargo test --locked -p paint-document --lib vector::tests
+cargo test --locked -p paint-document --test vector closed_vector_fill -- --nocapture
+cargo test --locked -p paint-document --test vector fill_work_budget -- --nocapture
+cargo test --locked -p paint-document --lib vector::tests::vector_fill_requires_a_closed_path_and_uses_even_odd_membership -- --nocapture
 cargo test --locked -p canvas-demo --lib vector_creation_visibility_and_movement_invalidate_layer_thumbnails
 cargo test --locked -p paint-document --test vector dense_editable_paths_keep_document_and_layer_previews_tile_bounded
 cargo test --locked -p canvas-demo --lib dense_vector_layer_thumbnail_reuses_bounded_source_tile_rows
@@ -947,6 +950,19 @@ Undo/Redo, application reopen and workspace-preference persistence. The same
 workflow first checks the legacy polyline default and continues through native
 save/reopen plus PNG/OpenRaster exports.
 
+The extended workflow then uses the selected path's real contextual controls to
+close it and apply the current brush color/opacity as a fill. It verifies that
+closing alone remains v3, filled geometry opts into v4, vector/mask tile tables
+remain byte-identical, undo returns to the closed-unfilled v3 file, redo restores
+the v4 file, and the filled object survives application reopen. It captures the
+populated `vector-filled-path` workspace state. Document tests additionally
+check even-odd interior membership, fill rendering and hit testing, native
+roundtrip, PNG/OpenRaster pixels, transaction history, and rejection when
+pixel-area × flattened-edge work exceeds the documented cap. Fill coverage is
+currently pixel-center sampled; this does not test coverage antialiasing.
+The Layers thumbnail cache regression also verifies cache invalidation and
+visible pixel changes for close, fill, and fill removal.
+
 Exact native cubic-coordinate stability is covered by:
 
 ```sh
@@ -956,8 +972,8 @@ cargo test --locked -p paint-document --test vector repeated_native_roundtrips_p
 The test encodes, decodes and re-encodes nontrivial `f64` path coordinates for
 eight consecutive cycles, requiring both exact model equality and unchanged
 native bytes. The document crate enables serde_json's `float_roundtrip` parser
-feature; this improves numeric preservation without changing the RPL v3 schema
-and does not alter v1/v2 compatibility.
+feature; this improves numeric preservation without changing the RPL v1-v4
+schemas or older-format compatibility.
 
 The Xorg/XTest artwork workflow also injects a valid cubic path fixture, opens it
 through the application, edits an outgoing control handle by pointer, and

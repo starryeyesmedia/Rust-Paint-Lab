@@ -2675,6 +2675,8 @@ pub(crate) enum Action {
     DuplicateVectorPath(u64),
     TransformVectorPath(u64, f64, f64),
     SetVectorPathStyle(u64, [u8; 4], f64),
+    SetVectorPathClosed(u64, bool),
+    SetVectorPathFill(u64, Option<[u8; 4]>),
     MoveVectorPathAnchor(u64, usize, [f64; 2]),
     MoveVectorPathHandle(u64, usize, VectorHandle, [f64; 2]),
     ConvertVectorPathSegmentToCubic(u64, usize),
@@ -4277,7 +4279,6 @@ pub struct Studio {
     test_home_preset_rect_logged: Option<[i32; 5]>,
     test_hidden_reference_wheel_logged: bool,
     test_strong_text_contrast_logged: bool,
-    test_vector_delete_rect_logged: bool,
     confirm: Option<Action>,
     pub close_requested: bool,
     pub close_ready: bool,
@@ -4557,7 +4558,6 @@ impl Studio {
             test_home_preset_rect_logged: None,
             test_hidden_reference_wheel_logged: false,
             test_strong_text_contrast_logged: false,
-            test_vector_delete_rect_logged: false,
             confirm: None,
             close_requested: false,
             close_ready: false,
@@ -7923,6 +7923,205 @@ impl Studio {
                                         })
                                     });
                                     if let Some(path) = selected_path {
+                                        let is_closed = matches!(
+                                            path.segments.last(),
+                                            Some(paint_document::vector::VectorSegment::Close)
+                                        );
+                                        let close_label = if is_closed { "Open path" } else { "Close path" };
+                                        let close_path = ui
+                                            .add_enabled(
+                                                is_closed || path.anchor_points().len() >= 3,
+                                                egui::Button::new(close_label),
+                                            )
+                                            .on_hover_text(if is_closed {
+                                                "Reopen this path; the existing fill is removed in the same undoable edit"
+                                            } else {
+                                                "Add a straight closing edge from the final anchor to the first"
+                                            });
+                                        close_path.widget_info(|| {
+                                            egui::WidgetInfo::labeled(
+                                                egui::WidgetType::Button,
+                                                ui.is_enabled(),
+                                                close_label,
+                                            )
+                                        });
+                                        if self.test_path_dialog {
+                                            crate::studio_log!(
+                                                "UI_TEST_VECTOR_CLOSE_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                is_closed,
+                                                close_path.rect.left(),
+                                                close_path.rect.top(),
+                                                close_path.rect.width(),
+                                                close_path.rect.height(),
+                                                ui.ctx().pixels_per_point()
+                                            );
+                                        }
+                                        if close_path.clicked() {
+                                            if self.test_path_dialog {
+                                                crate::studio_log!(
+                                                    "UI_TEST_VECTOR_PATH_CLOSE_CLICKED: {}",
+                                                    path.id
+                                                );
+                                            }
+                                            actions.push(Action::SetVectorPathClosed(path.id, !is_closed));
+                                        }
+                                        if is_closed {
+                                            let current_fill = [
+                                                project.brush.color[0],
+                                                project.brush.color[1],
+                                                project.brush.color[2],
+                                                (project.brush.opacity * 255.0).round().clamp(0.0, 255.0) as u8,
+                                            ];
+                                            let fill_label = if path.fill.is_some() {
+                                                "Update fill"
+                                            } else {
+                                                "Fill path"
+                                            };
+                                            let fill_path = ui
+                                                .button(fill_label)
+                                                .on_hover_text("Fill this closed vector path using the current Color and opacity");
+                                            fill_path.widget_info(|| {
+                                                egui::WidgetInfo::labeled(
+                                                    egui::WidgetType::Button,
+                                                    ui.is_enabled(),
+                                                    fill_label,
+                                                )
+                                            });
+                                            if self.test_path_dialog {
+                                                crate::studio_log!(
+                                                    "UI_TEST_VECTOR_FILL_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                    path.fill.is_some(),
+                                                    fill_path.rect.left(),
+                                                    fill_path.rect.top(),
+                                                    fill_path.rect.width(),
+                                                    fill_path.rect.height(),
+                                                    ui.ctx().pixels_per_point()
+                                                );
+                                            }
+                                            if fill_path.clicked() {
+                                                if self.test_path_dialog {
+                                                    crate::studio_log!(
+                                                        "UI_TEST_VECTOR_PATH_FILL_CLICKED: {}",
+                                                        path.id
+                                                    );
+                                                }
+                                                actions.push(Action::SetVectorPathFill(path.id, Some(current_fill)));
+                                            }
+                                            if path.fill.is_some() {
+                                                let remove_fill = ui.button("Remove fill");
+                                                remove_fill.widget_info(|| {
+                                                    egui::WidgetInfo::labeled(
+                                                        egui::WidgetType::Button,
+                                                        ui.is_enabled(),
+                                                        "Remove vector path fill",
+                                                    )
+                                                });
+                                                if remove_fill.clicked() {
+                                                    actions.push(Action::SetVectorPathFill(path.id, None));
+                                                }
+                                            }
+                                        }
+                                        let path_actions = ui.menu_button("Path actions", |ui| {
+                                            for (label, accessible, action_name, scale, rotation) in [
+                                                ("Scale −10%", "Scale selected vector path down ten percent", "scale_down", 0.9, 0.0),
+                                                ("Scale +10%", "Scale selected vector path up ten percent", "scale_up", 1.1, 0.0),
+                                                ("Rotate −15°", "Rotate selected vector path counterclockwise fifteen degrees", "rotate_left", 1.0, -15.0),
+                                                ("Rotate +15°", "Rotate selected vector path clockwise fifteen degrees", "rotate_right", 1.0, 15.0),
+                                            ] {
+                                                let response = ui.button(label).on_hover_text(accessible);
+                                                response.widget_info(|| {
+                                                    egui::WidgetInfo::labeled(
+                                                        egui::WidgetType::Button,
+                                                        ui.is_enabled(),
+                                                        accessible,
+                                                    )
+                                                });
+                                                if self.test_path_dialog {
+                                                    crate::studio_log!(
+                                                        "UI_TEST_VECTOR_ACTION_RECT: {action_name} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                        response.rect.left(),
+                                                        response.rect.top(),
+                                                        response.rect.width(),
+                                                        response.rect.height(),
+                                                        ui.ctx().pixels_per_point(),
+                                                    );
+                                                }
+                                                if response.clicked() {
+                                                    actions.push(Action::TransformVectorPath(
+                                                        path.id,
+                                                        scale,
+                                                        rotation,
+                                                    ));
+                                                    ui.close();
+                                                }
+                                            }
+                                            ui.separator();
+                                            let duplicate = ui
+                                                .button("Duplicate")
+                                                .on_hover_text("Create a separate editable vector copy in this layer");
+                                            duplicate.widget_info(|| {
+                                                egui::WidgetInfo::labeled(
+                                                    egui::WidgetType::Button,
+                                                    ui.is_enabled(),
+                                                    "Duplicate selected vector path",
+                                                )
+                                            });
+                                            if self.test_path_dialog {
+                                                crate::studio_log!(
+                                                    "UI_TEST_VECTOR_ACTION_RECT: duplicate {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                    duplicate.rect.left(),
+                                                    duplicate.rect.top(),
+                                                    duplicate.rect.width(),
+                                                    duplicate.rect.height(),
+                                                    ui.ctx().pixels_per_point(),
+                                                );
+                                            }
+                                            if duplicate.clicked() {
+                                                actions.push(Action::DuplicateVectorPath(path.id));
+                                                ui.close();
+                                            }
+                                            let delete_path = ui
+                                                .button("Delete path")
+                                                .on_hover_text("Delete this editable vector object; Undo restores it");
+                                            delete_path.widget_info(|| {
+                                                egui::WidgetInfo::labeled(
+                                                    egui::WidgetType::Button,
+                                                    ui.is_enabled(),
+                                                    "Delete selected vector path",
+                                                )
+                                            });
+                                            if self.test_path_dialog {
+                                                crate::studio_log!(
+                                                    "UI_TEST_VECTOR_DELETE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                    delete_path.rect.left(),
+                                                    delete_path.rect.top(),
+                                                    delete_path.rect.width(),
+                                                    delete_path.rect.height(),
+                                                    ui.ctx().pixels_per_point()
+                                                );
+                                            }
+                                            if delete_path.clicked() {
+                                                actions.push(Action::DeleteVectorPath(path.id));
+                                                ui.close();
+                                            }
+                                        });
+                                        path_actions.response.widget_info(|| {
+                                            egui::WidgetInfo::labeled(
+                                                egui::WidgetType::Button,
+                                                ui.is_enabled(),
+                                                "Path actions: transform, duplicate or delete selected vector path",
+                                            )
+                                        });
+                                        if self.test_path_dialog {
+                                            crate::studio_log!(
+                                                "UI_TEST_VECTOR_ACTIONS_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                path_actions.response.rect.left(),
+                                                path_actions.response.rect.top(),
+                                                path_actions.response.rect.width(),
+                                                path_actions.response.rect.height(),
+                                                ui.ctx().pixels_per_point(),
+                                            );
+                                        }
                                         let edit_nodes = self
                                             .vector_node_editor
                                             .is_some_and(|(path_id, _, _)| path_id == path.id);
@@ -8338,78 +8537,12 @@ impl Studio {
                                             self.pending_vector_style = None;
                                         }
                                         ui.label(format!("Path · {}", path.id));
-                                        let duplicate = ui
-                                            .button("Duplicate")
-                                            .on_hover_text("Create a separate editable vector copy in this layer");
-                                        duplicate.widget_info(|| {
-                                            egui::WidgetInfo::labeled(
-                                                egui::WidgetType::Button,
-                                                ui.is_enabled(),
-                                                "Duplicate selected vector path",
-                                            )
-                                        });
-                                        if self.test_path_dialog {
-                                            crate::studio_log!(
-                                                "UI_TEST_VECTOR_ACTION_RECT: duplicate {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                duplicate.rect.left(),
-                                                duplicate.rect.top(),
-                                                duplicate.rect.width(),
-                                                duplicate.rect.height(),
-                                                ui.ctx().pixels_per_point(),
-                                            );
-                                        }
-                                        if duplicate.clicked() {
-                                            actions.push(Action::DuplicateVectorPath(path.id));
-                                        }
-                                        ui.horizontal_wrapped(|ui| {
-                                            for (label, accessible, action_name, scale, rotation) in [
-                                                ("Scale −10%", "Scale selected vector path down ten percent", "scale_down", 0.9, 0.0),
-                                                ("Scale +10%", "Scale selected vector path up ten percent", "scale_up", 1.1, 0.0),
-                                                ("Rotate −15°", "Rotate selected vector path counterclockwise fifteen degrees", "rotate_left", 1.0, -15.0),
-                                                ("Rotate +15°", "Rotate selected vector path clockwise fifteen degrees", "rotate_right", 1.0, 15.0),
-                                            ] {
-                                                let response = ui.button(label).on_hover_text(accessible);
-                                                response.widget_info(|| {
-                                                    egui::WidgetInfo::labeled(
-                                                        egui::WidgetType::Button,
-                                                        ui.is_enabled(),
-                                                        accessible,
-                                                    )
-                                                });
-                                                if self.test_path_dialog {
-                                                    crate::studio_log!(
-                                                        "UI_TEST_VECTOR_ACTION_RECT: {action_name} {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                        response.rect.left(),
-                                                        response.rect.top(),
-                                                        response.rect.width(),
-                                                        response.rect.height(),
-                                                        ui.ctx().pixels_per_point(),
-                                                    );
-                                                }
-                                                if response.clicked() {
-                                                    actions.push(Action::TransformVectorPath(
-                                                        path.id,
-                                                        scale,
-                                                        rotation,
-                                                    ));
-                                                }
-                                            }
-                                        });
-                                        let response = ui.button("Delete path");
-                                        if self.test_path_dialog && !self.test_vector_delete_rect_logged {
-                                            self.test_vector_delete_rect_logged = true;
-                                            crate::studio_log!(
-                                                "UI_TEST_VECTOR_DELETE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                response.rect.left(),
-                                                response.rect.top(),
-                                                response.rect.width(),
-                                                response.rect.height(),
-                                                ui.ctx().pixels_per_point()
-                                            );
-                                        }
-                                        if response.clicked() {
-                                            actions.push(Action::DeleteVectorPath(path.id));
-                                        }
+                                        // Keep vector transforms on the contextual
+                                        // strip's horizontal scroll row. A wrapped
+                                        // child here inherits only the remaining
+                                        // width after path/fill controls; its long
+                                        // labels can then wrap into very tall
+                                        // buttons and push the canvas off-screen.
                                     } else {
                                         ui.add_sized(
                                             [156.0, 34.0],
@@ -14970,7 +15103,6 @@ impl Studio {
         self.vector_node_editor = None;
         self.vector_handle_editor = None;
         self.pending_vector_style = None;
-        self.test_vector_delete_rect_logged = false;
     }
 
     fn execute(&mut self, a: Action, session: &mut CanvasSession) -> Result<(), Failure> {
@@ -15234,6 +15366,31 @@ impl Studio {
                         stroke[2],
                         stroke[3]
                     );
+                }
+            }
+            Action::SetVectorPathClosed(id, closed) => {
+                project.set_vector_path_closed(id, closed)?;
+                self.status = if closed {
+                    "Vector path closed · Ctrl+Z to undo".into()
+                } else {
+                    "Vector path reopened and fill removed · Ctrl+Z to undo".into()
+                };
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_VECTOR_PATH_CLOSED: {id} {closed}");
+                }
+            }
+            Action::SetVectorPathFill(id, fill) => {
+                project.set_vector_path_fill(id, fill)?;
+                self.status = if let Some(color) = fill {
+                    format!(
+                        "Vector fill applied · #{:02X}{:02X}{:02X} · Ctrl+Z to undo",
+                        color[0], color[1], color[2]
+                    )
+                } else {
+                    "Vector fill removed · Ctrl+Z to undo".into()
+                };
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_VECTOR_PATH_FILL: {id} {fill:?}");
                 }
             }
             Action::MoveVectorPathAnchor(id, index, point) => {

@@ -1,16 +1,16 @@
 //! Bounded editable vector paths stored alongside each raster layer.
 //!
-//! This first format supports stroked line and cubic Bézier paths. Paths stay
-//! editable in native projects; raster output is generated only when a layer is
-//! composited or exported.
+//! Paths support stroked line/cubic Bézier segments and optional even-odd fills.
+//! They stay editable in native projects; raster output is generated only when
+//! a layer is composited or exported.
 use crate::{Blend, Layer, PaintError, TILE, TILE_BYTES};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_VECTOR_PATHS: usize = 1_024;
 pub const MAX_VECTOR_SEGMENTS: usize = 8_192;
 pub const MAX_VECTOR_SEGMENTS_PER_PATH: usize = 1_024;
-/// Maximum estimated per-composite pixel-distance checks across all paths.
-/// The estimate sums each flattened segment's clipped document-space bounds.
+/// Maximum estimated per-composite geometry work across all paths. The estimate
+/// includes flattened stroke bounds and fill pixel/edge membership checks.
 pub const MAX_VECTOR_WORK: usize = 32_000_000;
 pub const MAX_VECTOR_COORDINATE: f64 = 16_384.0;
 const CUBIC_STEPS: usize = 16;
@@ -24,6 +24,9 @@ pub struct VectorPath {
     pub segments: Vec<VectorSegment>,
     /// Straight-alpha sRGB stroke color.
     pub stroke: [u8; 4],
+    /// Optional straight-alpha sRGB even-odd fill for a closed path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<[u8; 4]>,
     /// Width in document pixels.
     pub width: f64,
 }
@@ -68,6 +71,7 @@ impl VectorPath {
                 .map(|point| VectorSegment::LineTo { point })
                 .collect(),
             stroke,
+            fill: None,
             width,
         };
         path.validate()?;
@@ -116,6 +120,7 @@ impl VectorPath {
             start: points[0],
             segments,
             stroke,
+            fill: None,
             width,
         };
         path.validate()?;
@@ -155,6 +160,49 @@ impl VectorPath {
                 }
                 VectorSegment::Close => closed = true,
             }
+        }
+        let anchor_count = self
+            .segments
+            .iter()
+            .filter(|segment| !matches!(segment, VectorSegment::Close))
+            .count()
+            + 1;
+        if self.fill.is_some() && (!closed || anchor_count < 3) {
+            return Err(PaintError::Invalid);
+        }
+        Ok(())
+    }
+
+    /// Close a path with a straight segment from its last anchor to its start.
+    pub fn close(&mut self) -> Result<(), PaintError> {
+        if self
+            .segments
+            .iter()
+            .any(|segment| matches!(segment, VectorSegment::Close))
+            || self.anchor_points().len() < 3
+            || self.segments.len() >= MAX_VECTOR_SEGMENTS_PER_PATH
+        {
+            return Err(PaintError::Invalid);
+        }
+        self.segments.push(VectorSegment::Close);
+        self.validate()
+    }
+
+    pub fn open(&mut self) -> Result<(), PaintError> {
+        if !matches!(self.segments.last(), Some(VectorSegment::Close)) {
+            return Err(PaintError::Invalid);
+        }
+        self.segments.pop();
+        self.fill = None;
+        self.validate()
+    }
+
+    pub fn set_fill(&mut self, fill: Option<[u8; 4]>) -> Result<(), PaintError> {
+        let previous = self.fill;
+        self.fill = fill;
+        if let Err(error) = self.validate() {
+            self.fill = previous;
+            return Err(error);
         }
         Ok(())
     }
@@ -607,9 +655,9 @@ pub fn flattened_points(path: &VectorPath) -> Vec<[f64; 2]> {
     points
 }
 
-/// Conservative upper bound for the number of pixel distance checks required
-/// to render a layer's visible paths once. It mirrors the renderer's per-segment
-/// expanded bounding rectangles and is evaluated during state validation.
+/// Conservative upper bound for geometry checks required to render a layer's
+/// visible paths once. It mirrors per-segment expanded stroke rectangles and
+/// fill pixel/flattened-edge checks, and is evaluated during state validation.
 pub fn estimated_layer_work(paths: &[VectorPath], document: [u32; 2]) -> Option<usize> {
     let mut work = 0usize;
     for path in paths.iter().filter(|path| path.visible) {
@@ -631,13 +679,69 @@ pub fn estimated_layer_work(paths: &[VectorPath], document: [u32; 2]) -> Option<
                 .unwrap_or(usize::MAX);
         });
     }
+    for path in paths
+        .iter()
+        .filter(|path| path.visible && path.fill.is_some())
+    {
+        let bounds = path.control_bounds();
+        let min_x = bounds[0].floor().max(0.0) as usize;
+        let min_y = bounds[1].floor().max(0.0) as usize;
+        let max_x = bounds[2].ceil().min(f64::from(document[0])) as usize;
+        let max_y = bounds[3].ceil().min(f64::from(document[1])) as usize;
+        let area = max_x
+            .saturating_sub(min_x)
+            .checked_mul(max_y.saturating_sub(min_y));
+        // Point-in-polygon is evaluated once for each pixel center, against
+        // the bounded flattening of the path. Include both factors in the
+        // validation budget before accepting a fill.
+        let edge_count = path
+            .segments
+            .iter()
+            .map(|segment| match segment {
+                VectorSegment::CubicTo { .. } => CUBIC_STEPS,
+                VectorSegment::LineTo { .. } | VectorSegment::Close => 1,
+            })
+            .sum::<usize>();
+        let fill_work = area.and_then(|area| area.checked_mul(edge_count));
+        work = fill_work
+            .and_then(|fill_work| work.checked_add(fill_work))
+            .unwrap_or(usize::MAX);
+    }
     (work <= MAX_VECTOR_WORK).then_some(work)
 }
 
 pub fn sample_path(path: &VectorPath, point: [f64; 2], dst: &mut [u8; 4]) {
+    if let Some(fill) = path.fill.filter(|_| contains_fill(path, point)) {
+        blend_coverage(fill, 1.0, dst);
+    }
     let distance = path_distance(path, point);
     let coverage = (path.width * 0.5 + 0.5 - distance).clamp(0.0, 1.0);
     blend_coverage(path.stroke, coverage, dst);
+}
+
+/// Determine fill membership with an even-odd ray-crossing test over the
+/// same deterministic flattened segments used by raster compositing.
+pub fn contains_fill(path: &VectorPath, point: [f64; 2]) -> bool {
+    if path.fill.is_none()
+        || !path
+            .segments
+            .iter()
+            .any(|segment| matches!(segment, VectorSegment::Close))
+        || !point.iter().all(|value| value.is_finite())
+    {
+        return false;
+    }
+    let mut inside = false;
+    for_each_flat_segment(path, |start, end| {
+        if (start[1] > point[1]) != (end[1] > point[1]) {
+            let crossing_x =
+                start[0] + (point[1] - start[1]) * (end[0] - start[0]) / (end[1] - start[1]);
+            if point[0] < crossing_x {
+                inside = !inside;
+            }
+        }
+    });
+    inside
 }
 
 pub fn rasterize_paths_at_pixel(paths: &[VectorPath], point: [f64; 2], dst: &mut [u8; 4]) {
@@ -676,6 +780,25 @@ pub fn rasterize_layer_tile(layer: &Layer, key: (u32, u32), document: [u32; 2], 
             continue;
         }
         coverage.fill(0.0);
+        if let Some(fill) = path.fill {
+            let min_x = (bounds[0] - origin[0]).floor().max(0.0) as u32;
+            let min_y = (bounds[1] - origin[1]).floor().max(0.0) as u32;
+            let max_x = (bounds[2] - origin[0]).ceil().min(right - origin[0]) as u32;
+            let max_y = (bounds[3] - origin[1]).ceil().min(bottom - origin[1]) as u32;
+            for y in min_y..max_y.min(TILE) {
+                for x in min_x..max_x.min(TILE) {
+                    let point = [
+                        origin[0] + f64::from(x) + 0.5,
+                        origin[1] + f64::from(y) + 0.5,
+                    ];
+                    if contains_fill(path, point) {
+                        let offset = ((y * TILE + x) * 4) as usize;
+                        let dst: &mut [u8; 4] = (&mut tile[offset..offset + 4]).try_into().unwrap();
+                        blend_coverage(fill, 1.0, dst);
+                    }
+                }
+            }
+        }
         for_each_flat_segment(path, |a, b| {
             let min_x = (a[0].min(b[0]) - radius - origin[0]).floor().max(0.0) as u32;
             let min_y = (a[1].min(b[1]) - radius - origin[1]).floor().max(0.0) as u32;
@@ -751,6 +874,7 @@ mod tests {
                 point: [20.0, 10.0],
             }],
             stroke: [120, 40, 220, 255],
+            fill: None,
             width: 2.0,
         };
         path.validate().unwrap();
@@ -763,6 +887,32 @@ mod tests {
         let first = path_distance(&path, [10.0, 5.0]);
         assert_eq!(first, path_distance(&path, [10.0, 5.0]));
         assert!(first < 3.0, "distance={first}");
+    }
+
+    #[test]
+    fn vector_fill_requires_a_closed_path_and_uses_even_odd_membership() {
+        let mut path = VectorPath::from_polyline(
+            1,
+            &[[8.0, 8.0], [56.0, 8.0], [32.0, 56.0]],
+            [30, 40, 50, 255],
+            2.0,
+        )
+        .unwrap();
+        assert!(path.set_fill(Some([220, 30, 80, 255])).is_err());
+        assert!(!contains_fill(&path, [32.0, 20.0]));
+
+        path.close().unwrap();
+        path.set_fill(Some([220, 30, 80, 255])).unwrap();
+        assert!(contains_fill(&path, [32.0, 24.0]));
+        assert!(!contains_fill(&path, [4.0, 24.0]));
+        assert!(!contains_fill(&path, [f64::NAN, 24.0]));
+
+        let mut pixel = [0; 4];
+        sample_path(&path, [32.0, 24.0], &mut pixel);
+        assert_eq!(pixel, [220, 30, 80, 255]);
+        path.open().unwrap();
+        assert_eq!(path.fill, None);
+        assert!(!contains_fill(&path, [32.0, 24.0]));
     }
 
     #[test]

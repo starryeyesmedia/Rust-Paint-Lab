@@ -16,23 +16,24 @@ Linux Xorg/XTest workflow produced 75 populated screenshots for this slice.
 Actions run [`41039508985`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41039508985)
 passed on Windows, Linux and macOS.
 
-Phase 10 continues at commit [`95b098c`](https://github.com/starryeyesmedia/Rust-Paint-Lab/commit/95b098c)
-with optional deterministic freehand-to-cubic creation in the existing V tool.
-It preserves all input anchors, joins curves with shared tangents, captures the
-setting at pointer-down, and keeps polyline authoring as the backward-compatible
-default. Workspace preferences default the new option to off; editable objects
-still use the existing `.rpl` v3 schema, leaving v1/v2 reads unaffected. Local
-verification passes 388 workspace tests, strict host and Windows GNU Clippy,
-workspace build/check, Vulkan llvmpipe GPU smoke, and the full Linux Xorg/XTest
-artwork workflow with 76 screenshots. I inspected the new `vector-smoothed-path`
-capture. The Actions run for `95b098c` is pending until it is pushed; the
-preceding Inspector slice is green. Software GPU validation does not validate
-the owner's physical GPU, S Pen or native screen readers.
+Phase 10 now includes optional deterministic freehand-to-cubic creation and
+undoable closed-path fills in the existing V tool. Smooth paths preserve all
+input anchors, join curves with shared tangents, capture the authoring setting
+at pointer-down and leave polyline creation as the default. Closed fills use
+the explicit `.rpl` v4 marker; the v1/v2/v3 readers remain intact and unfilled
+paths keep the byte-compatible v3 schema. Fill pixels appear in compositing,
+PNG/OpenRaster exports and hit-testing without becoming raster tiles. Local
+verification passes 391 workspace tests, strict host and Windows GNU Clippy,
+workspace build/check, llvmpipe/GL GPU smoke, and the full Linux Xorg/XTest
+workflow with 77 screenshots. I inspected the `vector-filled-path` capture.
+Cross-platform Actions for the new fill checkpoint are pending push; software
+GPU testing does not validate the owner's Iris Xe, S Pen or native screen-reader
+behavior.
 
-Phase 8.3 remains active. Next, implement closed vector paths and editable fills
-as a complete document/render/export transaction, then address SVG
-interoperability separately. Do not treat the current vector slice, screenshots
-or automated checks as Phase 8.3 or Phase 10 completion.
+Phase 8.3 and Phase 10 remain active. The next vector slice is SVG
+interoperability for supported editable paths and styles, with explicit limits
+for unsupported SVG features. Do not treat this checkpoint, screenshots or
+automated checks as Phase 8.3 or Phase 10 completion.
 
 ## Adopted product identity — BitchPixel
 

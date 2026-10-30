@@ -1010,7 +1010,9 @@ impl Engine {
         for layer in self.state.layers.iter().rev().filter(|layer| layer.visible) {
             for path in layer.vector_paths.iter().rev().filter(|path| path.visible) {
                 let allowed = path.width * 0.5 + tolerance;
-                if vector::path_distance(path, point) <= allowed {
+                if vector::contains_fill(path, point)
+                    || vector::path_distance(path, point) <= allowed
+                {
                     return Some(path.id);
                 }
             }
@@ -1120,6 +1122,51 @@ impl Engine {
             path.stroke = stroke;
             path.width = width;
             path.validate()
+        })
+    }
+
+    /// Close or reopen a vector path as one undoable document edit. Reopening
+    /// removes its fill because open paths do not define a filled region.
+    pub fn set_vector_path_closed(&mut self, id: u64, closed: bool) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            if closed { path.close() } else { path.open() }
+        })
+    }
+
+    /// Apply or remove a straight-alpha sRGB fill as an undoable style edit.
+    pub fn set_vector_path_fill(
+        &mut self,
+        id: u64,
+        fill: Option<[u8; 4]>,
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.set_fill(fill)
         })
     }
 

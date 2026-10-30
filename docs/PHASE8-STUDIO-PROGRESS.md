@@ -1,5 +1,45 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Phase 10 — closed vector paths and editable fills (2026-10-30)
+
+The continuation from `85e5375` adds closed-path and fill editing to the existing
+vector workflow. Closing and reopening a path is an undoable document operation;
+closing an open path adds a straight final segment, and reopening removes its
+fill within the same edit. Closed paths can store an optional straight-alpha
+sRGB even-odd fill independently from their stroke. Fill membership is evaluated
+from deterministic flattened line/cubic segments, contributes to hit-testing,
+layer previews, compositing, PNG export, and OpenRaster's documented flattened
+pixel output. Fill work is checked against the existing bounded vector work
+budget before the document accepts it.
+
+Filled objects use the explicit `RPLALP04` format marker. The v4 metadata extends
+the existing vector-path data with an optional `fill` RGBA value; the field is
+omitted for unfilled objects. Existing v1, v2, and v3 projects remain readable,
+and closed-but-unfilled paths continue to serialize with the exact v3 schema.
+Raster and mask tile tables remain unchanged by vector fill edits. Tests cover
+v3 byte-compatible closed paths, v4 round trips, fill pixels, PNG/OpenRaster
+pixels, raster/mask isolation, Undo/Redo, reopening a filled document, and
+rejection of a high-cost full-size polygon.
+
+The contextual V-tool strip now offers Close/Open path, Fill/Update fill and
+Remove fill, with transformations, duplication, and deletion grouped behind a
+compact keyboard-accessible Path actions menu. This avoids the prior wrapping
+defect that pushed width and color controls offscreen. The Linux Xorg/XTest
+workflow exercised close, fill, save, undo/redo, reopen, and OpenRaster export
+through the running application. It completed with **77 rendered screenshots**;
+I inspected `/tmp/bpx-vector-fill-approved/vector-filled-path.png` and verified
+the closed fill is visible while the Layers inspector remains on-screen.
+
+Rust 1.90 checks pass: formatting, strict workspace Clippy, **391 workspace
+tests across 24 targets**, workspace build, Windows GNU workspace check and
+strict Windows GNU Clippy. The GPU smoke passed using software llvmpipe/GL; the
+full Linux Xorg/XTest artwork workflow exited successfully. GitHub Actions for
+this checkpoint are pending after push. This does not validate Windows/macOS
+GUI startup, the owner's Iris Xe rendering or advanced pen behaviors. Phase 8.3
+and Phase 10 remain active. Next Phase 10 slice: SVG import/export for the
+currently supported editable line/cubic paths, fill and stroke styles, with
+explicit handling for unsupported SVG features.
+
 ## Phase 10 — connected cubic path authoring (2026-10-30)
 
 Commit [`95b098c`](https://github.com/starryeyesmedia/Rust-Paint-Lab/commit/95b098c)
@@ -34,10 +74,9 @@ Narrator or NVDA validation. The preceding Inspector commit passed Actions run
 on Windows, Linux and macOS; this commit still needs its own hosted run after
 push.
 
-Phase 8.3 remains active. Next Phase 10 slice: implement closed vector paths
-with editable fill behavior and document/render/export coverage, preserving
-v1/v2/v3 reads and using a schema change only if an explicit compatibility
-design requires it. SVG interoperability remains a separate follow-up.
+Phase 8.3 remains active. The next Phase 10 slice is SVG interoperability for
+the supported editable path subset; document and import/export validation must
+continue preserving raster/mask tile isolation and legacy v1-v3 projects.
 
 ## Canvas-first Inspector and reference integration — local validation (2026-10-30)
 

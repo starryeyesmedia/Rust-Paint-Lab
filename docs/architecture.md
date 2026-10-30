@@ -143,14 +143,15 @@ Future components have distinct responsibilities:
    and alpha masks, bounded undo/redo, provisional brush transactions, and checked
    native storage; only Commit finalizes a raster stroke transaction. It is
    OS/UI/GPU-independent. Unmasked projects retain v1, mask projects use v2,
-   and editable vector path metadata/allocator use v3; all existing v1/v2
-   projects continue to read. Vector paths share raster-layer ordering and mask
-   compositing, while raster pixels are derived only for display/export. The
-   first path editor creates freehand polylines by default, with an optional
-   workspace-only Catmull–Rom-to-cubic creation mode, and moves whole objects;
-   node editing and fills remain future work. Both creation modes write the
-   same v3 cubic/line path schema. See the alpha format and overdrive progress
-   document for current boundaries.
+   and editable vector path metadata/allocator use v3; filled vector paths use
+   explicit v4 metadata while sharing the existing raster/mask tile sections.
+   All existing v1/v2/v3 projects continue to read. Vector paths share
+   raster-layer ordering and mask compositing, while raster pixels are derived
+   only for display/export. The V tool creates freehand polylines by default,
+   with an optional workspace-only Catmull–Rom-to-cubic mode, edits anchors and
+   handles, and can close paths and apply an even-odd fill. Unfilled paths keep
+   the v3 schema; a fill is a single undoable v4 document edit. See the alpha
+   format and overdrive progress document for limits and current boundaries.
 
 The separate canvas demo now implements a bounded command consumer and renderer
 for synthetic playback and interactive mouse drawing. The physical-pixel winit
@@ -454,14 +455,18 @@ coordinates or locked/hidden owner layers. A provisional handle preview is
 rendered before commit; Escape or input interruption discards it. Undo/Redo
 retains full editable path geometry. The path tool can convert line segments to
 cubics, insert/remove supported anchors, move anchors and handles, edit stroke
-color/width, and apply uniform scale/rotation or duplicate a selected path as
-undoable document transactions. These remain editable vector metadata on their
-owning raster layer; the operations do not bake into raster tiles and do not
-change the native v3 schema. Direct cubic authoring, filled paths, SVG
-interoperability, and a dedicated vector-object selection workflow remain future
-work. No GPU/windowing dependencies are added to `paint-document`.
+color/width, close paths, apply or remove a fill, and apply uniform
+scale/rotation or duplicate a selected path as undoable document transactions.
+These remain editable vector metadata on their owning raster layer; the
+operations do not bake into authoritative raster tiles. Unfilled paths retain
+the v3 schema, while a filled path opts into v4 so an older application rejects
+the file instead of silently dropping the style. Fill membership uses an
+even-odd rule over deterministic flattened geometry, with a bounded pixel-edge
+work estimate. Fill edges are sampled at pixel centers; advanced vector
+antialiasing and SVG interoperability remain future work. No GPU/windowing
+dependencies are added to `paint-document`.
 
 Native document JSON uses serde_json's `float_roundtrip` feature. This prevents
 repeated load/save cycles from perturbing cubic control coordinates and makes
 save/undo/redo stable for mixed raster/vector documents. It does not alter v1,
-v2, or v3 schemas and improves numeric decoding for earlier supported formats.
+v2, v3, or v4 schemas and improves numeric decoding for earlier supported formats.

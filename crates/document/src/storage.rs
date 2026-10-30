@@ -11,6 +11,7 @@ use std::{
 const MAGIC_V1: &[u8; 8] = b"RPLALP01";
 const MAGIC_V2: &[u8; 8] = b"RPLALP02";
 const MAGIC_V3: &[u8; 8] = b"RPLALP03";
+const MAGIC_V4: &[u8; 8] = b"RPLALP04";
 pub(crate) const MAX_FILE: usize = 160 * 1024 * 1024;
 const MAX_METADATA_V1_V2: usize = 65_536;
 const MAX_METADATA_V3: usize = 8 * 1024 * 1024;
@@ -33,8 +34,15 @@ pub fn encode(state: &State) -> Result<Vec<u8>, PaintError> {
         .iter()
         .any(|layer| !layer.vector_paths.is_empty())
         || state.next_vector_id != 1;
+    let has_vector_fills = state
+        .layers
+        .iter()
+        .flat_map(|layer| &layer.vector_paths)
+        .any(|path| path.fill.is_some());
     let has_mask_section = has_masks || has_vectors;
-    let magic = if has_vectors {
+    let magic = if has_vector_fills {
+        MAGIC_V4
+    } else if has_vectors {
         MAGIC_V3
     } else if has_masks {
         MAGIC_V2
@@ -101,7 +109,7 @@ pub fn decode(bytes: &[u8]) -> Result<State, PaintError> {
         (false, false)
     } else if &bytes[..8] == MAGIC_V2 {
         (true, false)
-    } else if &bytes[..8] == MAGIC_V3 {
+    } else if &bytes[..8] == MAGIC_V3 || &bytes[..8] == MAGIC_V4 {
         (true, true)
     } else {
         return Err(PaintError::Invalid);
@@ -239,11 +247,15 @@ pub fn peek_dimensions(path: &Path) -> Option<(u32, u32, u32)> {
     }
     let mut prefix = [0u8; 12];
     file.read_exact(&mut prefix).ok()?;
-    if &prefix[..8] != MAGIC_V1 && &prefix[..8] != MAGIC_V2 && &prefix[..8] != MAGIC_V3 {
+    if &prefix[..8] != MAGIC_V1
+        && &prefix[..8] != MAGIC_V2
+        && &prefix[..8] != MAGIC_V3
+        && &prefix[..8] != MAGIC_V4
+    {
         return None;
     }
     let metadata_len = u32::from_le_bytes(prefix[8..12].try_into().ok()?) as usize;
-    let maximum_metadata = if &prefix[..8] == MAGIC_V3 {
+    let maximum_metadata = if &prefix[..8] == MAGIC_V3 || &prefix[..8] == MAGIC_V4 {
         MAX_METADATA_V3
     } else {
         MAX_METADATA_V1_V2

@@ -282,6 +282,7 @@ fn layer_signature(layer: &Layer, document_size: [u32; 2]) -> u64 {
         path.visible.hash(&mut hasher);
         path.width.to_bits().hash(&mut hasher);
         path.stroke.hash(&mut hasher);
+        path.fill.hash(&mut hasher);
         for coordinate in path.start {
             coordinate.to_bits().hash(&mut hasher);
         }
@@ -599,7 +600,24 @@ mod tests {
         let styled = cache.refresh(&context, 0, &project);
         assert_eq!(styled.len(), 1);
         assert_ne!(styled[0].fingerprint, moved[0].fingerprint);
-        assert_eq!(cache.rebuild_count(), 5);
+
+        project.set_vector_path_closed(path_id, true).unwrap();
+        let closed = cache.refresh(&context, 0, &project);
+        assert_eq!(closed.len(), 1);
+        assert_ne!(closed[0].fingerprint, styled[0].fingerprint);
+
+        project
+            .set_vector_path_fill(path_id, Some([35, 185, 90, 255]))
+            .unwrap();
+        let filled = cache.refresh(&context, 0, &project);
+        assert_eq!(filled.len(), 1);
+        assert_ne!(filled[0].fingerprint, closed[0].fingerprint);
+
+        project.set_vector_path_fill(path_id, None).unwrap();
+        let unfilled = cache.refresh(&context, 0, &project);
+        assert_eq!(unfilled.len(), 1);
+        assert_ne!(unfilled[0].fingerprint, filled[0].fingerprint);
+        assert_eq!(cache.rebuild_count(), 8);
     }
 
     #[test]

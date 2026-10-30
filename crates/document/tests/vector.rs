@@ -138,6 +138,117 @@ fn smooth_vector_creation_is_native_visible_and_one_undoable_transaction() {
 }
 
 #[test]
+fn closed_vector_fill_roundtrips_in_v4_and_exports_without_rasterizing_document_tiles() {
+    let mut engine = blank();
+    let path_id = engine
+        .add_vector_path(&[[8.0, 8.0], [56.0, 8.0], [32.0, 56.0]])
+        .unwrap();
+    let raster_tiles = engine.state().layers[0].tiles.clone();
+    engine.set_vector_path_closed(path_id, true).unwrap();
+    let closed_without_fill = storage::encode(engine.state()).unwrap();
+    assert_eq!(&closed_without_fill[..8], b"RPLALP03");
+    let closed_metadata_len =
+        u32::from_le_bytes(closed_without_fill[8..12].try_into().unwrap()) as usize;
+    let closed_metadata: serde_json::Value =
+        serde_json::from_slice(&closed_without_fill[12..12 + closed_metadata_len]).unwrap();
+    assert!(
+        closed_metadata["layers"][0]["vector_paths"][0]
+            .get("fill")
+            .is_none()
+    );
+    assert_eq!(
+        storage::encode(&storage::decode(&closed_without_fill).unwrap()).unwrap(),
+        closed_without_fill,
+        "closed unfilled paths preserve the exact v3 schema and bytes"
+    );
+
+    let green = [40, 210, 90, 255];
+    engine.set_vector_path_fill(path_id, Some(green)).unwrap();
+    let encoded = storage::encode(engine.state()).unwrap();
+    assert_eq!(&encoded[..8], b"RPLALP04");
+    assert_eq!(pixel(&engine, 32, 28), green);
+    assert_eq!(pixel(&engine, 4, 28), [0; 4]);
+    assert_eq!(
+        engine.hit_test_vector_path([32.0, 28.0], 0.0),
+        Some(path_id)
+    );
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
+
+    let reopened = Engine::from_state(storage::decode(&encoded).unwrap()).unwrap();
+    assert_eq!(storage::encode(reopened.state()).unwrap(), encoded);
+    assert_eq!(reopened.rgba(), engine.rgba());
+
+    let root = temp("vector-fill-export");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let png_path = root.join("filled.png");
+    storage::export_png(&png_path, &engine).unwrap();
+    let mut reader = png::Decoder::new(std::io::BufReader::new(fs::File::open(&png_path).unwrap()))
+        .read_info()
+        .unwrap();
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut pixels).unwrap();
+    let stride = info.width as usize * 4;
+    assert_eq!(&pixels[28 * stride + 32 * 4..][..4], &green);
+
+    let ora_path = root.join("filled.ora");
+    paint_document::openraster::export(&ora_path, &engine).unwrap();
+    let mut archive = zip::ZipArchive::new(fs::File::open(&ora_path).unwrap()).unwrap();
+    let mut layer_png = Vec::new();
+    archive
+        .by_name("data/layer0.png")
+        .unwrap()
+        .read_to_end(&mut layer_png)
+        .unwrap();
+    let mut ora = png::Decoder::new(std::io::Cursor::new(layer_png))
+        .read_info()
+        .unwrap();
+    let mut ora_pixels = vec![0; ora.output_buffer_size().unwrap()];
+    let ora_info = ora.next_frame(&mut ora_pixels).unwrap();
+    assert_eq!(
+        &ora_pixels[28 * ora_info.width as usize * 4 + 32 * 4..][..4],
+        &green
+    );
+
+    assert!(engine.undo());
+    assert_eq!(
+        storage::encode(engine.state()).unwrap(),
+        closed_without_fill
+    );
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), encoded);
+    engine.set_vector_path_closed(path_id, false).unwrap();
+    assert_eq!(
+        engine.state().layers[0].vector_paths[0].fill,
+        None,
+        "reopening removes fill in the same document edit"
+    );
+    assert_eq!(&storage::encode(engine.state()).unwrap()[..8], b"RPLALP03");
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), encoded);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn fill_work_budget_rejects_full_size_high_cost_vector_polygons() {
+    let mut engine = Engine::new(4096, 4096, 300).unwrap();
+    let path_id = engine
+        .add_vector_path(&[[0.0, 0.0], [4096.0, 0.0], [0.0, 4096.0]])
+        .unwrap();
+    engine.set_vector_path_closed(path_id, true).unwrap();
+    assert!(
+        engine
+            .set_vector_path_fill(path_id, Some([20, 50, 220, 255]))
+            .is_err()
+    );
+    assert!(engine.state().layers[0].vector_paths[0].fill.is_none());
+    assert!(engine.undo());
+    assert!(
+        engine.state().layers[0].vector_paths[0].segments.last() != Some(&VectorSegment::Close)
+    );
+}
+
+#[test]
 fn dense_editable_paths_keep_document_and_layer_previews_tile_bounded() {
     let mut engine = Engine::new(2048, 2048, 300).unwrap();
     engine.brush.size = 1.0;

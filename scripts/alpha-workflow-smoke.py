@@ -291,7 +291,9 @@ def gradient_control_rect(mode):
 def vector_delete_rect():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_VECTOR_DELETE_RECT: ')]
-    return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].partition(': ')[2].split()))
 
 def vector_width_rect():
     marker=stable_window_rect_marker('UI_TEST_VECTOR_WIDTH_RECT')
@@ -304,6 +306,19 @@ def vector_action_rect(action):
     if len(lines)<2 or lines[-1]!=lines[-2]:
         return None
     return tuple(map(float,lines[-1].split()))
+
+def vector_action_marker_count(action):
+    prefix=f'UI_TEST_VECTOR_ACTION_RECT: {action} '
+    return sum(line.startswith(prefix)
+               for line in (directory/'application.log').read_text().splitlines())
+
+def vector_actions_menu_rect():
+    return stable_window_rect_marker('UI_TEST_VECTOR_ACTIONS_MENU_RECT')
+
+def open_vector_actions_menu():
+    menu=wait(vector_actions_menu_rect,
+              'the selected path exposes its compact Path actions menu')
+    click_scaled_rect(menu)
 
 def vector_node_handle():
     marker=event_marker('UI_TEST_VECTOR_NODE_HANDLE')
@@ -326,6 +341,33 @@ def vector_smoothing_rect():
     if len(values)!=6:
         return None
     return (*map(float,values[:5]),values[5]=='true')
+
+def vector_close_rect():
+    prefix='UI_TEST_VECTOR_CLOSE_RECT: '
+    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    values=lines[-1].split()
+    if len(values)!=6:
+        return None
+    return (values[0]=='true',*map(float,values[1:]))
+
+def vector_fill_rect():
+    prefix='UI_TEST_VECTOR_FILL_RECT: '
+    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    values=lines[-1].split()
+    if len(values)!=6:
+        return None
+    return (values[0]=='true',*map(float,values[1:]))
+
+def vector_pointer_samples():
+    prefix='UI_TEST_VECTOR_POINTER_SAMPLE: '
+    return [line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+            if line.startswith(prefix)][-12:]
 
 def vector_handles_section_rect():
     return stable_window_rect_marker('UI_TEST_VECTOR_HANDLES_SECTION_RECT')
@@ -383,6 +425,13 @@ def selection_bounds():
 def click_scaled_rect(rect):
     x,y,width,height,scale=rect
     click_at((x+width/2)*scale,(y+height/2)*scale)
+
+def click_and_hold_scaled_rect(rect, duration=0.12):
+    x,y,width,height,scale=rect
+    move(round((x+width/2)*scale),round((y+height/2)*scale))
+    click_button(1,True)
+    time.sleep(duration)
+    click_button(1,False)
 
 def symmetry_mode_rect(label):
     prefix=f'UI_TEST_SYMMETRY_MODE_RECT: {label} '
@@ -1082,7 +1131,7 @@ def valid_project(path):
     return valid_project_bytes(path.read_bytes())
 def valid_project_bytes(data):
     try:
-        if len(data)<48 or data[:8] not in (b'RPLALP01',b'RPLALP02',b'RPLALP03') or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return None
+        if len(data)<48 or data[:8] not in (b'RPLALP01',b'RPLALP02',b'RPLALP03',b'RPLALP04') or hashlib.sha256(data[:-32]).digest()!=data[-32:]: return None
         _,layers,_=native_document_tables(data)
         # Preserve the helper's original contract: valid files return their
         # raster tile count, so zero distinguishes a clean empty document from
@@ -1136,10 +1185,10 @@ def replace_native_state(data,state):
     return result
 def native_document_tables(data):
     """Read bounded raster/mask tables from an already checksummed RPL file."""
-    assert len(data)>=48 and data[:8] in (b'RPLALP01',b'RPLALP02',b'RPLALP03')
+    assert len(data)>=48 and data[:8] in (b'RPLALP01',b'RPLALP02',b'RPLALP03',b'RPLALP04')
     checksum_offset=len(data)-32
     metadata=struct.unpack('<I',data[8:12])[0]
-    assert metadata<=(8*1024*1024 if data[:8]==b'RPLALP03' else 65536) and 16+metadata<=checksum_offset
+    assert metadata<=(8*1024*1024 if data[:8] in (b'RPLALP03',b'RPLALP04') else 65536) and 16+metadata<=checksum_offset
     state=native_state_bytes(data)
     count_offset=12+metadata
     raster_count=struct.unpack('<I',data[count_offset:count_offset+4])[0]
@@ -1152,7 +1201,7 @@ def native_document_tables(data):
         tile=data[offset:offset+16384];offset+=16384
         layers.setdefault(layer_id,{})[(tile_x,tile_y)]=tile
     masks={}
-    if data[:8] in (b'RPLALP02',b'RPLALP03'):
+    if data[:8] in (b'RPLALP02',b'RPLALP03',b'RPLALP04'):
         assert offset+4<=checksum_offset
         mask_count=struct.unpack('<I',data[offset:offset+4])[0];offset+=4
         assert mask_count<=8192-raster_count
@@ -4245,7 +4294,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                                   if layer['id']==before_state['selected'])
                 before_path=before_layer['vector_paths'][0]
                 transformed_count=event_marker_count('UI_TEST_VECTOR_PATH_TRANSFORMED')
-                action_rect=wait(lambda:vector_action_rect(action),
+                action_rect_count=vector_action_marker_count(action)
+                open_vector_actions_menu()
+                action_rect=wait(lambda:vector_action_rect(action)
+                                 if vector_action_marker_count(action)>action_rect_count else None,
                                  f'the selected vector exposes the keyboard-accessible {action.replace("_"," ")} action')
                 click_scaled_rect(action_rect)
                 wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_TRANSFORMED')>transformed_count,
@@ -4288,7 +4340,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # before removing the duplicate for the subsequent move/delete flow.
             before_duplicate=imported.read_bytes()
             duplicate_count=event_marker_count('UI_TEST_VECTOR_PATH_DUPLICATED')
-            duplicate_rect=wait(lambda:vector_action_rect('duplicate'),
+            duplicate_rect_count=vector_action_marker_count('duplicate')
+            open_vector_actions_menu()
+            duplicate_rect=wait(lambda:vector_action_rect('duplicate')
+                                if vector_action_marker_count('duplicate')>duplicate_rect_count else None,
                                  'the selected vector exposes an accessible Duplicate action')
             click_scaled_rect(duplicate_rect)
             wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_DUPLICATED')>duplicate_count,
@@ -4353,6 +4408,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  and event_marker('UI_TEST_VECTOR_PATH_SELECTED')==str(reopened_transform_path['id']),
                  'the reopened transformed path is selected again on its actual canvas geometry')
             vector_before_delete=imported.read_bytes()
+            open_vector_actions_menu()
             delete_rect=wait(lambda: vector_delete_rect()
                              if event_marker_count('UI_TEST_VECTOR_DELETE_RECT')>delete_rect_count
                              else None,
@@ -4445,13 +4501,91 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda:imported.read_bytes()==smooth_after,
                  'Redo restores the cubic path bytes exactly')
+
+            # Undo/Redo restores artwork, not transient editor selection. A
+            # stale context-strip rectangle can still be present in the log
+            # from before Undo, so select the restored path again through its
+            # rendered geometry and require fresh control bounds below.
+            restored_smooth_path=next(path for layer in native_state(imported)['layers']
+                                      for path in layer.get('vector_paths',[])
+                                      if path['id']==smooth_id)
+            close_reselect_count=event_marker_count('UI_TEST_VECTOR_PATH_SELECTED')
+            close_mapping=wait(canvas_mapping_marker,
+                               'the restored path exposes its current canvas mapping')
+            close_selection_point=document_point_to_canvas(
+                vector_curve_midpoint(restored_smooth_path),close_mapping)
+            click_at(*close_selection_point)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_SELECTED')>close_reselect_count
+                 and event_marker('UI_TEST_VECTOR_PATH_SELECTED')==str(smooth_id),
+                 'the redone path is selected again through its visible canvas geometry')
+            selected_after_redo=imported.read_bytes()
+            assert native_projects_equivalent(smooth_after,selected_after_redo), \
+                'reselecting the redone vector path must not alter saved geometry'
+            close_rect_count=event_marker_count('UI_TEST_VECTOR_CLOSE_RECT')
+            close_control=wait(lambda:(lambda control:control if control and not control[0]
+                                       else None)(vector_close_rect())
+                               if event_marker_count('UI_TEST_VECTOR_CLOSE_RECT')>close_rect_count
+                               else None,
+                               'the selected vector path exposes Close path')
+            print(f'UI_TEST_VECTOR_CLOSE_CLICK_BOUNDS: {close_control[1:]}', flush=True)
+            close_clicks=event_marker_count('UI_TEST_VECTOR_PATH_CLOSE_CLICKED')
+            click_and_hold_scaled_rect(close_control[1:])
+            try:
+                wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_CLOSE_CLICKED')>close_clicks,
+                     'the Close path control receives the pointer click')
+            except AssertionError:
+                print(f'UI_TEST_VECTOR_CLOSE_POINTER_TRACE: {vector_pointer_samples()}',flush=True)
+                raise
+            wait(lambda:event_marker('UI_TEST_VECTOR_PATH_CLOSED')==f'{smooth_id} true',
+                 'Close path commits through the document transaction')
+            ctrl('s')
+            wait(lambda:valid_project(imported) and imported.read_bytes()!=smooth_after
+                 and imported.read_bytes()[:8]==b'RPLALP03'
+                 and next(path for layer in native_state(imported)['layers']
+                          for path in layer.get('vector_paths',[])
+                          if path['id']==smooth_id)['segments'][-1]['kind']=='close',
+                 'closing alone remains in the existing v3 vector schema')
+            closed_without_fill=imported.read_bytes()
+            fill_control=wait(lambda:(lambda control:control if control and not control[0]
+                                      else None)(vector_fill_rect()),
+                              'the closed vector path exposes Fill path')
+            fill_clicks=event_marker_count('UI_TEST_VECTOR_PATH_FILL_CLICKED')
+            click_and_hold_scaled_rect(fill_control[1:])
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_FILL_CLICKED')>fill_clicks,
+                 'the Fill path control receives the pointer click')
+            wait(lambda:event_line_count(f'UI_TEST_VECTOR_PATH_FILL: {smooth_id} Some(')>0,
+                 'Fill path applies the current Color and opacity as one document edit')
+            ctrl('s')
+            wait(lambda:valid_project(imported) and imported.read_bytes()[:8]==b'RPLALP04'
+                 and '*' not in title(window),
+                 'filled vectors are saved in the explicit v4 format')
+            filled_path_bytes=imported.read_bytes()
+            filled_state=native_state_bytes(filled_path_bytes)
+            filled_path=next(path for layer in filled_state['layers']
+                             for path in layer.get('vector_paths',[])
+                             if path['id']==smooth_id)
+            assert filled_path['segments'][-1]['kind']=='close'
+            assert filled_path['fill'] is not None
+            assert native_document_tables(filled_path_bytes)[1] \
+                ==native_document_tables(smoothing_before)[1], \
+                'vector fills must not be baked into authoritative raster tiles'
+            assert native_document_tables(filled_path_bytes)[2] \
+                ==native_document_tables(smoothing_before)[2], \
+                'vector fills must preserve independent mask tiles'
+            capture_window(window,'vector-filled-path')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==closed_without_fill,
+                 'Undo removes the fill and restores the exact closed v3 path')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==filled_path_bytes,
+                 'Redo restores the editable v4 fill exactly')
             smooth_open_count=event_marker_count('UI_TEST_PROJECT_OPENED')
             picker_frames=event_marker_count('UI_TEST_FILE_PICKER_CANCEL_RECT')
             ctrl('o');path_prompt(picker_frames);ctrl('Return')
             wait(lambda:event_marker_count('UI_TEST_PROJECT_OPENED')>smooth_open_count,
-                 'the smooth-path document reopens through the application')
-            assert native_projects_equivalent(smooth_after,imported.read_bytes()), \
-                'the reopened smooth path preserves editable cubic geometry and tile tables'
+                 'the filled-vector document reopens through the application')
+            assert native_projects_equivalent(filled_path_bytes,imported.read_bytes()), \
+                'the reopened path preserves editable cubic geometry, fill, and tile tables'
             assert json.loads(prefs.read_text()).get('smooth_vector_paths') is True, \
                 'opening artwork must not reset the workspace smooth-path preference'
 
@@ -5046,7 +5180,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-controls-direct','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-controls-direct','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','vector-filled-path','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
