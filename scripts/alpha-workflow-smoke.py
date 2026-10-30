@@ -318,6 +318,15 @@ def vector_anchor_action_rect(action):
 def vector_curve_segment_rect():
     return stable_window_rect_marker('UI_TEST_VECTOR_CURVE_SEGMENT_RECT')
 
+def vector_smoothing_rect():
+    marker=event_marker('UI_TEST_VECTOR_SMOOTHING_RECT')
+    if marker is None:
+        return None
+    values=marker.split()
+    if len(values)!=6:
+        return None
+    return (*map(float,values[:5]),values[5]=='true')
+
 def vector_handles_section_rect():
     return stable_window_rect_marker('UI_TEST_VECTOR_HANDLES_SECTION_RECT')
 
@@ -4371,6 +4380,81 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('z');ctrl('s')
             wait(lambda: imported.read_bytes()==vector_before_delete,
                  'undo restores the editable path before interoperability export')
+
+            # The optional freehand curve mode creates native cubic segments
+            # through the same V-tool gesture. It is disabled by default to
+            # preserve legacy polyline behavior, is a workspace preference,
+            # and does not change any raster or mask tile bytes.
+            smooth_preferences=json.loads(prefs.read_text())
+            assert smooth_preferences.get('smooth_vector_paths',False) is False, \
+                'a new workspace must retain the familiar polyline default'
+            smoothing_before=imported.read_bytes()
+            key('v')
+            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='VectorPath',
+                 'V selects the vector tool before enabling smooth path authoring')
+            smoothing_control=wait(vector_smoothing_rect,
+                                   'Vector Path exposes the accessible Smooth new paths option')
+            assert smoothing_control[5] is False
+            click_scaled_rect(smoothing_control[:5])
+            wait(lambda:json.loads(prefs.read_text()).get('smooth_vector_paths') is True,
+                 'the smooth-path option persists as a workspace-only preference')
+            wait(lambda:(lambda control:control if control and control[5]
+                         else None)(vector_smoothing_rect()),
+                 'the Vector Path checkbox reports its enabled state')
+            smooth_mapping=wait(canvas_mapping_marker,
+                                'smooth vector creation reports its current canvas mapping')
+            smooth_points=[[180.0,600.0],[280.0,450.0],[420.0,570.0],[560.0,420.0]]
+            smooth_canvas_points=[document_point_to_canvas(point,smooth_mapping)
+                                 for point in smooth_points]
+            created_before=len(vector_markers())
+            drag_path(smooth_canvas_points)
+            wait(lambda:len(vector_markers())>created_before,
+                 'a real V-tool gesture creates a connected smooth vector path')
+            created=event_marker('UI_TEST_VECTOR_PATH_CREATED').split()
+            assert created[2]=='smooth=true', \
+                f'the captured gesture did not use its cubic setting: {created}'
+            smooth_id=int(created[0]);sample_count=int(created[1])
+            geometry=tuple(map(float,event_marker('UI_TEST_VECTOR_PATH_GEOMETRY').split()[1:]))
+            assert geometry and len(geometry)==4
+            ctrl('s')
+            wait(lambda:valid_project(imported) and imported.read_bytes()!=smoothing_before
+                 and imported.read_bytes()[:8]==b'RPLALP03' and '*' not in title(window),
+                 'smooth vector samples are stored as editable native v3 geometry')
+            smooth_after=imported.read_bytes()
+            smooth_state=native_state_bytes(smooth_after)
+            smooth_path=next(path for layer in smooth_state['layers']
+                             for path in layer.get('vector_paths',[])
+                             if path['id']==smooth_id)
+            assert len(smooth_path['segments'])==sample_count-1
+            assert all(segment['kind']=='cubic_to' for segment in smooth_path['segments']), \
+                'every smoothed input interval remains an editable cubic segment'
+            assert tuple(smooth_path['start'])==geometry[:2], \
+                'the saved cubic path must preserve the exact pointer-down anchor'
+            assert tuple(smooth_path['segments'][-1]['point'])==geometry[2:], \
+                'the saved cubic path must preserve the exact final pointer sample'
+            assert native_document_tables(smooth_after)[1] \
+                ==native_document_tables(smoothing_before)[1], \
+                'vector curves must not be baked into authoritative raster tiles'
+            assert native_document_tables(smooth_after)[2] \
+                ==native_document_tables(smoothing_before)[2], \
+                'vector curves must preserve independent mask tiles'
+            capture_window(window,'vector-smoothed-path')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==smoothing_before,
+                 'Undo removes the smooth path and restores the exact native document')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==smooth_after,
+                 'Redo restores the cubic path bytes exactly')
+            smooth_open_count=event_marker_count('UI_TEST_PROJECT_OPENED')
+            picker_frames=event_marker_count('UI_TEST_FILE_PICKER_CANCEL_RECT')
+            ctrl('o');path_prompt(picker_frames);ctrl('Return')
+            wait(lambda:event_marker_count('UI_TEST_PROJECT_OPENED')>smooth_open_count,
+                 'the smooth-path document reopens through the application')
+            assert native_projects_equivalent(smooth_after,imported.read_bytes()), \
+                'the reopened smooth path preserves editable cubic geometry and tile tables'
+            assert json.loads(prefs.read_text()).get('smooth_vector_paths') is True, \
+                'opening artwork must not reset the workspace smooth-path preference'
+
             ora=directory/'imported-artwork.ora'
             ora.unlink(missing_ok=True)
             ctrl_shift('e')
@@ -4962,7 +5046,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-controls-direct','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-controls-direct','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

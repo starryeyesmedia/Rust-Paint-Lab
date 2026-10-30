@@ -74,6 +74,54 @@ impl VectorPath {
         Ok(path)
     }
 
+    /// Create an editable Catmull–Rom-smoothed path from ordered pointer
+    /// samples. Every interval remains a native cubic segment; the first and
+    /// last anchors are exact, and adjacent curves share the same tangent at
+    /// each interior anchor. This is deterministic and bounded by the same
+    /// point limit as a polyline.
+    pub fn from_smoothed_polyline(
+        id: u64,
+        points: &[[f64; 2]],
+        stroke: [u8; 4],
+        width: f64,
+    ) -> Result<Self, PaintError> {
+        if points.len() < 2 || points.len() > MAX_VECTOR_SEGMENTS_PER_PATH + 1 {
+            return Err(PaintError::Limit);
+        }
+
+        let mut segments = Vec::with_capacity(points.len() - 1);
+        for index in 0..points.len() - 1 {
+            let previous = points[index.saturating_sub(1)];
+            let start = points[index];
+            let end = points[index + 1];
+            let next = points.get(index + 2).copied().unwrap_or(end);
+            let control1 = [
+                start[0] + (end[0] - previous[0]) / 6.0,
+                start[1] + (end[1] - previous[1]) / 6.0,
+            ];
+            let control2 = [
+                end[0] - (next[0] - start[0]) / 6.0,
+                end[1] - (next[1] - start[1]) / 6.0,
+            ];
+            segments.push(VectorSegment::CubicTo {
+                control1,
+                control2,
+                point: end,
+            });
+        }
+
+        let path = Self {
+            id,
+            visible: true,
+            start: points[0],
+            segments,
+            stroke,
+            width,
+        };
+        path.validate()?;
+        Ok(path)
+    }
+
     pub fn validate(&self) -> Result<(), PaintError> {
         if self.id == 0
             || self.id > u64::from(u32::MAX)
@@ -715,6 +763,62 @@ mod tests {
         let first = path_distance(&path, [10.0, 5.0]);
         assert_eq!(first, path_distance(&path, [10.0, 5.0]));
         assert!(first < 3.0, "distance={first}");
+    }
+
+    #[test]
+    fn smoothed_paths_keep_exact_anchors_and_share_c1_tangents() {
+        let points = [[1.25, 2.5], [8.0, 12.0], [21.0, 5.0], [31.5, 18.25]];
+        let path =
+            VectorPath::from_smoothed_polyline(7, &points, [180, 60, 240, 192], 3.5).unwrap();
+        let repeated =
+            VectorPath::from_smoothed_polyline(7, &points, [180, 60, 240, 192], 3.5).unwrap();
+        assert_eq!(path, repeated);
+        assert_eq!(path.start, points[0]);
+        assert_eq!(path.anchor_points(), points);
+        assert_eq!(path.segments.len(), points.len() - 1);
+
+        for index in 1..points.len() - 1 {
+            let VectorSegment::CubicTo {
+                control2: incoming,
+                point: anchor,
+                ..
+            } = &path.segments[index - 1]
+            else {
+                panic!("smoothed path segment must remain cubic");
+            };
+            let VectorSegment::CubicTo {
+                control1: outgoing, ..
+            } = &path.segments[index]
+            else {
+                panic!("smoothed path segment must remain cubic");
+            };
+            for axis in 0..2 {
+                let before = 3.0 * (anchor[axis] - incoming[axis]);
+                let after = 3.0 * (outgoing[axis] - anchor[axis]);
+                assert!((before - after).abs() <= 1e-12, "knot {index}, axis {axis}");
+            }
+        }
+    }
+
+    #[test]
+    fn smoothed_path_rejects_invalid_and_unbounded_samples() {
+        assert!(matches!(
+            VectorPath::from_smoothed_polyline(1, &[[0.0, 0.0]], [0; 4], 2.0),
+            Err(PaintError::Limit)
+        ));
+        let too_many = vec![[1.0, 1.0]; MAX_VECTOR_SEGMENTS_PER_PATH + 2];
+        assert!(matches!(
+            VectorPath::from_smoothed_polyline(1, &too_many, [0; 4], 2.0),
+            Err(PaintError::Limit)
+        ));
+        assert!(matches!(
+            VectorPath::from_smoothed_polyline(1, &[[0.0, 0.0], [f64::NAN, 1.0]], [0; 4], 2.0),
+            Err(PaintError::Invalid)
+        ));
+        assert!(matches!(
+            VectorPath::from_smoothed_polyline(1, &[[0.0, 0.0], [1.0, 1.0]], [0; 4], f64::INFINITY),
+            Err(PaintError::Invalid)
+        ));
     }
 
     #[test]

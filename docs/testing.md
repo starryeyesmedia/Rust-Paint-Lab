@@ -917,13 +917,35 @@ remain unchanged by vector creation; path metadata and the monotonic ID allocato
 are checksum-covered. The test also exercises the previously accepted Phase 9
 mask journal/recovery workflow and the existing painting/export regressions.
 
-V draws a connected polyline on an empty canvas area. Dragging a visible path
-moves the whole object; the contextual Delete path action removes it as one
-undoable transaction. Anchor selection, movement, insertion and supported
-deletion are available from the node editor. Existing cubic Bézier segments
-expose independent incoming/outgoing handle drag and numeric edit controls; the
-creation tool still authors polylines only. OpenRaster and PNG rasterize vectors
-on export; only the native `.rpl` format retains editable path objects.
+V draws a connected polyline on an empty canvas area by default. The optional
+workspace-only **Smooth new paths** setting converts the same freehand samples
+to connected cubic Bézier segments while preserving each sampled anchor. It is
+off by default and old workspace preferences deserialize to the polyline mode.
+The choice is not stored in `.rpl`; both modes use the existing v3 path schema.
+Dragging a visible path moves the whole object; the contextual Delete path
+action removes it as one undoable transaction. Anchor selection, movement,
+insertion and supported deletion are available from the node editor. Existing
+cubic Bézier segments expose independent incoming/outgoing handle drag and
+numeric edit controls. OpenRaster and PNG rasterize vectors on export; only the
+native `.rpl` format retains editable path objects.
+
+The document-level smoothing conversion is deterministic, bounded by the same
+1,024-segment path limit, preserves exact endpoints, and shares tangents at
+interior anchors. Validate its geometry, invalid input handling, native save,
+roundtrip, rendering, raster isolation and single-transaction Undo/Redo with:
+
+```sh
+cargo test --locked -p paint-document smoothed -- --nocapture
+cargo test --locked -p paint-document --test vector smooth_vector_creation -- --nocapture
+cargo test --locked -p canvas-demo smooth_vector_creation_is_backward_compatible_and_persistent -- --nocapture
+```
+
+The Xorg/XTest artwork workflow enables this option through its real contextual
+control, draws through the V tool, checks the persisted cubic segments and
+unchanged raster/mask tile tables, captures `vector-smoothed-path`, and verifies
+Undo/Redo, application reopen and workspace-preference persistence. The same
+workflow first checks the legacy polyline default and continues through native
+save/reopen plus PNG/OpenRaster exports.
 
 Exact native cubic-coordinate stability is covered by:
 

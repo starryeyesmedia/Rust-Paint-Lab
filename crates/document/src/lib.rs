@@ -877,6 +877,22 @@ impl Engine {
     /// The current brush color, opacity and size become the path's initial
     /// vector stroke style; later raster brush changes do not alter it.
     pub fn add_vector_path(&mut self, points: &[[f64; 2]]) -> Result<u64, PaintError> {
+        self.add_vector_path_with(points, false)
+    }
+
+    /// Create an editable cubic path using deterministic Catmull–Rom
+    /// interpolation through the supplied drawing samples. Native geometry
+    /// remains cubic and editable; this does not add derived pixels to the
+    /// authoritative raster layer.
+    pub fn add_smoothed_vector_path(&mut self, points: &[[f64; 2]]) -> Result<u64, PaintError> {
+        self.add_vector_path_with(points, true)
+    }
+
+    fn add_vector_path_with(
+        &mut self,
+        points: &[[f64; 2]],
+        smooth: bool,
+    ) -> Result<u64, PaintError> {
         let layer = self
             .state
             .layers
@@ -893,7 +909,11 @@ impl Engine {
         let mut color = [0; 4];
         color[..3].copy_from_slice(&self.brush.color);
         color[3] = (self.brush.opacity * 255.0).round().clamp(0.0, 255.0) as u8;
-        let path = vector::VectorPath::from_polyline(id, points, color, self.brush.size)?;
+        let path = if smooth {
+            vector::VectorPath::from_smoothed_polyline(id, points, color, self.brush.size)?
+        } else {
+            vector::VectorPath::from_polyline(id, points, color, self.brush.size)?
+        };
         self.edit(|state| {
             let selected = state.selected;
             let layer = state

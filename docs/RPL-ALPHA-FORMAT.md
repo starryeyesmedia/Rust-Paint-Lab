@@ -53,9 +53,12 @@ offsets. It can split a segment at its midpoint (De Casteljau for cubic model
 segments) and delete an endpoint or an interior anchor between two line
 segments. Interior curve-anchor deletion is refused when it would require an
 approximation. Existing cubic segments now expose independent incoming and
-outgoing handle editing through canvas drag and numeric controls. The drawing
-tool still authors polylines only; cubic creation, path fills, scale/rotation,
-and SVG round-trip are not implemented. The document crate enables serde_json's
+outgoing handle editing through canvas drag and numeric controls. New freehand
+paths default to polylines; an optional workspace preference creates connected
+cubic Bézier segments through the sampled anchors. This setting is not stored
+in a document, and both modes use the existing version 3 path schema. Path
+fills, full SVG round-trip, and pressure-variable vector outlines are not
+implemented. The document crate enables serde_json's
 `float_roundtrip` feature so repeated v3 load/save cycles retain exact `f64`
 path coordinates; this does not change the v1/v2/v3 record layout. No
 decompression is used. The reader validates checksum, bounded

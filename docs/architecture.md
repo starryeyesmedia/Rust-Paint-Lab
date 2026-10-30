@@ -146,9 +146,11 @@ Future components have distinct responsibilities:
    and editable vector path metadata/allocator use v3; all existing v1/v2
    projects continue to read. Vector paths share raster-layer ordering and mask
    compositing, while raster pixels are derived only for display/export. The
-   first path editor creates freehand polylines and moves whole objects; node
-   editing and fills remain future work. See the alpha format and overdrive
-   progress document for current boundaries.
+   first path editor creates freehand polylines by default, with an optional
+   workspace-only Catmull–Rom-to-cubic creation mode, and moves whole objects;
+   node editing and fills remain future work. Both creation modes write the
+   same v3 cubic/line path schema. See the alpha format and overdrive progress
+   document for current boundaries.
 
 The separate canvas demo now implements a bounded command consumer and renderer
 for synthetic playback and interactive mouse drawing. The physical-pixel winit

@@ -4222,6 +4222,7 @@ pub struct Studio {
     saved_color_swatches: Vec<[u8; 3]>,
     favorite_brushes: Vec<BrushKind>,
     color_mix_strength: f64,
+    smooth_vector_paths: bool,
     mask_editing_layer: Option<u64>,
     symmetry: paint_document::Symmetry,
     symmetry_panel_open: bool,
@@ -4350,6 +4351,9 @@ pub struct Studio {
     gradient_preview_texture: Option<egui::TextureHandle>,
     gradient_preview_key: Option<GradientPreviewKey>,
     edit_pointer: Option<u64>,
+    /// The curve-creation preference is captured at pointer-down so changing
+    /// workspace controls cannot change an in-flight gesture's geometry.
+    active_vector_smoothing: bool,
     /// Canvas-to-document mapping captured when the current edit gesture began.
     /// Context controls can reflow the canvas after selection; using the new
     /// mapping for PointerUp would otherwise turn a stationary click into a
@@ -4498,6 +4502,7 @@ impl Studio {
             saved_color_swatches,
             favorite_brushes,
             color_mix_strength,
+            smooth_vector_paths: preferences.smooth_vector_paths,
             mask_editing_layer: None,
             symmetry,
             symmetry_panel_open: false,
@@ -4632,6 +4637,7 @@ impl Studio {
             gradient_preview_texture: None,
             gradient_preview_key: None,
             edit_pointer: None,
+            active_vector_smoothing: false,
             edit_mapping: None,
             edit_points: Vec::new(),
             selected_vector_path: None,
@@ -6034,6 +6040,7 @@ impl Studio {
             self.edit_pointer = None;
             self.edit_mapping = None;
             self.edit_points.clear();
+            self.active_vector_smoothing = false;
             self.vector_drag_path = None;
             self.vector_drag_node = None;
             self.vector_drag_handle = None;
@@ -6231,6 +6238,13 @@ impl Studio {
                         self.vector_handle_editor = None;
                         self.edit_pointer = Some(id);
                         self.edit_points = vec![position];
+                        self.active_vector_smoothing = self.smooth_vector_paths;
+                        if self.test_path_dialog {
+                            crate::studio_log!(
+                                "UI_TEST_VECTOR_SMOOTHING_CAPTURED: {}",
+                                self.active_vector_smoothing
+                            );
+                        }
                         self.status = "Drawing editable vector path · Esc cancels".into();
                     }
                 } else if selection_tool
@@ -6395,6 +6409,7 @@ impl Studio {
                             LassoAppend::LimitReached => {
                                 self.edit_pointer = None;
                                 self.edit_points.clear();
+                                self.active_vector_smoothing = false;
                                 self.status = "Vector path cancelled: limit is 1024 points".into();
                                 return true;
                             }
@@ -6402,22 +6417,40 @@ impl Studio {
                         }
                         if phase == Phase::Up {
                             let points = std::mem::take(&mut self.edit_points);
+                            let smooth = self.active_vector_smoothing;
+                            self.active_vector_smoothing = false;
                             self.edit_pointer = None;
-                            self.status =
-                                match session.live_mut().project_mut().add_vector_path(&points) {
-                                    Ok(path_id) => {
-                                        self.selected_vector_path = Some(path_id);
-                                        self.vector_node_editor = None;
-                                        if self.test_path_dialog {
+                            let project = session.live_mut().project_mut();
+                            let result = if smooth {
+                                project.add_smoothed_vector_path(&points)
+                            } else {
+                                project.add_vector_path(&points)
+                            };
+                            self.status = match result {
+                                Ok(path_id) => {
+                                    self.selected_vector_path = Some(path_id);
+                                    self.vector_node_editor = None;
+                                    if self.test_path_dialog {
+                                        crate::studio_log!(
+                                            "UI_TEST_VECTOR_PATH_CREATED: {path_id} {} smooth={smooth}",
+                                            points.len(),
+                                        );
+                                        if let (Some(start), Some(end)) =
+                                            (points.first(), points.last())
+                                        {
                                             crate::studio_log!(
-                                                "UI_TEST_VECTOR_PATH_CREATED: {path_id} {}",
-                                                points.len()
+                                                "UI_TEST_VECTOR_PATH_GEOMETRY: {path_id} {} {} {} {}",
+                                                start[0],
+                                                start[1],
+                                                end[0],
+                                                end[1]
                                             );
                                         }
-                                        "Editable vector path created · Ctrl+Z to undo".into()
                                     }
-                                    Err(error) => error.to_string(),
-                                };
+                                    "Editable vector path created · Ctrl+Z to undo".into()
+                                }
+                                Err(error) => error.to_string(),
+                            };
                         }
                     }
                 } else if quick_shape_tool {
@@ -6614,6 +6647,7 @@ impl Studio {
         self.edit_pointer = None;
         self.edit_mapping = None;
         self.edit_points.clear();
+        self.active_vector_smoothing = false;
         self.vector_drag_path = None;
         self.vector_drag_node = None;
         self.vector_drag_handle = None;
@@ -6947,6 +6981,7 @@ impl Studio {
         if self.edit_pointer.take().is_some() {
             self.edit_mapping = None;
             self.edit_points.clear();
+            self.active_vector_smoothing = false;
             self.vector_drag_path = None;
             self.vector_drag_node = None;
             self.vector_drag_handle = None;
@@ -7084,6 +7119,7 @@ impl Studio {
             saved_color_swatches: self.saved_color_swatches.clone(),
             favorite_brushes: self.favorite_brushes.clone(),
             color_mix_strength: self.color_mix_strength,
+            smooth_vector_paths: self.smooth_vector_paths,
             symmetry: self.symmetry,
             barrel_action: self.barrel_action,
             canvas_zoom: self.navigation.zoom,
@@ -7858,6 +7894,25 @@ impl Studio {
                                     ui.label("Q · draw a straight line or close a loop");
                                 } else if self.tool == EditTool::VectorPath {
                                     ui.strong("Vector Path");
+                                    let smoothing = ui
+                                        .checkbox(&mut self.smooth_vector_paths, "Smooth new paths")
+                                        .on_hover_text(
+                                            "Create connected editable cubic Bézier segments through new freehand path samples",
+                                        );
+                                    if self.test_path_dialog {
+                                        crate::studio_log!(
+                                            "UI_TEST_VECTOR_SMOOTHING_RECT: {:.1} {:.1} {:.1} {:.1} {:.2} {}",
+                                            smoothing.rect.left(),
+                                            smoothing.rect.top(),
+                                            smoothing.rect.width(),
+                                            smoothing.rect.height(),
+                                            ui.ctx().pixels_per_point(),
+                                            self.smooth_vector_paths
+                                        );
+                                    }
+                                    if smoothing.changed() {
+                                        workspace_changed = true;
+                                    }
                                     let project = session.live_mut().project_mut();
                                     let selected_path = self.selected_vector_path.and_then(|id| {
                                         project.state().layers.iter().find_map(|layer| {

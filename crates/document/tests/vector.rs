@@ -101,6 +101,43 @@ fn editable_path_renders_without_raster_mutation_and_roundtrips_in_v3() {
 }
 
 #[test]
+fn smooth_vector_creation_is_native_visible_and_one_undoable_transaction() {
+    let mut engine = blank();
+    let points = [[8.0, 12.0], [24.0, 12.0], [35.0, 20.0], [50.0, 16.0]];
+    let before = storage::encode(engine.state()).unwrap();
+    let before_pixels = engine.rgba();
+    let raster_tiles = engine.state().layers[0].tiles.clone();
+
+    let id = engine.add_smoothed_vector_path(&points).unwrap();
+    let after = storage::encode(engine.state()).unwrap();
+    assert_eq!(&after[..8], b"RPLALP03");
+    let path = &engine.state().layers[0].vector_paths[0];
+    assert_eq!(path.id, id);
+    assert_eq!(path.anchor_points(), points);
+    assert_eq!(path.segments.len(), points.len() - 1);
+    assert!(
+        path.segments
+            .iter()
+            .all(|segment| matches!(segment, VectorSegment::CubicTo { .. }))
+    );
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
+    assert_ne!(
+        engine.rgba(),
+        before_pixels,
+        "the editable path must render"
+    );
+
+    let reopened = Engine::from_state(storage::decode(&after).unwrap()).unwrap();
+    assert_eq!(storage::encode(reopened.state()).unwrap(), after);
+    assert_eq!(reopened.rgba(), engine.rgba());
+
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), after);
+}
+
+#[test]
 fn dense_editable_paths_keep_document_and_layer_previews_tile_bounded() {
     let mut engine = Engine::new(2048, 2048, 300).unwrap();
     engine.brush.size = 1.0;

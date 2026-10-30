@@ -285,6 +285,10 @@ pub struct WorkspacePreferences {
     pub compact_inspector_position: [f32; 2],
     #[serde(default = "default_compact_inspector_size")]
     pub compact_inspector_size: [f32; 2],
+    /// Workspace-only choice to turn new freehand vector paths into editable
+    /// cubic curves. Missing from old preferences preserves polyline behavior.
+    #[serde(default)]
+    pub smooth_vector_paths: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -373,6 +377,7 @@ impl Default for WorkspacePreferences {
             inspector_width: default_inspector_width(),
             compact_inspector_position: default_compact_inspector_position(),
             compact_inspector_size: default_compact_inspector_size(),
+            smooth_vector_paths: false,
         }
     }
 }
@@ -977,6 +982,20 @@ mod tests {
             .replace("\"barrel_action\":\"eraser\",", "");
         let loaded: WorkspacePreferences = serde_json::from_str(&legacy).unwrap();
         assert_eq!(loaded.barrel_action, crate::barrel::BarrelAction::Eraser);
+    }
+
+    #[test]
+    fn smooth_vector_creation_is_backward_compatible_and_persistent() {
+        let mut preferences = WorkspacePreferences::default();
+        assert!(!preferences.smooth_vector_paths);
+        preferences.smooth_vector_paths = true;
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let loaded: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(loaded.smooth_vector_paths);
+
+        let legacy = r#"{"version":1,"dark_theme":true,"brush_panel_width":260,"references":[]}"#;
+        let loaded: WorkspacePreferences = serde_json::from_str(legacy).unwrap();
+        assert!(!loaded.smooth_vector_paths);
     }
 
     #[test]
