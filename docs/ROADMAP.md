@@ -864,6 +864,20 @@ Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
 implement bounded, keyboard-accessible vector node movement and undo, then
 continue curve handles, fill and transforms without claiming Phase 10 complete.
 
+### Canvas-first Inspector corrections — current checkpoint
+
+Milestone 1 (Layers hierarchy) is implemented locally on top of `268b4b4`:
+cached raster/mask thumbnails, explicit raster/mask/vector-child targets,
+undoable vector-path visibility, 44-point primary row controls, independent
+desktop stack scrolling with selected-layer properties, and a single reachable
+compact scroll region for short 640 × 480 panel heights. The complete Linux
+Xorg/XTest artwork workflow passed locally with 79 screenshots; formatting,
+strict host/Windows GNU Clippy, workspace tests/build, Windows GNU check, and
+llvmpipe GPU smoke also passed. The hosted matrix is pending the checkpoint
+commit. Continue with Milestone 2 (ordered horizontal Inspector tabs and
+selected-vector editing in Inspector Edit), then responsive geometry and the
+six-layout visual/QA milestone. Phase 8.3 remains active.
+
 ### Phase 10 Linux anchor-editor regression — verified test synchronization (2026-10-30)
 
 Run [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)

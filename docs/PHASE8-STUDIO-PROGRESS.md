@@ -3469,3 +3469,43 @@ Python process reached about 1.37 GiB RSS late in its run; the independent
 incremental log-index benchmark stayed below 87 MiB. Continue to monitor that
 test-process memory separately from application memory. Phase 8.3, Phase 9
 hardware checks, Phase 10, and Phase 11 remain active.
+
+### Canvas-first Inspector corrections — Milestone 1, Layers hierarchy (2026-10-30)
+
+The Layers Inspector now keeps raster thumbnail selection, editable-mask
+selection, and editable vector-path children as separate targets. Each raster
+layer row exposes 44-point visibility, lock, and Actions controls; path children
+have independent visibility targets backed by the document's existing
+`VectorPath.visible` property. That property is now changed through one
+undoable transaction and is covered across rendering, Undo/Redo, native save and
+reopen, and raster/mask tile isolation. Layer and grayscale mask thumbnails
+are bounded and cached; painting, mask changes, vector edits, history movement,
+and native reopen update the appropriate preview. Long labels remain fully named
+for accessibility while their displayed text is clamped to the row width.
+
+For roomier Layers views, the stack has its own scroll viewport and the selected
+layer's rename, opacity, blend, and mask Edit/Stop controls remain in the footer.
+At a 640 × 480 compact drawer, the available panel height is too short for the
+minimum 44-point controls plus a separate stack and footer. The tab therefore
+uses one scroll region there rather than trapping input in nested scrollbars;
+the selected properties and mask Stop action remain reachable by scrolling.
+The first-run compact width is 256 points and the measured open canvas strip in
+the populated narrow screenshot is about 309.5 points. The window workflow now
+checks the actual Inspector row against its own clip bounds rather than mixing
+geometry from a simultaneously rendered detached Layers surface.
+
+On Rust 1.90, formatting, strict workspace Clippy, workspace build/tests (398
+registered tests), Windows GNU workspace check and strict Clippy pass. The
+required offscreen GPU smoke passed on llvmpipe/OpenGL. The complete Linux
+Xorg/XTest artwork workflow passed locally with 79 captures; it exercised
+visibility, locking, context-menu reordering, thumbnail updates after painting,
+shapes, gradients, vector child selection, masks and their Edit/Stop controls,
+save/reopen, exports, and Undo/Redo. I inspected populated 640 × 480,
+1280 × 800, and 1920 × 1080 Layers captures in light and dark themes, as well as
+the mask-actions menu and selected vector-child row. The new compact state is
+usable by scrolling but is not yet the six-layout/scaled visual acceptance.
+GitHub Actions for this uncommitted checkpoint are pending. No `.rpl` schema,
+input adapter, or stylus behavior changed. Continue only after the milestone's
+Windows/Linux/macOS matrix is green; next is the approved scrollable Inspector
+tab strip and vector editing integration, including the direct-pointer anchor
+editor regression without the `H` fallback.

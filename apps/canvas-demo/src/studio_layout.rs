@@ -19,10 +19,13 @@ const COMPACT_INSPECTOR_MIN_WIDTH: f32 = 180.0;
 /// Window response, whose outer drag region extends beyond the painted frame.
 const COMPACT_WINDOW_AREA_SLACK: f32 = 14.0;
 const COMPACT_WINDOW_EDGE_SLACK: f32 = 7.0;
-/// Compact drawers overlay a canvas rather than reserving a dock. At 640 px
-/// the same 320-point visible canvas strip remains usable beside the palette
-/// and drawer, matching the permanent desktop dock's canvas minimum.
-const COMPACT_CANVAS_MIN_WIDTH: f32 = MIN_CANVAS_WIDTH;
+/// Compact Inspectors float over the canvas, so they may overlap part of the
+/// document viewport while keeping a useful drawing strip beside the palette.
+/// At 640 points this reserves enough room for the approved 256-point first-run
+/// drawer while accounting separately for the palette, window margins, and the
+/// Inspector's resize gutter. This is intentionally smaller than the desktop
+/// dock's 320-point canvas-width minimum.
+const COMPACT_CANVAS_MIN_WIDTH: f32 = 256.0;
 /// egui's resizable Window reserves a 12pt interaction gutter beside the
 /// painted frame. Account for it when protecting the canvas strip.
 const COMPACT_RESIZE_HANDLE_GUTTER: f32 = 12.0;
@@ -748,10 +751,10 @@ mod tests {
         assert!(!inspector_uses_full_sheet(rect(0.0, 108.0, 640.0, 324.0)));
         assert_eq!(
             inspector_drawer_width(rect(0.0, 108.0, 640.0, 324.0), 70.5, 256.0,),
-            Some(207.5)
+            Some(256.0)
         );
         assert_eq!(
-            inspector_drawer_width(rect(0.0, 0.0, 600.0, 400.0), 70.5, 256.0),
+            inspector_drawer_width(rect(0.0, 0.0, 548.0, 400.0), 70.5, 256.0),
             None
         );
         // At 150% the effective canvas is too small even after app chrome.
@@ -794,7 +797,7 @@ mod tests {
         assert!(!compact.intersects(palette));
         assert!(compact.left() > saved_position.x);
         let painted_left = compact.left() + COMPACT_RESIZE_HANDLE_GUTTER;
-        assert!(painted_left - palette.right() >= MIN_CANVAS_WIDTH - 1.0);
+        assert!(painted_left - palette.right() >= COMPACT_CANVAS_MIN_WIDTH - 1.0);
 
         let restored = compact_inspector_rect(viewport, palette, size, compact.min, false);
         assert_eq!(restored, compact);
@@ -811,7 +814,7 @@ mod tests {
     #[test]
     fn compact_drawer_adapts_temporarily_without_replacing_roomy_preferences() {
         let usable = rect(0.0, 108.0, 640.0, 324.0);
-        assert_eq!(inspector_drawer_width(usable, 70.5, 360.0), Some(207.5));
+        assert_eq!(inspector_drawer_width(usable, 70.5, 360.0), Some(271.5));
         assert!(!compact_drawer_can_persist_size(usable, 70.5, 360.0));
         assert!(compact_drawer_can_persist_size(
             rect(0.0, 108.0, 1280.0, 620.0),

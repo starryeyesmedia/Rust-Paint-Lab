@@ -686,6 +686,14 @@ def layer_thumbnail_bounds():
     marker=stable_marker('UI_TEST_LAYER_THUMBNAIL_RECT')
     return tuple(map(float,marker.split())) if marker else None
 
+def layer_raster_target_rect():
+    marker=stable_marker('UI_TEST_LAYER_RASTER_TARGET_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def layer_mask_target_rect():
+    marker=stable_marker('UI_TEST_LAYER_MASK_TARGET_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
 def layer_opacity_rect():
     return stable_window_rect_marker('UI_TEST_LAYER_OPACITY_SLIDER_RECT')
 
@@ -827,6 +835,32 @@ def layer_mask_edit_rect():
     marker=stable_marker('UI_TEST_LAYER_MASK_EDIT_RECT')
     return tuple(map(float,marker.split())) if marker else None
 
+def layer_mask_menu_rect():
+    marker=stable_marker('UI_TEST_LAYER_MASK_MENU_RECT')
+    return tuple(map(float,marker.split())) if marker else None
+
+def vector_path_row_rect(path_id):
+    prefix=f'UI_TEST_VECTOR_PATH_ROW_RECT: {path_id} '
+    values=[line.partition(prefix)[2] for line in application_log_lines()
+            if line.startswith(prefix)]
+    if len(values)<2 or values[-1]!=values[-2]:
+        return None
+    return tuple(map(float,values[-1].split()))
+
+def vector_path_visibility_rect(path_id):
+    prefix=f'UI_TEST_VECTOR_PATH_VISIBILITY_RECT: {path_id} '
+    values=[line.partition(prefix)[2] for line in application_log_lines()
+            if line.startswith(prefix)]
+    if len(values)<2 or values[-1]!=values[-2]:
+        return None
+    return tuple(map(float,values[-1].split()))
+
+def assert_minimum_hit_target(rect_fn, name, minimum=44.0):
+    rect=wait(rect_fn,f'{name} reports a real UI hit target')
+    assert rect[2]>=minimum-0.5 and rect[3]>=minimum-0.5, \
+        f'{name} hit target is below {minimum} logical points: {rect}'
+    return rect
+
 def layer_mask_enabled_rect():
     marker=stable_marker('UI_TEST_LAYER_MASK_ENABLED_RECT')
     return tuple(map(float,marker.split())) if marker else None
@@ -852,7 +886,14 @@ def mask_status_contrast():
     return values[0],float(values[1])
 
 def layers_scroll_clip_rect():
-    return stable_window_rect_marker('UI_TEST_LAYERS_SCROLL_CLIP_RECT')
+    # The legacy detached Layers window and the unified Inspector both emit
+    # general layer clip bounds. Observe the Inspector's own stack viewport so
+    # the real row-in-viewport assertion cannot alternate between two surfaces.
+    marker=stable_marker('UI_TEST_LAYER_STACK_VIEWPORT')
+    if marker is None:
+        return None
+    x,y,width,height,scale=map(float,marker.split())
+    return x,y,x+width,y+height,scale
 
 def layer_settings_header():
     marker=stable_marker('UI_TEST_LAYER_SETTINGS_HEADER_RECT')
@@ -2067,8 +2108,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             clear_canvas_width=(painted_panel_rect[0]-(palette_rect[0]+palette_rect[2])
                                if painted_panel_rect[0]>palette_rect[0]
                                else palette_rect[0]-(painted_panel_rect[0]+painted_panel_rect[2]))
-            assert clear_canvas_width>=319.0, \
-                f'640px layout does not preserve the 320px canvas strip: panel={painted_panel_rect}, palette={palette_rect}'
+            assert clear_canvas_width>=309.0, \
+                f'640px layout does not preserve the 310px canvas strip beside its 256pt Inspector: panel={painted_panel_rect}, palette={palette_rect}'
             visible_count=wait(
                 lambda: int(event_marker('UI_TEST_INSPECTOR_BRUSH_VISIBLE_CARDS').split()[0])
                 if event_marker('UI_TEST_INSPECTOR_BRUSH_VISIBLE_CARDS')
@@ -2108,8 +2149,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'inspector-layers-light-populated')
             front_row=wait(layer_front_row_rect,
                            'the Inspector puts populated raster rows at the top of the stack')
+            assert_minimum_hit_target(layer_thumbnail_bounds,'Raster thumbnail target')
+            assert_minimum_hit_target(layer_visibility_button_rect,'Layer visibility')
+            assert_minimum_hit_target(layer_lock_button_rect,'Layer lock')
+            assert_minimum_hit_target(layer_more_button_rect,'Layer actions')
             opacity_footer=wait(layer_opacity_rect,
                                 'selected-layer opacity and blend controls remain in the lower settings area')
+            assert_minimum_hit_target(layer_opacity_slider_rect,'Layer opacity slider')
+            assert_minimum_hit_target(layer_blend_combo_rect,'Layer blend selector')
             assert front_row[2] < opacity_footer[1], \
                 f'the layer list must precede its settings footer: row={front_row}, opacity={opacity_footer}'
             ctrl('b')
@@ -2452,6 +2499,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'the full-size layer row has been laid out after widening the viewport')
             front_row=wait(layer_front_row_rect,'frontmost layer row offers its contextual actions')
             more=wait(layer_more_button_rect,'frontmost layer exposes a keyboard-accessible actions menu')
+            stack_viewport=wait(layers_scroll_clip_rect,
+                                'the Inspector reports its visible Layers stack viewport')
+            assert front_row[1] >= stack_viewport[0]-0.5 \
+                and front_row[1]+front_row[3] <= stack_viewport[2]+0.5, \
+                f'layer row escaped its viewport and could clip actions: row={front_row}, stack={stack_viewport}'
             opened=layer_actions_open_count()
             click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
             wait(lambda: layer_actions_open_count()>opened,
@@ -2895,25 +2947,19 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: project.read_bytes()==copy_bytes,
                  'Undo restores the original copied-layer pixels and ordering exactly')
 
-            header=scroll_layers_marker_into_view(
-                layer_settings_header,
-                'selected layer settings remain reachable in Layers',
-            )
-            if header[0]!='true':
-                click_at((float(header[1])+float(header[3])/2)*float(header[5]),
-                         (float(header[2])+float(header[4])/2)*float(header[5]))
-            wait(lambda: (lambda value: value if value and value[0]=='true' else None)(layer_settings_header()),
-                 'the selected layer opacity and blend controls expand on demand')
-            blend_control=scroll_layers_marker_into_view(
-                layer_blend_combo_rect,
-                'scrolling Layers brings the blend-mode control into view',
-            )
+            header=wait(layer_settings_header,
+                        'selected-layer properties stay pinned below the independently scrolling stack')
+            assert header[0]=='true',f'selected-layer properties unexpectedly disappeared: {header}'
+            blend_control=wait(layer_blend_combo_rect,
+                               'the pinned selected-layer controls expose blend mode')
             opacity_control=wait(layer_opacity_slider_rect,
                                  'the selected layer exposes its real opacity slider')
             property_before=event_marker('UI_TEST_LAYER_COMPOSITING_APPLIED')
             capture_window(window,'layers-panel-settings-expanded')
             opacity_target=(opacity_control[0]+opacity_control[2]*0.68,
                             opacity_control[1]+opacity_control[3]/2)
+            print(f'UI_TEST_LAYER_OPACITY_CLICK: rect={opacity_control[:4]} '
+                  f'target={opacity_target} scale={opacity_control[4]}',flush=True)
             click_at(opacity_target[0]*opacity_control[4],
                      opacity_target[1]*opacity_control[4])
             wait(lambda: (lambda marker: marker if marker and marker!=property_before
@@ -3013,10 +3059,8 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 selection_client_bottom=selection_geometry
             key('b')
 
-            add_mask=scroll_layers_marker_into_view(
-                layer_mask_add_rect,
-                'Selected layer settings exposes the direct Add white mask control',
-            )
+            add_mask=wait(layer_mask_add_rect,
+                          'pinned Selected layer settings exposes Add white mask')
             click_at((add_mask[0]+add_mask[2]/2)*add_mask[4],
                      (add_mask[1]+add_mask[3]/2)*add_mask[4])
             wait(lambda: event_marker('UI_TEST_LAYER_MASK_ADDED')==str(copied_id),
@@ -3031,10 +3075,41 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert mask_layer['mask']['enabled'] and not mask_layer['mask']['inverted']
             assert native_layer_mask_pixel_bytes(mask_added,copied_id,0,0)==255, \
                 'missing mask samples must remain fully revealing'
+            mask_target=scroll_layers_marker_into_view(
+                layer_mask_target_rect,
+                'the mask child row exposes its independently selectable mask thumbnail',
+            )
+            click_at((mask_target[0]+mask_target[2]/2)*mask_target[4],
+                     (mask_target[1]+mask_target[3]/2)*mask_target[4])
+            wait(lambda:event_marker('UI_TEST_LAYER_MASK_TARGET_SELECTED')==str(copied_id),
+                 'selecting the mask thumbnail changes the active paint target only')
+            raster_target=scroll_layers_marker_into_view(
+                layer_raster_target_rect,
+                'the raster thumbnail remains independently selectable beside the mask target',
+            )
+            click_at((raster_target[0]+raster_target[2]/2)*raster_target[4],
+                     (raster_target[1]+raster_target[3]/2)*raster_target[4])
+            wait(lambda:event_marker('UI_TEST_LAYER_RASTER_TARGET_SELECTED')==str(copied_id),
+                 'selecting the raster thumbnail restores the raster paint target')
+            assert project.read_bytes()==mask_added, \
+                'switching raster and mask targets must not modify or dirty artwork'
             capture_window(window,'layers-panel-white-mask-settings')
 
             def click_mask_control(marker_fn, description):
-                control=scroll_layers_marker_into_view(marker_fn,description)
+                if marker_fn is layer_mask_enabled_rect:
+                    menu=scroll_layers_marker_into_view(
+                        layer_mask_menu_rect,
+                        'the mask row exposes its named Mask actions menu',
+                    )
+                    opened=event_marker_count('UI_TEST_LAYER_MASK_MENU_OPENED')
+                    click_at((menu[0]+menu[2]/2)*menu[4],
+                             (menu[1]+menu[3]/2)*menu[4])
+                    wait(lambda:event_marker_count('UI_TEST_LAYER_MASK_MENU_OPENED')>opened,
+                         'the named Mask actions menu opens')
+                    control=wait(marker_fn,description+' is available in Mask actions')
+                else:
+                    control=scroll_layers_marker_into_view(marker_fn,description)
+                assert_minimum_hit_target(marker_fn,description)
                 target=((control[0]+control[2]/2)*control[4],
                         (control[1]+control[3]/2)*control[4])
                 print(f'UI_TEST_MASK_CONTROL_CLICK: {description} '
@@ -3043,14 +3118,19 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 return control
 
             def click_mask_action(marker_fn, description):
-                control=scroll_layers_marker_into_view(
-                    marker_fn,description+' is visible in Selected layer settings',
+                menu=scroll_layers_marker_into_view(
+                    layer_mask_menu_rect,
+                    'the selected mask exposes its named Mask actions menu',
                 )
-                # These mask actions are direct, separately labeled controls,
-                # not a nested popup. Capture the populated interaction state
-                # without injecting an input event before clicking Clear.
+                opened=event_marker_count('UI_TEST_LAYER_MASK_MENU_OPENED')
+                click_at((menu[0]+menu[2]/2)*menu[4],(menu[1]+menu[3]/2)*menu[4])
+                wait(lambda:event_marker_count('UI_TEST_LAYER_MASK_MENU_OPENED')>opened,
+                     'the real Mask actions menu opens for the selected layer')
+                control=wait(marker_fn,description+' appears in the named Mask actions menu')
+                # Capture the populated action menu without injecting an input
+                # event before clicking Clear.
                 if marker_fn is layer_mask_clear_rect:
-                    capture_window(window,'layers-mask-controls-direct')
+                    capture_window(window,'layers-mask-actions-menu')
                 target=((control[0]+control[2]/2)*control[4],
                         (control[1]+control[3]/2)*control[4])
                 print(f'UI_TEST_MASK_CONTROL_CLICK: {description} '
@@ -3693,6 +3773,46 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'the real Layers Inspector opens to verify vector thumbnail invalidation')
             wait(lambda:layer_row_rect(0),
                  'the vector layer is represented in the unified Layers view')
+            child_row=wait(lambda:vector_path_row_rect(int(vector_created_marker[0])),
+                           'the layer row contains a separately selectable editable vector child')
+            click_at((child_row[0]+child_row[2]/2)*child_row[4],
+                     (child_row[1]+child_row[3]/2)*child_row[4])
+            wait(lambda:event_marker('UI_TEST_VECTOR_PATH_SELECTED')==
+                 f'{vector_created_marker[0]} {vector_state["selected"]}',
+                 'the vector child row selects its actual native vector object')
+            capture_window(window,'layers-vector-child-selected')
+            visible_rect=wait(
+                lambda:vector_path_visibility_rect(int(vector_created_marker[0])),
+                'the selected vector child exposes its independent visibility target',
+            )
+            visible_before=imported.read_bytes()
+            visible_clicks=event_marker_count('UI_TEST_VECTOR_PATH_VISIBILITY')
+            click_at((visible_rect[0]+visible_rect[2]/2)*visible_rect[4],
+                     (visible_rect[1]+visible_rect[3]/2)*visible_rect[4])
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_VISIBILITY')>visible_clicks
+                 and event_marker('UI_TEST_VECTOR_PATH_VISIBILITY')==
+                 f'{vector_created_marker[0]} false',
+                 'the child visibility target hides only its vector object')
+            ctrl('s')
+            wait(lambda:imported.read_bytes()!=visible_before and '*' not in title(window),
+                 'vector visibility persists through the ordinary native save workflow')
+            vector_hidden=imported.read_bytes()
+            hidden_path=next(path for layer in native_state_bytes(vector_hidden)['layers']
+                             for path in layer.get('vector_paths',[])
+                             if path['id']==int(vector_created_marker[0]))
+            assert hidden_path['visible'] is False, \
+                'the child visibility action must update native editable vector metadata'
+            assert native_document_tables(vector_hidden)[1]==native_document_tables(visible_before)[1]
+            assert native_document_tables(vector_hidden)[2]==native_document_tables(visible_before)[2]
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==visible_before,
+                 'Undo restores the vector path visibility and exact native artwork')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==vector_hidden,
+                 'Redo restores hidden vector metadata without changing raster or mask tiles')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==visible_before,
+                 'the vector remains visible for the following direct-canvas editor checks')
             selected_layer_id=native_state_bytes(imported.read_bytes())['selected']
             wait(lambda:layer_thumbnail_update(selected_layer_id),
                  'the reopened vector layer has a cached thumbnail before style editing')
@@ -5229,7 +5349,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             clear_canvas_width=(painted_layers[0]-(narrow_palette_rect[0]+narrow_palette_rect[2])
                                if painted_layers[0]>narrow_palette_rect[0]
                                else narrow_palette_rect[0]-(painted_layers[0]+painted_layers[2]))
-            assert clear_canvas_width>=319.0, \
+            # The approved 256pt first-run drawer plus palette, resize gutter,
+            # and safety margins leave a measured 309.5pt open canvas strip at
+            # 640x480. Keep a one-half-point tolerance without claiming the
+            # previous wider-drawer baseline's 319pt gap.
+            assert clear_canvas_width>=309.0, \
                 f'compact Inspector fails the minimum canvas-width budget: {clear_canvas_width} {painted_layers}'
             wait(lambda: layer_row_rect(2),'compact Layers keeps its populated entries reachable')
             narrow_panel_geometry=json.loads(prefs.read_text())
@@ -5298,7 +5422,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-controls-direct','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','vector-filled-path','vector-svg-export','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-actions-menu','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','layers-vector-child-selected','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','vector-filled-path','vector-svg-export','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

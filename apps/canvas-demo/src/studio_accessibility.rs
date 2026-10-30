@@ -195,7 +195,14 @@ mod tests {
             source: None,
             target: None,
         };
-        let output = context.run(Default::default(), |ctx| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(360.0, 720.0),
+            )),
+            ..Default::default()
+        };
+        let output = context.run(input, |ctx| {
             egui::Window::new("Layers").show(ctx, |ui| {
                 crate::studio::layer_flyout_contents(
                     ui,
@@ -652,5 +659,156 @@ mod tests {
             "saved color action is unnamed: {labels}"
         );
         assert!(labels.contains("role: Button"));
+    }
+
+    #[test]
+    fn populated_layers_inspector_exposes_raster_mask_and_vector_targets() {
+        let context = app_context();
+        context.style_mut(|style| style.animation_time = 0.0);
+        context.enable_accesskit();
+        let mut project = paint_document::Engine::new(64, 64, 300).unwrap();
+        let layer_id = project.state().selected;
+        project.add_layer_mask(layer_id).unwrap();
+        let path_id = project
+            .add_vector_path(&[[8.0, 8.0], [48.0, 48.0]])
+            .unwrap();
+        let mut cache = crate::layer_thumbnails::LayerThumbnailCache::default();
+        let mut thumbnail_context = crate::studio::LayerThumbnailContext {
+            cache: &mut cache,
+            document_epoch: 1,
+        };
+        let mut actions = Vec::new();
+        let mut handles = Vec::new();
+        let mut drop_targets = Vec::new();
+        let mut drag_ui = crate::studio::LayerDragUi {
+            handles: &mut handles,
+            drop_targets: &mut drop_targets,
+            source: None,
+            target: None,
+        };
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(360.0, 720.0),
+            )),
+            ..Default::default()
+        };
+        let output = context.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::layer_flyout_contents(
+                    ui,
+                    &mut project,
+                    &mut thumbnail_context,
+                    &mut actions,
+                    crate::studio::LayerFlyoutOptions {
+                        inspector_mode: true,
+                        selected_mask_target: Some(layer_id),
+                        selected_vector_path: Some(path_id),
+                        ..Default::default()
+                    },
+                    &mut drag_ui,
+                );
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("the populated Inspector emits its semantic tree");
+        let nodes = tree
+            .nodes
+            .iter()
+            .map(|(_, node)| format!("{node:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for label in [
+            "Layer actions for Paint 1",
+            "Raster target for Paint 1",
+            "Layer mask for Paint 1",
+            "Edit layer mask with brush",
+            "Mask actions for Paint 1",
+            "Selected raster layer name",
+            "Layer opacity",
+        ] {
+            assert!(nodes.contains(label), "{label} missing from tree: {nodes}");
+        }
+        assert!(
+            nodes.contains(&format!("Vector path {path_id} visible")),
+            "vector visibility target is missing from the semantic tree: {nodes}"
+        );
+        assert!(
+            nodes.contains(&format!("Vector path {path_id}")),
+            "vector child row is absent from the semantic tree: {nodes}"
+        );
+        assert!(
+            nodes.contains("toggled: True"),
+            "selected path or mask target must expose selected state: {nodes}"
+        );
+        let path_visibility_label = format!("Vector path {path_id} visible");
+        for (label, role) in [
+            ("Layer actions for Paint 1", "Button"),
+            ("Raster target for Paint 1", "RadioButton"),
+            ("Layer visible", "CheckBox"),
+            ("Layer locked", "CheckBox"),
+            (path_visibility_label.as_str(), "CheckBox"),
+            ("Layer mask for Paint 1", "RadioButton"),
+            ("Edit layer mask with brush", "Button"),
+            ("Mask actions for Paint 1", "Button"),
+        ] {
+            let node = tree
+                .nodes
+                .iter()
+                .map(|(_, node)| node)
+                .find(|node| node.label() == Some(label) && format!("{:?}", node.role()) == role)
+                .unwrap_or_else(|| panic!("{role} {label} is missing from the tree: {nodes}"));
+            let bounds = node
+                .bounds()
+                .unwrap_or_else(|| panic!("{role} {label} has no accessible hit bounds: {node:?}"));
+            assert!(
+                bounds.x1 - bounds.x0 >= 44.0 && bounds.y1 - bounds.y0 >= 44.0,
+                "{role} {label} is below the 44×44 logical-point target: {bounds:?}"
+            );
+            assert!(
+                bounds.x0 >= 0.0 && bounds.y0 >= 0.0 && bounds.x1 <= 360.0 && bounds.y1 <= 720.0,
+                "{role} {label} escaped the actual 360×720 test viewport: {bounds:?}"
+            );
+        }
+        let stop_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(360.0, 720.0),
+            )),
+            ..Default::default()
+        };
+        let stop_output = context.run(stop_input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::layer_flyout_contents(
+                    ui,
+                    &mut project,
+                    &mut thumbnail_context,
+                    &mut actions,
+                    crate::studio::LayerFlyoutOptions {
+                        inspector_mode: true,
+                        editing_mask: Some(layer_id),
+                        ..Default::default()
+                    },
+                    &mut drag_ui,
+                );
+            });
+        });
+        let stop_tree = stop_output
+            .platform_output
+            .accesskit_update
+            .expect("mask-edit mode emits its persistent footer action");
+        assert!(
+            stop_tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Stop editing layer mask")),
+            "Stop must remain reachable while layer rows scroll"
+        );
+        assert!(
+            actions.is_empty(),
+            "drawing the Inspector must not edit artwork"
+        );
     }
 }

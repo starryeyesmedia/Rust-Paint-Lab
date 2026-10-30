@@ -101,6 +101,33 @@ fn editable_path_renders_without_raster_mutation_and_roundtrips_in_v3() {
 }
 
 #[test]
+fn vector_path_visibility_is_undoable_persisted_and_keeps_geometry_and_raster_tiles() {
+    let mut engine = blank();
+    let path_id = add_path(&mut engine);
+    let raster_tiles = engine.state().layers[0].tiles.clone();
+    let visible_bytes = storage::encode(engine.state()).unwrap();
+    let visible_pixels = engine.rgba();
+    assert_eq!(engine.state().layers[0].vector_paths[0].id, path_id);
+    assert!(engine.state().layers[0].vector_paths[0].visible);
+
+    engine.set_vector_path_visible(path_id, false).unwrap();
+    let hidden_bytes = storage::encode(engine.state()).unwrap();
+    assert!(!engine.state().layers[0].vector_paths[0].visible);
+    assert_ne!(engine.rgba(), visible_pixels);
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
+    assert_eq!(engine.state().layers[0].vector_paths[0].id, path_id);
+    let reopened = Engine::from_state(storage::decode(&hidden_bytes).unwrap()).unwrap();
+    assert_eq!(storage::encode(reopened.state()).unwrap(), hidden_bytes);
+    assert!(!reopened.state().layers[0].vector_paths[0].visible);
+
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), visible_bytes);
+    assert_eq!(engine.rgba(), visible_pixels);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), hidden_bytes);
+}
+
+#[test]
 fn smooth_vector_creation_is_native_visible_and_one_undoable_transaction() {
     let mut engine = blank();
     let points = [[8.0, 12.0], [24.0, 12.0], [35.0, 20.0], [50.0, 16.0]];

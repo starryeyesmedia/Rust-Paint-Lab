@@ -35,6 +35,7 @@ pub enum Icon {
     EyeOff,
     Lock,
     Unlock,
+    More,
 }
 
 fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::Color32) {
@@ -365,6 +366,11 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
             ]);
             if icon == Icon::Unlock {
                 line((3.5, -5.0), (5.5, -5.0));
+            }
+        }
+        Icon::More => {
+            for x in [-5.0, 0.0, 5.0] {
+                painter.circle_filled(at(x, 0.0), 1.5 * scale, color);
             }
         }
     }

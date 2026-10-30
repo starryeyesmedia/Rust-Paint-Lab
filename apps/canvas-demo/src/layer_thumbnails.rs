@@ -8,7 +8,7 @@ use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 
 use egui::{Color32, Context, TextureHandle, TextureOptions};
-use paint_document::{Engine, Layer, TILE, TILE_BYTES};
+use paint_document::{Engine, Layer, LayerMask, TILE, TILE_BYTES};
 
 pub const MAX_THUMBNAIL_WIDTH: usize = 96;
 pub const MAX_THUMBNAIL_HEIGHT: usize = 64;
@@ -27,6 +27,8 @@ struct CachedThumbnail {
     source_mask_tiles: std::collections::BTreeMap<(u32, u32), std::sync::Weak<Vec<u8>>>,
     image: ThumbnailImage,
     texture: TextureHandle,
+    mask_image: Option<ThumbnailImage>,
+    mask_texture: Option<TextureHandle>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,6 +81,10 @@ impl LayerThumbnailCache {
             }
 
             let image = layer_thumbnail_image(layer, document_size);
+            let mask_image = layer
+                .mask
+                .as_ref()
+                .map(|mask| mask_thumbnail_image(mask, document_size));
             let fingerprint = image_fingerprint(&image);
             let covered_pixels = image.pixels.iter().filter(|pixel| pixel.a() > 0).count();
             let colored_pixels = image
@@ -108,6 +114,21 @@ impl LayerThumbnailCache {
                     .map(|(key, tile)| (*key, std::sync::Arc::downgrade(tile)))
                     .collect();
                 cached.image = image;
+                if let Some(image) = mask_image.as_ref() {
+                    let egui_image = egui::ColorImage::new(image.size, image.pixels.clone());
+                    if let Some(texture) = cached.mask_texture.as_mut() {
+                        texture.set(egui_image, TextureOptions::LINEAR);
+                    } else {
+                        cached.mask_texture = Some(context.load_texture(
+                            format!("layer-mask-thumbnail-{}", layer.id),
+                            egui_image,
+                            TextureOptions::LINEAR,
+                        ));
+                    }
+                } else {
+                    cached.mask_texture = None;
+                }
+                cached.mask_image = mask_image;
             } else {
                 let texture = context.load_texture(
                     format!("layer-thumbnail-{}", layer.id),
@@ -132,6 +153,14 @@ impl LayerThumbnailCache {
                             .collect(),
                         image,
                         texture,
+                        mask_texture: mask_image.as_ref().map(|image| {
+                            context.load_texture(
+                                format!("layer-mask-thumbnail-{}", layer.id),
+                                egui::ColorImage::new(image.size, image.pixels.clone()),
+                                TextureOptions::LINEAR,
+                            )
+                        }),
+                        mask_image,
                     },
                 );
             }
@@ -156,6 +185,18 @@ impl LayerThumbnailCache {
 
     pub fn image(&self, layer_id: u64) -> Option<&ThumbnailImage> {
         self.entries.get(&layer_id).map(|cached| &cached.image)
+    }
+
+    pub fn mask_texture(&self, layer_id: u64) -> Option<&TextureHandle> {
+        self.entries
+            .get(&layer_id)
+            .and_then(|cached| cached.mask_texture.as_ref())
+    }
+
+    pub fn mask_image(&self, layer_id: u64) -> Option<&ThumbnailImage> {
+        self.entries
+            .get(&layer_id)
+            .and_then(|cached| cached.mask_image.as_ref())
     }
 
     #[cfg(test)]
@@ -253,6 +294,36 @@ pub fn layer_thumbnail_image(layer: &Layer, document_size: [u32; 2]) -> Thumbnai
         }
     }
 
+    ThumbnailImage {
+        size: [preview_width, preview_height],
+        pixels,
+    }
+}
+
+/// Build a bounded, grayscale preview of the stored mask, independently of
+/// the source raster thumbnail. Missing sparse mask tiles represent white.
+pub fn mask_thumbnail_image(mask: &LayerMask, document_size: [u32; 2]) -> ThumbnailImage {
+    let width = document_size[0].max(1);
+    let height = document_size[1].max(1);
+    let [preview_width, preview_height] = fit_size(width, height);
+    let mut pixels = Vec::with_capacity(preview_width * preview_height);
+    for y in 0..preview_height {
+        let source_y = (((2 * y as u64 + 1) * u64::from(height)) / (2 * preview_height as u64))
+            .min(u64::from(height - 1)) as u32;
+        for x in 0..preview_width {
+            let source_x = (((2 * x as u64 + 1) * u64::from(width)) / (2 * preview_width as u64))
+                .min(u64::from(width - 1)) as u32;
+            let key = (source_x / TILE, source_y / TILE);
+            let offset = (source_y % TILE * TILE + source_x % TILE) as usize;
+            let stored = mask
+                .tiles
+                .get(&key)
+                .filter(|tile| tile.len() == (TILE * TILE) as usize)
+                .map_or(255, |tile| tile[offset]);
+            let value = if mask.inverted { 255 - stored } else { stored };
+            pixels.push(Color32::from_gray(value));
+        }
+    }
     ThumbnailImage {
         size: [preview_width, preview_height],
         pixels,
@@ -411,6 +482,32 @@ mod tests {
         let tall = layer_thumbnail_image(&blank, [64, 4096]);
         assert_eq!(tall.size, [1, 64]);
         assert!(tall.pixels.len() <= MAX_THUMBNAIL_WIDTH * MAX_THUMBNAIL_HEIGHT);
+    }
+
+    #[test]
+    fn mask_thumbnail_is_distinct_bounded_grayscale_and_respects_inversion() {
+        let mut bytes = vec![255; (TILE * TILE) as usize];
+        bytes[..(TILE * TILE / 2) as usize].fill(0);
+        let mask = LayerMask {
+            enabled: true,
+            inverted: false,
+            tiles: std::collections::BTreeMap::from([((0, 0), Arc::new(bytes))]),
+        };
+        let image = mask_thumbnail_image(&mask, [64, 64]);
+        assert_eq!(image.size, [64, 64]);
+        assert_eq!(image.pixels.len(), 64 * 64);
+        assert_eq!(image.pixels[0], Color32::BLACK);
+        assert_eq!(image.pixels[32 * 64], Color32::WHITE);
+
+        let mut inverted = mask.clone();
+        inverted.inverted = true;
+        let inverted_image = mask_thumbnail_image(&inverted, [64, 64]);
+        assert_eq!(inverted_image.pixels[0], Color32::WHITE);
+        assert_eq!(inverted_image.pixels[32 * 64], Color32::BLACK);
+
+        let sparse = mask_thumbnail_image(&LayerMask::default(), [4096, 2048]);
+        assert!(sparse.pixels.len() <= MAX_THUMBNAIL_WIDTH * MAX_THUMBNAIL_HEIGHT);
+        assert!(sparse.pixels.iter().all(|pixel| *pixel == Color32::WHITE));
     }
 
     #[test]

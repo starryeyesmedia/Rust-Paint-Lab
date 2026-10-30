@@ -1255,3 +1255,30 @@ counts, stable values, and truncation. The Linux anchor-editor scenario keeps
 the real Edit anchors click, then verifies the selected path's live editor state
 and a rendered anchor handle; event markers alone are not considered proof of
 the interaction.
+
+### Canvas-first Inspector Layers checkpoint
+
+The Layers hierarchy adds bounded raster and mask thumbnail checks, target
+selection, the actual editable vector-child visibility transaction, and
+AccessKit checks for named 44-point targets. Vector visibility is still the
+existing native `VectorPath.visible` field; no `.rpl` schema was changed. Run
+the relevant portable tests with:
+
+```sh
+cargo test --locked -p canvas-demo layer_thumbnails
+cargo test --locked -p canvas-demo populated_layers_inspector
+cargo test --locked -p paint-document --test vector vector_path_visibility
+```
+
+The complete `scripts/alpha-workflow-smoke.py` Xorg/XTest workflow uses the real
+window to select raster/mask/vector targets, toggle path and layer visibility,
+scroll populated layer rows, reach mask Edit/Stop, reorder layers, and verify
+thumbnail changes and native save/reopen/Undo/Redo without changing unrelated
+raster or mask tile data. At 640 × 480 it checks the compact single-scroll
+fallback; at roomier sizes it checks a distinct layer stack viewport and the
+selected-layer footer. The Inspector-specific viewport marker is used for row
+clipping checks because a legacy detached Layers surface can be present at the
+same time. The local checkpoint run produced 79 PNGs; inspected populated
+Layers screenshots covered 640 × 480, 1280 × 800, and 1920 × 1080. That local
+result is not the required six-layout/theme acceptance and does not replace
+hosted Windows/Linux/macOS Actions.

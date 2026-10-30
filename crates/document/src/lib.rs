@@ -1126,6 +1126,29 @@ impl Engine {
         })
     }
 
+    /// Show or hide one editable vector object without changing its owning
+    /// raster layer. Visibility is stored in the existing native vector-path
+    /// metadata and participates in the ordinary document transaction history.
+    pub fn set_vector_path_visible(&mut self, id: u64, visible: bool) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.visible = visible;
+            Ok(())
+        })
+    }
+
     /// Close or reopen a vector path as one undoable document edit. Reopening
     /// removes its fill because open paths do not define a filled region.
     pub fn set_vector_path_closed(&mut self, id: u64, closed: bool) -> Result<(), PaintError> {
