@@ -6,7 +6,7 @@ path, screenshots, user input recording, or additional Python packages.
 """
 import ctypes as c
 from pathlib import Path
-import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii, shutil, math
+import os, tempfile, hashlib, struct, json, zipfile, zlib, binascii, shutil, math, re
 import subprocess
 import time
 
@@ -46,6 +46,7 @@ button = api(t, 'XTestFakeButtonEvent', I, D, U, I, W)
 key_event = api(t, 'XTestFakeKeyEvent', I, D, U, I, W)
 close_display = api(x, 'XCloseDisplay', I, D)
 sync = api(x, 'XSync', I, D, I)
+clear_area = api(x, 'XClearArea', I, D, W, I, I, U, U, I)
 set_error_handler = api(x, 'XSetErrorHandler', c.c_void_p, c.c_void_p)
 display = open_display(None)
 if not display:
@@ -83,14 +84,18 @@ def find_window():
 
 def wait(predicate, description, seconds=15):
     deadline = time.monotonic() + seconds
+    last_value = None
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise AssertionError(f'Canvas exited early: {process.returncode}; {description}')
-        value = predicate()
-        if value:
-            return value
+        last_value = predicate()
+        if last_value:
+            return last_value
         time.sleep(0.03)
-    raise AssertionError(f'Timeout: {description}')
+    detail = repr(last_value)
+    if len(detail) > 300:
+        detail = detail[:297] + '...'
+    raise AssertionError(f'Timeout: {description}; last observed value: {detail}')
 
 def brush_rect():
     lines=[line for line in (directory/'application.log').read_text().splitlines()
@@ -98,6 +103,11 @@ def brush_rect():
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
 def brush_preview_rect():
+    prefix='UI_TEST_ACTIVE_BRUSH_PREVIEW_BOUNDS: '
+    active=[line for line in (directory/'application.log').read_text().splitlines()
+            if line.startswith(prefix)]
+    if active:
+        return tuple(map(float,active[-1].partition(': ')[2].split()))
     lines=[line for line in (directory/'application.log').read_text().splitlines()
            if line.startswith('UI_TEST_BRUSH_PREVIEW_BOUNDS: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
@@ -110,7 +120,58 @@ def quick_brush_preset_rect(kind):
         return None
     return tuple(map(float,lines[-1].split()[:5]))
 
+def inspector_layout():
+    prefix='UI_TEST_INSPECTOR_LAYOUT: '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    values=lines[-1].split()
+    if len(values)!=7:
+        return None
+    return values[0],values[1],*map(float,values[2:])
+
+def inspector_brush_preset_rect(kind):
+    prefix=f'UI_TEST_INSPECTOR_BRUSH_PRESET_RECT: {kind} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    return tuple(map(float,lines[-1].split()))
+
+def inspector_tab_rect(name):
+    prefix=f'UI_TEST_INSPECTOR_TAB_RECT: {name} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()))
+
+def color_hex_rect():
+    prefix='UI_TEST_COLOR_HEX_RECT: '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()))
+
+def inspector_scroll_clip_rect():
+    prefix='UI_TEST_INSPECTOR_SCROLL_CONTENT: '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if not lines or 'clip=' not in lines[-1]:
+        return None
+    values=re.findall(r'-?\d+(?:\.\d+)?',lines[-1].partition('clip=')[2])
+    return tuple(map(float,values[:4])) if len(values)>=4 else None
+
 def select_quick_brush(kind):
+    inspector_preset=inspector_brush_preset_rect(kind)
+    if inspector_preset:
+        x,y,width,height,scale=inspector_preset
+        click_at((x+width/2)*scale,(y+height/2)*scale)
+        wait(lambda: event_marker('UI_TEST_INSPECTOR_BRUSH_SELECTED')==kind,
+             f'{kind} is selected from its real Inspector preset card')
+        return
     menu=wait(lambda: stable_window_rect_marker('UI_TEST_QUICK_BRUSH_MENU_RECT'),
               'canvas options expose the current brush preset picker')
     click_at((menu[0]+menu[2]/2)*menu[4],(menu[1]+menu[3]/2)*menu[4])
@@ -152,11 +213,12 @@ def color_palette_marker(name):
     return tuple(map(float,lines[-1].partition(': ')[2].split()))
 
 def hue_wheel_rect():
-    lines=[line for line in (directory/'application.log').read_text().splitlines()
-           if line.startswith('UI_TEST_HUE_WHEEL_RECT: ')]
-    if len(lines)<2 or lines[-1]!=lines[-2]:
-        return None
-    return tuple(map(float,lines[-1].partition(': ')[2].split()))
+    log=(directory/'application.log').read_text().splitlines()
+    for prefix in ('UI_TEST_INSPECTOR_COLOR_WHEEL_RECT: ', 'UI_TEST_HUE_WHEEL_RECT: '):
+        lines=[line for line in log if line.startswith(prefix)]
+        if len(lines)>=2 and lines[-1]==lines[-2]:
+            return tuple(map(float,lines[-1].partition(': ')[2].split()))
+    return None
 
 def original_saved_color_rect():
     return color_palette_marker('UI_TEST_COLOR_ORIGINAL_SWATCH_RECT')
@@ -205,6 +267,14 @@ def vector_delete_rect():
 def vector_width_rect():
     marker=stable_window_rect_marker('UI_TEST_VECTOR_WIDTH_RECT')
     return tuple(marker) if marker else None
+
+def vector_action_rect(action):
+    prefix=f'UI_TEST_VECTOR_ACTION_RECT: {action} '
+    lines=[line.partition(prefix)[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()))
 
 def vector_node_handle():
     marker=event_marker('UI_TEST_VECTOR_NODE_HANDLE')
@@ -384,6 +454,24 @@ def assert_format_card_fully_visible(label, width, height):
 def reference_image_rect():
     return stable_window_rect_marker('UI_TEST_REFERENCE_LAST_IMAGE_RECT')
 
+def reference_inspector_rect():
+    prefix='UI_TEST_REFERENCE_INSPECTOR_RECT: '
+    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith(prefix)]
+    if len(lines)<2 or lines[-1]!=lines[-2]:
+        return None
+    return tuple(map(float,lines[-1].split()))
+
+def reference_active():
+    marker=event_marker('UI_TEST_REFERENCE_ACTIVE_INDEX')
+    return tuple(map(int,marker.split())) if marker else None
+
+def reference_nav_rect(name):
+    return stable_window_rect_marker(f'UI_TEST_REFERENCE_{name.upper()}_RECT')
+
+def reference_pip_rect():
+    return stable_window_rect_marker('UI_TEST_REFERENCE_PIP_RECT')
+
 def rects_overlap(left, right):
     return left[0] < right[0] + right[2] and right[0] < left[0] + left[2] \
         and left[1] < right[1] + right[3] and right[1] < left[1] + left[3]
@@ -421,7 +509,12 @@ def layer_front_row_rect():
     return tuple(map(float,marker.split())) if marker else None
 
 def layer_front_row_id():
-    marker=stable_marker('UI_TEST_LAYER_FRONT_ROW_RECT')
+    # Layer identity is stable while the viewport geometry can legitimately
+    # change between consecutive frames (for example after reopening a
+    # document). Require the latest emitted row marker rather than two
+    # identical rectangles; geometry-specific assertions still use
+    # layer_front_row_rect().
+    marker=event_marker('UI_TEST_LAYER_FRONT_ROW_RECT')
     return int(marker.split()[0]) if marker else None
 
 def layer_thumbnail_update(layer_id):
@@ -433,9 +526,19 @@ def layer_thumbnail_update(layer_id):
                 return int(values[1],16),int(values[2]),int(values[3])
     return None
 
+def layer_thumbnail_update_count(layer_id):
+    prefix='UI_TEST_LAYER_THUMBNAIL_UPDATED: '
+    return sum(
+        line.startswith(prefix) and line.partition(': ')[2].split()[0]==str(layer_id)
+        for line in (directory/'application.log').read_text().splitlines()
+    )
+
 def layer_thumbnail_bounds():
     marker=stable_marker('UI_TEST_LAYER_THUMBNAIL_RECT')
     return tuple(map(float,marker.split())) if marker else None
+
+def layer_opacity_rect():
+    return stable_window_rect_marker('UI_TEST_LAYER_OPACITY_SLIDER_RECT')
 
 def layer_visibility_button_rect():
     marker=stable_marker('UI_TEST_LAYER_VISIBILITY_BUTTON_RECT')
@@ -587,6 +690,14 @@ def layer_mask_remove_rect():
     marker=stable_marker('UI_TEST_LAYER_MASK_REMOVE_RECT')
     return tuple(map(float,marker.split())) if marker else None
 
+def mask_status_contrast():
+    lines=[line.partition(': ')[2] for line in (directory/'application.log').read_text().splitlines()
+           if line.startswith('UI_TEST_MASK_STATUS_CONTRAST: ')]
+    if not lines:
+        return None
+    values=lines[-1].split()
+    return values[0],float(values[1])
+
 def layers_scroll_clip_rect():
     return stable_window_rect_marker('UI_TEST_LAYERS_SCROLL_CLIP_RECT')
 
@@ -685,6 +796,10 @@ def trace(action, *details):
         print('UI_TRACE:', action, *details, flush=True)
 
 def move(px, py):
+    # XTest motion coordinates are C integers. Selection geometry is reported
+    # in document/client-space floats, so normalize every caller at this OS
+    # event boundary rather than relying on individual gestures to remember.
+    px,py=round(px),round(py)
     trace('move',px,py)
     dx, dy, child = I(), I(), W()
     errors_before=x_error_count
@@ -727,8 +842,12 @@ def scroll_layers_marker_into_view(marker_fn, description):
         # Use the ScrollArea's live clip rectangle rather than approximating it
         # from the outer window. Window chrome, compact sizing, and egui version
         # changes all affect the difference between those bounds.
-        visible_top=clip_top+2
-        visible_bottom=clip_top+clip_height-2
+        # egui rounds widget and ScrollArea edges independently. A 1-DIP
+        # fractional clip can leave the final pixel outside the reported
+        # floating-point bounds even though the entire control is practically
+        # hittable; tolerate only that two-point rounding residue.
+        visible_top=clip_top-2
+        visible_bottom=clip_top+clip_height+2
         if y>=visible_top and y+height<=visible_bottom:
             return marker
         wheel_at(clip_left+clip_width*0.72,
@@ -816,7 +935,12 @@ def active_brush_size():
     return float(values[-1]) if values else None
 
 def path_prompt():
-    return wait(lambda: 'TEST FILE PICKER' in title(window), 'test file picker is visible')
+    result=wait(lambda: 'TEST FILE PICKER' in title(window), 'test file picker is visible')
+    # Replacing an opened native project can leave X11 focus on its file-manager
+    # or picker surface. Return input focus to the canvas before submitting the
+    # app's test picker so later file-open assertions exercise the live app.
+    focus(display,window,2,0)
+    return result
 
 def new_document_prompt():
     return wait(lambda: 'TEST NEW DOCUMENT' in title(window), 'new document dialog is visible')
@@ -824,6 +948,12 @@ def new_document_prompt():
 
 def ctrl(name):
     code=keycode(display,keysym(b'Control_L'));key_event(display,code,1,0);key(name);key_event(display,code,0,0);send()
+
+def type_ascii(text):
+    for character in text:
+        code=keycode(display,keysym(character.encode('ascii')))
+        assert code and key_event(display,code,1,0) and key_event(display,code,0,0)
+    send()
 def ctrl_shift(name):
     code=keycode(display,keysym(b'Shift_L'));key_event(display,code,1,0);ctrl(name);key_event(display,code,0,0);send()
 def ctrl_alt(name):
@@ -1054,9 +1184,11 @@ def capture_window(window, name):
         temporary_request=Path(folder)/'.capture.request.tmp'
         temporary_request.write_text(name)
         os.replace(temporary_request,request)
-        # Wake winit's wait loop so the requested surface is composed and read
-        # back on the next present. F12 has no application action today.
-        key('F12')
+        # Invalidate the X11 surface without injecting keyboard or pointer
+        # input. A key used as a redraw trigger dismisses egui popovers and
+        # menus, so screenshots of those states would otherwise be misleading.
+        assert clear_area(display, window, 0, 0, 0, 0, 1)
+        flush(display)
         deadline=time.monotonic()+15
         while not capture.is_file() and time.monotonic()<deadline and process.poll() is None:
             time.sleep(0.03)
@@ -1170,19 +1302,11 @@ def capture_window(window, name):
         layer_thumbnail_screen_bounds=(x*scale,y*scale,(x+preview_width)*scale,
                                        (y+preview_height)*scale)
     if name.startswith('reference-board-'):
-        if width < 760:
-            image_marker=wait(compact_reference_image_rect,
-                              'compact reference screenshot reports the selected image bounds')
-            x,y,image_width,image_height,scale=image_marker
-            reference_window=wait(compact_reference_window_rect,
-                                  'compact reference screenshot reports stable window bounds')
-        else:
-            x,y,image_width,image_height,scale=wait(reference_image_rect,
-                                                     'reference screenshot reports its actual image bounds')
-            reference_window=wait(
-                lambda: stable_window_rect_marker('UI_TEST_REFERENCE_LAST_WINDOW_RECT'),
-                'reference screenshot reports stable outer-window bounds',
-            )
+        image_marker=wait(reference_inspector_rect,
+                          'Reference Inspector screenshot reports the selected imported image')
+        _,x,y,image_width,image_height,scale=image_marker
+        inspector=wait(inspector_layout,'Reference Inspector reports its panel bounds')
+        reference_window=(inspector[2],inspector[3],inspector[4],inspector[5],inspector[6])
         reference_image_bounds=(x*scale,y*scale,(x+image_width)*scale,(y+image_height)*scale)
         reference_image_share=image_width/reference_window[2]
     bytes_per_pixel=(bits_per_pixel+7)//8
@@ -1282,10 +1406,9 @@ def capture_window(window, name):
         assert len(reference_image_colors)>=12, \
             f'{name} image bounds contain too few colors to prove the reference is visible ({len(reference_image_colors)})'
         print(f'UI_SCREENSHOT_REFERENCE_COLORS: {name} {len(reference_image_colors)}', flush=True)
-        # The dark 640 × 480 multi-reference state includes Previous/Next,
-        # counter, zoom and Settings targets in the compact panel. It retains
-        # a useful 75% image share while keeping those controls accessible.
-        minimum_reference_share = 0.75 if name == 'reference-board-dark-narrow' else 0.85
+        # The selected reference should fill most of its image-first Inspector
+        # while leaving accessible navigation, opacity and import controls.
+        minimum_reference_share = 0.65
         assert minimum_reference_share<=reference_image_share<=1.0, \
             f'{name} has an invalid reference image/window width ratio ({reference_image_share:.1%})'
         print(f'UI_SCREENSHOT_REFERENCE_IMAGE_WIDTH_SHARE: {name} {reference_image_share:.1%}', flush=True)
@@ -1483,12 +1606,27 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             resize_window(window,1280,800)
             preset=wait(lambda: settled_home_preset_card_rect('Portrait'),
                         'Home exposes a measured standard Portrait canvas preset')
-            preset_target=((preset[0]+preset[2]/2)*preset[4],
-                           (preset[1]+preset[3]/2)*preset[4])
             title_before_preset=title(window)
             focus(display,window,2,0);send()
-            click_at(*preset_target)
-            time.sleep(0.25)
+            preset_requests=event_marker_count('UI_TEST_HOME_PRESET_CREATE_REQUESTED')
+            preset_target=None
+            for _ in range(3):
+                # Re-read the current rendered card after focus settles; each
+                # attempt is a real pointer click on the visible UI, and the
+                # request marker confirms that egui dispatched the action.
+                preset=wait(lambda: settled_home_preset_card_rect('Portrait'),
+                            'the Portrait quick-start card remains visible before activation')
+                preset_target=((preset[0]+preset[2]/2)*preset[4],
+                               (preset[1]+preset[3]/2)*preset[4])
+                click_at(*preset_target)
+                for _ in range(30):
+                    if event_marker_count('UI_TEST_HOME_PRESET_CREATE_REQUESTED')>preset_requests:
+                        break
+                    time.sleep(0.05)
+                if event_marker_count('UI_TEST_HOME_PRESET_CREATE_REQUESTED')>preset_requests:
+                    break
+            assert event_marker_count('UI_TEST_HOME_PRESET_CREATE_REQUESTED')>preset_requests, \
+                f'visible Portrait quick-start card did not dispatch after three real clicks: {preset_target} {preset}'
             print(f'UI_TEST_HOME_PRESET_CLICK: target={preset_target} bounds={preset} '
                   f'title={title_before_preset!r}->{title(window)!r}',flush=True)
             wait(lambda: 'UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1' in
@@ -1574,38 +1712,34 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     10, 250)
             wait(lambda: json.loads(prefs.read_text()).get('palette_dock') == 'Left',
                  'the grip can return the toolbar to its default edge')
-            wait(lambda: 'UI_TEST_REFERENCE_IMAGE_VISIBLE:' in (directory / 'application.log').read_text(),
-                 'reference screenshot uses a rendered image texture')
-            time.sleep(0.35)  # the marker is emitted before egui submits this frame
+            ctrl('l')
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the reference board opens inside the unified Inspector')
+            reference_tab=wait(lambda: inspector_tab_rect('References'),
+                               'the Inspector exposes its accessible References tab')
+            click_at((reference_tab[0]+reference_tab[2]/2)*reference_tab[4],
+                     (reference_tab[1]+reference_tab[3]/2)*reference_tab[4])
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References'
+                 and reference_inspector_rect() is not None,
+                 'the image-first reference board shows the imported image in the Inspector')
+            time.sleep(0.35)
             capture_window(window,'reference-board-light')
             resize_window(window,640,480);capture_window(window,'reference-board-light-narrow')
             resize_window(window,1280,800)
-            settings=wait(lambda: color_palette_marker('UI_TEST_REFERENCE_SETTINGS_RECT'),
-                          'reference board exposes its accessible Settings menu')
-            click_at((settings[0]+settings[2]/2)*settings[4],
-                     (settings[1]+settings[3]/2)*settings[4])
-            center_image=wait(lambda: color_palette_marker('UI_TEST_REFERENCE_CENTER_IMAGE_RECT'),
-                              'reference Settings menu exposes Center image')
+            center_image=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCE_CENTER_IMAGE_RECT'),
+                              'reference Inspector exposes an accessible Center action')
             click_at((center_image[0]+center_image[2]/2)*center_image[4],
                      (center_image[1]+center_image[3]/2)*center_image[4])
             wait(lambda: (lambda state: state.get('view_pan')==[0.0,0.0]
                           and abs(state.get('view_zoom',0.0)-1.1)<0.01)(
                               json.loads(prefs.read_text())['references'][0]),
-                 'Center image persists a centered pan while preserving the existing zoom')
+                 'Center centers the selected board image while preserving its zoom')
             wait(lambda: event_marker('UI_TEST_REFERENCE_INITIAL_POSITION') is not None,
-                 'the real reference import path places a second image after Center image')
+                 'the real reference import path adds a second image after Center')
             wait(lambda: len(json.loads(prefs.read_text()).get('references',[]))==2,
                  'the imported reference layout is persisted beside the existing image')
-            second_layout=json.loads(prefs.read_text())['references'][1]
-            palette=wait(lambda: window_rect_marker('UI_TEST_PALETTE_RECT'),
-                         'the movable tool palette reports bounds for import placement')
-            second_rect=tuple(second_layout['position']+second_layout['size'])
-            assert not rects_overlap(second_rect,palette[:4]), \
-                f'new reference overlaps the tool palette: reference={second_rect}, palette={palette[:4]}'
-            assert second_rect[0]>=0 and second_rect[1]>=0 \
-                and second_rect[0]+second_rect[2]<=1280/palette[4] \
-                and second_rect[1]+second_rect[3]<=800/palette[4], \
-                f'new reference is outside the normal viewport: {second_rect}'
+            wait(lambda: reference_active()==(0,2),
+                 'adding references preserves the selected board item and shows a two-image count')
             time.sleep(0.3)
             capture_window(window,'reference-board-multi-light')
             saved_multi_reference_geometry=[
@@ -1614,182 +1748,175 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ]
             resize_window(window,640,480)
             time.sleep(0.3)
-            narrow_palette=wait(lambda: window_rect_marker('UI_TEST_PALETTE_RECT'),
-                                'the palette reports current bounds in a narrow window')
-            assert wait(compact_reference_active,'compact reference board selects one active image safely') == (0,2)
-            narrow_reference=wait(compact_reference_window_rect,
-                                  'the active reference window reports its compact bounds')
-            assert not rects_overlap(narrow_reference[:4],narrow_palette[:4]), \
-                f'narrow reference overlaps the tool palette: reference={narrow_reference[:4]}, palette={narrow_palette[:4]}'
-            assert narrow_reference[0]>=0 and narrow_reference[1]>=0 \
-                and narrow_reference[0]+narrow_reference[2]<=640/narrow_palette[4] \
-                and narrow_reference[1]+narrow_reference[3]<=480/narrow_palette[4], \
-                f'narrow reference is outside the viewport: {narrow_reference}'
-            nav=wait(compact_reference_navigation,
-                     'the compact board exposes keyboard/touch-sized reference navigation')
-            click_at((nav[2]+nav[4]/2)*nav[6],(nav[3]+nav[5]/2)*nav[6])
-            assert wait(compact_reference_active,'Next changes the compact reference selection') == (1,2)
-            second_narrow_reference=wait(compact_reference_window_rect,
-                                         'the second reference image receives a reachable compact window')
-            assert second_narrow_reference[0]>=0 and second_narrow_reference[1]>=0 \
-                and second_narrow_reference[0]+second_narrow_reference[2]<=640/narrow_palette[4] \
-                and second_narrow_reference[1]+second_narrow_reference[3]<=480/narrow_palette[4], \
-                f'the second reference is outside the viewport: {second_narrow_reference}'
-            second_image=wait(reference_image_rect,'the selected second reference has a visible image viewport')
-            assert second_image[2]>=48 and second_image[3]>=48, \
-                f'the selected second reference image is too small: {second_image}'
+            wait(lambda: reference_inspector_rect() is not None,
+                 'the selected reference preview remains visible in the compact Inspector')
+            assert reference_active()==(0,2)
+            nav=wait(lambda: reference_nav_rect('NEXT'),
+                     'the image-first board exposes touch-sized Next navigation')
+            click_at((nav[0]+nav[2]/2)*nav[4],(nav[1]+nav[3]/2)*nav[4])
+            wait(lambda: reference_active()==(1,2),
+                 'Next changes the selected reference in the actual workspace')
+            second_image=wait(reference_inspector_rect,
+                              'the selected second reference is shown in the Inspector preview')
+            assert int(second_image[0])==1 and second_image[3]>=120 and second_image[4]>=80, \
+                f'the selected second reference is too small or incorrect: {second_image}'
             capture_window(window,'compact-reference-second')
-            nav=wait(compact_reference_navigation,'the compact board still exposes Previous')
-            click_at((nav[2]+nav[4]/2)*nav[6],(nav[3]+nav[5]/2)*nav[6])
-            assert wait(compact_reference_active,'Previous restores the first compact reference') == (0,2)
-            first_image=wait(compact_reference_image_rect,
-                             'the first reference remains visible after compact navigation')
-            assert first_image[2]>=48 and first_image[3]>=48, \
-                f'the first compact reference image is too small: {first_image}'
+            nav=wait(lambda: reference_nav_rect('PREVIOUS'),'the board also exposes Previous')
+            click_at((nav[0]+nav[2]/2)*nav[4],(nav[1]+nav[3]/2)*nav[4])
+            wait(lambda: reference_active()==(0,2),
+                 'Previous restores the first reference preview')
+            preview=wait(lambda: reference_inspector_rect()
+                         if reference_inspector_rect()
+                            and int(reference_inspector_rect()[0])==0 else None,
+                         'the first selected image has a live Inspector viewport')
+            px,py,pw,ph,scale=preview[1:]
+            origin=((px+pw/2)*scale,(py+ph/2)*scale)
+            drag_at(*origin,origin[0]+24*scale,origin[1]+12*scale)
+            wait(lambda: (lambda pan: pan is not None and
+                          (abs(pan[0])>1.0 or abs(pan[1])>1.0))(
+                              json.loads(prefs.read_text())['references'][0].get('view_pan')),
+                 'dragging the selected reference preview pans the actual board image')
+            center_image=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCE_CENTER_IMAGE_RECT'),
+                              'Center remains available after reference panning')
+            click_at((center_image[0]+center_image[2]/2)*center_image[4],
+                     (center_image[1]+center_image[3]/2)*center_image[4])
+            wait(lambda: json.loads(prefs.read_text())['references'][0].get('view_pan')==[0.0,0.0],
+                 'Center restores the image framing without changing other references')
+            zoom_before=json.loads(prefs.read_text())['references'][0].get('view_zoom',1.0)
+            wheel_at(*origin,notches=1)
+            wait(lambda: abs(json.loads(prefs.read_text())['references'][0].get('view_zoom',1.0)
+                             -zoom_before)>0.01,
+                 'wheel input over the Inspector image changes reference zoom rather than painting')
+            center_image=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCE_CENTER_IMAGE_RECT'),
+                              'Center remains available after reference zooming')
+            click_at((center_image[0]+center_image[2]/2)*center_image[4],
+                     (center_image[1]+center_image[3]/2)*center_image[4])
+            wait(lambda: abs(json.loads(prefs.read_text())['references'][0].get('view_zoom',1.0)
+                             -zoom_before)<0.01,
+                 'Center leaves the artist-selected reference zoom intact')
             compact_reference_geometry=[
                 (entry['position'][:],entry['size'][:])
                 for entry in json.loads(prefs.read_text()).get('references',[])
             ]
             assert compact_reference_geometry==saved_multi_reference_geometry, \
-                'a temporary compact reference layout must preserve roomy saved geometry'
+                'selecting references must preserve their workspace layout independently of the preview'
             capture_window(window,'compact-reference-first')
             resize_window(window,1280,800)
             left, top, width, height, scale = wait(brush_rect, 'Brush control geometry')
             move(round((left + width / 2) * scale), round((top + height / 2) * scale))
             click_button(1, True)
             click_button(1, False)
-            wait(lambda: 'UI_TEST_BRUSH_FLYOUT_OPENED' in (directory / 'application.log').read_text(),
-                 'palette Brush control opens its flyout')
+            wait(lambda: event_marker('UI_TEST_ACTIVE_TOOL') == 'Brush',
+                 'the movable palette selects painting without opening another panel')
+            unpinned_reference_frames=sum(
+                line.startswith('UI_TEST_REFERENCE_IMAGE_VISIBLE:')
+                for line in (directory/'application.log').read_text().splitlines()
+            )
+            ctrl('b')
+            wait(lambda: event_marker('UI_TEST_INSPECTOR_SHORTCUT') == 'Brush',
+                 'Ctrl+B selects Brush in the unified Inspector')
+            brush_bounds=wait(lambda: inspector_layout()
+                               if inspector_layout() and inspector_layout()[1]=='Brush' else None,
+                               'the actual Brush Inspector reports its stable bounds')
             time.sleep(0.25)
-            preview_bounds=wait(brush_preview_rect,'real raster-engine preview is present in the Brush Library')
+            preview_bounds=wait(brush_preview_rect,'the raster engine preview is integrated in the Brush tab')
             assert preview_bounds[2]>=120 and preview_bounds[3]>=36, f'brush preview is too small: {preview_bounds}'
             preset_preview_count=wait(brush_preset_preview_count,'raster-engine samples are rendered for built-in brush presets')
             assert preset_preview_count==10, f'expected ten rendered brush samples, got {preset_preview_count}'
-            time.sleep(0.8)  # allow egui to finish its newly opened Window sizing pass
             capture_window(window,'brush-library-light-normal')
             select_quick_brush('Ink')
             select_quick_brush('Round')
-            print('UI_SCREENSHOT_BRUSH_LAYOUT: ' + str(event_marker('UI_TEST_BRUSH_PANEL')), flush=True)
-            brush_bounds=wait(lambda: window_rect_marker('UI_TEST_BRUSH_WINDOW_RECT'),
-                              'brush window reports its final bounds')
-            reference_bounds=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCE_LAST_WINDOW_RECT'),
-                                  'reference board reports its final bounds')
-            brush_rect=tuple(value*brush_bounds[4] for value in brush_bounds[:4])
-            reference_rect=tuple(value*reference_bounds[4] for value in reference_bounds[:4])
-            assert brush_rect[2] <= 600.0, \
-                f'brush flyout exceeded its compact maximum width: {brush_rect[2]:.1f}'
-            assert not rects_overlap(brush_rect,reference_rect), \
-                f'brush flyout covers the reference board: brush={brush_rect}, reference={reference_rect}'
+            brush_inspector_rect=tuple(value*brush_bounds[6] for value in brush_bounds[2:6])
+            assert brush_inspector_rect[2] <= 484.0, \
+                f'Brush Inspector exceeded its 480pt dock plus resize-grip bounds: {brush_inspector_rect[2]:.1f}'
+            time.sleep(0.2)
+            assert sum(line.startswith('UI_TEST_REFERENCE_IMAGE_VISIBLE:')
+                       for line in (directory/'application.log').read_text().splitlines()) == unpinned_reference_frames, \
+                'unpinning references must hide their canvas overlays while another Inspector tab is open'
             resize_window(window,640,480)
-            narrow_layout=wait(brush_narrow_layout,
-                               'narrow Brush flyout and toolbar report their bounded layout')
-            panel_rect=tuple(value*narrow_layout[8] for value in narrow_layout[:4])
-            palette_rect=tuple(value*narrow_layout[8] for value in narrow_layout[4:8])
+            narrow_layout=wait(
+                lambda: inspector_layout()
+                if inspector_layout() and inspector_layout()[0]=='overlay'
+                   and inspector_layout()[1]=='Brush' else None,
+                '640×480 Brush Inspector switches to a bounded compact drawer',
+            )
+            panel_rect=tuple(value*narrow_layout[6] for value in narrow_layout[2:6])
+            palette=wait(palette_bounds,'the movable toolbar remains visible beside the narrow Inspector')
+            palette_rect=tuple(value*palette[4] for value in palette[:4])
             assert panel_rect[0]>=0 and panel_rect[1]>=0 and panel_rect[0]+panel_rect[2]<=640.0 \
                 and panel_rect[1]+panel_rect[3]<=480.0, \
-                f'narrow Brush flyout escapes the window: {panel_rect}'
+                f'narrow Brush Inspector escapes the window: {panel_rect}'
             assert not rects_overlap(panel_rect,palette_rect), \
-                f'narrow Brush flyout obscures the tool palette: panel={panel_rect}, palette={palette_rect}'
-            visible_card=wait(brush_narrow_visible_card,
-                              'at least one complete brush preset card is visible without scrolling')
-            assert visible_card[3]>=60.0, \
-                f'narrow Brush preset card is clipped: {visible_card}'
-            visible_count=wait(brush_narrow_visible_cards_ready,
-                               'narrow brush gallery shows at least two fully visible presets')
-            assert visible_count>=2, \
-                f'narrow Brush gallery should expose at least two presets before scrolling, got {visible_count}'
+                f'narrow Brush Inspector obscures the tool palette: panel={panel_rect}, palette={palette_rect}'
+            # The egui Window response rect includes its 12pt resize grab
+            # gutters; the painted frame is the usable visual boundary.
+            painted_panel_rect=(panel_rect[0]+12.0,panel_rect[1],
+                                max(0.0,panel_rect[2]-24.0),panel_rect[3])
+            clear_canvas_width=(painted_panel_rect[0]-(palette_rect[0]+palette_rect[2])
+                               if painted_panel_rect[0]>palette_rect[0]
+                               else palette_rect[0]-(painted_panel_rect[0]+painted_panel_rect[2]))
+            assert clear_canvas_width>=319.0, \
+                f'640px layout does not preserve the 320px canvas strip: panel={painted_panel_rect}, palette={palette_rect}'
+            visible_count=wait(
+                lambda: int(event_marker('UI_TEST_INSPECTOR_BRUSH_VISIBLE_CARDS').split()[0])
+                if event_marker('UI_TEST_INSPECTOR_BRUSH_VISIBLE_CARDS')
+                   and event_marker('UI_TEST_INSPECTOR_BRUSH_VISIBLE_CARDS').endswith('mode=overlay')
+                else None,
+                'narrow Inspector exposes a complete brush preset before scrolling',
+            )
+            assert visible_count>=1, f'narrow Brush gallery should expose a complete preset, got {visible_count}'
             wait(lambda: 'UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden=' in (directory/'application.log').read_text()
                  and 'UI_TEST_COMPACT_BRUSH_FOCUS: layers_hidden=false references_hidden=2' in
                      (directory/'application.log').read_text(),
-                 'compact Brush focus keeps the two saved references available without overlapping the gallery')
+                 'compact Inspector hides floating references without changing saved references')
             assert len(json.loads(prefs.read_text()).get('references',[]))==2, \
-                'compact Brush focus must preserve the hidden reference layouts'
+                'compact Inspector must preserve both reference layouts'
             capture_window(window,'brush-library-light-narrow')
             resize_window(window,1280,800)
             key('Escape')
-            time.sleep(0.3)
-            assert process.poll() is None, 'Escape closed the application instead of dismissing Brush library'
-            wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: brush' in (directory / 'application.log').read_text(),
-                 'Escape dismissed the Brush flyout')
-            window=wait(find_window,'window after Escape dismisses Brush library')
+            assert process.poll() is None, 'Escape closed the application instead of dismissing Inspector'
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='workspace controls',
+                 'Escape dismisses the unified Inspector')
             ctrl('b')
-            wait(lambda: 'UI_TEST_BRUSH_FLYOUT_OPENED: shortcut' in (directory / 'application.log').read_text(),
-                 'Ctrl+B opens Brush library for keyboard users')
+            wait(lambda: event_marker('UI_TEST_INSPECTOR_SHORTCUT')=='Brush',
+                 'Ctrl+B opens Brush in the unified Inspector for keyboard users')
             key('Escape')
-            assert process.poll() is None, 'Escape closed the application instead of dismissing keyboard-opened Brush library'
-            wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_ESCAPE_DISMISSED: brush') >= 2,
-                 'Escape dismisses the keyboard-opened Brush flyout')
+            assert process.poll() is None, 'Escape closed the application instead of dismissing Inspector'
+            wait(lambda: (directory/'application.log').read_text().count('UI_TEST_ESCAPE_DISMISSED: workspace controls') >= 2,
+                 'Escape dismisses the keyboard-opened Inspector')
             key('F6')
-            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_RECT'),
-                 'the detached workspace controls open from their keyboard shortcut')
-            wait(lambda: json.loads(prefs.read_text()).get('show_controls') is True,
-                 'opening workspace controls is persisted before the dismiss test')
-            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE') == 'Layers',
-                 'floating workspace controls show the current Layers tab')
-            capture_window(window,'workspace-controls-floating-light-normal')
-            launch_layers=wait(workspace_open_layers_rect,
-                               'the redundant Layers tab offers its integrated floating-panel action')
-            layer_window_count=sum(line.startswith('UI_TEST_LAYERS_WINDOW_RECT: ')
-                                   for line in (directory/'application.log').read_text().splitlines())
-            click_at((launch_layers[0]+launch_layers[2]/2)*launch_layers[4],
-                     (launch_layers[1]+launch_layers[3]/2)*launch_layers[4])
-            wait(lambda: event_marker('UI_TEST_LAYERS_FLYOUT_OPENED')=='workspace controls',
-                 'the Layers tab opens the real thumbnail-backed Layers panel')
-            wait(lambda: sum(line.startswith('UI_TEST_LAYERS_WINDOW_RECT: ')
-                             for line in (directory/'application.log').read_text().splitlines())>
-                 layer_window_count,
-                 'the integrated Layers panel reports its real floating-window bounds')
-            wait(lambda: json.loads(prefs.read_text()).get('show_controls') is False,
-                 'launching Layers closes the duplicate inspector and persists that workspace state')
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Brush',
+                 'F6 opens the Inspector at the saved Brush tab')
+            capture_window(window,'inspector-unified-light-normal')
+            ctrl('l')
+            wait(lambda: event_marker('UI_TEST_INSPECTOR_SHORTCUT')=='Layers',
+                 'Ctrl+L switches the same Inspector to real Layers controls')
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the selected Inspector section is Layers, without launching a duplicate window')
+            wait(lambda: layer_row_rect(0), 'the Inspector contains real editable layer rows')
+            capture_window(window,'inspector-layers-light-populated')
+            front_row=wait(layer_front_row_rect,
+                           'the Inspector puts populated raster rows at the top of the stack')
+            opacity_footer=wait(layer_opacity_rect,
+                                'selected-layer opacity and blend controls remain in the lower settings area')
+            assert front_row[1] < opacity_footer[1], \
+                f'the layer list must precede its settings footer: row={front_row}, opacity={opacity_footer}'
+            ctrl('b')
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Brush',
+                 'Ctrl+B changes the active Inspector tab without changing the painting tool')
             key('Escape')
-            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='layers',
-                 'Escape dismisses the launched Layers panel')
-            key('F6')
-            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
-                 'F6 reopens the workspace launcher after closing Layers')
-            tab_bounds=wait(workspace_brush_tab_rect,'floating Brush settings tab is laid out')
-            click_at((tab_bounds[0]+tab_bounds[2]/2)*tab_bounds[4],
-                     (tab_bounds[1]+tab_bounds[3]/2)*tab_bounds[4])
-            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE') == 'Brush',
-                 'floating workspace controls switch to the Brush Library launcher')
-            launch_brush=wait(workspace_open_brush_rect,
-                              'the Brush tab offers its integrated Brush Library action')
-            brush_panel_count=sum(line == 'UI_TEST_BRUSH_PANEL_VISIBLE'
-                                   for line in (directory/'application.log').read_text().splitlines())
-            click_at((launch_brush[0]+launch_brush[2]/2)*launch_brush[4],
-                     (launch_brush[1]+launch_brush[3]/2)*launch_brush[4])
-            wait(lambda: event_marker('UI_TEST_BRUSH_FLYOUT_OPENED')=='workspace controls',
-                 'the Brush tab opens the actual preset and settings Library')
-            wait(lambda: sum(line == 'UI_TEST_BRUSH_PANEL_VISIBLE'
-                             for line in (directory/'application.log').read_text().splitlines())>
-                 brush_panel_count,
-                 'the launched Brush Library renders its actual floating panel')
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='workspace controls',
+                 'Escape returns from the open Inspector to the canvas')
             wait(lambda: json.loads(prefs.read_text()).get('show_controls') is False,
-                 'launching Brush closes the duplicate inspector and persists that workspace state')
-            key('Escape')
-            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='brush',
-                 'Escape dismisses the launched Brush Library')
-            key('F6')
-            wait(lambda: stable_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Brush',
-                 'F6 restores the workspace launcher to its saved Brush tab')
-            workspace_save_count=(directory/'application.log').read_text().count('UI_TEST_WORKSPACE_SAVE:')
-            key('Escape')
-            assert process.poll() is None, 'Escape closed the application instead of dismissing workspace controls'
-            wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: workspace controls' in (directory/'application.log').read_text(),
-                 'Escape dismisses floating workspace controls')
-            wait(lambda: (directory/'application.log').read_text().count('UI_TEST_WORKSPACE_SAVE:')>workspace_save_count,
-                 'floating workspace close state is written to preferences')
-            wait(lambda: json.loads(prefs.read_text()).get('show_controls') is False,
-                 'floating workspace close state reaches the saved preference file')
+                 'Inspector visibility persists after keyboard dismissal')
             preferences=json.loads(prefs.read_text())
-            assert preferences['show_controls'] is False, 'closing the floating workspace controls was not persisted'
-            controls_position=preferences.get('workspace_controls_position')
-            assert controls_position and all(isinstance(value,(int,float)) for value in controls_position), 'floating workspace position was not persisted'
-            controls_size=preferences.get('workspace_controls_size')
-            assert controls_size and all(200<=value<=1400 for value in controls_size), 'floating workspace size was not persisted within safe bounds'
+            assert preferences['show_controls'] is False, 'closing the unified Inspector was not persisted'
+            assert 280<=preferences.get('inspector_width',0)<=480, 'roomy Inspector preference is outside safe bounds'
+            assert preferences.get('references_pinned') is False, \
+                'reference overlays should start unpinned when switching away from the References tab'
             key('c')
-            wait(lambda: 'UI_TEST_COLOR_FLYOUT_OPENED: shortcut' in (directory/'application.log').read_text(),
-                 'C opens Color controls for keyboard users')
+            wait(lambda: event_marker('UI_TEST_INSPECTOR_SHORTCUT')=='Color',
+                 'C opens Color in the unified Inspector for keyboard users')
             wait(lambda: 'UI_TEST_COLOR_PALETTE_READY: 3' in (directory/'application.log').read_text(),
                  'Color panel restores the three saved workspace swatches')
             time.sleep(0.25)
@@ -1810,7 +1937,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             click_at((add_bounds[0]+add_bounds[2]/2)*add_bounds[4],(add_bounds[1]+add_bounds[3]/2)*add_bounds[4])
             time.sleep(0.2)
             assert len(json.loads(prefs.read_text())['saved_color_swatches'])==4, 'saving an existing swatch should not create a duplicate'
+            # Adding a swatch may wrap the palette onto another row in the
+            # unified Inspector. Re-read the live control geometry after the
+            # row reflow instead of clicking the pre-mutation coordinate.
+            remove_bounds=wait(lambda: color_palette_marker('UI_TEST_COLOR_PALETTE_REMOVE_RECT'),
+                               'the current saved-color remove control is laid out after palette reflow')
             click_at((remove_bounds[0]+remove_bounds[2]/2)*remove_bounds[4],(remove_bounds[1]+remove_bounds[3]/2)*remove_bounds[4])
+            wait(lambda: 'UI_TEST_COLOR_SWATCH_REMOVAL_REQUESTED' in (directory/'application.log').read_text(),
+                 'the current saved-color remove button receives the pointer action')
             wait(lambda: len(json.loads(prefs.read_text()).get('saved_color_swatches',[]))==3,
                  'Remove saved color updates workspace preferences')
             saved_after_remove=json.loads(prefs.read_text())['saved_color_swatches']
@@ -1828,57 +1962,127 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: current_brush_rgb()==(35,65,180),
                  'the saved original brush color restores the active color after hue-wheel testing')
             key('Escape')
-            wait(lambda: 'UI_TEST_ESCAPE_DISMISSED: color' in (directory/'application.log').read_text(),
-                 'Escape dismisses Color controls')
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='workspace controls',
+                 'Escape dismisses the Color tab without closing the project')
             ctrl('l');time.sleep(0.3)
-            window=wait(find_window,'window after Ctrl+L opens Layers')
-            # Arrange the two saved references to the right of the fitted
-            # portrait artboard and the compact Layers panel immediately left
-            # of it, leaving an unobstructed strip for genuine paint input.
-            layer_bounds=wait(layers_window_rect,'Layers panel is ready to be moved for canvas interaction')
-            layer_target_x=90.0
-            drag_at((layer_bounds[0]+layer_bounds[2]/2)*layer_bounds[4],
-                    (layer_bounds[1]+16.0)*layer_bounds[4],
-                    (layer_target_x+layer_bounds[2]/2)*layer_bounds[4],
-                    (layer_bounds[1]+16.0)*layer_bounds[4])
-            moved_layers=wait(lambda: layers_window_rect()
-                               if layers_window_rect() and abs(layers_window_rect()[0]-layer_target_x)<3
-                               else None,
-                               'Layers panel movement leaves the fitted artboard reachable')
-            for reference_index,target in [(0,(900.0,90.0)),(1,(900.0,425.0))]:
-                reference_bounds=wait(lambda reference_index=reference_index:
-                                       reference_window_rect(reference_index),
-                                       f'Reference {reference_index+1} reports its panel geometry')
-                drag_at((reference_bounds[0]+40.0)*reference_bounds[4],
-                        (reference_bounds[1]+16.0)*reference_bounds[4],
-                        (target[0]+40.0)*reference_bounds[4],
-                        (target[1]+16.0)*reference_bounds[4])
-                wait(lambda reference_index=reference_index,target=target:
-                     (lambda bounds: bounds if bounds and abs(bounds[0]-target[0])<3
-                      and abs(bounds[1]-target[1])<3 else None)(reference_window_rect(reference_index)),
-                     f'Reference {reference_index+1} moves outside the fitted artboard')
+            window=wait(find_window,'window after Ctrl+L selects the Layers Inspector tab')
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'Ctrl+L selects Layers in the unified Inspector')
+            reference_tab=wait(lambda: inspector_tab_rect('References'),
+                               'the Inspector exposes an accessible References tab')
+            click_at((reference_tab[0]+reference_tab[2]/2)*reference_tab[4],
+                     (reference_tab[1]+reference_tab[3]/2)*reference_tab[4])
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References',
+                 'the Inspector switches to its integrated Reference board')
+            wait(lambda: event_marker('UI_TEST_REFERENCE_INSPECTOR_RECT') is not None,
+                 'the References tab displays the actual imported image previews')
+            capture_window(window,'reference-inspector-light-populated')
+            pin_rect=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCES_PIN_CHECKBOX_RECT'),
+                          'the optional reference overlay pin is available inside the Inspector')
+            reference_positions_before_pin=[item['position'] for item in
+                                            json.loads(prefs.read_text()).get('references',[])]
+            click_at((pin_rect[0]+pin_rect[2]/2)*pin_rect[4],
+                     (pin_rect[1]+pin_rect[3]/2)*pin_rect[4])
+            wait(lambda: json.loads(prefs.read_text()).get('references_pinned') is True,
+                 'pinning references persists the workspace-only overlay preference')
+            wait(lambda: event_marker('UI_TEST_REFERENCE_OVERLAY_ACTIVE')=='true',
+                 'pinning shows the saved floating reference images over the canvas')
+            wait(lambda:[item['position'] for item in
+                         json.loads(prefs.read_text()).get('references',[])]==reference_positions_before_pin,
+                 'temporary canvas placement does not overwrite saved reference positions')
+            capture_window(window,'reference-inspector-pinned-light')
+            ctrl('l')
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'pinned references remain available when the Inspector changes to Layers')
+            wait(lambda: event_marker('UI_TEST_REFERENCE_OVERLAY_ACTIVE')=='true',
+                 'the pinned canvas overlay survives the Inspector tab change')
+            capture_window(window,'reference-overlay-over-layers-light')
+            safe_viewport=wait(lambda:stable_window_rect_marker(
+                'UI_TEST_PINNED_REFERENCE_SAFE_VIEWPORT'),
+                'the pinned image uses the unobstructed canvas viewport')
+            inspector=wait(inspector_layout,
+                           'the unified Inspector continues to report its visible bounds')
+            reference_pip=wait(lambda:stable_window_rect_marker('UI_TEST_REFERENCE_PIP_RECT'),
+                               'pinning presents one compact selected-image preview')
+            pip_image=wait(lambda:stable_window_rect_marker('UI_TEST_REFERENCE_PIP_IMAGE_RECT'),
+                           'the pinned preview contains the actual reference texture')
+            inspector_rect=(inspector[2],inspector[3],inspector[4],inspector[5])
+            assert safe_viewport[0]+safe_viewport[2] <= inspector_rect[0]+1.0, \
+                f'pinned image viewport overlaps the Inspector: {safe_viewport} {inspector_rect}'
+            rx,ry,rw,rh,_=reference_pip
+            assert safe_viewport[0] <= rx and safe_viewport[1] <= ry \
+                and rx+rw <= safe_viewport[0]+safe_viewport[2]+1.0 \
+                and ry+rh <= safe_viewport[1]+safe_viewport[3]+1.0, \
+                f'pinned image escapes the safe canvas viewport: {reference_pip}, {safe_viewport}'
+            assert rw <= safe_viewport[2]*0.24+1.0 and rh <= safe_viewport[3]*0.24+1.0, \
+                f'pinned image exceeds its 24% canvas footprint: {reference_pip}, {safe_viewport}'
+            assert reference_rects() is None, \
+                'pinning references must not reopen the old independent floating windows'
+            assert pip_image[2] >= 140 and pip_image[3] >= 48, \
+                f'pinned reference image area is not useful: {pip_image}'
+            reference_tab=wait(lambda: inspector_tab_rect('References'),
+                               'the References tab remains available for unpinning')
+            click_at((reference_tab[0]+reference_tab[2]/2)*reference_tab[4],
+                     (reference_tab[1]+reference_tab[3]/2)*reference_tab[4])
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References',
+                 'the Inspector returns to Reference settings')
+            pin_rect=wait(lambda: stable_window_rect_marker('UI_TEST_REFERENCES_PIN_CHECKBOX_RECT'),
+                          'reference overlay pin remains accessible after activation')
+            click_at((pin_rect[0]+pin_rect[2]/2)*pin_rect[4],
+                     (pin_rect[1]+pin_rect[3]/2)*pin_rect[4])
+            wait(lambda: json.loads(prefs.read_text()).get('references_pinned') is False,
+                 'unpinning references restores the canvas-first behavior')
+            key('Escape')
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='workspace controls',
+                 'the Inspector can close while preserving the live reference board')
+            wait(lambda: event_marker('UI_TEST_REFERENCE_OVERLAY_ACTIVE')=='false',
+                 'closing the Inspector leaves references in the board until explicitly pinned')
+            wait(lambda: [item['position'] for item in json.loads(prefs.read_text()).get('references',[])]
+                 ==reference_positions_before_pin,
+                 'pin placement is stored separately from the image-board layout')
+            ctrl('l')
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'Ctrl+L opens Layers after the reference overlay is dismissed')
             ctrl_shift('n');ctrl_shift('n');time.sleep(0.3)
             wait(lambda: 'UI_TEST_LAYERS_ADDED: 3' in (directory/'application.log').read_text(), 'Layers panel contains three real editable layers')
             populated_layer_id=wait(layer_front_row_id,'the frontmost editable layer is selected')
             empty_thumbnail=wait(lambda: layer_thumbnail_update(populated_layer_id),
                                  'the selected layer starts with a cached transparent thumbnail')
             assert empty_thumbnail[1]==0 and empty_thumbnail[2]==0, f'new layer should begin transparent, got {empty_thumbnail}'
+            thumbnail_updates_before=layer_thumbnail_update_count(populated_layer_id)
             paint_start_count=sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                                   for line in (directory/'application.log').read_text().splitlines())
+            paint_commit_count=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
             key('b');drag_at(460,250,550,330)
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>paint_start_count,
                  'painting on the selected layer uses the ordinary input pipeline')
+            wait(lambda: event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>paint_commit_count,
+                 'the selected-layer brush transaction commits before thumbnail validation')
             painted_thumbnail=wait(
-                lambda: (lambda value: value if value and value[0]!=empty_thumbnail[0]
-                         and value[1]>0 and value[2]>=5 else None)(layer_thumbnail_update(populated_layer_id)),
+                lambda: layer_thumbnail_update(populated_layer_id)
+                if layer_thumbnail_update_count(populated_layer_id)>thumbnail_updates_before
+                else None,
                 'painting refreshes the actual selected-layer thumbnail content',
             )
-            assert painted_thumbnail[0]!=empty_thumbnail[0]
+            assert painted_thumbnail[0]!=empty_thumbnail[0] \
+                and painted_thumbnail[1]>0 and painted_thumbnail[2]>=5, \
+                f'painted layer thumbnail did not reflect committed pixels: layer={populated_layer_id}, before={empty_thumbnail}, after={painted_thumbnail}'
             print(f'UI_TEST_LAYER_THUMBNAIL_PAINTED: {populated_layer_id} covered={painted_thumbnail[1]} colored={painted_thumbnail[2]}',flush=True)
             capture_window(window,'layers-panel-populated-light')
             resize_window(window,1920,1080);capture_window(window,'layers-panel-populated-light-wide')
             resize_window(window,640,480);capture_window(window,'layers-panel-populated-light-narrow')
+            narrow_inspector=wait(inspector_layout,
+                                  'narrow Inspector reports its effective screen geometry')
+            narrow_chrome=wait(palette_chrome_clearance,
+                               'narrow tool palette reports protected application chrome')
+            _,_,inspector_x,inspector_y,inspector_width,inspector_height,inspector_scale=narrow_inspector
+            assert inspector_y >= narrow_chrome[1]+8.0, \
+                f'compact Inspector must clear the menu and contextual strip: {narrow_inspector}, chrome={narrow_chrome}'
+            assert inspector_x >= 0 and inspector_y >= 0 \
+                and inspector_x+inspector_width <= 640/inspector_scale+1 \
+                and inspector_y+inspector_height <= 480/inspector_scale-60, \
+                f'compact Inspector must remain inside the unobstructed workspace: {narrow_inspector}'
             resize_window(window,1280,800)
             ctrl('z')
             restored_thumbnail=wait(
@@ -2087,10 +2291,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda: sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>paint_count,
                  'the targeted front layer receives raster content through the real mouse pipeline')
-            before_clear_thumbnail=wait(lambda: layer_thumbnail_update(front_id),
-                                        'the selected layer has a rendered thumbnail before clearing')
-            assert before_clear_thumbnail[2]>0, \
-                'the context-clear test requires real selected-layer raster content'
+            before_clear_thumbnail=wait(
+                lambda: (lambda value: value if value and value[2]>0 else None)(
+                    layer_thumbnail_update(front_id)),
+                'the selected layer has real raster pixels in its rendered thumbnail before clearing')
             more=wait(layer_more_button_rect,'frontmost layer exposes its targeted clear action')
             opened=layer_actions_open_count()
             click_at((more[0]+more[2]/2)*more[4],(more[1]+more[3]/2)*more[4])
@@ -2202,24 +2406,19 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert preset_data['version']==1 and preset_data['brush']['kind']=='Round'
             ctrl_alt('b');path_prompt();ctrl('Return');ctrl('s')
             wait(lambda: native_state(project)['brush']==preset_data['brush'],'brush preset load and project save')
-            layer_window_count=sum(
-                line.startswith('UI_TEST_LAYERS_WINDOW_RECT: ')
-                for line in (directory/'application.log').read_text().splitlines()
-            )
             ctrl('l')
-            wait(lambda: sum(
-                line.startswith('UI_TEST_LAYERS_WINDOW_RECT: ')
-                for line in (directory/'application.log').read_text().splitlines()
-            )>layer_window_count,
-                 'the reopened project exposes Layers before testing layer actions')
-            reopened_layers=wait(layers_window_rect,'the reopened Layers panel reports its viewport bounds')
-            assert reopened_layers[1]>=0 and reopened_layers[1]+reopened_layers[3]<=800, \
-                f'Layers must remain within the 1280×800 application viewport: {reopened_layers}'
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the reopened project exposes its Layers Inspector before editing')
+            reopened_layers=wait(inspector_layout,'the unified Layers Inspector reports its bounds')
+            reopened_rect=tuple(value*reopened_layers[6] for value in reopened_layers[2:6])
+            assert reopened_rect[1]>=0 and reopened_rect[1]+reopened_rect[3]<=800, \
+                f'Layers Inspector must remain within the 1280×800 application viewport: {reopened_rect}'
             # Exercise actual selection-tool ownership and transactional fill.
             time.sleep(0.5)
             saved=project.read_bytes()
-            # Keep the captured selection gesture on exposed portrait-canvas
-            # pixels; the moved Layers panel occupies x=90..450.
+            # Keep the selection gesture on exposed portrait-canvas pixels
+            # beside the right-docked Inspector.
+            selection_bounds_reports=event_marker_count('UI_TEST_SELECTION_BOUNDS')
             selection_commits=event_marker_count('UI_TEST_SELECTION_COMMITTED')
             key('m');move(480,260);click_button(1,True);move(540,330);click_button(1,False)
             wait(lambda: event_marker_count('UI_TEST_SELECTION_COMMITTED') > selection_commits
@@ -2230,7 +2429,35 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert layer_front_row_id()==source_id, 'the selected layer row and document active layer must agree'
             # Esc cancels a provisional canvas move without altering the saved
             # artwork; a second drag commits the selected pixels as one edit.
-            move(500,280);click_button(1,True);move(530,310)
+            bounds=wait(lambda:(selection_bounds() if
+                                event_marker_count('UI_TEST_SELECTION_BOUNDS')>selection_bounds_reports
+                                else None),
+                         'the new active selection reports fresh canvas bounds')
+            _,_,_,_,left,top,right,bottom=bounds
+            selection_point=(round((left+right)/2),round((top+bottom)/2))
+            # Seed visible pixels inside the measured selection so the move
+            # regression proves raster data changed, independent of which
+            # canvas region remains visible after Inspector reflow.
+            click_scaled_rect(wait(brush_rect,'the movable toolbar exposes Brush'))
+            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+                 'the toolbar selects Brush while keeping the Layers Inspector open')
+            before_selection_paint=project.read_bytes()
+            drag_at(selection_point[0]-10,selection_point[1]-4,
+                    selection_point[0]+10,selection_point[1]+4)
+            ctrl('s')
+            wait(lambda:valid_project(project) and project.read_bytes()!=before_selection_paint
+                 and '*' not in title(window),
+                 'a real brush stroke adds raster pixels within the selected region')
+            saved=project.read_bytes()
+            assert native_layer_tiles_bytes(saved)!=native_layer_tiles_bytes(before_selection_paint), \
+                'the selected-pixel move fixture must contain actual raster samples'
+            key('m')
+            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Rectangle',
+                 'the selection tool is active before moving selected pixels')
+            transform_starts=event_marker_count('UI_TEST_SELECTION_TRANSFORM_STARTED')
+            move(*selection_point);click_button(1,True);move(selection_point[0]+30,selection_point[1]+30)
+            wait(lambda: event_marker_count('UI_TEST_SELECTION_TRANSFORM_STARTED')>transform_starts,
+                 'a pointer inside the selected pixels begins a provisional move')
             key('Escape')
             wait(lambda: event_marker('UI_TEST_SELECTION_DRAG_CANCELLED')=='escape',
                  'Escape cancels a selected-pixel move preview')
@@ -2239,7 +2466,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'cancelling the selection move must leave artwork and save state unchanged'
             drag_commit_count=sum(line.startswith('UI_TEST_SELECTION_DRAG_COMMITTED: ')
                                   for line in (directory/'application.log').read_text().splitlines())
-            move(500,280);click_button(1,True);move(530,310);click_button(1,False)
+            transform_starts=event_marker_count('UI_TEST_SELECTION_TRANSFORM_STARTED')
+            move(*selection_point);click_button(1,True);move(selection_point[0]+30,selection_point[1]+30)
+            wait(lambda: event_marker_count('UI_TEST_SELECTION_TRANSFORM_STARTED')>transform_starts,
+                 'a second pointer inside the selection begins its committed move')
+            click_button(1,False)
             wait(lambda: sum(line.startswith('UI_TEST_SELECTION_DRAG_COMMITTED: ')
                              for line in (directory/'application.log').read_text().splitlines())>
                  drag_commit_count,
@@ -2571,6 +2802,22 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 click_at(*target)
                 return control
 
+            def click_mask_action(marker_fn, description):
+                control=scroll_layers_marker_into_view(
+                    marker_fn,description+' is visible in Selected layer settings',
+                )
+                # These mask actions are direct, separately labeled controls,
+                # not a nested popup. Capture the populated interaction state
+                # without injecting an input event before clicking Clear.
+                if marker_fn is layer_mask_clear_rect:
+                    capture_window(window,'layers-mask-controls-direct')
+                target=((control[0]+control[2]/2)*control[4],
+                        (control[1]+control[3]/2)*control[4])
+                print(f'UI_TEST_MASK_CONTROL_CLICK: {description} '
+                      f'rect={control[:4]} target={target}',flush=True)
+                click_at(*target)
+                return control
+
             click_mask_control(
                 layer_mask_edit_rect,
                 'Selected layer settings exposes the direct Edit mask with Brush control',
@@ -2579,16 +2826,76 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'the direct mask control receives its real pointer click')
             wait(lambda: event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} true',
                  'the selected layer enters native brush mask-paint mode')
+            status_contrast=wait(mask_status_contrast,
+                                 'mask-mode status has a measured theme-aware foreground')
+            assert status_contrast[0]=='light' and status_contrast[1]>=4.5, \
+                f'mask-mode status fails light-theme text contrast: {status_contrast}'
             capture_window(window,'layers-panel-mask-editing')
-            before_mask_pixels=native_layer_tiles_bytes(mask_added)
-            # Editing a mask opens Brush Library so its current settings are
-            # immediately available. Dismiss that floating panel before the
-            # routed canvas pointer stroke; it otherwise owns the test point.
+            # A mask starts white, and painting white is correctly a no-op.
+            # Set black through the actual HEX color control so this workflow
+            # exercises a visible, document-backed mask change rather than
+            # relying on the fixture's initial foreground color.
+            color_tab=wait(lambda: inspector_tab_rect('Color'),
+                           'the unified Inspector exposes its Color tab')
+            click_at((color_tab[0]+color_tab[2]/2)*color_tab[4],
+                     (color_tab[1]+color_tab[3]/2)*color_tab[4])
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Color',
+                 'Color remains available while editing a layer mask')
+            hex_rect=wait(color_hex_rect,'Color exposes the accessible HEX entry')
+            for _ in range(16):
+                clip=wait(inspector_scroll_clip_rect,
+                          'the active Inspector section reports its live scroll viewport')
+                if clip[1]+2 <= hex_rect[1] and hex_rect[1]+hex_rect[3] <= clip[3]-2:
+                    break
+                wheel_at(((clip[0]+clip[2])/2)*hex_rect[4],
+                         (clip[3]-16)*hex_rect[4],
+                         1,down=hex_rect[1]+hex_rect[3] > clip[3]-2)
+                time.sleep(0.08)
+                hex_rect=wait(color_hex_rect,'HEX entry remains laid out while scrolling Color')
+            assert clip[1]+2 <= hex_rect[1] and hex_rect[1]+hex_rect[3] <= clip[3]-2, \
+                f'Color HEX control did not scroll into its visible viewport: field={hex_rect} clip={clip}'
+            click_at((hex_rect[0]+hex_rect[2]/2)*hex_rect[4],
+                     (hex_rect[1]+hex_rect[3]/2)*hex_rect[4])
+            ctrl('a');type_ascii('000000');key('Return')
+            wait(lambda: current_brush_rgb()==(0,0,0),
+                 'the real Color HEX control applies black for mask painting')
+            layers_tab=wait(lambda: inspector_tab_rect('Layers'),
+                            'the unified Inspector retains the Layers tab')
+            click_at((layers_tab[0]+layers_tab[2]/2)*layers_tab[4],
+                     (layers_tab[1]+layers_tab[3]/2)*layers_tab[4])
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'returning to Layers keeps the active mask target')
+            # Brush color belongs to editable project state. Save the chosen
+            # black color before measuring the mask stroke so a preference
+            # change cannot masquerade as a successful paint transaction.
+            ctrl('s')
+            wait(lambda: valid_project(project) and '*' not in title(window),
+                 'the mask paint color is saved before recording pixel changes')
+            mask_paint_base=project.read_bytes()
+            assert native_state_bytes(mask_paint_base)['brush']['color']==[0,0,0]
+            assert native_layer_tiles_bytes(mask_paint_base)==native_layer_tiles_bytes(mask_added), \
+                'choosing a mask color must not modify raster artwork'
+            before_mask_pixels=native_layer_tiles_bytes(mask_paint_base)
+            # Mask editing stays in the unified Layers Inspector. Dismiss it
+            # before routing the pointer gesture to the document canvas.
             key('Escape')
-            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='brush',
-                 'closing Brush Library exposes the canvas without leaving mask-edit mode')
+            wait(lambda: event_marker('UI_TEST_ESCAPE_DISMISSED')=='workspace controls',
+                 'closing Inspector exposes the canvas without leaving mask-edit mode')
             assert event_marker('UI_TEST_LAYER_MASK_EDITING')==f'{copied_id} true', \
                 'dismissing Brush Library must preserve the active mask target'
+            # Closing the Inspector and the pinned reference board can change
+            # the canvas viewport without changing the document selection.
+            # Convert the retained document-space bounds through the latest
+            # canvas mapping so the real pointer stroke hits the selected area
+            # in the current workspace layout.
+            canvas_geometry=wait(lambda: event_marker('UI_TEST_SYMMETRY_CANVAS'),
+                                 'the canvas reports its current post-Inspector mapping')
+            canvas_left,canvas_top,canvas_right,canvas_bottom,document_width,document_height=map(
+                float,canvas_geometry.split())
+            selection_client_left=canvas_left+(selection_left/document_width)*(canvas_right-canvas_left)
+            selection_client_right=canvas_left+(selection_right/document_width)*(canvas_right-canvas_left)
+            selection_client_top=canvas_top+(selection_top/document_height)*(canvas_bottom-canvas_top)
+            selection_client_bottom=canvas_top+(selection_bottom/document_height)*(canvas_bottom-canvas_top)
             # The selection is still active. Begin beyond its left edge and
             # cross into it through the real mouse pipeline; the document
             # assertion below verifies that no changed mask pixel escaped its
@@ -2602,17 +2909,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  'a real mouse stroke crosses the active selection boundary')
             wait(lambda: '*' in title(window),'mask brush stroke changes the native document')
             ctrl('s')
-            wait(lambda: valid_project(project) and project.read_bytes()!=mask_added
+            wait(lambda: valid_project(project) and project.read_bytes()!=mask_paint_base
                  and '*' not in title(window),'mask pixels are saved into the v2 tile section')
             mask_painted=project.read_bytes()
             _,raster_layers,mask_tiles=native_document_tables(mask_painted)
-            assert raster_layers==native_layer_tiles_bytes(mask_added), \
+            assert raster_layers==native_layer_tiles_bytes(mask_paint_base), \
                 'painting a mask must not rewrite the source raster layer pixels'
             painted_mask=mask_tiles.get(copied_id,{})
             assert painted_mask and any(value<255 for tile in painted_mask.values() for value in tile), \
                 'the real mouse stroke must write non-white alpha-mask samples'
             changed_mask_pixels=native_layer_mask_changed_coordinates(
-                mask_added,mask_painted,copied_id)
+                mask_paint_base,mask_painted,copied_id)
             assert changed_mask_pixels, 'the boundary-crossing stroke must alter selected mask pixels'
             assert all(selection_left<=x+0.5<selection_right
                        and selection_top<=y+0.5<selection_bottom
@@ -2641,7 +2948,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'an outside-only mask stroke must leave saved artwork and dirty state unchanged'
 
             ctrl('z');ctrl('s')
-            wait(lambda: project.read_bytes()==mask_added,
+            wait(lambda: project.read_bytes()==mask_paint_base,
                  'Undo removes mask-paint samples and preserves the editable mask')
             ctrl('y');ctrl('s')
             wait(lambda: project.read_bytes()==mask_painted,
@@ -2649,7 +2956,20 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
 
             # Stop Mask is an important routing boundary: the next brush
             # transaction must target the selected raster layer while leaving
-            # the independently stored mask bytes unchanged.
+            # the independently stored mask bytes unchanged. The preceding
+            # Escape intentionally exposed the canvas for painting, so reopen
+            # the same Inspector before targeting its real Stop Mask control.
+            layers_layout_before=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            mask_control_layout_before=event_marker_count('UI_TEST_LAYER_MASK_EDIT_RECT')
+            raster_canvas_layout_before=event_marker_count('UI_TEST_SYMMETRY_CANVAS')
+            ctrl('l')
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>layers_layout_before
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the Layers Inspector reopens before Stop Mask is selected')
+            wait(lambda:event_marker_count('UI_TEST_LAYER_MASK_EDIT_RECT')>mask_control_layout_before,
+                 'the Stop Mask control has a fresh rectangle after reopening the Inspector')
+            wait(lambda:event_marker_count('UI_TEST_SYMMETRY_CANVAS')>raster_canvas_layout_before,
+                 'the canvas reports fresh coordinates after reopening the Inspector')
             click_mask_control(
                 layer_mask_edit_rect,
                 'The selected layer exposes Stop editing mask while mask mode is active',
@@ -2660,9 +2980,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             stop_mask_raster_before=native_layer_tiles_bytes(stop_mask_before)
             stop_mask_tiles_before=native_document_tables(stop_mask_before)[2]
             raster_strokes=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
-            raster_x=(selection_client_left+selection_client_right)/2
-            raster_y=(selection_client_top+selection_client_bottom)/2
-            move(raster_x,raster_y);click_button(1,True);click_button(1,False)
+            raster_geometry=wait(lambda:event_marker('UI_TEST_SYMMETRY_CANVAS'),
+                                 'the resized canvas reports its post-Inspector mapping')
+            raster_left,raster_top,raster_right,raster_bottom,raster_doc_width,raster_doc_height=map(
+                float,raster_geometry.split())
+            raster_x=raster_left+((selection_left+selection_right)/2/raster_doc_width)*(
+                raster_right-raster_left)
+            raster_y=raster_top+((selection_top+selection_bottom)/2/raster_doc_height)*(
+                raster_bottom-raster_top)
+            assert raster_left<raster_x<raster_right and raster_top<raster_y<raster_bottom, \
+                f'post-Inspector raster target is outside the current canvas: {raster_x} {raster_y} {raster_geometry}'
+            drag_at(raster_x-8,raster_y,raster_x+8,raster_y)
             wait(lambda:event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')>raster_strokes,
                  'a mouse brush stroke commits after mask editing stops')
             ctrl('s')
@@ -2687,7 +3015,11 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             def verify_mask_edit(marker_name, expected_event, marker_fn, description, validate):
                 before=project.read_bytes()
                 previous_count=event_marker_count(marker_name)
-                click_mask_control(marker_fn,description)
+                if marker_fn in (layer_mask_invert_rect,layer_mask_clear_rect,
+                                 layer_mask_remove_rect):
+                    click_mask_action(marker_fn,description)
+                else:
+                    click_mask_control(marker_fn,description)
                 outcome=wait(lambda: (lambda value: value if event_marker_count(marker_name)>previous_count
                                       and value else None)(event_marker(marker_name)),
                              description+' changes the document')
@@ -2880,17 +3212,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                          (layer_window[1]+28)*layer_window[4])
                 wait(lambda: layers_panel_open() is False,
                      'closing Layers returns its area to the canvas')
-            for _ in range(8):
-                open_references=reference_panel_count() or 0
-                if open_references==0:
-                    break
-                reference_window=wait(reference_last_window_rect,
-                                      'last reference window exposes its close control')
-                click_at((reference_window[0]+reference_window[2]-26)*reference_window[4],
-                         (reference_window[1]+26)*reference_window[4])
-                wait(lambda expected=open_references-1: reference_panel_count()==expected,
-                     'closing a reference window leaves other references independent')
-            assert reference_panel_count()==0, 'canvas-only regression phase must close every reference window'
+            if json.loads(prefs.read_text()).get('show_controls',False):
+                escape_count=event_marker_count('UI_TEST_ESCAPE_DISMISSED')
+                key('Escape')
+                wait(lambda: event_marker_count('UI_TEST_ESCAPE_DISMISSED')>escape_count
+                     and event_marker('UI_TEST_ESCAPE_DISMISSED')=='workspace controls'
+                     and json.loads(prefs.read_text()).get('show_controls') is False,
+                     'the unified Inspector closes before references are tested independently')
+            assert reference_panel_count() is None, \
+                'canvas-only workflow must not create legacy reference utility windows'
+            assert not json.loads(prefs.read_text()).get('references_pinned',False), \
+                'the reference picture-in-picture must be unpinned before canvas-only input tests'
             # Shape tools use the actual pointer canvas and document raster
             # engine. Escape drops a live preview without mutating native data;
             # each committed primitive survives save/reopen and has one undo.
@@ -3088,8 +3420,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'the reopened editable vector path can be selected directly on the canvas')
             assert int(selected_path)==int(vector_created_marker[0])
             ctrl('l')
-            wait(lambda:event_marker('UI_TEST_LAYERS_PANEL_STATE')=='true',
-                 'the real Layers panel opens to verify vector thumbnail invalidation')
+            wait(lambda:event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the real Layers Inspector opens to verify vector thumbnail invalidation')
+            wait(lambda:layer_row_rect(0),
+                 'the vector layer is represented in the unified Layers view')
             selected_layer_id=native_state_bytes(imported.read_bytes())['selected']
             wait(lambda:layer_thumbnail_update(selected_layer_id),
                  'the reopened vector layer has a cached thumbnail before style editing')
@@ -3626,6 +3960,102 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'path movement must change editable coordinates rather than only a preview'
             assert native_document_tables(vector_moved)[1]==vector_raster_before
             assert native_document_tables(vector_moved)[2]==vector_mask_before
+
+            def exercise_vector_action(action, scale, rotation):
+                before=imported.read_bytes()
+                before_state=native_state_bytes(before)
+                before_layer=next(layer for layer in before_state['layers']
+                                  if layer['id']==before_state['selected'])
+                before_path=before_layer['vector_paths'][0]
+                transformed_count=event_marker_count('UI_TEST_VECTOR_PATH_TRANSFORMED')
+                action_rect=wait(lambda:vector_action_rect(action),
+                                 f'the selected vector exposes the keyboard-accessible {action.replace("_"," ")} action')
+                click_scaled_rect(action_rect)
+                wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_TRANSFORMED')>transformed_count,
+                     f'{action.replace("_"," ")} commits through the document edit transaction')
+                ctrl('s')
+                wait(lambda:imported.read_bytes()!=before and '*' not in title(window),
+                     f'{action.replace("_"," ")} saves real editable path geometry')
+                after=imported.read_bytes()
+                after_state=native_state_bytes(after)
+                after_layer=next(layer for layer in after_state['layers']
+                                 if layer['id']==after_state['selected'])
+                after_path=after_layer['vector_paths'][0]
+                assert after_path['start']!=before_path['start'], \
+                    f'{action} should transform vector coordinates, not a preview only'
+                if scale!=1.0:
+                    assert abs(after_path['width']-before_path['width']*scale)<1e-8, \
+                        f'{action} should scale the vector stroke width with its geometry'
+                else:
+                    assert after_path['width']==before_path['width'], \
+                        f'{action} should rotate geometry without changing stroke width'
+                assert native_document_tables(after)[1]==vector_raster_before, \
+                    f'{action} must not bake vector geometry into raster tiles'
+                assert native_document_tables(after)[2]==vector_mask_before, \
+                    f'{action} must preserve the independent layer mask'
+                ctrl('z');ctrl('s')
+                wait(lambda:imported.read_bytes()==before,
+                     f'{action} is one exact application undo transaction')
+                ctrl('y');ctrl('s')
+                wait(lambda:imported.read_bytes()==after,
+                     f'{action} redo restores exact transformed vector bytes')
+                return after
+
+            vector_scaled=exercise_vector_action('scale_up',1.1,0.0)
+            capture_window(window,'vector-object-scaled')
+            vector_rotated=exercise_vector_action('rotate_right',1.0,15.0)
+
+            # The contextual Duplicate action creates a second editable object
+            # with a fresh ID and a visible offset, without touching raster or
+            # mask storage. Undo/redo and the native document model are checked
+            # before removing the duplicate for the subsequent move/delete flow.
+            before_duplicate=imported.read_bytes()
+            duplicate_count=event_marker_count('UI_TEST_VECTOR_PATH_DUPLICATED')
+            duplicate_rect=wait(lambda:vector_action_rect('duplicate'),
+                                 'the selected vector exposes an accessible Duplicate action')
+            click_scaled_rect(duplicate_rect)
+            wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_DUPLICATED')>duplicate_count,
+                 'Duplicate creates a second path in the owning layer')
+            ctrl('s')
+            wait(lambda:imported.read_bytes()!=before_duplicate and '*' not in title(window),
+                 'the duplicated vector object is saved in the native project')
+            duplicated_vector=imported.read_bytes()
+            duplicated_state=native_state_bytes(duplicated_vector)
+            duplicated_layer=next(layer for layer in duplicated_state['layers']
+                                  if layer['id']==duplicated_state['selected'])
+            assert len(duplicated_layer['vector_paths'])==2, \
+                'Duplicate must create an independently editable object'
+            first_path,second_path=duplicated_layer['vector_paths']
+            assert first_path['id']!=second_path['id'] and first_path['start']!=second_path['start'], \
+                'the duplicate must use a fresh identity and a visible offset'
+            assert native_document_tables(duplicated_vector)[1]==vector_raster_before
+            assert native_document_tables(duplicated_vector)[2]==vector_mask_before
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==before_duplicate,
+                 'Undo removes only the duplicated editable path')
+            ctrl('y');ctrl('s')
+            wait(lambda:imported.read_bytes()==duplicated_vector,
+                 'Redo restores the duplicate with exact native bytes')
+            ctrl('z');ctrl('s')
+            wait(lambda:imported.read_bytes()==before_duplicate,
+                 'the workflow removes its test duplicate before continuing')
+
+            # Reopen the transformed document through the real Open workflow;
+            # this proves the compact transforms survive native persistence.
+            transformed_open_count=event_marker_count('UI_TEST_PROJECT_OPENED')
+            ctrl('o');path_prompt();ctrl('Return')
+            wait(lambda:event_marker_count('UI_TEST_PROJECT_OPENED')>transformed_open_count,
+                 'the application reopens transformed vector geometry from its native project')
+            reopened_transform_state=native_state_bytes(imported.read_bytes())
+            reopened_transform_layer=next(layer for layer in reopened_transform_state['layers']
+                                          if layer['id']==reopened_transform_state['selected'])
+            assert len(reopened_transform_layer['vector_paths'])==1
+            assert reopened_transform_layer['vector_paths'][0]['start']== \
+                native_state_bytes(vector_rotated)['layers'][
+                    next(index for index,layer in enumerate(native_state_bytes(vector_rotated)['layers'])
+                         if layer['id']==reopened_transform_state['selected'])]['vector_paths'][0]['start'], \
+                'the reopened project retains the rotated vector geometry'
+
             delete_rect=wait(vector_delete_rect,
                              'selected vector path exposes an accessible contextual delete action')
             prior_vector_delete_count=sum(line.startswith('UI_TEST_VECTOR_PATH_DELETED: ')
@@ -4067,7 +4497,6 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             visual_checkpoint=recovery_dir/'recovery-visual-checkpoint.rpl'
             visual_checkpoint.write_bytes(recovered.read_bytes())
             assert valid_project(visual_checkpoint),'dark-theme recovery fixture is a valid native project'
-            reference_markers_before_dark= (directory / 'application.log').read_text().count('UI_TEST_REFERENCE_IMAGE_VISIBLE:')
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'dark Home after saved artwork restart');focus(display,window,2,0);send();time.sleep(0.5)
             wait(lambda: 'UI_TEST_HOME_HEADLINE_CONTRAST: dark' in (directory / 'application.log').read_text(),
@@ -4111,9 +4540,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'canvas-workspace-dark-toolbar-top')
             clearance=wait(top_palette_clearance,'top-docked palette reports its measured app-toolbar clearance')
             assert clearance[0]>=clearance[1]-0.5, f'top palette overlaps contextual options: {clearance}'
-            wait(lambda: (directory / 'application.log').read_text().count('UI_TEST_REFERENCE_IMAGE_VISIBLE:') > reference_markers_before_dark,
-                 'dark reference screenshot renders its imported image')
-            time.sleep(0.35)  # wait until the marked reference frame is presented
+            ctrl('l')
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'dark reference screenshot opens the unified Inspector')
+            dark_reference_tab=wait(lambda: inspector_tab_rect('References'),
+                                    'dark Inspector exposes its References tab')
+            click_at((dark_reference_tab[0]+dark_reference_tab[2]/2)*dark_reference_tab[4],
+                     (dark_reference_tab[1]+dark_reference_tab[3]/2)*dark_reference_tab[4])
+            wait(lambda: event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References'
+                 and reference_inspector_rect() is not None,
+                 'dark reference board renders the imported image inside the Inspector')
+            time.sleep(0.35)
             capture_window(window,'reference-board-dark')
             resize_window(window,640,480);capture_window(window,'reference-board-dark-narrow')
             resize_window(window,1280,800)
@@ -4124,37 +4561,50 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'layers-panel-populated-dark')
             saved_panel_geometry=json.loads(prefs.read_text())
             resize_window(window,640,480)
-            narrow_layers=wait(layers_window_rect,'compact Layers window reports stable bounds')
-            narrow_reference=wait(compact_reference_window_rect,'the active compact reference reports stable bounds')
+            narrow_layout=wait(lambda: inspector_layout()
+                               if inspector_layout() and inspector_layout()[0]=='overlay'
+                                  and inspector_layout()[1]=='Layers' else None,
+                               'dark populated Layers compresses into the narrow unified Inspector')
+            narrow_layers=tuple(value*narrow_layout[6] for value in narrow_layout[2:6])
             narrow_palette=wait(palette_bounds,'compact toolbar reports its bounds beside the panels')
+            narrow_layers_scale=narrow_layout[6]
+            narrow_layers=(*narrow_layers,narrow_layers_scale)
+            narrow_palette_rect=tuple(value*narrow_palette[4] for value in narrow_palette[:4])
             assert narrow_layers[0]>=0 and narrow_layers[1]>=0 \
-                and narrow_layers[0]+narrow_layers[2]<=640/narrow_layers[4]+1 \
-                and narrow_layers[1]+narrow_layers[3]<=480/narrow_layers[4]+1, \
-                f'compact Layers panel must remain inside 640x480: {narrow_layers}'
-            assert narrow_layers[1]+narrow_layers[3]<=408/narrow_layers[4]+1, \
-                f'compact Layers panel must not cover the application status bar: {narrow_layers}'
-            assert not rects_overlap(narrow_layers[:4],narrow_palette[:4]), \
-                f'compact Layers panel overlaps the tool palette: layers={narrow_layers}, palette={narrow_palette}'
-            compact_rects=[narrow_layers[:4],narrow_reference[:4]]
-            for left_index,left in enumerate(compact_rects):
-                assert left[0]>=0 and left[1]>=0 \
-                    and left[0]+left[2]<=640/narrow_layers[4]+1 \
-                    and left[1]+left[3]<=480/narrow_layers[4]+1, \
-                    f'compact workspace panel is clipped at 640x480: {left}'
-                for right in compact_rects[left_index+1:]:
-                    assert not rects_overlap(left,right), \
-                        f'compact Layers/Reference windows overlap: {left} vs {right}'
+                and narrow_layers[0]+narrow_layers[2]<=640+1 \
+                and narrow_layers[1]+narrow_layers[3]<=480+1, \
+                f'compact Layers Inspector must remain inside 640x480: {narrow_layers}'
+            painted_layers=(narrow_layers[0]+12.0,narrow_layers[1],
+                            max(0.0,narrow_layers[2]-24.0),narrow_layers[3])
+            assert not rects_overlap(painted_layers,narrow_palette_rect), \
+                f'compact Inspector overlaps the tool palette: layers={painted_layers}, palette={narrow_palette_rect}'
+            clear_canvas_width=(painted_layers[0]-(narrow_palette_rect[0]+narrow_palette_rect[2])
+                               if painted_layers[0]>narrow_palette_rect[0]
+                               else narrow_palette_rect[0]-(painted_layers[0]+painted_layers[2]))
+            assert clear_canvas_width>=319.0, \
+                f'compact Inspector fails the minimum canvas-width budget: {clear_canvas_width} {painted_layers}'
             wait(lambda: layer_row_rect(2),'compact Layers keeps its populated entries reachable')
             narrow_panel_geometry=json.loads(prefs.read_text())
             assert narrow_panel_geometry['layers_flyout_size']==saved_panel_geometry['layers_flyout_size'], \
-                'temporary narrow layout must not replace saved Layers size'
+                'temporary narrow layout must not replace legacy size preferences during migration'
             assert [entry['size'] for entry in narrow_panel_geometry.get('references',[])] == \
                 [entry['size'] for entry in saved_panel_geometry.get('references',[])], \
                 'temporary narrow layout must not replace saved Reference sizes'
-            capture_window(window,'layers-reference-populated-dark-narrow')
+            assert narrow_panel_geometry.get('references_pinned') is False, \
+                'the default compact Inspector must keep reference overlays unpinned'
+            capture_window(window,'inspector-layers-populated-dark-narrow')
             capture_window(window,'layers-panel-populated-dark-narrow')
+            reference_tab=wait(lambda: inspector_tab_rect('References'),
+                               'dark compact Inspector keeps its References tab accessible')
+            click_at((reference_tab[0]+reference_tab[2]/2)*reference_tab[4],
+                     (reference_tab[1]+reference_tab[3]/2)*reference_tab[4])
+            wait(lambda:event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References',
+                 'dark compact Inspector opens integrated References')
+            wait(lambda:event_marker('UI_TEST_REFERENCE_INSPECTOR_RECT') is not None,
+                 'dark narrow Reference tab shows its actual imported thumbnail')
+            capture_window(window,'reference-inspector-dark-narrow')
             resize_window(window,1280,800)
-            ctrl('l');time.sleep(0.2)
+            key('Escape');time.sleep(0.2)
             ctrl_shift('m');time.sleep(0.35)
             assert any(p.name.startswith('recovery-') and p.suffix=='.rpl' and valid_project(p) for p in recovery_dir.iterdir()), 'dark recovery manager has a valid checkpoint entry'
             wait(lambda: 'UI_TEST_RECOVERY_LABEL_CONTRAST: dark ' in (directory/'application.log').read_text(),
@@ -4196,7 +4646,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'home-dark-high-contrast')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','layers-panel-white-mask-settings','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','workspace-controls-floating-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','layers-reference-populated-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-mask-controls-direct','layers-panel-mask-editing','layers-panel-painted-mask','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','home-dark-high-contrast'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():

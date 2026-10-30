@@ -911,6 +911,174 @@ fn anchor_insert_delete_reject_invalid_indices_minimal_paths_and_locks_atomicall
 }
 
 #[test]
+fn uniform_path_transform_moves_cubic_geometry_and_handles_together() {
+    use paint_document::vector::VectorPath;
+
+    let mut path =
+        VectorPath::from_polyline(1, &[[20.0, 20.0], [40.0, 20.0]], [40, 90, 220, 255], 3.0)
+            .unwrap();
+    path.segments = vec![VectorSegment::CubicTo {
+        control1: [25.0, 25.0],
+        control2: [35.0, 15.0],
+        point: [40.0, 20.0],
+    }];
+
+    path.transform_uniform(2.0, 90.0).unwrap();
+
+    assert_eq!(path.start, [30.0, 0.0]);
+    assert_eq!(
+        path.segments,
+        vec![VectorSegment::CubicTo {
+            control1: [20.0, 10.0],
+            control2: [40.0, 30.0],
+            point: [30.0, 40.0],
+        }]
+    );
+    assert_eq!(path.width, 6.0);
+    assert!(path.validate().is_ok());
+}
+
+#[test]
+fn vector_transform_and_duplicate_are_bounded_native_undoable_transactions() {
+    let mut engine = blank();
+    let layer_id = engine.state().selected;
+    engine.brush.size = 8.0;
+    engine.brush.hardness = 1.0;
+    engine.brush.pressure_size = false;
+    engine.brush.pressure_opacity = false;
+    engine
+        .apply_with_mode(
+            &StrokeCommand::BeginStroke {
+                stroke_id: StrokeId(80),
+                sample: sample(45.0, 48.0, 1),
+            },
+            StrokeMode::Paint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::CommitStroke {
+                stroke_id: StrokeId(80),
+                sample: sample(45.0, 48.0, 2),
+            },
+            StrokeMode::Paint,
+        )
+        .unwrap();
+    engine.add_layer_mask(layer_id).unwrap();
+    let path_id = engine
+        .add_vector_path(&[[24.0, 20.0], [48.0, 24.0], [68.0, 38.0]])
+        .unwrap();
+    let raster_before = engine.state().layers[0].tiles.clone();
+    let mask_before = engine.state().layers[0].mask.clone();
+    let before_transform = storage::encode(engine.state()).unwrap();
+    let history_before = engine.undo_count();
+
+    engine.transform_vector_path(path_id, 1.1, 15.0).unwrap();
+    let transformed = storage::encode(engine.state()).unwrap();
+    let transformed_path = engine.state().layers[0].vector_paths[0].clone();
+    assert_ne!(transformed_path.start, [24.0, 20.0]);
+    assert!((transformed_path.width - 8.8).abs() < 1.0e-9);
+    assert_eq!(engine.state().layers[0].tiles, raster_before);
+    assert_eq!(engine.state().layers[0].mask, mask_before);
+    assert_eq!(engine.undo_count(), history_before + 1);
+
+    let reopened = Engine::from_state(storage::decode(&transformed).unwrap()).unwrap();
+    assert_eq!(reopened.state().layers[0].vector_paths[0], transformed_path);
+    assert_eq!(reopened.rgba(), engine.rgba());
+    assert_eq!(reopened.state().layers[0].tiles, raster_before);
+    assert_eq!(reopened.state().layers[0].mask, mask_before);
+
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before_transform);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), transformed);
+
+    let before_duplicate = storage::encode(engine.state()).unwrap();
+    let before_duplicate_count = engine.undo_count();
+    let duplicate_id = engine.duplicate_vector_path(path_id).unwrap();
+    let duplicated = storage::encode(engine.state()).unwrap();
+    let paths = &engine.state().layers[0].vector_paths;
+    assert_eq!(paths.len(), 2);
+    assert_eq!(paths[0].id, path_id);
+    assert_eq!(paths[1].id, duplicate_id);
+    assert_ne!(paths[0].start, paths[1].start);
+    assert_eq!(engine.state().layers[0].tiles, raster_before);
+    assert_eq!(engine.state().layers[0].mask, mask_before);
+    assert_eq!(engine.undo_count(), before_duplicate_count + 1);
+    let reopened = Engine::from_state(storage::decode(&duplicated).unwrap()).unwrap();
+    assert_eq!(reopened.state().layers[0].vector_paths, *paths);
+
+    assert!(engine.undo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), before_duplicate);
+    assert!(engine.redo());
+    assert_eq!(storage::encode(engine.state()).unwrap(), duplicated);
+}
+
+#[test]
+fn vector_transforms_reject_invalid_bounds_and_locked_layers_without_history() {
+    let mut engine = blank();
+    let id = engine.add_vector_path(&[[1.0, 1.0], [30.0, 1.0]]).unwrap();
+    let before = storage::encode(engine.state()).unwrap();
+    let history = engine.undo_count();
+    for (scale, rotation) in [
+        (f64::NAN, 0.0),
+        (0.0, 0.0),
+        (1.0, f64::INFINITY),
+        (1.0, 361.0),
+        (1.5, 0.0),
+        (10.0, 0.0),
+    ] {
+        assert!(engine.transform_vector_path(id, scale, rotation).is_err());
+        assert_eq!(storage::encode(engine.state()).unwrap(), before);
+        assert_eq!(engine.undo_count(), history);
+    }
+    engine
+        .edit(|state| {
+            state.layers[0].locked = true;
+            Ok(())
+        })
+        .unwrap();
+    let locked = storage::encode(engine.state()).unwrap();
+    let locked_history = engine.undo_count();
+    assert!(engine.transform_vector_path(id, 1.1, 15.0).is_err());
+    assert!(engine.duplicate_vector_path(id).is_err());
+    assert_eq!(storage::encode(engine.state()).unwrap(), locked);
+    assert_eq!(engine.undo_count(), locked_history);
+}
+
+#[test]
+fn vector_duplication_respects_the_document_object_cap_atomically() {
+    use paint_document::vector::{MAX_VECTOR_PATHS, VectorPath};
+
+    let mut engine = blank();
+    let template =
+        VectorPath::from_polyline(1, &[[20.0, 20.0], [40.0, 24.0]], [220, 40, 145, 255], 3.0)
+            .unwrap();
+    engine
+        .edit(|state| {
+            state.layers[0].vector_paths = (1..=MAX_VECTOR_PATHS as u64)
+                .map(|id| {
+                    let mut path = template.clone();
+                    path.id = id;
+                    path
+                })
+                .collect();
+            state.next_vector_id = MAX_VECTOR_PATHS as u64 + 1;
+            Ok(())
+        })
+        .unwrap();
+    let before = storage::encode(engine.state()).unwrap();
+    let history = engine.undo_count();
+
+    assert!(matches!(
+        engine.duplicate_vector_path(1),
+        Err(paint_document::PaintError::Limit)
+    ));
+    assert_eq!(storage::encode(engine.state()).unwrap(), before);
+    assert_eq!(engine.undo_count(), history);
+}
+
+#[test]
 fn layer_duplication_remaps_vector_ids_and_preserves_editable_order() {
     let mut engine = blank();
     let first_id = add_path(&mut engine);

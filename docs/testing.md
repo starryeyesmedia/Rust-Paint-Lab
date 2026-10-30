@@ -1156,3 +1156,31 @@ checkpoint is considered validated. The current cloud shell has no local X
 server/Xvfb command, so here only its Python syntax and the portable engine
 tests are checked locally; the workspace suite and GPU pixel smoke are separate
 validations, not substitutes for the XTest workflow.
+
+## Canvas-first Inspector and reference regressions
+
+The unified Inspector reuses the existing egui/winit and AccessKit integration;
+it does not replace the input or renderer architecture. The layout unit tests
+cover desktop docking with a protected canvas minimum, responsive compact/full-
+sheet selection, toolbar collision avoidance, temporary viewport clamping,
+bounded reference PIP size, and persistence of intentional PIP moves. Inspector
+tabs are tested as named selected radio controls in AccessKit output. Workspace
+preferences round-trip Inspector destinations and PIP placement independently
+from `.rpl` documents.
+
+The Linux Xorg/XTest `Linux alpha artwork workflow smoke` exercises the populated
+Layers stack and contextual actions, switches among Inspector tabs, imports and
+selects multiple reference images, pans and wheel-zooms the actual preview,
+pins one image as a bounded canvas PIP, switches tabs while it remains visible,
+and verifies that it never opens the legacy full-size reference windows. It
+captures the real application at constrained and standard sizes; screenshots
+must be inspected for clipping and canvas obstruction rather than counted as a
+functional assertion by themselves. In a shell without Xorg/Xvfb, this workflow
+is **unavailable**, not passed; only portable Rust tests and GPU smoke can run.
+
+Editable vector uniform scale/rotation and duplication are document
+transactions. Their tests check bounded geometry, raster/mask separation,
+native v3 reopen, and exact Undo/Redo. RPL v1/v2 reading and the v3 schema are
+unchanged. Application-level vector manipulation still requires the Linux
+XTest workflow; Windows GNU cross-checks do not establish native GUI or pen
+behavior.

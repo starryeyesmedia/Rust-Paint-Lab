@@ -54,6 +54,58 @@ mod tests {
     }
 
     #[test]
+    fn unified_inspector_destinations_are_named_selected_radio_controls() {
+        let context = app_context();
+        context.enable_accesskit();
+        let mut selected = crate::workspace::InspectorTab::Layers;
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    for (tab, label) in [
+                        (crate::workspace::InspectorTab::Layers, "Layers"),
+                        (crate::workspace::InspectorTab::Brush, "Brush"),
+                        (crate::workspace::InspectorTab::Edit, "Edit"),
+                    ] {
+                        crate::studio::inspector_tab_button(ui, &mut selected, tab, label, 64.0);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    for (tab, label) in [
+                        (crate::workspace::InspectorTab::Color, "Color"),
+                        (crate::workspace::InspectorTab::References, "References"),
+                    ] {
+                        crate::studio::inspector_tab_button(ui, &mut selected, tab, label, 96.0);
+                    }
+                });
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("the unified Inspector destinations are present in the tree");
+        for (label, selected_state) in [
+            ("Layers", true),
+            ("Brush", false),
+            ("Edit", false),
+            ("Color", false),
+            ("References", false),
+        ] {
+            let node = tree
+                .nodes
+                .iter()
+                .map(|(_, node)| node)
+                .find(|node| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("{label} is missing from the Inspector tree"));
+            assert_eq!(format!("{:?}", node.role()), "RadioButton", "{label}");
+            assert_eq!(
+                node.toggled().map(|value| format!("{value:?}")),
+                Some(if selected_state { "True" } else { "False" }.to_string()),
+                "{label}: {node:?}"
+            );
+        }
+    }
+
+    #[test]
     fn cubic_handle_editor_exposes_named_keyboard_adjustable_controls() {
         let context = app_context();
         context.enable_accesskit();

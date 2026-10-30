@@ -1,5 +1,58 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Canvas-first Inspector and reference integration — local checkpoint (2026-10-30)
+
+The approved handoff continues from local commit `e6dab95` on
+`feature/studio-overdrive-phase-8`. Phase 9's mask workflow itself was already
+validated by cross-platform Actions run
+[`40805980434`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40805980434);
+the separate mask and mixed-document regressions committed in `e6dab95` extend
+coverage for selection clipping, outside-only no-op history, raster/mask
+isolation, journal restoration, native round trips and PNG/OpenRaster export.
+
+The current implementation introduces a unified Layers / Brush / Edit / Color /
+References Inspector. On large windows it docks while reserving at least 320
+points for the canvas; constrained layouts use a bounded drawer or full sheet.
+Temporary responsive dimensions do not replace roomy saved preferences. The
+Layers view leads with the stack and exposes selected-layer controls and
+contextual operations through the real document model. Its accessible tab
+destinations are represented as selected radio controls.
+
+Reference images now appear in an image-first Inspector board with multiple
+independently selectable images, pan/zoom, opacity, center/remove and import
+controls. Optional pinning displays only the selected reference as a draggable
+picture-in-picture capped at 24% of the unobstructed canvas. Imported pixels
+remain workspace-only. Review found that a legacy-window cleanup pass cleared
+the selected preview viewport even when the new Inspector/PIP displayed it; the
+viewport is now retained for the active image so gesture routing can continue.
+The Linux XTest scenario now exercises reference drag-pan and wheel zoom as well
+as pin placement and bounds.
+
+Phase 10 continues with document transactions for bounded uniform path scale,
+rotation and duplication. They keep vector metadata editable, share existing
+undo/redo, native v3 persistence and raster/mask isolation, and do not change the
+file schema. Document regressions cover these operations through save/reopen and
+history. This is a continuation slice, not completion of vector authoring or
+Phase 10.
+
+After the reference-viewport correction, the complete workspace suite passed
+**381 tests across 24 targets**. Rust 1.90 formatting, strict host Clippy,
+workspace build, Windows GNU workspace check and strict target Clippy all pass.
+The required llvmpipe/OpenGL GPU smoke passed, and the Python XTest workflow
+compiles. This shell has no X display/Xvfb, so no current rendered screenshot or
+local XTest result is claimed. The existing local GitHub CLI token is invalid,
+so the new hosted Linux XTest, screenshot inspection, Windows/Linux/macOS CI, and
+push are pending. The last confirmed cross-platform application run remains
+[`40887124571`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40887124571)
+for an earlier commit; it does not validate this Inspector integration.
+
+Exact next steps: commit the verified implementation; restore valid GitHub
+authentication and push this branch; require the complete Linux Xorg/XTest plus
+Windows and macOS jobs; inspect populated Inspector, Layers, References and PIP
+screenshots from that run; fix observed defects before continuing Phase 10
+through UI-tested path transforms and further cubic creation/fill workflows.
+Do not merge, release, or declare Phase 8.3/Phase 10 complete.
+
 ## Canvas-first design handoff — regression coverage checkpoint (2026-10-29)
 
 The approved canvas-first design handoff starts from `64c2a3e` on

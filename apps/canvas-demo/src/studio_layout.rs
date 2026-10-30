@@ -2,6 +2,217 @@
 
 use crate::workspace::PaletteDock;
 
+/// Minimum canvas viewport kept beside the desktop Inspector. Smaller windows
+/// use an overlay so opening tools does not squeeze the document to a sliver.
+pub const MIN_CANVAS_WIDTH: f32 = 320.0;
+pub const MIN_CANVAS_HEIGHT: f32 = 240.0;
+pub const MIN_INSPECTOR_DOCK_WIDTH: f32 = 280.0;
+pub const MAX_INSPECTOR_DOCK_WIDTH: f32 = 480.0;
+pub const DESKTOP_DOCK_MIN_WIDTH: f32 = 760.0;
+pub const DESKTOP_DOCK_MIN_HEIGHT: f32 = 500.0;
+const COMPACT_SHEET_MAX_WIDTH: f32 = 480.0;
+const COMPACT_SHEET_MAX_HEIGHT: f32 = 240.0;
+const COMPACT_MARGIN: f32 = 8.0;
+const COMPACT_INSPECTOR_MIN_WIDTH: f32 = 220.0;
+/// egui's resizable Window reserves a 12pt interaction gutter beside the
+/// painted frame. Account for it when protecting the canvas strip.
+const COMPACT_RESIZE_HANDLE_GUTTER: f32 = 12.0;
+
+/// Place the selected reference as a small canvas-only picture-in-picture.
+/// The requested image footprint is 192×144 points and remains capped at
+/// 24% of the safe canvas region; tiny viewports intentionally return `None`
+/// instead of obscuring most of the artwork.
+pub fn reference_picture_in_picture(
+    safe_canvas: egui::Rect,
+    preferred_position: [f32; 2],
+) -> Option<egui::Rect> {
+    if !safe_canvas.is_positive() || !preferred_position.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    const EDGE: f32 = 8.0;
+    let max_width = (safe_canvas.width() * 0.24).min(320.0);
+    let max_height = (safe_canvas.height() * 0.24).min(240.0);
+    let width = 192.0_f32.min(max_width);
+    let height = 144.0_f32.min(max_height);
+    if width < 160.0 || height < 120.0 {
+        return None;
+    }
+    let size = egui::vec2(width, height);
+    let max_position = safe_canvas.max - size - egui::vec2(EDGE, EDGE);
+    let position = egui::pos2(
+        preferred_position[0].clamp(safe_canvas.left() + EDGE, max_position.x),
+        preferred_position[1].clamp(safe_canvas.top() + EDGE, max_position.y),
+    );
+    Some(egui::Rect::from_min_size(position, size))
+}
+
+/// Return a bounded dock width only when the remaining canvas can retain its
+/// minimum usable width. The caller uses a compact overlay otherwise.
+pub fn inspector_dock_width(viewport: egui::Rect, preferred: f32) -> Option<f32> {
+    if !preferred.is_finite()
+        || viewport.width() < DESKTOP_DOCK_MIN_WIDTH
+        || viewport.height() < DESKTOP_DOCK_MIN_HEIGHT
+        || viewport.width() < MIN_CANVAS_WIDTH + MIN_INSPECTOR_DOCK_WIDTH
+        || viewport.height() < MIN_CANVAS_HEIGHT
+    {
+        return None;
+    }
+    let maximum = (viewport.width() - MIN_CANVAS_WIDTH).min(MAX_INSPECTOR_DOCK_WIDTH);
+    Some(preferred.clamp(MIN_INSPECTOR_DOCK_WIDTH, maximum))
+}
+
+/// Compact windows below the effective point-size threshold use a full-sheet
+/// Inspector. The persistent Canvas return action restores the unobstructed
+/// drawing surface without changing document or tool state.
+pub fn inspector_uses_full_sheet(viewport: egui::Rect) -> bool {
+    viewport.width() < COMPACT_SHEET_MAX_WIDTH || viewport.height() < COMPACT_SHEET_MAX_HEIGHT
+}
+
+/// Keep floating Inspector overlays clear of the application menu, contextual
+/// tool row, and bottom status controls. The caller supplies the protected
+/// top edge in screen coordinates and the bottom chrome height. When the
+/// window is extremely short, this leaves the largest possible usable region
+/// while keeping the overlay inside the window.
+pub fn inspector_safe_viewport(
+    viewport: egui::Rect,
+    protected_top: f32,
+    protected_bottom: f32,
+) -> egui::Rect {
+    let top = protected_top
+        .max(viewport.top())
+        .min(viewport.top() + viewport.height() * 0.45);
+    let bottom = (viewport.bottom() - protected_bottom.max(0.0))
+        .max(top + 1.0)
+        .min(viewport.bottom());
+    egui::Rect::from_min_max(
+        egui::pos2(viewport.left(), top),
+        egui::pos2(viewport.right(), bottom),
+    )
+}
+
+/// Bound the compact Inspector to its safe viewport. A full sheet uses the
+/// whole safe region; a drawer uses the saved preferred size where it fits.
+pub fn inspector_compact_size(viewport: egui::Rect, preferred: egui::Vec2) -> egui::Vec2 {
+    let safe_size = viewport.shrink(COMPACT_MARGIN).size().max(egui::Vec2::ZERO);
+    if inspector_uses_full_sheet(viewport) {
+        return safe_size;
+    }
+    egui::vec2(
+        preferred.x.clamp(220.0, 800.0).min(safe_size.x),
+        preferred.y.clamp(180.0, 1400.0).min(safe_size.y),
+    )
+}
+
+/// Narrow the compact drawer only as much as needed to preserve the requested
+/// unobstructed canvas strip beside the movable tool rail. If even the minimum
+/// usable drawer cannot fit, the caller should show a full-height sheet.
+pub fn inspector_drawer_width(
+    viewport: egui::Rect,
+    palette_width: f32,
+    preferred_width: f32,
+) -> Option<f32> {
+    if !palette_width.is_finite() || palette_width < 0.0 || !preferred_width.is_finite() {
+        return None;
+    }
+    let available = viewport.width()
+        - palette_width
+        - COMPACT_MARGIN * 2.0
+        - MIN_CANVAS_WIDTH
+        - COMPACT_RESIZE_HANDLE_GUTTER;
+    (available >= COMPACT_INSPECTOR_MIN_WIDTH).then_some(
+        preferred_width
+            .clamp(COMPACT_INSPECTOR_MIN_WIDTH, 800.0)
+            .min(available),
+    )
+}
+
+/// Place a compact Inspector sheet inside the window and away from the
+/// movable toolbar where possible. It overlays the existing canvas viewport;
+/// it never persists this temporary size back to the roomy dock preference.
+pub fn inspector_overlay_rect(
+    viewport: egui::Rect,
+    palette: egui::Rect,
+    preferred_size: egui::Vec2,
+) -> egui::Rect {
+    const MARGIN: f32 = COMPACT_MARGIN;
+    let size = egui::vec2(
+        preferred_size
+            .x
+            .min((viewport.width() - MARGIN * 2.0).max(1.0)),
+        preferred_size
+            .y
+            .min((viewport.height() - MARGIN * 2.0).max(1.0)),
+    );
+    let positions = [
+        egui::pos2(viewport.right() - size.x - MARGIN, viewport.top() + MARGIN),
+        egui::pos2(viewport.left() + MARGIN, viewport.top() + MARGIN),
+        egui::pos2(
+            viewport.right() - size.x - MARGIN,
+            viewport.bottom() - size.y - MARGIN,
+        ),
+        egui::pos2(
+            viewport.left() + MARGIN,
+            viewport.bottom() - size.y - MARGIN,
+        ),
+    ];
+    let mut best = None;
+    for position in positions {
+        let rect =
+            egui::Rect::from_min_size(clamp_position(viewport, size, position, MARGIN), size);
+        let overlap = rect.intersect(palette).area();
+        if overlap <= 0.5 {
+            return rect;
+        }
+        let score = rect.intersect(viewport).area() - overlap * 5.0;
+        if best.is_none_or(|(_, best_score)| score > best_score) {
+            best = Some((rect, score));
+        }
+    }
+    best.map_or_else(
+        || egui::Rect::from_min_size(viewport.min + egui::vec2(MARGIN, MARGIN), size),
+        |(rect, _)| rect,
+    )
+}
+
+/// Keep pinned reference windows within the unobstructed part of the live
+/// canvas. The returned region is temporary layout geometry; callers should
+/// not write its clamped coordinates back to saved reference preferences.
+pub fn pinned_reference_viewport(
+    canvas: egui::Rect,
+    inspector: Option<egui::Rect>,
+    palette: Option<egui::Rect>,
+) -> egui::Rect {
+    const GAP: f32 = 8.0;
+    let mut safe = canvas;
+    if let Some(inspector) = inspector.filter(|panel| safe.intersects(*panel)) {
+        if inspector.center().x >= safe.center().x {
+            safe.max.x = safe.max.x.min(inspector.left() - GAP);
+        } else {
+            safe.min.x = safe.min.x.max(inspector.right() + GAP);
+        }
+    }
+    if let Some(palette) = palette.filter(|panel| safe.intersects(*panel)) {
+        if palette.center().x <= safe.center().x {
+            safe.min.x = safe.min.x.max(palette.right() + GAP);
+        } else {
+            safe.max.x = safe.max.x.min(palette.left() - GAP);
+        }
+    }
+    if safe.is_positive() { safe } else { canvas }
+}
+
+/// Whether a reference window's current position is an artist preference or
+/// merely a temporary responsive/pinned presentation. A pin-state transition
+/// can move an egui window in the same frame as the pointer activates the pin
+/// control; that geometry must never be mistaken for a deliberate drag.
+pub fn should_persist_reference_position(
+    presentation_transition: bool,
+    pointer_dragged: bool,
+    explicitly_repositioned: bool,
+) -> bool {
+    explicitly_repositioned || (!presentation_transition && pointer_dragged)
+}
+
 /// Convert a physical client-pixel position to egui points and test whether it
 /// belongs to a panel rect. The window scale is explicit so input routing stays
 /// correct on high-DPI displays.
@@ -384,6 +595,149 @@ mod tests {
 
     fn rect(x: f32, y: f32, width: f32, height: f32) -> egui::Rect {
         egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width, height))
+    }
+
+    #[test]
+    fn inspector_dock_preserves_minimum_canvas_space_and_clamps_width() {
+        let wide = rect(0.0, 0.0, 1280.0, 800.0);
+        assert_eq!(inspector_dock_width(wide, 336.0), Some(336.0));
+        let constrained = rect(0.0, 0.0, 800.0, 600.0);
+        let width = inspector_dock_width(constrained, 480.0).unwrap();
+        assert_eq!(width, 480.0);
+        assert!(constrained.width() - width >= MIN_CANVAS_WIDTH);
+        assert_eq!(
+            inspector_dock_width(rect(0.0, 0.0, 599.0, 480.0), 336.0),
+            None
+        );
+        assert_eq!(
+            inspector_dock_width(rect(0.0, 0.0, 640.0, 480.0), 336.0),
+            None
+        );
+        assert_eq!(
+            inspector_dock_width(rect(0.0, 0.0, 1280.0, 499.0), 336.0),
+            None
+        );
+        assert_eq!(
+            inspector_dock_width(rect(0.0, 0.0, 900.0, 200.0), 336.0),
+            None
+        );
+        assert_eq!(inspector_dock_width(wide, f32::NAN), None);
+    }
+
+    #[test]
+    fn compact_inspector_switches_to_a_full_sheet_only_when_effective_space_requires_it() {
+        let narrow_100 = rect(0.0, 0.0, 640.0, 480.0);
+        assert!(!inspector_uses_full_sheet(narrow_100));
+        assert_eq!(
+            inspector_compact_size(narrow_100, egui::vec2(256.0, 420.0)),
+            egui::vec2(256.0, 420.0)
+        );
+
+        let narrow_150 = rect(0.0, 0.0, 426.0, 320.0);
+        assert!(inspector_uses_full_sheet(narrow_150));
+        assert_eq!(
+            inspector_compact_size(narrow_150, egui::vec2(256.0, 420.0)),
+            egui::vec2(410.0, 304.0)
+        );
+
+        let laptop_150 = rect(0.0, 0.0, 853.0, 533.0);
+        assert!(!inspector_uses_full_sheet(laptop_150));
+
+        // The 100% 640×480 workspace's usable region is shorter than the
+        // nominal window once menus and status bars are allocated, but still
+        // has room for the drawer and the minimum vertical canvas target.
+        assert!(!inspector_uses_full_sheet(rect(0.0, 108.0, 640.0, 324.0)));
+        assert_eq!(
+            inspector_drawer_width(rect(0.0, 108.0, 640.0, 324.0), 70.5, 256.0,),
+            Some(221.5)
+        );
+        assert_eq!(
+            inspector_drawer_width(rect(0.0, 0.0, 600.0, 400.0), 70.5, 256.0),
+            None
+        );
+        // At 150% the effective canvas is too small even after app chrome.
+        assert!(inspector_uses_full_sheet(rect(0.0, 72.0, 426.0, 216.0)));
+    }
+
+    #[test]
+    fn compact_inspector_sheet_stays_in_bounds_and_moves_around_toolbar() {
+        let viewport = rect(0.0, 0.0, 640.0, 480.0);
+        let left_palette = rect(8.0, 80.0, 56.0, 320.0);
+        let size = egui::vec2(300.0, 420.0);
+        let sheet = inspector_overlay_rect(viewport, left_palette, size);
+        assert!(viewport.shrink(8.0).contains_rect(sheet));
+        assert!(!sheet.intersects(left_palette));
+        assert_eq!(sheet.size(), size);
+
+        let right_palette = rect(576.0, 80.0, 56.0, 320.0);
+        let opposite = inspector_overlay_rect(viewport, right_palette, size);
+        assert!(viewport.shrink(8.0).contains_rect(opposite));
+        assert!(!opposite.intersects(right_palette));
+        assert!(opposite.left() < viewport.center().x);
+
+        let tiny = inspector_overlay_rect(
+            rect(0.0, 0.0, 320.0, 180.0),
+            rect(8.0, 60.0, 48.0, 90.0),
+            egui::vec2(400.0, 600.0),
+        );
+        assert!(rect(0.0, 0.0, 320.0, 180.0).contains_rect(tiny));
+    }
+
+    #[test]
+    fn compact_inspector_avoids_tool_chrome_and_status_controls() {
+        let screen = rect(0.0, 0.0, 640.0, 480.0);
+        let toolbar = rect(8.0, 132.0, 70.0, 270.0);
+        let safe = inspector_safe_viewport(screen, 124.0, 96.0);
+        let size = inspector_compact_size(safe, egui::vec2(256.0, 420.0));
+        let overlay = inspector_overlay_rect(safe, toolbar, size);
+
+        assert!(safe.top() >= 124.0);
+        assert!(safe.bottom() <= 384.0);
+        assert!(safe.shrink(8.0).contains_rect(overlay));
+        assert!(!overlay.intersects(toolbar));
+        assert!(overlay.top() >= 124.0);
+        assert!(overlay.bottom() <= 384.0);
+        assert!(size.y < 300.0, "saved height should adapt temporarily");
+    }
+
+    #[test]
+    fn pinned_reference_viewport_excludes_inspector_and_tool_palette() {
+        let canvas = rect(70.0, 108.0, 930.0, 619.0);
+        let inspector = rect(700.0, 108.0, 300.0, 619.0);
+        let palette = rect(70.0, 160.0, 64.0, 360.0);
+        let safe = pinned_reference_viewport(canvas, Some(inspector), Some(palette));
+        assert!(canvas.contains_rect(safe));
+        assert!(!safe.intersects(inspector));
+        assert!(!safe.intersects(palette));
+        assert!((safe.left() - 142.0).abs() < f32::EPSILON);
+        assert!((safe.right() - 692.0).abs() < f32::EPSILON);
+
+        let right_palette = rect(640.0, 160.0, 64.0, 360.0);
+        let right_safe = pinned_reference_viewport(canvas, None, Some(right_palette));
+        assert!(!right_safe.intersects(right_palette));
+        assert!((right_safe.right() - 632.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn reference_picture_in_picture_is_bounded_to_safe_canvas_and_screen_edges() {
+        let safe = rect(100.0, 40.0, 1000.0, 700.0);
+        let picture = reference_picture_in_picture(safe, [900.0, 700.0]).unwrap();
+        assert!(safe.contains_rect(picture));
+        assert_eq!(picture.size(), egui::vec2(192.0, 144.0));
+        assert!(picture.width() <= safe.width() * 0.24 + 0.1);
+        assert!(picture.height() <= safe.height() * 0.24 + 0.1);
+
+        let narrow = rect(0.0, 0.0, 640.0, 480.0);
+        assert!(reference_picture_in_picture(narrow, [0.0, 0.0]).is_none());
+        let invalid = rect(0.0, 0.0, 900.0, 600.0);
+        assert!(reference_picture_in_picture(invalid, [f32::NAN, 4.0]).is_none());
+    }
+
+    #[test]
+    fn reference_positions_ignore_pin_transition_but_keep_real_moves() {
+        assert!(!should_persist_reference_position(true, true, false,));
+        assert!(should_persist_reference_position(false, true, false,));
+        assert!(should_persist_reference_position(true, false, true,));
     }
 
     #[test]

@@ -351,24 +351,31 @@ in the document metadata. This keeps brush presets portable without coupling the
 brush engine to dialogs or platform APIs. Filesystems without hard-link support
 fail safely, and an existing preset must be given a different filename.
 
-The Studio workspace stores theme, brush-panel width/visibility, current inspector
-tab, canvas zoom/pan, and external reference window paths/placement/size/opacity in
-a separate versioned `workspace.json` under the local application state directory.
-The inspector uses Layers, Brush, and Edit tabs; selecting the Brush tool opens its
-settings. The Window menu can restore the inspector or reset its layout and canvas
-view. The canvas has an explicit zoom percentage and Fit control. Reference images
-decode to bounded egui textures; they are neither layers nor part of document
-composition/export. Their panels clamp against the current egui content viewport,
-have independent view reset/position reset controls, and route two-contact
-touchscreen navigation to the image under both contacts. Each contact remains
+The Studio workspace stores theme, Inspector tab/position/size, toolbar position
+and dock, canvas zoom/pan, handedness, reference selection/pinning/PIP position,
+and reference image paths and view settings in a separate versioned
+`workspace.json`. Preferences never enter artwork files. The unified Inspector has
+Layers, Brush, Edit, Color, and References tabs. On roomy windows it docks on the
+right while preserving a 320-point canvas viewport; compact windows use a bounded
+drawer or full sheet. Responsive geometry does not replace the saved roomy panel
+preferences. The Layers tab presents the stack before selected-layer name,
+opacity, blend and mask controls; row actions remain available from accessible
+context menus. The primary toolbar remains independently movable and edge-snapping.
+
+Reference images decode into bounded egui textures. The References Inspector holds
+up to six workspace-only images with a selected preview, thumbnail navigation,
+opacity, zoom, pan, centering and removal. They are not document layers and cannot
+enter artwork composition, recovery records or exports. References are hidden
+outside that board by default. Explicit pinning shows only the selected image in a
+movable canvas picture-in-picture, sized to at most 24% of the unobstructed canvas;
+there are no automatic full-size reference windows. Each touch contact remains
 captured to its starting surface until it ends; a split-surface gesture is
-suppressed rather than affecting either reference or the canvas. Canvas touch uses
-the same navigation processor, and stylus-active touch is ignored. Where a window
-backend emits winit pinch/pan events, these are routed to the reference under the
-cursor or to the canvas; pixel-delta scrolling pans references/canvas and Control
-plus scroll zooms the canvas. Preferences are not artwork data and are safely
-bounded/migrated when loaded. Independent draggable panels, edge snapping/docking,
-and complete accessibility review remain pending.
+suppressed rather than affecting either reference or canvas. Canvas touch uses the
+same navigation processor, and stylus-active touch is ignored. Where a backend
+emits winit pinch/pan events, they route to the reference preview under the cursor
+or canvas; pixel scrolling pans references/canvas, and Control plus scroll zooms
+the canvas. Saved legacy reference-window geometry remains accepted by workspace
+preferences but is not used by the canvas-first presentation.
 
 ## Phase 8 startup and file selection slice
 
@@ -443,10 +450,14 @@ action. `VectorHandle` identifies the adjacent segment endpoint relationship;
 the document transaction changes only that control point and rejects malformed
 coordinates or locked/hidden owner layers. A provisional handle preview is
 rendered before commit; Escape or input interruption discards it. Undo/Redo
-retains full editable path geometry. No GPU/windowing dependencies are added to
-`paint-document`, and the RPL v3 record layout remains unchanged. The current
-path tool still creates polylines; interactive cubic creation, fills, object
-transforms, and SVG interoperability remain future work.
+retains full editable path geometry. The path tool can convert line segments to
+cubics, insert/remove supported anchors, move anchors and handles, edit stroke
+color/width, and apply uniform scale/rotation or duplicate a selected path as
+undoable document transactions. These remain editable vector metadata on their
+owning raster layer; the operations do not bake into raster tiles and do not
+change the native v3 schema. Direct cubic authoring, filled paths, SVG
+interoperability, and a dedicated vector-object selection workflow remain future
+work. No GPU/windowing dependencies are added to `paint-document`.
 
 Native document JSON uses serde_json's `float_roundtrip` feature. This prevents
 repeated load/save cycles from perturbing cubic control coordinates and makes

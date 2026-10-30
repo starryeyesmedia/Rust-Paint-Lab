@@ -384,6 +384,53 @@ impl VectorPath {
         Ok(())
     }
 
+    /// Uniformly scale and rotate a path around the center of its rendered
+    /// bounds. The stroke width follows the scale so the result behaves like
+    /// one vector object rather than a geometry-only edit.
+    pub fn transform_uniform(
+        &mut self,
+        scale: f64,
+        rotation_degrees: f64,
+    ) -> Result<(), PaintError> {
+        if !scale.is_finite()
+            || !(0.1..=10.0).contains(&scale)
+            || !rotation_degrees.is_finite()
+            || !(-360.0..=360.0).contains(&rotation_degrees)
+        {
+            return Err(PaintError::Invalid);
+        }
+        let bounds = self.bounds();
+        let center = [(bounds[0] + bounds[2]) * 0.5, (bounds[1] + bounds[3]) * 0.5];
+        let (sin, cos) = rotation_degrees.to_radians().sin_cos();
+        let transform_point = |point: &mut [f64; 2]| {
+            let x = (point[0] - center[0]) * scale;
+            let y = (point[1] - center[1]) * scale;
+            point[0] = center[0] + x * cos - y * sin;
+            point[1] = center[1] + x * sin + y * cos;
+        };
+        let mut candidate = self.clone();
+        transform_point(&mut candidate.start);
+        for segment in &mut candidate.segments {
+            match segment {
+                VectorSegment::LineTo { point } => transform_point(point),
+                VectorSegment::CubicTo {
+                    control1,
+                    control2,
+                    point,
+                } => {
+                    transform_point(control1);
+                    transform_point(control2);
+                    transform_point(point);
+                }
+                VectorSegment::Close => {}
+            }
+        }
+        candidate.width *= scale;
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
+    }
+
     pub fn bounds(&self) -> [f64; 4] {
         let mut bounds = [self.start[0], self.start[1], self.start[0], self.start[1]];
         for_each_flat_segment(self, |a, b| {

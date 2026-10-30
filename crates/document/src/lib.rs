@@ -911,6 +911,76 @@ impl Engine {
         Ok(id)
     }
 
+    /// Duplicate an editable path in the same layer with a fresh document-wide
+    /// identity. The offset stays within document bounds when space permits so
+    /// the new object can be selected independently; one copy operation is one
+    /// undoable history transaction.
+    pub fn duplicate_vector_path(&mut self, id: u64) -> Result<u64, PaintError> {
+        let total_paths: usize = self
+            .state
+            .layers
+            .iter()
+            .map(|layer| layer.vector_paths.len())
+            .sum();
+        if total_paths >= vector::MAX_VECTOR_PATHS {
+            return Err(PaintError::Limit);
+        }
+        let source_layer = self
+            .state
+            .layers
+            .iter()
+            .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+            .ok_or(PaintError::Invalid)?;
+        if source_layer.locked || !source_layer.visible {
+            return Err(PaintError::Locked);
+        }
+        let next_id = self.state.next_vector_id;
+        if next_id == 0 || next_id > u64::from(u32::MAX) {
+            return Err(PaintError::Limit);
+        }
+        let mut duplicate = source_layer
+            .vector_paths
+            .iter()
+            .find(|path| path.id == id)
+            .cloned()
+            .ok_or(PaintError::Invalid)?;
+        let bounds = duplicate.bounds();
+        let width = f64::from(self.state.width);
+        let height = f64::from(self.state.height);
+        let half_stroke = duplicate.width * 0.5;
+        let offset = 12.0;
+        let dx = if bounds[2] + half_stroke + offset <= width {
+            offset
+        } else if bounds[0] - half_stroke - offset >= 0.0 {
+            -offset
+        } else {
+            0.0
+        };
+        let dy = if bounds[3] + half_stroke + offset <= height {
+            offset
+        } else if bounds[1] - half_stroke - offset >= 0.0 {
+            -offset
+        } else {
+            0.0
+        };
+        duplicate.id = next_id;
+        duplicate.translate([dx, dy])?;
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            layer.vector_paths.push(duplicate);
+            state.next_vector_id = next_id.checked_add(1).ok_or(PaintError::Limit)?;
+            Ok(())
+        })?;
+        Ok(next_id)
+    }
+
     /// Select the topmost visible path within tolerance, in document pixels.
     pub fn hit_test_vector_path(&self, point: [f64; 2], tolerance: f64) -> Option<u64> {
         if !point.iter().all(|value| value.is_finite()) || !tolerance.is_finite() || tolerance < 0.0
@@ -957,6 +1027,47 @@ impl Engine {
             let dx = delta[0].clamp(-bounds[0], f64::from(state.width) - bounds[2]);
             let dy = delta[1].clamp(-bounds[1], f64::from(state.height) - bounds[3]);
             path.translate([dx, dy])
+        })
+    }
+
+    /// Scale and rotate a vector path around its rendered-bounds center. The
+    /// full stroke must remain inside the document; rejected transforms leave
+    /// both document state and history unchanged.
+    pub fn transform_vector_path(
+        &mut self,
+        id: u64,
+        scale: f64,
+        rotation_degrees: f64,
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let document_width = f64::from(state.width);
+            let document_height = f64::from(state.height);
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            let mut transformed = path.clone();
+            transformed.transform_uniform(scale, rotation_degrees)?;
+            let bounds = transformed.bounds();
+            let half_stroke = transformed.width * 0.5;
+            if bounds[0] - half_stroke < 0.0
+                || bounds[1] - half_stroke < 0.0
+                || bounds[2] + half_stroke > document_width
+                || bounds[3] + half_stroke > document_height
+            {
+                return Err(PaintError::Invalid);
+            }
+            *path = transformed;
+            Ok(())
         })
     }
 
