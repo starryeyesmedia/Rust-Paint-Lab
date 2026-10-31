@@ -13209,12 +13209,12 @@ impl Studio {
                 };
                 let area = area.show(ctx, |ui| {
                         egui::Frame::window(ui.style())
-                            .inner_margin(egui::Margin::same(6))
+                            .inner_margin(egui::Margin::same(4))
                             .show(ui, |ui| {
                                 ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
                                 ui.set_width((pip_size.x - 12.0).max(132.0));
                                 let drag_title = ui.add_sized(
-                                    [ui.available_width(), 24.0],
+                                    [ui.available_width(), 20.0],
                                     egui::Label::new(format!(
                                         "⠿  Reference {} / {}",
                                         active_compact_reference + 1,
@@ -13263,7 +13263,7 @@ impl Studio {
                                 });
                                 let image_size = egui::vec2(
                                     ui.available_width().max(1.0),
-                                    (pip_size.y - 90.0).max(48.0),
+                                    (pip_size.y - 82.0).max(48.0),
                                 );
                                 let (viewport, response) = ui.allocate_exact_size(image_size, egui::Sense::hover());
                                 reference.viewport = Some(viewport);

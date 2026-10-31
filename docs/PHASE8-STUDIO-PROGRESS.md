@@ -27,13 +27,20 @@ so the full Linux artwork UI gesture has not been run locally. Hosted run
 [`41163726555`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41163726555)
 passed Windows and macOS, but Linux stopped before the new drag test at the
 existing 24%-footprint assertion: the reference panel's frame made its realized
-height exceed the newly reduced safe canvas by under five points. The bounded
-layout now reserves eight points for panel chrome; the assertion is unchanged.
-This fix has passed the same local checks; its hosted rerun is pending after
-push. The run produced diagnostic and screenshot artifacts, but they have not
-been visually inspected. The six-layout populated visual review remains
-Milestone 4, and the approved icon/grouped-toolbar and visual/accessibility
-stages remain ahead. This is not a complete approved UI or hardware evaluation.
+height exceed the newly reduced safe canvas. The first fix reserved eight
+points, but the actual compact layout still realized a 134-point frame because
+the image's 48-point minimum and 44-point controls dominated. The title and
+outer padding are now tighter while the navigation targets stay 44 points and
+the visible image remains 48 points. The 24%-footprint assertion is unchanged.
+Hosted run `41164373970` showed this residual bound failure. The follow-up is
+now locally verified with formatting, all **405 workspace tests**, strict
+Clippy, build, llvmpipe/GL GPU smoke, Windows GNU cross-check, and Python syntax
+validation. Local Xvfb remains unavailable, and the hosted rerun for this
+specific correction is pending after push. The run's diagnostic and screenshot
+artifacts have not been visually inspected. The six-layout populated visual
+review remains Milestone 4, and the approved icon/grouped-toolbar and
+visual/accessibility stages remain ahead. This is not a complete approved UI or
+hardware evaluation.
 
 ## Canvas-first Inspector Milestone 2 — tabs and vector editing integration (2026-10-30, locally verified)
 

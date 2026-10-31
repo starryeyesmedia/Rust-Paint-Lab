@@ -21,8 +21,13 @@ this local environment has no Xvfb. Actions run
 [`41163726555`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41163726555)
 passed Windows and macOS; Linux failed the pre-existing 24%-footprint UI
 assertion because the panel frame exceeded a newly constrained reference
-viewport by under five points. Layout now reserves eight points for frame
-chrome without weakening the assertion. The fix's hosted rerun is pending; the
+viewport. The first eight-point frame allowance was insufficient because the
+reference's 48-point minimum image plus 44-point controls established a 134-point
+outer minimum. A follow-up tightens only title and outer padding, retaining the
+44-point controls, useful image and unchanged 24% assertion. Run `41164373970`
+confirmed the residual bound issue. The follow-up passes formatting, all 405
+workspace tests, strict Clippy, workspace build, llvmpipe/GL GPU smoke, Windows
+GNU check, and Python syntax validation; its hosted rerun is pending. The
 generated screenshots have not yet been visually reviewed. The six-layout
 visual acceptance and subsequent approved icon, grouped toolbar, and
 visual/accessibility stages remain incomplete.
