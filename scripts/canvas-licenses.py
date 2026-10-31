@@ -111,6 +111,17 @@ else:
                  f"Repository: {package['repository']}"]
         for path in files:
             text += ["", f"--- {path.name} ---", path.read_text(encoding="utf-8", errors="strict")]
+    symbols = ROOT / "apps/canvas-demo/assets/material-symbols-rounded"
+    if symbols.is_dir():
+        text += [
+            "", "=" * 72, "Google Material Symbols Rounded",
+            "Declared license: Apache-2.0 (locally bundled official SVG assets and derived PNG coverage masks)",
+            "Repository: https://github.com/google/material-design-icons",
+            "Source revision: 10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7",
+            "Assets and source attribution: apps/canvas-demo/assets/material-symbols-rounded/MATERIAL-SYMBOLS-SOURCE.md",
+            "", "--- Apache-2.0-LICENSE.txt ---",
+            (symbols / "Apache-2.0-LICENSE.txt").read_text(encoding="utf-8", errors="strict"),
+        ]
 args.output.parent.mkdir(parents=True, exist_ok=True)
 args.output.write_text("\n".join(text) + "\n", encoding="utf-8")
 print(f"Generated {args.output}: {len(selected)} external packages")

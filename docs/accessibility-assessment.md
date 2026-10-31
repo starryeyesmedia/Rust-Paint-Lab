@@ -8,8 +8,11 @@ adapter from the existing event loop. A typed application event routes AccessKit
 requests and the Windows capture observer's wake event through the same winit
 loop; this adds neither a competing event pump nor a replacement for native
 Windows pointer capture. A headless egui integration test enables tree generation
-and verifies that representative toolbar and document controls appear with
-readable labels. The tree is generated and action requests are forwarded to egui.
+and verifies the Tools toolbar role, Paint Effects radio-group role, Smudge and
+Color mixer radio-button names, and minimum 44-point targets. The broader suite
+also checks representative document controls. The tree is generated and action
+requests are forwarded to egui. Tool popups restore focus to their trigger when
+closed, and Escape remains a dismissal path.
 
 The studio also centralizes spacing, rounding and 44-point default interaction
 targets, and exposes persisted interface scaling and high-contrast controls.

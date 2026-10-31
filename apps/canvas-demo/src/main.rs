@@ -663,6 +663,7 @@ impl ApplicationHandler<AppEvent> for App {
                             .is_some_and(|id| {
                                 egui::TextEdit::load_state(&studio.context, id).is_some()
                             });
+                        let toolbar_focus = studio.toolbar_has_keyboard_focus();
                         if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
                             && event.physical_key == PhysicalKey::Code(KeyCode::KeyS)
                         {
@@ -692,7 +693,7 @@ impl ApplicationHandler<AppEvent> for App {
                             g.window.request_redraw();
                             return Ok(());
                         }
-                        if !self.modifiers.control_key() {
+                        if !self.modifiers.control_key() && !toolbar_focus {
                             let key = match event.physical_key {
                                 PhysicalKey::Code(KeyCode::Digit0) => Some('0'),
                                 PhysicalKey::Code(KeyCode::KeyB) => Some('b'),
