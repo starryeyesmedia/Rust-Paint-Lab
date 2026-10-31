@@ -593,8 +593,8 @@ def interface_scale_slider_bounds():
     return window_rect_marker('UI_TEST_UI_SCALE_SLIDER_RECT')
 
 def set_interface_scale(window, prefs, scale):
-    current=json.loads(prefs.read_text()).get('ui_scale',1.0)
-    if abs(float(current)-scale)<0.02:
+    current=float(json.loads(prefs.read_text()).get('ui_scale',1.0))
+    if abs(current-scale)<0.005:
         return
     view=wait(view_menu_bounds,'View menu remains reachable for interface-size verification')
     click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
@@ -610,8 +610,28 @@ def set_interface_scale(window, prefs, scale):
           'slider', slider, 'pointer', target_x, slider[1]+slider[3]/2)
     click_at(target_x*slider[4],
              (slider[1]+slider[3]/2)*slider[4])
-    wait(lambda:abs(float(json.loads(prefs.read_text()).get('ui_scale',0))-scale)<0.02,
-         f'the application persists Interface size {scale:.0%}')
+    pointer_value=wait(
+        lambda: (value if abs(value-current)>0.001 else None)
+        if (value:=float(json.loads(prefs.read_text()).get('ui_scale',current))) else None,
+        f'a real pointer adjustment changes Interface size from {current:.3f}',
+    )
+    # The pointer estimate above is close, but hosted X servers can report a
+    # fractional pixels-per-point factor. Use the focused slider's real arrow
+    # actions to land precisely on the requested persisted value rather than
+    # accepting a near miss or weakening the six-layout scale assertions.
+    for _ in range(64):
+        value=float(json.loads(prefs.read_text()).get('ui_scale',pointer_value))
+        if abs(value-scale)<0.005:
+            break
+        previous=value
+        key('Right' if value<scale else 'Left')
+        wait(lambda: (updated if abs(updated-previous)>1e-6 else None)
+             if (updated:=float(json.loads(prefs.read_text()).get('ui_scale',previous))) else None,
+             f'the focused Interface size slider advances from {previous:.3f}')
+    final_value=float(json.loads(prefs.read_text()).get('ui_scale',pointer_value))
+    assert abs(final_value-scale)<0.005, \
+        f'Interface size slider should reach {scale:.3f}; persisted {final_value:.3f}'
+    trace('interface-scale', 'pointer-value', pointer_value, 'final', final_value)
     # Toggle the standard View menu from its own trigger. Clicking the canvas
     # here would be a real paint gesture because this menu is not one of the
     # Studio flyouts that owns outside-click dismissal.
