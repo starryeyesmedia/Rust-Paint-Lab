@@ -11,6 +11,14 @@ import xml.etree.ElementTree as ET
 import subprocess
 import time
 from app_log_index import ApplicationLogIndex
+from scale_slider import (
+    SCALE_MAX,
+    SCALE_MIN,
+    fraction_for_scale,
+    pointer_for_fraction,
+    secant_fraction,
+    track_width_in_pixels,
+)
 
 application_log_index=ApplicationLogIndex()
 
@@ -549,6 +557,162 @@ def screenshot_region_difference(left, right, region):
 
 def palette_bounds():
     return window_rect_marker('UI_TEST_PALETTE_RECT')
+
+def toolbar_more_bounds():
+    return window_rect_marker('UI_TEST_TOOLBAR_MORE_RECT')
+
+def toolbar_scrolled_bounds(family):
+    prefix=f'UI_TEST_TOOLBAR_SCROLLED: {family} '
+    lines=[line[len(prefix):] for line in application_log_lines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    values={key: value for key,value in
+            (field.split('=',1) for field in lines[-1].split() if '=' in field)}
+    target=tuple(map(float,values['target'].split(',')))
+    viewport=tuple(map(float,values['viewport'].split(',')))
+    return float(values['offset']),target,viewport
+
+def toolbar_family_bounds(family):
+    prefix=f'UI_TEST_TOOL_FAMILY_RECT: {family} '
+    lines=[line[len(prefix):] for line in application_log_lines()
+           if line.startswith(prefix)]
+    return tuple(map(float,lines[-1].split()[:5])) if lines else None
+
+def toolbar_smudge_bounds():
+    return window_rect_marker('UI_TEST_TOOL_MENU_SMUDGE_RECT')
+
+def toolbar_direct_bounds(name):
+    prefix=f'UI_TEST_TOOL_DIRECT_RECT: {name} '
+    lines=[line[len(prefix):] for line in application_log_lines()
+           if line.startswith(prefix)]
+    return tuple(map(float,lines[-1].split()[:5])) if lines else None
+
+def view_menu_bounds():
+    return window_rect_marker('UI_TEST_VIEW_MENU_RECT')
+
+def help_menu_bounds():
+    return window_rect_marker('UI_TEST_HELP_MENU_RECT')
+
+def quick_brush_menu_bounds():
+    return window_rect_marker('UI_TEST_QUICK_BRUSH_MENU_RECT')
+
+def interface_scale_slider_bounds():
+    return window_rect_marker('UI_TEST_UI_SCALE_SLIDER_RECT')
+
+def view_menu_scale_marker_count():
+    return sum(line.startswith('UI_TEST_UI_SCALE: ')
+               for line in application_log_lines())
+
+def view_menu_is_open():
+    before=view_menu_scale_marker_count()
+    time.sleep(0.12)
+    return view_menu_scale_marker_count()>before
+
+def ensure_view_menu_open():
+    if view_menu_is_open():
+        return
+    before=view_menu_scale_marker_count()
+    view=wait(view_menu_bounds,'View menu trigger is reachable for interface-size verification')
+    click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
+    wait(lambda:view_menu_scale_marker_count()>before,
+         'the View menu opens and exposes its actual Interface size control')
+
+def interface_scale_value(prefs):
+    return float(json.loads(prefs.read_text()).get('ui_scale',1.0))
+
+def latest_ui_scale_marker():
+    lines=[line for line in application_log_lines()
+           if line.startswith('UI_TEST_UI_SCALE: ')]
+    return float(lines[-1].partition(': ')[2]) if lines else None
+
+def adjust_interface_scale_pointer(pointer, prefs, before):
+    """Release on the first rendered slider update so the control cannot drift."""
+    move(round(pointer[0]),round(pointer[1]))
+    assert button(display,1,1,0)
+    flush(display)
+    deadline=time.monotonic()+0.6
+    observed=None
+    while time.monotonic()<deadline:
+        observed=latest_ui_scale_marker()
+        if observed is not None and abs(observed-before)>1e-6:
+            break
+        time.sleep(0.002)
+    # The UI-scale control changes the geometry used to interpret its own
+    # pointer. Releasing at the first changed frame prevents subsequent frames
+    # from applying the old pointer coordinate to the newly scaled slider.
+    assert button(display,1,0,0)
+    send()
+    if observed is None or abs(observed-before)<=1e-6:
+        return interface_scale_value(prefs)
+    persisted=wait(
+        lambda: (value if abs(value-before)>1e-6 else None)
+        if (value:=interface_scale_value(prefs)) else None,
+        f'Interface size {observed:.3f} is persisted after pointer release',
+        seconds=2,
+    )
+    return persisted
+
+def set_interface_scale(window, prefs, scale):
+    current=interface_scale_value(prefs)
+    if abs(current-scale)<0.005:
+        return
+    ensure_view_menu_open()
+    wait(interface_scale_slider_bounds,'View exposes the real Interface size slider')
+    capture_window(window,f'interface-scale-menu-{int(scale*100)}')
+    # Drive the actual slider by pointer and use the persisted app preference
+    # as feedback. The geometry is re-read after every interaction because
+    # changing UI scale also changes the View menu's point/pixel conversion.
+    # This secant correction handles fractional X11 pixels-per-point without
+    # accepting a near miss or relying on keyboard focus in the popup.
+    lower=(0.0,SCALE_MIN)
+    upper=(1.0,SCALE_MAX)
+    fraction=fraction_for_scale(scale)
+    observed_values=[]
+    for attempt in range(10):
+        # Re-scaling can close the menu because its popup must be laid out at
+        # the new scale. Confirm that its contents are still being rendered;
+        # otherwise reopen it before using the slider's latest logged bounds.
+        ensure_view_menu_open()
+        slider=wait(interface_scale_slider_bounds,
+                    'View keeps the real Interface size slider reachable')
+        pointer=pointer_for_fraction(slider,fraction)
+        before=interface_scale_value(prefs)
+        trace('interface-scale-pointer',attempt,'fraction',fraction,'before',before,
+              'slider',slider,'pointer',pointer)
+        value=adjust_interface_scale_pointer(pointer,prefs,before)
+        observed_values.append((fraction,value))
+        trace('interface-scale-pointer-result',attempt,'fraction',fraction,'value',value)
+        if abs(value-scale)<0.005:
+            break
+        if value<scale:
+            lower=(fraction,value)
+        else:
+            upper=(fraction,value)
+        track_width=max(1.0,track_width_in_pixels(slider))
+        try:
+            fraction=secant_fraction(lower,upper,scale,0.75/track_width)
+        except ValueError as error:
+            raise AssertionError(
+                f'Interface size pointer calibration lost its measured bracket: '
+                f'{observed_values}; lower={lower}; upper={upper}'
+            ) from error
+    final_value=interface_scale_value(prefs)
+    assert abs(final_value-scale)<0.005, (
+        f'Interface size pointer calibration should reach {scale:.3f}; '
+        f'persisted {final_value:.3f}; samples={observed_values}')
+    trace('interface-scale-final', 'target',scale,'persisted',final_value,
+          'samples',observed_values)
+    # Toggle the standard View menu from its own trigger. Clicking the canvas
+    # here would be a real paint gesture because this menu is not one of the
+    # Studio flyouts that owns outside-click dismissal.
+    wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
+        view_menu_bounds()),
+        'the View menu trigger remains reachable after changing interface size')
+    if view_menu_is_open():
+        view=view_menu_bounds()
+        click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
+        time.sleep(0.15)
 
 def palette_chrome_clearance():
     lines=[line for line in application_log_lines()
@@ -1991,28 +2155,163 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert palette[3] >= 440.0, f'normal-height tool rail should show more than a clipped handful of tools: {palette}'
             assert palette[1] + palette[3] <= 800/palette[4] - 40.0, \
                 f'tool rail must leave the bottom status area accessible: {palette}'
-            toggle=wait(lambda: settled_window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
-                        'compact palette exposes a keyboard-labeled expand control')
-            click_at((toggle[0]+toggle[2]/2)*toggle[4],
-                     (toggle[1]+toggle[3]/2)*toggle[4])
-            wait(lambda: event_marker('UI_TEST_PALETTE_STATE') == 'collapsed=false',
-                 'the toolbar can expand from its compact default')
-            wait(lambda: json.loads(prefs.read_text()).get('palette_collapsed') is False,
-                 'expanded toolbar preference is persisted')
-            expanded=wait(lambda: (lambda bounds: bounds if bounds and bounds[2]>100 else None)(palette_bounds()),
-                          'expanded toolbar exposes labeled tools')
-            assert expanded[2] > palette[2], \
-                f'expanded toolbar should provide more room for tool names: compact={palette}, expanded={expanded}'
-            toggle=wait(lambda: settled_window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
-                        'expanded toolbar exposes its updated collapse control')
-            click_at((toggle[0]+toggle[2]/2)*toggle[4],
-                     (toggle[1]+toggle[3]/2)*toggle[4])
-            wait(lambda: event_marker('UI_TEST_PALETTE_STATE') == 'collapsed=true',
-                 'the expanded toolbar collapses back to its compact rail')
-            wait(lambda: json.loads(prefs.read_text()).get('palette_collapsed') is True,
-                 'compact toolbar preference is persisted')
-            palette=wait(lambda: (lambda bounds: bounds if bounds and bounds[2]<=90 else None)(palette_bounds()),
-                         'compact toolbar width returns after collapse')
+            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
+                         'the approved Paint Effects group is visible in the tool rail')
+            before_strokes=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
+            click_at((effects[0]+effects[2]/2)*effects[4],
+                     (effects[1]+effects[3]/2)*effects[4])
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
+                 'the Paint Effects popup opens from a real pointer click')
+            capture_window(window,'approved-toolbar-paint-effects-popup')
+            mapping=wait(canvas_mapping_marker,'the canvas bounds are available for popup dismissal')
+            stroke_count=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            commit_count=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
+            close_count=event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')
+            click_at(((mapping[0]+mapping[2])/2)*palette[4],
+                     ((mapping[1]+mapping[3])/2)*palette[4])
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')>close_count,
+                 'clicking the canvas dismisses the tool popup')
+            time.sleep(0.12)
+            assert event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')==stroke_count==before_strokes, \
+                'popup dismissal on the canvas must not start a paint stroke'
+            assert event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')==commit_count, \
+                'popup dismissal must not commit an unintended canvas stroke'
+            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
+                         'Paint Effects remains reachable after popup dismissal')
+            click_at((effects[0]+effects[2]/2)*effects[4],
+                     (effects[1]+effects[3]/2)*effects[4])
+            smudge=wait(toolbar_smudge_bounds,'the Smudge option is exposed with a real pointer target')
+            assert smudge[2]>=44 and smudge[3]>=44, f'Smudge popup target is smaller than 44 points: {smudge}'
+            assert smudge[2]<=256, f'Smudge popup row must remain within the approved bounded menu width: {smudge}'
+            click_at((smudge[0]+smudge[2]/2)*smudge[4],
+                     (smudge[1]+smudge[3]/2)*smudge[4])
+            wait(lambda:event_marker('UI_TEST_TOOL_SELECTED')=='Smudge',
+                 'the Smudge menu item selects the existing Smudge tool')
+            capture_window(window,'approved-toolbar-smudge-selected')
+            brush=wait(brush_rect,'the direct Brush action remains available')
+            click_at((brush[0]+brush[2]/2)*brush[4],
+                     (brush[1]+brush[3]/2)*brush[4])
+            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+                 'the direct Brush action returns from Smudge to Brush')
+            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
+                         'Paint Effects remains available for keyboard operation')
+            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
+            click_at((effects[0]+effects[2]/2)*effects[4],
+                     (effects[1]+effects[3]/2)*effects[4])
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
+                 'the Paint Effects popup opens before keyboard navigation')
+            key('Down');key('Return')
+            wait(lambda:event_marker('UI_TEST_TOOL_SELECTED')=='Color mixer',
+                 'arrow and Enter keys navigate and activate the next tool in the group')
+            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
+            key('Return')
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
+                 'focus returns to the group trigger after selection and Enter reopens it')
+            close_count=event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')
+            key('Escape')
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')>close_count,
+                 'Escape closes the tool popup and restores its trigger focus')
+            brush=wait(brush_rect,'the direct Brush action remains available after keyboard use')
+            click_at((brush[0]+brush[2]/2)*brush[4],
+                     (brush[1]+brush[3]/2)*brush[4])
+            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+                 'Brush is active before compact toolbar verification')
+            resize_window(window,640,480)
+            compact=wait(palette_bounds,'the approved toolbar remains visible at 640x480')
+            assert compact[0]>=-1 and compact[1]>=-1 \
+                and compact[0]+compact[2]<=640/compact[4]+1 \
+                and compact[1]+compact[3]<=480/compact[4]+1, \
+                f'compact toolbar must remain inside the 640x480 viewport: {compact}'
+            assert compact[2]<=90, f'compact toolbar must stay a narrow single-column rail: {compact}'
+            more=wait(toolbar_more_bounds,'narrow toolbar provides the approved grouped-family navigation')
+            assert more[2]>=44 and more[3]>=44, f'More tool families target is smaller than 44 points: {more}'
+            capture_window(window,'approved-toolbar-compact-640')
+            observed_families=[]
+            for expected_family in ['Color Application','Shapes','Selection','Vector','Paint Effects']:
+                count=event_line_count(f'UI_TEST_TOOLBAR_SCROLLED: {expected_family} ')
+                more=wait(toolbar_more_bounds,'More tool families remains visible at compact size')
+                click_at((more[0]+more[2]/2)*more[4],
+                         (more[1]+more[3]/2)*more[4])
+                scrolled=wait(lambda:toolbar_scrolled_bounds(expected_family)
+                              if event_line_count(f'UI_TEST_TOOLBAR_SCROLLED: {expected_family} ')
+                              >count else None,
+                              f'the compact rail scrolls to {expected_family}')
+                _,target,viewport=scrolled
+                assert target[1]>=viewport[1]-1 and target[1]+target[3]<=viewport[1]+viewport[3]+1, \
+                    f'{expected_family} must be visible after More scrolls the grouped rail: {scrolled}'
+                observed_families.append(expected_family)
+            assert observed_families==['Color Application','Shapes','Selection','Vector','Paint Effects']
+            layouts=[('640x480-100',640,480,1.0),
+                     ('1280x800-100',1280,800,1.0),
+                     ('1920x1080-100',1920,1080,1.0)]
+            def verify_toolbar_layout(name,width,height,scale):
+                rect=wait(palette_bounds,f'{name} toolbar geometry settles')
+                assert abs(rect[4]-scale)<0.03, \
+                    f'{name} must use the requested logical scale {scale}: {rect}'
+                assert rect[0]>=-1 and rect[1]>=-1 \
+                    and rect[0]+rect[2]<=width/scale+1 \
+                    and rect[1]+rect[3]<=height/scale+1, \
+                    f'{name} toolbar is outside its logical viewport: {rect}'
+                for name_tool in ['Brush','Eraser','Eyedropper']:
+                    target=wait(lambda:toolbar_direct_bounds(name_tool),
+                                f'{name} exposes the direct {name_tool} target')
+                    assert target[2]>=44 and target[3]>=44, \
+                        f'{name} {name_tool} target is smaller than 44 logical points: {target}'
+                    assert target[0]>=-1 and target[1]>=-1 \
+                        and target[0]+target[2]<=width/scale+1 \
+                        and target[1]+target[3]<=height/scale+1, \
+                        f'{name} {name_tool} target is outside the window: {target}'
+                if name=='640x480-150':
+                    view=wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
+                        view_menu_bounds()),
+                        '150% compact layout keeps the View menu outside the toolbar')
+                    help_menu=wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
+                        help_menu_bounds()),
+                        '150% compact layout keeps the last application menu reachable')
+                    brush_menu=wait(quick_brush_menu_bounds,
+                                    '150% compact layout exposes the real Brush preset control')
+                    assert view[0]>=rect[0]+rect[2]-1.0, \
+                        f'150% compact toolbar obscures the View/document menu: palette={rect} menu={view}'
+                    assert help_menu[0]+help_menu[2]<=width/scale+1.0, \
+                        f'150% compact layout clips the Help menu: {help_menu}'
+                    assert brush_menu[0]>=rect[0]+rect[2]-1.0, \
+                        f'150% compact toolbar obscures Brush preset control: palette={rect} preset={brush_menu}'
+                    more=wait(toolbar_more_bounds,
+                              '150% narrow layout keeps the More target reachable')
+                    assert more[2]>=44 and more[3]>=44, \
+                        f'150% More target is smaller than 44 logical points: {more}'
+                    assert more[0]>=-1 and more[1]>=-1 \
+                        and more[0]+more[2]<=width/scale+1 \
+                        and more[1]+more[3]<=height/scale+1, \
+                        f'150% More target is outside the logical viewport: {more}'
+                    count=event_line_count('UI_TEST_TOOLBAR_SCROLLED: Color Application ')
+                    click_at((more[0]+more[2]/2)*more[4],
+                             (more[1]+more[3]/2)*more[4])
+                    scrolled=wait(lambda:toolbar_scrolled_bounds('Color Application')
+                                  if event_line_count('UI_TEST_TOOLBAR_SCROLLED: Color Application ')
+                                  >count else None,
+                                  '150% More scrolls the family rail to Color Application')
+                    _,target_rect,viewport_rect=scrolled
+                    assert target_rect[1]>=viewport_rect[1]-1 \
+                        and target_rect[1]+target_rect[3]<=viewport_rect[1]+viewport_rect[3]+1, \
+                        f'150% Color Application must be visible in the scrolled rail: {scrolled}'
+                capture_window(window,f'approved-toolbar-{name}')
+                return rect
+            verify_toolbar_layout('640x480-100',640,480,1.0)
+            resize_window(window,1280,800)
+            palette=verify_toolbar_layout('1280x800-100',1280,800,1.0)
+            resize_window(window,1920,1080)
+            verify_toolbar_layout('1920x1080-100',1920,1080,1.0)
+            set_interface_scale(window,prefs,1.5)
+            for name,width,height in [('640x480-150',640,480),
+                                      ('1280x800-150',1280,800),
+                                      ('1920x1080-150',1920,1080)]:
+                resize_window(window,width,height)
+                verify_toolbar_layout(name,width,height,1.5)
+            set_interface_scale(window,prefs,1.0)
+            resize_window(window,1280,800)
+            palette=wait(palette_bounds,'the toolbar restores its normal layout after resizing')
             assert json.loads(prefs.read_text()).get('palette_dock') == 'Left', \
                 'clicking toolbar controls must not move or redock the palette'
             grip=wait(lambda: window_rect_marker('UI_TEST_PALETTE_GRIP_RECT'),

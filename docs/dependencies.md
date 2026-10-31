@@ -20,6 +20,15 @@ safe Rust with no GPU or GUI dependency. Cargo.lock pins the complete graph.
 | image | 0.25.10 exact | Bounded PNG/JPEG decoding for workspace references and artwork placement | MIT OR Apache-2.0 |
 | rfd | 0.15.4 exact | Native project/image/preset selection dialogs; XDG desktop portal on Linux | MIT |
 
+The toolbar uses locally bundled, official Google Material Symbols Rounded SVGs
+and cached 96 × 96 PNG masks from `google/material-design-icons` revision
+`10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7`. Their mapping, source attribution,
+hashes, and Apache-2.0 license are retained in
+[`apps/canvas-demo/assets/material-symbols-rounded`](../apps/canvas-demo/assets/material-symbols-rounded/README.md).
+The renderer uses the existing `image` crate; no icon/font package, external
+service, or build-time network access was added. `scripts/canvas-licenses.py`
+includes the icon license and provenance in Windows distribution notices.
+
 The interface bundles locally embedded Outfit Bold/ExtraBold/Black and Manrope
 Regular/SemiBold/Tabular-SemiBold/Bold static faces under the SIL Open Font
 License 1.1; no runtime download or Cargo dependency is used. The tabular
@@ -44,8 +53,10 @@ image crate and enabled zune JPEG decoder are included in the canvas artifact's
 generated third-party notices. Egui provides keyboard navigation, visible focus and
 light/dark contrast. Its optional AccessKit feature is enabled through egui-winit;
 AccessKit, AT-SPI, and platform bridge crates are included in the lockfile license
-inventory and target-specific package notices. An automated tree test checks
-labels for representative toolbar and document controls. Native screen-reader
+inventory and target-specific package notices. An automated AccessKit tree test
+checks the new Tools toolbar, named tool groups, Smudge and Color mixer radio
+options, and 44-point group targets, alongside representative document controls.
+Native screen-reader
 usability is not yet verified; see accessibility-assessment.md. Egui clipboard
 integration brings image packages transitively, but those codecs are not advertised
 as implemented application import/export features. Font notices include bundled
