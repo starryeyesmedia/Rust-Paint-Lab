@@ -23,9 +23,15 @@ Rust 1.90 local validation passed formatting, strict workspace Clippy, the full
 workspace suite (**405 tests**, including the llvmpipe/GL GPU smoke), workspace
 build, and the Windows GNU workspace cross-check. Python syntax compilation of
 the expanded XTest workflow passed. This environment has no Xvfb/XTest server,
-so the full Linux artwork UI gesture has not been run locally. The new branch's
-Windows/Linux/macOS Actions run is pending until push; no hosted result or
-Windows artifact is claimed yet. The six-layout populated visual review remains
+so the full Linux artwork UI gesture has not been run locally. Hosted run
+[`41163726555`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41163726555)
+passed Windows and macOS, but Linux stopped before the new drag test at the
+existing 24%-footprint assertion: the reference panel's frame made its realized
+height exceed the newly reduced safe canvas by under five points. The bounded
+layout now reserves eight points for panel chrome; the assertion is unchanged.
+This fix has passed the same local checks; its hosted rerun is pending after
+push. The run produced diagnostic and screenshot artifacts, but they have not
+been visually inspected. The six-layout populated visual review remains
 Milestone 4, and the approved icon/grouped-toolbar and visual/accessibility
 stages remain ahead. This is not a complete approved UI or hardware evaluation.
 

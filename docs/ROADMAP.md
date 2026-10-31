@@ -17,10 +17,15 @@ magnetically snap on pointer release within 24 logical points; the Linux
 artwork workflow asserts this real gesture does not paint. Local formatting,
 strict Clippy, all 405 workspace tests (including llvmpipe GPU smoke), workspace
 build, and Windows GNU check pass. The Xorg workflow's syntax check passes, but
-this local environment has no Xvfb; its actual pointer scenario and the
-cross-platform hosted matrix remain pending until push. The six-layout visual
-acceptance and subsequent approved icon, grouped toolbar, and visual/accessibility
-stages remain incomplete.
+this local environment has no Xvfb. Actions run
+[`41163726555`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41163726555)
+passed Windows and macOS; Linux failed the pre-existing 24%-footprint UI
+assertion because the panel frame exceeded a newly constrained reference
+viewport by under five points. Layout now reserves eight points for frame
+chrome without weakening the assertion. The fix's hosted rerun is pending; the
+generated screenshots have not yet been visually reviewed. The six-layout
+visual acceptance and subsequent approved icon, grouped toolbar, and
+visual/accessibility stages remain incomplete.
 
 Layers, Brush, Edit, Color, and References share the existing egui/winit
 Inspector. Layers and masks use real document transactions; references remain

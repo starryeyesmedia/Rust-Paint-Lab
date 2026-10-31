@@ -48,9 +48,10 @@ pub fn compact_inspector_constraint(
 }
 
 /// Place the selected reference as a small canvas-only picture-in-picture.
-/// The requested image footprint is 192×144 points and remains capped at
-/// 24% of the safe canvas region; tiny viewports intentionally return `None`
-/// instead of obscuring most of the artwork.
+/// The content footprint is at most 192×144 points. Eight points are reserved
+/// for the outer frame so the realized window (not just its image content)
+/// stays within 24% of the safe canvas region. Tiny viewports intentionally
+/// return `None` instead of obscuring most of the artwork.
 pub fn reference_picture_in_picture(
     safe_canvas: egui::Rect,
     preferred_position: [f32; 2],
@@ -59,8 +60,9 @@ pub fn reference_picture_in_picture(
         return None;
     }
     const EDGE: f32 = 8.0;
-    let max_width = (safe_canvas.width() * 0.24).min(320.0);
-    let max_height = (safe_canvas.height() * 0.24).min(240.0);
+    const FRAME_ALLOWANCE: f32 = 8.0;
+    let max_width = (safe_canvas.width() * 0.24).min(320.0) - FRAME_ALLOWANCE;
+    let max_height = (safe_canvas.height() * 0.24).min(240.0) - FRAME_ALLOWANCE;
     let width = 192.0_f32.min(max_width);
     let height = 144.0_f32.min(max_height);
     if width < 160.0 || height < 120.0 {
@@ -1106,6 +1108,12 @@ mod tests {
         assert_eq!(picture.size(), egui::vec2(192.0, 144.0));
         assert!(picture.width() <= safe.width() * 0.24 + 0.1);
         assert!(picture.height() <= safe.height() * 0.24 + 0.1);
+
+        let compact_canvas = rect(86.5, 116.8, 873.5, 538.2);
+        let compact_picture = reference_picture_in_picture(compact_canvas, [760.0, 518.0])
+            .expect("the protected compact canvas still has room for a useful reference");
+        assert!(compact_picture.width() <= compact_canvas.width() * 0.24 - 8.0 + 0.1);
+        assert!(compact_picture.height() <= compact_canvas.height() * 0.24 - 8.0 + 0.1);
 
         let narrow = rect(0.0, 0.0, 640.0, 480.0);
         assert!(reference_picture_in_picture(narrow, [0.0, 0.0]).is_none());
