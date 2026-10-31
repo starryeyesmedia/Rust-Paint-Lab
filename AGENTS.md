@@ -164,7 +164,7 @@ Record commands, outcomes, and unrun checks honestly.
 - Preserve artwork compatibility, recovery, Undo/Redo, painting behavior, and other working functionality. Explain and test intentional changes to these areas before proposing merge.
 - Preserve the full history and the legacy `feature/studio-overdrive-phase-8` branch. Do not reset, rebase, force-push, or delete it to make history appear linear. Keep merge commits enabled; do not require linear history.
 - Run and require successful `check (ubuntu-latest)`, `check (windows-latest)`, and `check (macos-latest)` CI on the PR commit before merge. Diagnose failures; never weaken meaningful tests to turn CI green.
-- Require eligible human review before merge. Codex must not self-merge, publish a release, make licensing decisions, or alter repository rules without explicit owner authorization.
+- Require independent human approval when another eligible reviewer is available. If the owner is the only eligible reviewer, the owner must still perform explicit manual review and the ruleset must not make merging impossible. Codex must not self-merge, publish a release, make licensing decisions, or alter repository rules without explicit owner authorization.
 - PRs must describe behavior, compatibility/recovery risks, tests and CI links. Include and inspect screenshots for UI changes. Explicitly document physical hardware and accessibility behavior that remains untested; CI and synthetic tests are not hardware or screen-reader validation.
 - Repository rulesets are administrator-managed. Recommended settings and the single-reviewer fallback are documented in `docs/DEVELOPMENT-WORKFLOW.md`.
 
