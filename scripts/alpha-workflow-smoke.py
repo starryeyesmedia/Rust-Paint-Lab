@@ -11,6 +11,14 @@ import xml.etree.ElementTree as ET
 import subprocess
 import time
 from app_log_index import ApplicationLogIndex
+from scale_slider import (
+    SCALE_MAX,
+    SCALE_MIN,
+    fraction_for_scale,
+    pointer_for_fraction,
+    secant_fraction,
+    track_width_in_pixels,
+)
 
 application_log_index=ApplicationLogIndex()
 
@@ -592,54 +600,119 @@ def quick_brush_menu_bounds():
 def interface_scale_slider_bounds():
     return window_rect_marker('UI_TEST_UI_SCALE_SLIDER_RECT')
 
+def view_menu_scale_marker_count():
+    return sum(line.startswith('UI_TEST_UI_SCALE: ')
+               for line in application_log_lines())
+
+def view_menu_is_open():
+    before=view_menu_scale_marker_count()
+    time.sleep(0.12)
+    return view_menu_scale_marker_count()>before
+
+def ensure_view_menu_open():
+    if view_menu_is_open():
+        return
+    before=view_menu_scale_marker_count()
+    view=wait(view_menu_bounds,'View menu trigger is reachable for interface-size verification')
+    click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
+    wait(lambda:view_menu_scale_marker_count()>before,
+         'the View menu opens and exposes its actual Interface size control')
+
+def interface_scale_value(prefs):
+    return float(json.loads(prefs.read_text()).get('ui_scale',1.0))
+
+def latest_ui_scale_marker():
+    lines=[line for line in application_log_lines()
+           if line.startswith('UI_TEST_UI_SCALE: ')]
+    return float(lines[-1].partition(': ')[2]) if lines else None
+
+def adjust_interface_scale_pointer(pointer, prefs, before):
+    """Release on the first rendered slider update so the control cannot drift."""
+    move(round(pointer[0]),round(pointer[1]))
+    assert button(display,1,1,0)
+    flush(display)
+    deadline=time.monotonic()+0.6
+    observed=None
+    while time.monotonic()<deadline:
+        observed=latest_ui_scale_marker()
+        if observed is not None and abs(observed-before)>1e-6:
+            break
+        time.sleep(0.002)
+    # The UI-scale control changes the geometry used to interpret its own
+    # pointer. Releasing at the first changed frame prevents subsequent frames
+    # from applying the old pointer coordinate to the newly scaled slider.
+    assert button(display,1,0,0)
+    send()
+    if observed is None or abs(observed-before)<=1e-6:
+        return interface_scale_value(prefs)
+    persisted=wait(
+        lambda: (value if abs(value-before)>1e-6 else None)
+        if (value:=interface_scale_value(prefs)) else None,
+        f'Interface size {observed:.3f} is persisted after pointer release',
+        seconds=2,
+    )
+    return persisted
+
 def set_interface_scale(window, prefs, scale):
-    current=float(json.loads(prefs.read_text()).get('ui_scale',1.0))
+    current=interface_scale_value(prefs)
     if abs(current-scale)<0.005:
         return
-    view=wait(view_menu_bounds,'View menu remains reachable for interface-size verification')
-    click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
-    slider=wait(interface_scale_slider_bounds,'View exposes the real Interface size slider')
+    ensure_view_menu_open()
+    wait(interface_scale_slider_bounds,'View exposes the real Interface size slider')
     capture_window(window,f'interface-scale-menu-{int(scale*100)}')
-    fraction=(scale-0.8)/(1.6-0.8)
-    # egui maps the slider value between the handle centers, not the outside
-    # edge of Response::rect. Clicking the raw 87.5% rectangle coordinate
-    # therefore rounded to the maximum (160%) on a narrow menu row.
-    handle_inset=slider[3]*0.30
-    target_x=slider[0]+handle_inset+(slider[2]-2*handle_inset)*fraction
-    trace('interface-scale', 'current', current, 'target', scale,
-          'slider', slider, 'pointer', target_x, slider[1]+slider[3]/2)
-    click_at(target_x*slider[4],
-             (slider[1]+slider[3]/2)*slider[4])
-    pointer_value=wait(
-        lambda: (value if abs(value-current)>0.001 else None)
-        if (value:=float(json.loads(prefs.read_text()).get('ui_scale',current))) else None,
-        f'a real pointer adjustment changes Interface size from {current:.3f}',
-    )
-    # The pointer estimate above is close, but hosted X servers can report a
-    # fractional pixels-per-point factor. Use the focused slider's real arrow
-    # actions to land precisely on the requested persisted value rather than
-    # accepting a near miss or weakening the six-layout scale assertions.
-    for _ in range(64):
-        value=float(json.loads(prefs.read_text()).get('ui_scale',pointer_value))
+    # Drive the actual slider by pointer and use the persisted app preference
+    # as feedback. The geometry is re-read after every interaction because
+    # changing UI scale also changes the View menu's point/pixel conversion.
+    # This secant correction handles fractional X11 pixels-per-point without
+    # accepting a near miss or relying on keyboard focus in the popup.
+    lower=(0.0,SCALE_MIN)
+    upper=(1.0,SCALE_MAX)
+    fraction=fraction_for_scale(scale)
+    observed_values=[]
+    for attempt in range(10):
+        # Re-scaling can close the menu because its popup must be laid out at
+        # the new scale. Confirm that its contents are still being rendered;
+        # otherwise reopen it before using the slider's latest logged bounds.
+        ensure_view_menu_open()
+        slider=wait(interface_scale_slider_bounds,
+                    'View keeps the real Interface size slider reachable')
+        pointer=pointer_for_fraction(slider,fraction)
+        before=interface_scale_value(prefs)
+        trace('interface-scale-pointer',attempt,'fraction',fraction,'before',before,
+              'slider',slider,'pointer',pointer)
+        value=adjust_interface_scale_pointer(pointer,prefs,before)
+        observed_values.append((fraction,value))
+        trace('interface-scale-pointer-result',attempt,'fraction',fraction,'value',value)
         if abs(value-scale)<0.005:
             break
-        previous=value
-        key('Right' if value<scale else 'Left')
-        wait(lambda: (updated if abs(updated-previous)>1e-6 else None)
-             if (updated:=float(json.loads(prefs.read_text()).get('ui_scale',previous))) else None,
-             f'the focused Interface size slider advances from {previous:.3f}')
-    final_value=float(json.loads(prefs.read_text()).get('ui_scale',pointer_value))
-    assert abs(final_value-scale)<0.005, \
-        f'Interface size slider should reach {scale:.3f}; persisted {final_value:.3f}'
-    trace('interface-scale', 'pointer-value', pointer_value, 'final', final_value)
+        if value<scale:
+            lower=(fraction,value)
+        else:
+            upper=(fraction,value)
+        track_width=max(1.0,track_width_in_pixels(slider))
+        try:
+            fraction=secant_fraction(lower,upper,scale,0.75/track_width)
+        except ValueError as error:
+            raise AssertionError(
+                f'Interface size pointer calibration lost its measured bracket: '
+                f'{observed_values}; lower={lower}; upper={upper}'
+            ) from error
+    final_value=interface_scale_value(prefs)
+    assert abs(final_value-scale)<0.005, (
+        f'Interface size pointer calibration should reach {scale:.3f}; '
+        f'persisted {final_value:.3f}; samples={observed_values}')
+    trace('interface-scale-final', 'target',scale,'persisted',final_value,
+          'samples',observed_values)
     # Toggle the standard View menu from its own trigger. Clicking the canvas
     # here would be a real paint gesture because this menu is not one of the
     # Studio flyouts that owns outside-click dismissal.
-    view=wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
+    wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
         view_menu_bounds()),
         'the View menu trigger remains reachable after changing interface size')
-    click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
-    time.sleep(0.15)
+    if view_menu_is_open():
+        view=view_menu_bounds()
+        click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
+        time.sleep(0.15)
 
 def palette_chrome_clearance():
     lines=[line for line in application_log_lines()
