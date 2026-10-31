@@ -117,6 +117,14 @@ def brush_rect():
            if line.startswith('UI_TEST_BRUSH_RECT: ')]
     return tuple(map(float,lines[-1].partition(': ')[2].split())) if lines else None
 
+def brush_pointer_marker():
+    lines=[line for line in application_log_lines()
+           if line.startswith('UI_TEST_BRUSH_POINTER: ')]
+    if not lines:
+        return None
+    values=lines[-1].partition(': ')[2].split()
+    return (values[0]=='true',values[1]=='true',*map(float,values[2:]))
+
 def brush_preview_rect():
     prefix='UI_TEST_ACTIVE_BRUSH_PREVIEW_BOUNDS: '
     active=[line for line in application_log_lines()
@@ -145,6 +153,15 @@ def inspector_layout():
     if len(values)!=7:
         return None
     return values[0],values[1],*map(float,values[2:])
+
+def inspector_tab_scroll_state():
+    prefix='UI_TEST_INSPECTOR_TAB_SCROLL: '
+    lines=[line.partition(': ')[2] for line in application_log_lines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    values=tuple(map(float,lines[-1].split()))
+    return values if len(values)==7 else None
 
 def inspector_layout_matches(placement, tab):
     # Read the asynchronously written marker only once per poll. A panel can
@@ -469,10 +486,31 @@ def click_scaled_rect_through_frame(rect, frame_marker):
     x,y,width,height,scale=rect
     move(round((x+width/2)*scale),round((y+height/2)*scale))
     click_button(1,True)
-    pressed_frames=event_marker_count(frame_marker)
+    marker_count=(lambda:event_line_count(frame_marker)
+                  if ': ' in frame_marker else event_marker_count(frame_marker))
+    pressed_frames=marker_count()
     try:
-        wait(lambda:event_marker_count(frame_marker)>pressed_frames,
+        wait(lambda:marker_count()>pressed_frames,
              f'{frame_marker} renders while the pointer remains pressed')
+    finally:
+        click_button(1,False)
+
+def click_vector_action_through_frame(rect, action):
+    """Hold a path-menu item until egui confirms that exact item is hovered."""
+    x,y,width,height,scale=rect
+    move(round((x+width/2)*scale),round((y+height/2)*scale))
+    pressed_frames=event_marker_count('UI_TEST_VECTOR_ACTION_POINTER')
+    click_button(1,True)
+    try:
+        def hovered_action():
+            if event_marker_count('UI_TEST_VECTOR_ACTION_POINTER')<=pressed_frames:
+                return None
+            marker=event_marker('UI_TEST_VECTOR_ACTION_POINTER')
+            expected=f'{action} hovered=true'
+            return marker if marker and marker.startswith(expected) \
+                and 'down=true' in marker else None
+        wait(hovered_action,
+             f'the live {action.replace("_"," ")} menu item receives the pressed pointer')
     finally:
         click_button(1,False)
 
@@ -681,6 +719,13 @@ def layer_thumbnail_update(layer_id):
             if int(values[0])==layer_id:
                 return int(values[1],16),int(values[2]),int(values[3])
     return None
+
+def layer_thumbnail_update_count(layer_id):
+    prefix='UI_TEST_LAYER_THUMBNAIL_UPDATED: '
+    return sum(
+        1 for line in application_log_lines()
+        if line.startswith(prefix) and int(line.partition(': ')[2].split()[0])==layer_id
+    )
 
 def layer_thumbnail_bounds():
     marker=stable_marker('UI_TEST_LAYER_THUMBNAIL_RECT')
@@ -1023,6 +1068,15 @@ def wheel_at(px, py, notches=1, down=True):
         assert button(display,button_number,0,0)
     send()
 
+def horizontal_wheel_at(px, py, notches=1, right=True):
+    """Send horizontal X11 wheel input over a horizontally scrollable control."""
+    move(round(px),round(py))
+    button_number=7 if right else 6
+    for _ in range(notches):
+        assert button(display,button_number,1,0)
+        assert button(display,button_number,0,0)
+    send()
+
 def scroll_layers_marker_into_view(marker_fn, description):
     marker=wait(marker_fn,description)
     for _ in range(20):
@@ -1082,7 +1136,8 @@ def drag_at(start_x, start_y, end_x, end_y):
     time.sleep(0.12)
     click_button(1,False)
 
-def drag_control_with_frame_ack(start_x, start_y, end_x, end_y, marker_name):
+def drag_control_with_frame_ack(start_x, start_y, end_x, end_y, marker_name,
+                                ack_release=True):
     """Keep a control drag held until the app has observed each pointer frame."""
     def pointer_state_after(previous_count, description, predicate):
         def observed():
@@ -1098,16 +1153,21 @@ def drag_control_with_frame_ack(start_x, start_y, end_x, end_y, marker_name):
     before=event_marker_count(marker_name)
     click_button(1,True)
     pointer_state_after(before,'the application observes the pressed control pointer',
-                        lambda marker:'down=true' in marker and 'released=true' not in marker)
+                        lambda marker:'down=true' in marker
+                        and 'released=true' not in marker
+                        and 'hovered=true' in marker)
     for px,py in [((start_x+end_x)//2,(start_y+end_y)//2),(end_x,end_y)]:
         before=event_marker_count(marker_name)
         move(px,py)
         pointer_state_after(before,'the application observes the held pointer moving over the control',
-                            lambda marker:'down=true' in marker and 'released=true' not in marker)
+                            lambda marker:'down=true' in marker
+                            and 'released=true' not in marker
+                            and 'hovered=true' in marker)
     before=event_marker_count(marker_name)
     click_button(1,False)
-    pointer_state_after(before,'the application observes the control pointer release',
-                        lambda marker:'released=true' in marker)
+    if ack_release:
+        pointer_state_after(before,'the application observes the control pointer release',
+                            lambda marker:'released=true' in marker)
 
 def drag_vector_handle_with_app_ack(start_x,start_y,end_x,end_y,path_id,anchor,handle):
     """Wait for the vector transaction layer to acknowledge each handle event."""
@@ -2730,8 +2790,19 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             # Seed visible pixels inside the measured selection so the move
             # regression proves raster data changed, independent of which
             # canvas region remains visible after Inspector reflow.
-            click_scaled_rect(wait(brush_rect,'the movable toolbar exposes Brush'))
-            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+            brush_button=wait(brush_rect,'the movable toolbar exposes Brush')
+            brush_hover_before=event_line_count('UI_TEST_BRUSH_POINTER:')
+            move((brush_button[0]+brush_button[2]/2)*brush_button[4],
+                 (brush_button[1]+brush_button[3]/2)*brush_button[4])
+            wait(lambda:(brush_pointer_marker()
+                         if event_line_count('UI_TEST_BRUSH_POINTER:')>brush_hover_before
+                         and brush_pointer_marker()
+                         and brush_pointer_marker()[0] else None),
+                 'the real pointer hovers the current Brush toolbar target')
+            active_tools_before=event_marker_count('UI_TEST_ACTIVE_TOOL')
+            click_button(1,True);click_button(1,False)
+            wait(lambda:event_marker_count('UI_TEST_ACTIVE_TOOL')>active_tools_before
+                 and event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
                  'the toolbar selects Brush while keeping the Layers Inspector open')
             before_selection_paint=project.read_bytes()
             drag_at(selection_point[0]-10,selection_point[1]-4,
@@ -2956,12 +3027,19 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                                  'the selected layer exposes its real opacity slider')
             property_before=event_marker('UI_TEST_LAYER_COMPOSITING_APPLIED')
             capture_window(window,'layers-panel-settings-expanded')
-            opacity_target=(opacity_control[0]+opacity_control[2]*0.68,
-                            opacity_control[1]+opacity_control[3]/2)
-            print(f'UI_TEST_LAYER_OPACITY_CLICK: rect={opacity_control[:4]} '
-                  f'target={opacity_target} scale={opacity_control[4]}',flush=True)
-            click_at(opacity_target[0]*opacity_control[4],
-                     opacity_target[1]*opacity_control[4])
+            opacity_x,opacity_y,opacity_width,opacity_height,opacity_scale=opacity_control
+            print(f'UI_TEST_LAYER_OPACITY_DRAG: rect={opacity_control[:4]} scale={opacity_scale}',
+                  flush=True)
+            opacity_target=(
+                (opacity_x+opacity_width*0.68)*opacity_scale,
+                (opacity_y+opacity_height/2)*opacity_scale,
+            )
+            drag_control_with_frame_ack(
+                *opacity_target,
+                *opacity_target,
+                'UI_TEST_LAYER_OPACITY_POINTER',
+                ack_release=False,
+            )
             wait(lambda: (lambda marker: marker if marker and marker!=property_before
                           and marker.startswith(f'{copied_id} opacity=') else None)(
                               event_marker('UI_TEST_LAYER_COMPOSITING_APPLIED')),
@@ -3781,6 +3859,29 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                  f'{vector_created_marker[0]} {vector_state["selected"]}',
                  'the vector child row selects its actual native vector object')
             capture_window(window,'layers-vector-child-selected')
+            # Layers is intentionally active here after inspecting the native
+            # child row. Navigate through the real tab strip before looking up
+            # Edit controls; otherwise an old vector-edit rectangle from an
+            # earlier frame can be mistaken for a live hit target.
+            edit_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            edit_tab=wait(lambda:inspector_tab_rect('Edit'),
+                          'the fixed Inspector tab strip exposes Edit')
+            click_scaled_rect(edit_tab)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>edit_tab_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Edit',
+                 'the Inspector tab strip opens Edit for the selected vector path')
+            wait(lambda:stable_window_rect_marker('UI_TEST_INSPECTOR_VECTOR_EDIT_RECT'),
+                 'Inspector Edit exposes controls for the selected vector path')
+            # Visibility belongs to the Layers child row. Return through the
+            # same tab strip after asserting that selected-path editing is
+            # integrated into Edit, then obtain fresh node-control geometry.
+            layers_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            layers_tab=wait(lambda:inspector_tab_rect('Layers'),
+                            'the Inspector tab strip exposes Layers')
+            click_scaled_rect(layers_tab)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>layers_tab_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the Inspector tab strip returns to Layers for vector visibility')
             visible_rect=wait(
                 lambda:vector_path_visibility_rect(int(vector_created_marker[0])),
                 'the selected vector child exposes its independent visibility target',
@@ -3816,6 +3917,13 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             selected_layer_id=native_state_bytes(imported.read_bytes())['selected']
             wait(lambda:layer_thumbnail_update(selected_layer_id),
                  'the reopened vector layer has a cached thumbnail before style editing')
+            edit_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            edit_tab=wait(lambda:inspector_tab_rect('Edit'),
+                          'the fixed Inspector tab strip exposes Edit')
+            click_scaled_rect(edit_tab)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>edit_tab_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Edit',
+                 'the Inspector Edit tab is active before direct pointer activation')
 
             # The selected path exposes an accessible node editor. Dragging a
             # rendered anchor changes editable geometry while preserving its
@@ -3825,8 +3933,10 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             node_edit_rect=wait(
                 lambda:stable_window_rect_marker('UI_TEST_VECTOR_EDIT_NODES_RECT'),
                 'the selected vector path exposes its node editor action')
-            click_at((node_edit_rect[0]+node_edit_rect[2]/2)*node_edit_rect[4],
-                     (node_edit_rect[1]+node_edit_rect[3]/2)*node_edit_rect[4])
+            assert node_edit_rect[2]>=44.0 and node_edit_rect[3]>=44.0, \
+                f'anchor editing must have a 44-point minimum activation target: {node_edit_rect}'
+            click_scaled_rect_through_frame(
+                node_edit_rect, 'UI_TEST_VECTOR_EDIT_NODES_RECT')
             wait(lambda:event_marker_count('UI_TEST_VECTOR_NODE_EDITING')>node_edit_count
                  and event_marker('UI_TEST_VECTOR_NODE_EDITING')
                  ==f'{vector_created_marker[0]} true',
@@ -3873,6 +3983,17 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert node_path_after['segments']==node_path_before['segments']
             assert native_document_tables(node_after)[1]==native_document_tables(node_before)[1]
             assert native_document_tables(node_after)[2]==native_document_tables(node_before)[2]
+            # The selected-vector editor is separate from the Layers page, so
+            # thumbnails remain lazily refreshed until the artist returns to
+            # the layer stack. Exercise that actual workspace workflow before
+            # asserting the rendered thumbnail fingerprint.
+            layers_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            layers_tab=wait(lambda:inspector_tab_rect('Layers'),
+                            'the Inspector tab strip exposes Layers after vector editing')
+            click_scaled_rect(layers_tab)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>layers_tab_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the Inspector returns to Layers to refresh the edited vector thumbnail')
             wait(lambda:(lambda update:update and node_thumbnail_before
                          and update[0]!=node_thumbnail_before[0])(
                              layer_thumbnail_update(node_layer['id'])),
@@ -3880,9 +4001,24 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('z');ctrl('s')
             wait(lambda:imported.read_bytes()==node_before,
                  'Undo restores the exact pre-node-edit vector project')
+            wait(lambda:(lambda update:update and node_thumbnail_before
+                         and update[0]==node_thumbnail_before[0])(
+                             layer_thumbnail_update(node_layer['id'])),
+                 'Undo restores the owning layer thumbnail to the original vector geometry')
             ctrl('y');ctrl('s')
             wait(lambda:imported.read_bytes()==node_after,
                  'Redo restores the saved vector anchor exactly')
+            wait(lambda:(lambda update:update and node_thumbnail_before
+                         and update[0]!=node_thumbnail_before[0])(
+                             layer_thumbnail_update(node_layer['id'])),
+                 'Redo restores the moved vector thumbnail')
+            edit_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            edit_tab=wait(lambda:inspector_tab_rect('Edit'),
+                          'the Inspector tab strip exposes Edit for anchor operations')
+            click_scaled_rect(edit_tab)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>edit_tab_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Edit',
+                 'the Inspector returns to Edit for anchor insertion and deletion')
 
             # Anchor insertion and removal are real editing operations, not
             # decorative node controls. Exercise their contextual popup with
@@ -3894,6 +4030,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                                  if layer['id']==insertion_before_state['selected'])
             insertion_path=insertion_layer['vector_paths'][0]
             insertion_preview=layer_thumbnail_update(insertion_layer['id'])
+            insertion_thumbnail_update_count=layer_thumbnail_update_count(insertion_layer['id'])
             anchor_controls_count=event_marker_count('UI_TEST_VECTOR_ANCHOR_CONTROLS_RECT')
             anchor_controls=wait(
                 lambda:(lambda rect:rect if rect and
@@ -3958,16 +4095,39 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 ==native_document_tables(insertion_before)[2], \
                 'inserting an editable vector anchor must preserve independent masks'
             capture_window(window,'vector-node-editor-with-inserted-midpoint')
-            wait(lambda:(lambda update:update and insertion_preview
-                         and update[0]!=insertion_preview[0])(
-                             layer_thumbnail_update(insertion_layer['id'])),
-                 'inserting an anchor invalidates the owning layer thumbnail')
+            layers_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            layers_tab=wait(lambda:inspector_tab_rect('Layers'),
+                            'the Inspector tab strip exposes Layers after anchor insertion')
+            click_scaled_rect(layers_tab)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>layers_tab_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the Inspector returns to Layers to refresh the inserted-path thumbnail')
+            wait(lambda:layer_thumbnail_update_count(insertion_layer['id'])>
+                 insertion_thumbnail_update_count,
+                 'inserting an anchor rebuilds the owning layer thumbnail from changed path metadata')
+            insertion_thumbnail_after=layer_thumbnail_update(insertion_layer['id'])
+            assert insertion_thumbnail_after is not None and insertion_preview is not None
+            undo_thumbnail_update_count=layer_thumbnail_update_count(insertion_layer['id'])
             ctrl('z');ctrl('s')
             wait(lambda:imported.read_bytes()==insertion_before,
                  'Undo removes the inserted anchor and restores the exact native document')
+            wait(lambda:layer_thumbnail_update_count(insertion_layer['id'])>
+                 undo_thumbnail_update_count,
+                 'Undo rebuilds the layer thumbnail after restoring original path metadata')
+            redo_thumbnail_update_count=layer_thumbnail_update_count(insertion_layer['id'])
             ctrl('y');ctrl('s')
             wait(lambda:imported.read_bytes()==insertion_after,
                  'Redo restores the inserted anchor exactly')
+            wait(lambda:layer_thumbnail_update_count(insertion_layer['id'])>
+                 redo_thumbnail_update_count,
+                 'Redo rebuilds the layer thumbnail from inserted path metadata')
+            edit_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            edit_tab=wait(lambda:inspector_tab_rect('Edit'),
+                          'the Inspector tab strip exposes Edit for anchor deletion')
+            click_scaled_rect(edit_tab)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>edit_tab_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Edit',
+                 'the Inspector returns to Edit for anchor deletion')
 
             delete_rect_count=event_marker_count('UI_TEST_VECTOR_ANCHOR_DELETE_RECT')
             anchor_controls=wait(vector_anchor_controls_rect,
@@ -4237,28 +4397,6 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             wait(lambda:event_marker_count('UI_TEST_VECTOR_EDIT_NODES_RECT')>
                  edit_nodes_frame_count+2,
                  'the anchor-edit control processes its release and subsequent redraws')
-            # Prefer the visible control, then use the equivalent documented
-            # keyboard command if the window manager drops this early toolbar
-            # click after closing the native picker. Both routes must reach
-            # the same real vector editor state.
-            for _ in range(30):
-                if (event_marker_count('UI_TEST_VECTOR_NODE_EDITOR_STATE')>edit_state_count
-                        and vector_node_editor_state()
-                        ==(int(handle_path_before['id']), True)):
-                    break
-                time.sleep(0.05)
-            keyboard_anchor_fallback = not (
-                event_marker_count('UI_TEST_VECTOR_NODE_EDITOR_STATE')>edit_state_count
-                and vector_node_editor_state()
-                ==(int(handle_path_before['id']), True))
-            if keyboard_anchor_fallback:
-                shortcut_count=event_marker_count('UI_TEST_VECTOR_NODE_SHORTCUT')
-                key('h')
-                wait(lambda:event_marker_count('UI_TEST_VECTOR_NODE_SHORTCUT')>shortcut_count,
-                     'the documented H shortcut opens the selected vector anchor editor')
-                assert event_marker('UI_TEST_VECTOR_NODE_SHORTCUT') == \
-                    f"{handle_path_before['id']} true", \
-                    'H must open the real vector anchor editor for the selected path'
             wait(lambda:event_marker_count('UI_TEST_VECTOR_NODE_EDITING')>edit_nodes_count
                  and event_marker('UI_TEST_VECTOR_NODE_EDITING')
                  ==f"{handle_path_before['id']} true",
@@ -4383,7 +4521,27 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 before_layer=next(layer for layer in before_state['layers']
                                   if layer['id']==before_state['selected'])
                 before_path=before_layer['vector_paths'][0]
+                baseline_thumbnail_count=layer_thumbnail_update_count(before_layer['id'])
+                baseline_layers_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+                baseline_layers=wait(lambda:inspector_tab_rect('Layers'),
+                                     'the Inspector exposes Layers before measuring the vector thumbnail baseline')
+                click_scaled_rect(baseline_layers)
+                wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>
+                     baseline_layers_count
+                     and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                     'the layer stack refreshes the reopened vector thumbnail baseline')
+                wait(lambda:layer_thumbnail_update_count(before_layer['id'])>
+                     baseline_thumbnail_count,
+                     'the reopened vector document produces a fresh thumbnail baseline')
                 before_preview=layer_thumbnail_update(before_layer['id'])
+                edit_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+                edit_tab=wait(lambda:inspector_tab_rect('Edit'),
+                              'the Inspector exposes Edit after refreshing the vector thumbnail baseline')
+                click_scaled_rect(edit_tab)
+                wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>
+                     edit_tab_count
+                     and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Edit',
+                     'the selected vector style control is available after refreshing its thumbnail')
                 rect=wait(vector_width_rect,
                           'the selected vector exposes its stroke-width control')
                 print(f'UI_TEST_VECTOR_STYLE_CONTROL: WIDTH rect={rect}',flush=True)
@@ -4420,21 +4578,54 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     'vector style editing must preserve independent masks'
                 assert after_path['width']!=before_path['width']
                 assert abs(after_path['width']-float(applied[1]))<0.02
+                layers_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+                layers_tab=wait(lambda:inspector_tab_rect('Layers'),
+                                'the Inspector tab strip exposes Layers after vector styling')
+                click_scaled_rect(layers_tab)
+                wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>layers_tab_count
+                     and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                     'the Inspector returns to Layers to refresh the styled vector thumbnail')
                 wait(lambda:(lambda update:update and before_preview
                              and update[0]!=before_preview[0])(
                                  layer_thumbnail_update(before_layer['id'])),
                      'editing vector width invalidates its cached layer thumbnail')
+                styled_thumbnail_count=layer_thumbnail_update_count(before_layer['id'])
                 ctrl('z');ctrl('s')
                 wait(lambda:imported.read_bytes()==before,
                      'Undo restores the exact pre-width vector project')
+                wait(lambda:layer_thumbnail_update_count(before_layer['id'])>
+                     styled_thumbnail_count,
+                     'Undo rebuilds the layer thumbnail from the restored vector style')
+                wait(lambda:(lambda update:update and before_preview
+                             and update[0]==before_preview[0])(
+                                 layer_thumbnail_update(before_layer['id'])),
+                     'Undo restores the original styled-layer thumbnail')
+                undo_thumbnail_count=layer_thumbnail_update_count(before_layer['id'])
                 ctrl('y');ctrl('s')
                 wait(lambda:imported.read_bytes()==after,
                      'Redo restores the saved vector width exactly')
+                wait(lambda:layer_thumbnail_update_count(before_layer['id'])>
+                     undo_thumbnail_count,
+                     'Redo rebuilds the layer thumbnail from the applied vector style')
+                wait(lambda:(lambda update:update and before_preview
+                             and update[0]!=before_preview[0])(
+                                 layer_thumbnail_update(before_layer['id'])),
+                     'Redo restores the styled vector thumbnail')
+                edit_tab_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+                edit_tab=wait(lambda:inspector_tab_rect('Edit'),
+                              'the Inspector tab strip exposes Edit after vector styling')
+                click_scaled_rect(edit_tab)
+                wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>edit_tab_count
+                     and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Edit',
+                     'the Inspector returns to Edit after vector styling checks')
                 return after
 
             # Move within the visible track instead of starting at its edge,
             # where the thumb/label hit area is driver-dependent at high DPI.
-            vector_styled=apply_vector_width(0.45,0.65)
+            # Keep enough document-edge margin for the subsequent 10% scale
+            # regression. The wider slider test value otherwise makes the
+            # selected path legitimately fail the document's clip guard.
+            vector_styled=apply_vector_width(0.45,0.52)
             # Confirm the saved editable style is restored by the application's
             # ordinary Open workflow, not merely by its serializer.
             styled_open_count=event_marker_count('UI_TEST_PROJECT_OPENED')
@@ -4487,10 +4678,15 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 transformed_count=event_marker_count('UI_TEST_VECTOR_PATH_TRANSFORMED')
                 action_rect_count=vector_action_marker_count(action)
                 open_vector_actions_menu()
+                capture_window(window,'vector-actions-menu')
                 action_rect=wait(lambda:vector_action_rect(action)
                                  if vector_action_marker_count(action)>action_rect_count else None,
                                  f'the selected vector exposes the keyboard-accessible {action.replace("_"," ")} action')
-                click_scaled_rect(action_rect)
+                click_count=event_marker_count('UI_TEST_VECTOR_ACTION_CLICKED')
+                click_vector_action_through_frame(action_rect, action)
+                wait(lambda:event_marker_count('UI_TEST_VECTOR_ACTION_CLICKED')>click_count
+                     and event_marker('UI_TEST_VECTOR_ACTION_CLICKED').startswith(f'{action} '),
+                     f'{action.replace("_"," ")} is activated by its real Inspector action button')
                 wait(lambda:event_marker_count('UI_TEST_VECTOR_PATH_TRANSFORMED')>transformed_count,
                      f'{action.replace("_"," ")} commits through the document edit transaction')
                 ctrl('s')
@@ -5366,15 +5562,57 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'the default compact Inspector must keep reference overlays unpinned'
             capture_window(window,'inspector-layers-populated-dark-narrow')
             capture_window(window,'layers-panel-populated-dark-narrow')
-            tab_picker=wait(inspector_tab_picker_rect,
-                            'dark compact Inspector exposes an accessible section picker')
-            click_at((tab_picker[0]+tab_picker[2]/2)*tab_picker[4],
-                     (tab_picker[1]+tab_picker[3]/2)*tab_picker[4])
-            reference_tab=wait(lambda: inspector_tab_option_rect('References'),
-                               'compact section picker exposes the References destination')
+            tab_names=('Layers','Brush','Edit','Color','References')
+            tab_rects=[wait(lambda name=name:inspector_tab_rect(name),
+                            f'compact Inspector exposes the {name} destination')
+                       for name in tab_names]
+            assert all(tab_rects[index][0] < tab_rects[index+1][0]
+                       for index in range(len(tab_rects)-1)), \
+                f'Inspector destinations must preserve the approved left-to-right order: {tab_rects}'
+            compact_tab=wait(lambda: inspector_tab_rect('Layers'),
+                             'dark compact Inspector exposes the first horizontal destination')
+            assert compact_tab[3]>=44.0, \
+                f'compact Inspector tabs must retain 44-point touch targets: {compact_tab}'
+            compact_close=wait(lambda:stable_window_rect_marker(
+                'UI_TEST_INSPECTOR_COMPACT_CLOSE_RECT'),
+                'the compact Inspector keeps its fixed close action outside the tab strip')
+            assert compact_close[2]>=44.0 and compact_close[3]>=44.0, \
+                f'compact Inspector close action must remain a 44-point target: {compact_close}'
+            tab_scroll_before=wait(inspector_tab_scroll_state,
+                                   'compact Inspector reports its horizontal tab-strip viewport')
+            assert tab_scroll_before[2]>100 and tab_scroll_before[3]>=44, \
+                f'compact Inspector tab strip must retain a useful touch viewport: {tab_scroll_before}'
+            # Drag the actual tab strip with the pointer, the same gesture used
+            # by touch. A second in-strip swipe reaches the rightmost tab while
+            # keeping the pointer over the Inspector for the full gesture.
+            tab_scroll_y=tab_scroll_before[1]+tab_scroll_before[3]/2
+            for _ in range(2):
+                drag_at(tab_scroll_before[0]+tab_scroll_before[2]-10,tab_scroll_y,
+                        tab_scroll_before[0]+10,tab_scroll_y)
+            tab_scroll_after=wait(
+                lambda:(state if (state:=inspector_tab_scroll_state())
+                        and state[4]>tab_scroll_before[4]+100.0 else None),
+                'touch-like horizontal drag scrolls compact Inspector navigation')
+            print(f'UI_TEST_INSPECTOR_TAB_SCROLL: {tab_scroll_before} -> {tab_scroll_after}',
+                  flush=True)
+            reference_tab=wait(
+                lambda:(rect if (rect:=inspector_tab_rect('References'))
+                        and rect[0]>=tab_scroll_after[0]-1
+                        and rect[0]+rect[2]<=tab_scroll_after[0]+tab_scroll_after[2]+1
+                        else None),
+                'horizontal scrolling makes References fully visible and pointer reachable')
+            print(f'UI_TEST_INSPECTOR_REFERENCE_TAB_VISIBLE: {reference_tab}',flush=True)
+            time.sleep(0.15)
+            close_after_scroll=wait(lambda:stable_window_rect_marker(
+                'UI_TEST_INSPECTOR_COMPACT_CLOSE_RECT'),
+                'the close action remains fixed after scrolling Inspector navigation')
+            assert close_after_scroll==compact_close, \
+                f'tab scrolling must not move the fixed Inspector close action: {compact_close}, {close_after_scroll}'
+            active_tab_count=event_line_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE:')
             click_at((reference_tab[0]+reference_tab[2]/2)*reference_tab[4],
                      (reference_tab[1]+reference_tab[3]/2)*reference_tab[4])
-            wait(lambda:event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References',
+            wait(lambda:event_line_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE:')>active_tab_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References',
                  'dark compact Inspector opens integrated References')
             wait(lambda:event_marker('UI_TEST_REFERENCE_INSPECTOR_RECT') is not None,
                  'dark narrow Reference tab shows its actual imported thumbnail')

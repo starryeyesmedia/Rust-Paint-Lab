@@ -1282,3 +1282,38 @@ same time. The local checkpoint run produced 79 PNGs; inspected populated
 Layers screenshots covered 640 × 480, 1280 × 800, and 1920 × 1080. That local
 result is not the required six-layout/theme acceptance and does not replace
 hosted Windows/Linux/macOS Actions.
+
+### Canvas-first Inspector Milestone 2 — navigation and vector controls
+
+The compact and desktop Inspector use the same Layers / Brush / Edit / Color /
+References order. AccessKit regression tests inspect the named roles and order,
+the fixed close/Canvas action, keyboard selection, and minimum 44×44 logical
+point bounds. The compact strip opts into pointer/touch scrolling; the
+application test marker reports its viewport, content width, and scroll offset.
+
+The full Linux `scripts/alpha-workflow-smoke.py` test activates the selected
+path's Edit anchors action with a real pointer click and no `H` shortcut
+fallback. It then checks the live node-edit state and a rendered selected
+handle. Existing direct-canvas path movement and cubic-handle editing remain
+tested through pointer input and native save/reopen/Undo/Redo. Vector style,
+anchor navigation/insertion/deletion, explicit current-color application, and
+raster/mask isolation are included in the running-app regression. At compact
+size, the tab test performs drag scrolling, asserts that References is fully
+within the tab viewport, and selects it through its visible pointer target.
+
+M2's local Linux run ended with `ALPHA_WORKFLOW_SMOKE: PASSED` and captured 80
+PNG files. I inspected the populated `layers-panel-populated-light-narrow`,
+`reference-inspector-dark-narrow`, `vector-node-editor`, and
+`home-dark-high-contrast` captures. They demonstrate actual application states,
+not the full six-layout acceptance: Inspector width/placement at the six
+specified viewport and scale combinations and independent QA remain Milestone
+3/4 work. Python helper tests can be run with:
+
+```sh
+python3 -m py_compile scripts/alpha-workflow-smoke.py
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+The complete Rust checks and Linux artwork workflow must still pass on the
+implementation commit, and the existing hosted Windows/Linux/macOS Actions
+matrix must pass before beginning the next milestone.

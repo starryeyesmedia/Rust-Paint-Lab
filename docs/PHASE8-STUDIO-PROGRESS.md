@@ -1,5 +1,44 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Canvas-first Inspector Milestone 2 — tabs and vector editing integration (2026-10-30, locally verified)
+
+This checkpoint builds on `3427604` on `feature/studio-overdrive-phase-8`.
+The Inspector tab strip now uses the approved consistent order **Layers / Brush
+/ Edit / Color / References** in both compact and desktop layouts. Compact
+navigation scrolls horizontally; the Canvas/close action stays fixed outside
+the scrolling region. Tab controls remain keyboard/touch operable and are
+represented in the AccessKit tree as ordered, named selection controls.
+
+The Inspector Edit tab now exposes the selected vector path's existing editing
+operations in context: anchor editing and selection, anchor coordinates,
+Bezier-handle controls, line-to-cubic conversion, midpoint insertion/deletion,
+stroke width and color, with an explicit action to apply the current color.
+Direct canvas selection, path movement and handle dragging remain available.
+The Linux XTest regression activates Edit anchors by pointer alone (without
+using the `H` shortcut), then confirms the application enters anchor-edit mode
+and renders the node handles. Native save/reopen, Undo/Redo, raster and mask
+table preservation remain exercised by the same artwork workflow.
+
+The full Linux Xorg/XTest artwork workflow passed locally with **80 screenshots**.
+It scrolled the compact tab strip from offset 0 to 181 logical points, verified
+that References was wholly inside the tab viewport, and selected it by pointer.
+I inspected the populated 640×480 Layers and References views, the rendered
+vector node editor, and the high-contrast Home capture. The narrow workspace is
+usable for these scenarios but remains intentionally dense; this is not the
+six-layout/theme visual acceptance. Local Rust 1.90 validation passed
+formatting, strict workspace Clippy, workspace build, Windows GNU workspace
+check and strict target Clippy, **400 workspace tests**, and required llvmpipe/GL
+GPU smoke. Python helper tests passed (2 tests). GitHub Actions for this M2
+commit are pending after push; no Windows/macOS result is claimed yet. Software
+GPU and XTest runs do not validate native display scaling, Narrator/NVDA, or
+physical S Pen behavior.
+
+The next approved UI slice is Milestone 3: viewport-derived Inspector widths,
+temporary size/scale adaptation without preference overwrite, and reference
+overlay edge snapping that protects canvas controls. Milestone 4 still requires
+six-layout, multi-theme visual review and independent QA. Phase 8.3 remains
+active.
+
 ## Phase 10 — vector-only SVG export integration (2026-10-30, local checkpoint)
 
 Added bounded SVG export for the editable line and cubic paths already supported

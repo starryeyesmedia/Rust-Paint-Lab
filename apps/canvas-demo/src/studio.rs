@@ -2716,9 +2716,13 @@ pub(crate) fn vector_handle_editor_contents(
         ] {
             let available = path.control_handle(anchor, handle).is_some();
             let is_selected = *selected == Some((path.id, anchor, handle));
+            let button_width = ((ui.available_width() - 4.0) / 2.0).max(72.0);
             let button = ui
                 .add_enabled_ui(available, |ui| {
-                    ui.selectable_label(is_selected, format!("{label} handle"))
+                    ui.add_sized(
+                        [button_width, 44.0],
+                        egui::Button::selectable(is_selected, format!("{label} handle")),
+                    )
                 })
                 .inner;
             if emit_test_markers {
@@ -2783,7 +2787,14 @@ pub(crate) fn vector_handle_editor_contents(
             });
             changed |= y.changed();
         });
-        let apply = ui.add_enabled(changed, egui::Button::new("Apply handle position"));
+        let apply = ui
+            .add_enabled_ui(changed, |ui| {
+                ui.add_sized(
+                    [ui.available_width(), 44.0],
+                    egui::Button::new("Apply handle position"),
+                )
+            })
+            .inner;
         if emit_test_markers {
             crate::studio_log!(
                 "UI_TEST_VECTOR_HANDLE_APPLY_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
@@ -2802,6 +2813,411 @@ pub(crate) fn vector_handle_editor_contents(
                 point,
             ));
         }
+    }
+}
+
+/// Show the selected vector object's editable anchor, curve-handle, and
+/// appearance controls inside Inspector → Edit. Canvas dragging remains the
+/// fastest direct manipulation path; these controls provide precise and
+/// keyboard-operable alternatives over the same document transaction model.
+pub(crate) struct VectorPathInspectorState<'a> {
+    pub(crate) node_editor: &'a mut Option<(u64, usize, [f64; 2])>,
+    pub(crate) handle_editor: &'a mut Option<(u64, usize, VectorHandle)>,
+    pub(crate) pending_style: &'a mut Option<(u64, [u8; 4], f64)>,
+    pub(crate) canvas_input_exclusions: &'a mut Vec<egui::Rect>,
+}
+
+pub(crate) fn vector_path_inspector_contents(
+    ui: &mut egui::Ui,
+    path: &paint_document::vector::VectorPath,
+    document_size: [f64; 2],
+    brush_color: [u8; 3],
+    state: VectorPathInspectorState<'_>,
+    actions: &mut Vec<Action>,
+    emit_test_markers: bool,
+) {
+    let VectorPathInspectorState {
+        node_editor,
+        handle_editor,
+        pending_style,
+        canvas_input_exclusions,
+    } = state;
+    ui.label(format!("Selected vector · path {}", path.id));
+    let editing = node_editor.is_some_and(|(path_id, _, _)| path_id == path.id);
+    let edit_nodes = ui.add_sized(
+        [ui.available_width(), 44.0],
+        egui::Button::selectable(editing, "Edit anchors"),
+    );
+    edit_nodes.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Checkbox,
+            ui.is_enabled(),
+            editing,
+            "Edit vector anchors",
+        )
+    });
+    let edit_nodes =
+        edit_nodes.on_hover_text("Show editable anchors and Bézier handles on the canvas");
+    if emit_test_markers {
+        crate::studio_log!(
+            "UI_TEST_INSPECTOR_VECTOR_EDIT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            edit_nodes.rect.left(),
+            edit_nodes.rect.top(),
+            edit_nodes.rect.width(),
+            edit_nodes.rect.height(),
+            ui.ctx().pixels_per_point()
+        );
+        crate::studio_log!(
+            "UI_TEST_VECTOR_EDIT_NODES_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            edit_nodes.rect.left(),
+            edit_nodes.rect.top(),
+            edit_nodes.rect.width(),
+            edit_nodes.rect.height(),
+            ui.ctx().pixels_per_point()
+        );
+    }
+    if edit_nodes.clicked() {
+        *node_editor = if editing {
+            None
+        } else {
+            Some((path.id, 0, path.start))
+        };
+        *handle_editor = None;
+        if emit_test_markers {
+            crate::studio_log!("UI_TEST_VECTOR_NODE_EDITING: {} {}", path.id, !editing);
+        }
+    }
+
+    let pending = pending_style.filter(|(pending_id, _, _)| *pending_id == path.id);
+    let mut width = pending.map_or(path.width as f32, |(_, _, width)| width as f32);
+    let mut stroke = pending.map_or(path.stroke, |(_, stroke, _)| stroke);
+    ui.label(format!("Stroke width · {width:.0} px"));
+    let width_response = ui.add_sized(
+        [ui.available_width(), 44.0],
+        egui::Slider::new(&mut width, 0.25..=512.0).text("Stroke width"),
+    );
+    width_response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Slider,
+            ui.is_enabled(),
+            format!("Vector stroke width, {width:.1} pixels"),
+        )
+    });
+    if emit_test_markers {
+        crate::studio_log!(
+            "UI_TEST_VECTOR_WIDTH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            width_response.rect.left(),
+            width_response.rect.top(),
+            width_response.rect.width(),
+            width_response.rect.height(),
+            ui.ctx().pixels_per_point()
+        );
+        let pointer = ui.ctx().input(|input| {
+            (
+                input.pointer.hover_pos(),
+                input.pointer.button_pressed(egui::PointerButton::Primary),
+                input.pointer.button_released(egui::PointerButton::Primary),
+                input.pointer.primary_down(),
+            )
+        });
+        if width_response.hovered() || pointer.1 || pointer.2 {
+            crate::studio_log!(
+                "UI_TEST_VECTOR_SLIDER_POINTER: down={} pressed={} released={} pos={:?} hovered={} changed={} value={width:.4}",
+                pointer.3,
+                pointer.1,
+                pointer.2,
+                pointer.0,
+                width_response.hovered(),
+                width_response.changed(),
+            );
+        }
+    }
+    ui.horizontal(|ui| {
+        let color = egui::Color32::from_rgb(brush_color[0], brush_color[1], brush_color[2]);
+        ui.label("Path color");
+        ui.colored_label(color, crate::color_controls::format_hex_rgb(brush_color));
+    });
+    let apply_color = ui.add_sized(
+        [ui.available_width(), 44.0],
+        egui::Button::new("Apply current color to path"),
+    );
+    apply_color.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            "Apply current color to vector path",
+        )
+    });
+    if emit_test_markers {
+        crate::studio_log!(
+            "UI_TEST_VECTOR_APPLY_COLOR_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            apply_color.rect.left(),
+            apply_color.rect.top(),
+            apply_color.rect.width(),
+            apply_color.rect.height(),
+            ui.ctx().pixels_per_point()
+        );
+    }
+    if apply_color.clicked() {
+        stroke[..3].copy_from_slice(&brush_color);
+    }
+    {
+        if width_response.dragged() {
+            *pending_style = Some((path.id, stroke, f64::from(width)));
+        } else if width_response.changed() || apply_color.clicked() || width_response.drag_stopped()
+        {
+            if stroke != path.stroke || (f64::from(width) - path.width).abs() > 1.0e-9 {
+                actions.push(Action::SetVectorPathStyle(
+                    path.id,
+                    stroke,
+                    f64::from(width),
+                ));
+            }
+            *pending_style = None;
+        }
+    }
+
+    if !editing {
+        ui.weak("Select Edit anchors to expose point and handle controls.");
+        return;
+    }
+
+    let anchors = path.anchor_points();
+    if anchors.is_empty() {
+        *node_editor = None;
+        return;
+    }
+    let (editor_path, selected_index, _) = node_editor.unwrap_or((path.id, 0, path.start));
+    let selected_index = selected_index.min(anchors.len() - 1);
+    let anchor_button = ui.add_sized(
+        [ui.available_width(), 44.0],
+        egui::Button::new(format!(
+            "Anchor {} of {} · edit points",
+            selected_index + 1,
+            anchors.len()
+        )),
+    );
+    anchor_button.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("Vector anchor {} controls", selected_index + 1),
+        )
+    });
+    let mut popup_rect = None;
+    let popup = egui::Popup::menu(&anchor_button)
+        .id(egui::Id::new(("vector-anchor-controls", path.id)))
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+        .show(|ui| {
+            let mut next_index = selected_index;
+            let mut point = anchors[next_index];
+            ui.label(format!("Anchor {} of {}", next_index + 1, anchors.len()));
+            ui.horizontal(|ui| {
+                let previous = ui
+                    .add_enabled_ui(next_index > 0, |ui| {
+                        ui.add_sized([72.0, 44.0], egui::Button::new("Previous"))
+                    })
+                    .inner;
+                if previous.clicked() {
+                    next_index -= 1;
+                }
+                let next = ui
+                    .add_enabled_ui(next_index + 1 < anchors.len(), |ui| {
+                        ui.add_sized([72.0, 44.0], egui::Button::new("Next"))
+                    })
+                    .inner;
+                if next.clicked() {
+                    next_index += 1;
+                }
+            });
+            if next_index != selected_index {
+                point = anchors[next_index];
+                *handle_editor = None;
+            }
+            ui.horizontal(|ui| {
+                let coordinate_width = ((ui.available_width() - 8.0) / 2.0).max(80.0);
+                ui.add_sized(
+                    [coordinate_width, 44.0],
+                    egui::DragValue::new(&mut point[0])
+                        .speed(0.5)
+                        .range(0.0..=document_size[0])
+                        .prefix("X "),
+                )
+                .widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::DragValue,
+                        ui.is_enabled(),
+                        "Vector anchor X position",
+                    )
+                });
+                ui.add_sized(
+                    [coordinate_width, 44.0],
+                    egui::DragValue::new(&mut point[1])
+                        .speed(0.5)
+                        .range(0.0..=document_size[1])
+                        .prefix("Y "),
+                )
+                .widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::DragValue,
+                        ui.is_enabled(),
+                        "Vector anchor Y position",
+                    )
+                });
+            });
+            if point != anchors[next_index] {
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 44.0],
+                        egui::Button::new("Apply position"),
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::MoveVectorPathAnchor(path.id, next_index, point));
+                }
+            } else {
+                ui.weak("Drag an anchor on the canvas or enter exact coordinates.");
+            }
+
+            if path.segments.iter().any(|segment| {
+                matches!(
+                    segment,
+                    paint_document::vector::VectorSegment::CubicTo { .. }
+                )
+            }) {
+                let handles = ui.collapsing("Bézier handles", |ui| {
+                    vector_handle_editor_contents(
+                        ui,
+                        path,
+                        next_index,
+                        handle_editor,
+                        actions,
+                        emit_test_markers,
+                    );
+                });
+                if emit_test_markers {
+                    crate::studio_log!(
+                        "UI_TEST_VECTOR_HANDLES_SECTION_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        handles.header_response.rect.left(),
+                        handles.header_response.rect.top(),
+                        handles.header_response.rect.width(),
+                        handles.header_response.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+            }
+            let curve_segment_index = if matches!(
+                path.segments.get(next_index),
+                Some(paint_document::vector::VectorSegment::LineTo { .. })
+            ) {
+                Some(next_index)
+            } else if next_index > 0
+                && matches!(
+                    path.segments.get(next_index - 1),
+                    Some(paint_document::vector::VectorSegment::LineTo { .. })
+                )
+            {
+                Some(next_index - 1)
+            } else {
+                None
+            };
+            let curve = ui
+                .add_enabled_ui(curve_segment_index.is_some(), |ui| {
+                    ui.add_sized(
+                        [ui.available_width(), 44.0],
+                        egui::Button::new("Convert adjacent line to curve"),
+                    )
+                })
+                .inner;
+            if emit_test_markers {
+                crate::studio_log!(
+                    "UI_TEST_VECTOR_CURVE_SEGMENT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                    curve.rect.left(),
+                    curve.rect.top(),
+                    curve.rect.width(),
+                    curve.rect.height(),
+                    ui.ctx().pixels_per_point()
+                );
+            }
+            if curve.clicked()
+                && let Some(after_anchor) = curve_segment_index
+            {
+                actions.push(Action::ConvertVectorPathSegmentToCubic(
+                    path.id,
+                    after_anchor,
+                ));
+            }
+            ui.horizontal(|ui| {
+                let button_width = ((ui.available_width() - 8.0) / 2.0).max(80.0);
+                let insert = ui
+                    .add_enabled_ui(next_index + 1 < anchors.len(), |ui| {
+                        ui.add_sized([button_width, 44.0], egui::Button::new("Insert midpoint"))
+                    })
+                    .inner;
+                let remove = ui
+                    .add_enabled_ui(path.can_remove_anchor(next_index), |ui| {
+                        ui.add_sized([button_width, 44.0], egui::Button::new("Delete anchor"))
+                    })
+                    .inner;
+                if emit_test_markers {
+                    crate::studio_log!(
+                        "UI_TEST_VECTOR_ANCHOR_INSERT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        insert.rect.left(),
+                        insert.rect.top(),
+                        insert.rect.width(),
+                        insert.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                    crate::studio_log!(
+                        "UI_TEST_VECTOR_ANCHOR_DELETE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        remove.rect.left(),
+                        remove.rect.top(),
+                        remove.rect.width(),
+                        remove.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+                if insert.clicked() {
+                    actions.push(Action::InsertVectorPathAnchor(path.id, next_index));
+                }
+                if remove.clicked() {
+                    actions.push(Action::DeleteVectorPathAnchor(path.id, next_index));
+                }
+            });
+            popup_rect = Some(ui.min_rect().expand(6.0));
+            *node_editor = Some((editor_path, next_index, point));
+        });
+    if emit_test_markers {
+        crate::studio_log!("UI_TEST_VECTOR_EDITOR_POPUP_OPEN: {}", popup.is_some());
+    }
+    if let Some(rect) = popup_rect {
+        canvas_input_exclusions.push(rect);
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new(("vector-anchor-controls-rect", path.id)),
+                rect,
+            );
+        });
+        if emit_test_markers {
+            crate::studio_log!(
+                "UI_TEST_VECTOR_EDITOR_POPUP_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                rect.left(),
+                rect.top(),
+                rect.width(),
+                rect.height(),
+                ui.ctx().pixels_per_point()
+            );
+        }
+    }
+    if emit_test_markers {
+        crate::studio_log!(
+            "UI_TEST_VECTOR_ANCHOR_CONTROLS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+            anchor_button.rect.left(),
+            anchor_button.rect.top(),
+            anchor_button.rect.width(),
+            anchor_button.rect.height(),
+            ui.ctx().pixels_per_point()
+        );
     }
 }
 
@@ -4336,6 +4752,25 @@ fn selected_layer_inspector_footer(
             slider.rect.height(),
             ui.ctx().pixels_per_point(),
         );
+        let pointer = ui.ctx().input(|input| {
+            (
+                input.pointer.hover_pos(),
+                input.pointer.button_pressed(egui::PointerButton::Primary),
+                input.pointer.button_released(egui::PointerButton::Primary),
+                input.pointer.primary_down(),
+            )
+        });
+        if slider.hovered() || pointer.1 || pointer.2 {
+            crate::studio_log!(
+                "UI_TEST_LAYER_OPACITY_POINTER: hovered={} changed={} value={percent:.3} pos={:?} pressed={} released={} down={}",
+                slider.hovered(),
+                slider.changed(),
+                pointer.0,
+                pointer.1,
+                pointer.2,
+                pointer.3,
+            );
+        }
     }
     let opacity = if slider.changed() {
         (percent * 2.55).round() as u8
@@ -5365,7 +5800,7 @@ pub struct Studio {
     test_palette_rect_logged: Option<[i32; 5]>,
     test_palette_grip_rect_logged: Option<[i32; 5]>,
     test_palette_toggle_logged: Option<[i32; 5]>,
-    test_brush_rect_logged: bool,
+    test_brush_rect_logged: Option<[i32; 5]>,
     test_brush_layout_logged: bool,
     test_brush_preview_logged: bool,
     test_brush_window_logged: bool,
@@ -5647,7 +6082,7 @@ impl Studio {
             test_palette_rect_logged: None,
             test_palette_grip_rect_logged: None,
             test_palette_toggle_logged: None,
-            test_brush_rect_logged: false,
+            test_brush_rect_logged: None,
             test_brush_layout_logged: false,
             test_brush_preview_logged: false,
             test_brush_window_logged: false,
@@ -7857,6 +8292,9 @@ impl Studio {
             'v' => EditTool::VectorPath,
             _ => EditTool::Brush,
         };
+        if self.tool == EditTool::VectorPath {
+            self.select_inspector_tab(crate::workspace::InspectorTab::Edit);
+        }
         if self.tool != EditTool::VectorPath {
             self.vector_node_editor = None;
         }
@@ -9184,8 +9622,38 @@ impl Studio {
                                                         response.rect.height(),
                                                         ui.ctx().pixels_per_point(),
                                                     );
+                                                    let pointer = ui.ctx().input(|input| {
+                                                        (
+                                                            input.pointer.hover_pos(),
+                                                            input.pointer.primary_down(),
+                                                            input.pointer.button_pressed(
+                                                                egui::PointerButton::Primary,
+                                                            ),
+                                                            input.pointer.button_released(
+                                                                egui::PointerButton::Primary,
+                                                            ),
+                                                        )
+                                                    });
+                                                    if response.hovered() || response.clicked() {
+                                                        crate::studio_log!(
+                                                            "UI_TEST_VECTOR_ACTION_POINTER: {action_name} hovered={} clicked={} down={} pressed={} released={} pos={:?} rect={:?}",
+                                                            response.hovered(),
+                                                            response.clicked(),
+                                                            pointer.1,
+                                                            pointer.2,
+                                                            pointer.3,
+                                                            pointer.0,
+                                                            response.rect,
+                                                        );
+                                                    }
                                                 }
                                                 if response.clicked() {
+                                                    if self.test_path_dialog {
+                                                        crate::studio_log!(
+                                                            "UI_TEST_VECTOR_ACTION_CLICKED: {action_name} {}",
+                                                            path.id,
+                                                        );
+                                                    }
                                                     actions.push(Action::TransformVectorPath(
                                                         path.id,
                                                         scale,
@@ -9261,427 +9729,32 @@ impl Studio {
                                                 ui.ctx().pixels_per_point(),
                                             );
                                         }
-                                        let edit_nodes = self
-                                            .vector_node_editor
-                                            .is_some_and(|(path_id, _, _)| path_id == path.id);
-                                        let node_editor_button = ui
-                                            .selectable_label(edit_nodes, "Edit anchors")
-                                            .on_hover_text(
-                                                "Select an anchor on the canvas, or choose it here and enter coordinates",
-                                            );
-                                        if self.test_path_dialog {
-                                            crate::studio_log!(
-                                                "UI_TEST_VECTOR_EDIT_NODES_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                node_editor_button.rect.left(),
-                                                node_editor_button.rect.top(),
-                                                node_editor_button.rect.width(),
-                                                node_editor_button.rect.height(),
-                                                ui.ctx().pixels_per_point()
-                                            );
-                                        }
-                                        if node_editor_button.clicked() {
-                                            self.vector_node_editor = if edit_nodes {
-                                                None
-                                            } else {
-                                                Some((path.id, 0, path.start))
-                                            };
-                                            self.test_vector_node_rect_logged = false;
-                                            if self.test_path_dialog {
-                                                crate::studio_log!(
-                                                    "UI_TEST_VECTOR_NODE_EDITING: {} {}",
-                                                    path.id,
-                                                    !edit_nodes
-                                                );
-                                            }
-                                        }
-                                        if let Some((editor_path, node_index, _)) =
-                                            self.vector_node_editor.filter(|(id, _, _)| *id == path.id)
-                                        {
-                                            let anchors = path.anchor_points();
-                                            let selected_index = node_index.min(anchors.len() - 1);
-                                            let label = format!("Anchor {} ▾", selected_index + 1);
-                                            let document_width = f64::from(project.state().width);
-                                            let document_height = f64::from(project.state().height);
-                                            let mut anchor_popup_rect = None;
-                                            let anchor_controls_button = ui
-                                                .button(label)
-                                                .on_hover_text("Choose an anchor and edit its position or Bézier handles");
-                                            anchor_controls_button.widget_info(|| {
-                                                egui::WidgetInfo::labeled(
-                                                    egui::WidgetType::Button,
-                                                    ui.is_enabled(),
-                                                    "Vector anchor controls",
-                                                )
-                                            });
-                                            let _anchor_controls = egui::Popup::menu(
-                                                &anchor_controls_button,
+                                        let edit_path = ui
+                                            .button("Edit path")
+                                            .on_hover_text("Open the selected path's full controls in Inspector → Edit");
+                                        edit_path.widget_info(|| {
+                                            egui::WidgetInfo::labeled(
+                                                egui::WidgetType::Button,
+                                                ui.is_enabled(),
+                                                "Edit selected path in Inspector",
                                             )
-                                            .id(egui::Id::new(("vector-anchor-controls", path.id)))
-                                            .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
-                                            .show(|ui| {
-                                                let mut next_index = selected_index;
-                                                let mut point = anchors[next_index];
-                                                ui.horizontal(|ui| {
-                                                    ui.label(format!(
-                                                        "Anchor {} of {}",
-                                                        next_index + 1,
-                                                        anchors.len()
-                                                    ));
-                                                    if ui
-                                                        .add_enabled(
-                                                            next_index > 0,
-                                                            egui::Button::new("Previous"),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        next_index -= 1;
-                                                    }
-                                                    if ui
-                                                        .add_enabled(
-                                                            next_index + 1 < anchors.len(),
-                                                            egui::Button::new("Next"),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        next_index += 1;
-                                                    }
-                                                });
-                                                if next_index != selected_index {
-                                                    point = anchors[next_index];
-                                                    self.vector_handle_editor = None;
-                                                    self.test_vector_node_rect_logged = false;
-                                                    if self.test_path_dialog {
-                                                        crate::studio_log!(
-                                                            "UI_TEST_VECTOR_NODE_SELECTED: {editor_path} {next_index} {:.2} {:.2}",
-                                                            point[0],
-                                                            point[1]
-                                                        );
-                                                    }
-                                                }
-                                                ui.horizontal(|ui| {
-                                                    let x_position = ui.add(
-                                                        egui::DragValue::new(&mut point[0])
-                                                            .speed(0.5)
-                                                            .range(0.0..=document_width)
-                                                            .prefix("X "),
-                                                    );
-                                                    x_position.widget_info(|| {
-                                                        egui::WidgetInfo::labeled(
-                                                            egui::WidgetType::DragValue,
-                                                            ui.is_enabled(),
-                                                            "Vector anchor X position",
-                                                        )
-                                                    });
-                                                    let y_position = ui.add(
-                                                        egui::DragValue::new(&mut point[1])
-                                                            .speed(0.5)
-                                                            .range(0.0..=document_height)
-                                                            .prefix("Y "),
-                                                    );
-                                                    y_position.widget_info(|| {
-                                                        egui::WidgetInfo::labeled(
-                                                            egui::WidgetType::DragValue,
-                                                            ui.is_enabled(),
-                                                            "Vector anchor Y position",
-                                                        )
-                                                    });
-                                                });
-                                                if point != anchors[next_index]
-                                                    && ui.button("Apply position").clicked()
-                                                {
-                                                    actions.push(Action::MoveVectorPathAnchor(
-                                                        path.id,
-                                                        next_index,
-                                                        point,
-                                                    ));
-                                                } else if point == anchors[next_index] {
-                                                    ui.weak(
-                                                        "Drag a canvas anchor or enter exact coordinates here.",
-                                                    );
-                                                }
-                                                if path.segments.iter().any(|segment| {
-                                                    matches!(segment, paint_document::vector::VectorSegment::CubicTo { .. })
-                                                }) {
-                                                    let handles_section =
-                                                        ui.collapsing("Bezier handles", |ui| {
-                                                        vector_handle_editor_contents(
-                                                            ui,
-                                                            &path,
-                                                            next_index,
-                                                            &mut self.vector_handle_editor,
-                                                            actions,
-                                                            self.test_path_dialog,
-                                                        );
-                                                    });
-                                                    if self.test_path_dialog {
-                                                        crate::studio_log!(
-                                                            "UI_TEST_VECTOR_HANDLES_SECTION_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                            handles_section.header_response.rect.left(),
-                                                            handles_section.header_response.rect.top(),
-                                                            handles_section.header_response.rect.width(),
-                                                            handles_section.header_response.rect.height(),
-                                                            ui.ctx().pixels_per_point()
-                                                        );
-                                                    }
-                                                }
-                                                let curve_segment_index = if matches!(
-                                                    path.segments.get(next_index),
-                                                    Some(paint_document::vector::VectorSegment::LineTo { .. })
-                                                ) {
-                                                    Some(next_index)
-                                                } else if next_index > 0
-                                                    && matches!(
-                                                        path.segments.get(next_index - 1),
-                                                        Some(paint_document::vector::VectorSegment::LineTo { .. })
-                                                    )
-                                                {
-                                                    Some(next_index - 1)
-                                                } else {
-                                                    None
-                                                };
-                                                let curve_segment = ui
-                                                    .add_enabled(
-                                                        curve_segment_index.is_some(),
-                                                        egui::Button::new("Convert adjacent line to curve"),
-                                                    )
-                                                    .on_hover_text(
-                                                        "Keep the same straight appearance, then edit the new Bézier handles. Uses the outgoing line, or the incoming line at the final anchor.",
-                                                    );
-                                                if self.test_path_dialog {
-                                                    crate::studio_log!(
-                                                        "UI_TEST_VECTOR_CURVE_SEGMENT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                        curve_segment.rect.left(),
-                                                        curve_segment.rect.top(),
-                                                        curve_segment.rect.width(),
-                                                        curve_segment.rect.height(),
-                                                        ui.ctx().pixels_per_point()
-                                                    );
-                                                }
-                                                if curve_segment.clicked()
-                                                    && let Some(after_anchor) = curve_segment_index
-                                                {
-                                                    actions.push(
-                                                        Action::ConvertVectorPathSegmentToCubic(
-                                                            path.id,
-                                                            after_anchor,
-                                                        ),
-                                                    );
-                                                }
-                                                ui.horizontal(|ui| {
-                                                    let insert = ui
-                                                        .add_enabled(
-                                                            next_index + 1 < anchors.len(),
-                                                            egui::Button::new("Insert midpoint"),
-                                                        )
-                                                        .on_hover_text(
-                                                            "Split the following segment without changing its line or cubic shape",
-                                                        );
-                                                    let remove = ui
-                                                        .add_enabled(
-                                                            path.can_remove_anchor(next_index),
-                                                            egui::Button::new("Delete anchor"),
-                                                        )
-                                                        .on_hover_text(
-                                                            "Remove this anchor; interior curve joins are disabled when an exact edit is not available",
-                                                        );
-                                                    if self.test_path_dialog {
-                                                        crate::studio_log!(
-                                                            "UI_TEST_VECTOR_ANCHOR_INSERT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                            insert.rect.left(),
-                                                            insert.rect.top(),
-                                                            insert.rect.width(),
-                                                            insert.rect.height(),
-                                                            ui.ctx().pixels_per_point()
-                                                        );
-                                                        crate::studio_log!(
-                                                            "UI_TEST_VECTOR_ANCHOR_DELETE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                            remove.rect.left(),
-                                                            remove.rect.top(),
-                                                            remove.rect.width(),
-                                                            remove.rect.height(),
-                                                            ui.ctx().pixels_per_point()
-                                                        );
-                                                    }
-                                                    if insert.clicked() {
-                                                        actions.push(Action::InsertVectorPathAnchor(
-                                                            path.id,
-                                                            next_index,
-                                                        ));
-                                                    }
-                                                    if remove.clicked() {
-                                                        actions.push(Action::DeleteVectorPathAnchor(
-                                                            path.id,
-                                                            next_index,
-                                                        ));
-                                                    }
-                                                });
-                                                anchor_popup_rect = Some(ui.min_rect().expand(6.0));
-                                                self.vector_node_editor =
-                                                    Some((editor_path, next_index, point));
-                                            });
-                                            if self.test_path_dialog {
-                                                crate::studio_log!(
-                                                    "UI_TEST_VECTOR_EDITOR_POPUP_OPEN: {}",
-                                                    _anchor_controls.is_some()
-                                                );
-                                            }
-                                            if let Some(rect) = anchor_popup_rect {
-                                                self.canvas_input_exclusions.push(rect);
-                                                if self.test_path_dialog {
-                                                    crate::studio_log!(
-                                                        "UI_TEST_VECTOR_EDITOR_POPUP_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                        rect.left(),
-                                                        rect.top(),
-                                                        rect.width(),
-                                                        rect.height(),
-                                                        ui.ctx().pixels_per_point()
-                                                    );
-                                                }
-                                            }
-                                            if self.test_path_dialog {
-                                                crate::studio_log!(
-                                                    "UI_TEST_VECTOR_ANCHOR_CONTROLS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                        anchor_controls_button.rect.left(),
-                                                        anchor_controls_button.rect.top(),
-                                                        anchor_controls_button.rect.width(),
-                                                        anchor_controls_button.rect.height(),
-                                                    ui.ctx().pixels_per_point()
-                                                );
-                                            }
-                                        }
-                                        let pending = self
-                                            .pending_vector_style
-                                            .filter(|(pending_id, _, _)| *pending_id == path.id);
-                                        let mut width = pending.map_or(path.width as f32, |(_, _, width)| {
-                                            width as f32
                                         });
-                                        let mut stroke =
-                                            pending.map_or(path.stroke, |(_, stroke, _)| stroke);
-                                        let width_response = ui.horizontal(|ui| {
-                                            ui.label("Width");
-                                            let width_response = ui.add_sized(
-                                                [124.0, 34.0],
-                                                egui::Slider::new(&mut width, 0.25..=512.0)
-                                                    .show_value(false),
-                                            );
-                                            width_response.widget_info(|| {
-                                                egui::WidgetInfo::labeled(
-                                                    egui::WidgetType::Slider,
-                                                    ui.is_enabled(),
-                                                    format!("Vector stroke width, {width:.1} pixels"),
-                                                )
-                                            });
-                                            ui.label(format!("{width:.0} px"));
-                                            width_response
-                                        }).inner;
                                         if self.test_path_dialog {
                                             crate::studio_log!(
-                                                "UI_TEST_VECTOR_WIDTH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                width_response.rect.left(),
-                                                width_response.rect.top(),
-                                                width_response.rect.width(),
-                                                width_response.rect.height(),
+                                                "UI_TEST_VECTOR_INSPECTOR_NAV_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                edit_path.rect.left(),
+                                                edit_path.rect.top(),
+                                                edit_path.rect.width(),
+                                                edit_path.rect.height(),
                                                 ui.ctx().pixels_per_point()
                                             );
-                                            if width_response.hovered()
-                                                || width_response.dragged()
-                                                || width_response.changed()
-                                                || width_response.drag_stopped()
-                                            {
-                                                crate::studio_log!(
-                                                    "UI_TEST_VECTOR_SLIDER_STATE: WIDTH hovered={} dragged={} changed={} stopped={} value={width:.4}",
-                                                    width_response.hovered(),
-                                                    width_response.dragged(),
-                                                    width_response.changed(),
-                                                    width_response.drag_stopped(),
-                                                );
-                                            }
-                                            let pointer_state = ui.ctx().input(|input| {
-                                                (
-                                                    input.pointer.primary_down(),
-                                                    input.pointer.button_pressed(
-                                                        egui::PointerButton::Primary,
-                                                    ),
-                                                    input.pointer.button_released(
-                                                        egui::PointerButton::Primary,
-                                                    ),
-                                                    input.pointer.interact_pos(),
-                                                )
-                                            });
-                                            if pointer_state.0 || pointer_state.1 || pointer_state.2
-                                            {
-                                                crate::studio_log!(
-                                                    "UI_TEST_VECTOR_SLIDER_POINTER: down={} pressed={} released={} pos={:?}",
-                                                    pointer_state.0,
-                                                    pointer_state.1,
-                                                    pointer_state.2,
-                                                    pointer_state.3
-                                                );
-                                            }
                                         }
-                                        let brush_color = project.brush.color;
-                                        if color_swatch(
-                                            ui,
-                                            brush_color,
-                                            "Brush color · open Color controls",
-                                            false,
-                                            26.0,
-                                        ) {
-                                            self.select_inspector_tab(crate::workspace::InspectorTab::Color);
+                                        if edit_path.clicked() {
+                                            self.show_controls = true;
+                                            self.inspector_tab = crate::workspace::InspectorTab::Edit;
                                             workspace_changed = true;
                                         }
-                                        let apply_color = ui
-                                            .button("Apply color")
-                                            .on_hover_text(
-                                                "Apply the current Color panel color to this path",
-                                            );
-                                        if self.test_path_dialog {
-                                            crate::studio_log!(
-                                                "UI_TEST_VECTOR_APPLY_COLOR_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                                apply_color.rect.left(),
-                                                apply_color.rect.top(),
-                                                apply_color.rect.width(),
-                                                apply_color.rect.height(),
-                                                ui.ctx().pixels_per_point()
-                                            );
-                                        }
-                                        let apply_color = apply_color.clicked();
-                                        if apply_color {
-                                            stroke[..3].copy_from_slice(&brush_color);
-                                        }
-                                        let slider_changed = width_response.changed();
-                                        let slider_dragging = width_response.dragged();
-                                        let slider_drag_stopped = width_response.drag_stopped();
-                                        if slider_dragging {
-                                            self.pending_vector_style = Some((
-                                                path.id,
-                                                stroke,
-                                                f64::from(width),
-                                            ));
-                                        } else if slider_changed || apply_color || slider_drag_stopped
-                                        {
-                                            // Keep a continuous slider gesture as one edit-history
-                                            // transaction. The document and thumbnail cache update
-                                            // only when the gesture ends; keyboard steps and the
-                                            // explicit color action still commit immediately.
-                                            if stroke != path.stroke
-                                                || (f64::from(width) - path.width).abs() > 1.0e-9
-                                            {
-                                                actions.push(Action::SetVectorPathStyle(
-                                                    path.id,
-                                                    stroke,
-                                                    f64::from(width),
-                                                ));
-                                            }
-                                            self.pending_vector_style = None;
-                                        }
                                         ui.label(format!("Path · {}", path.id));
-                                        // Keep vector transforms on the contextual
-                                        // strip's horizontal scroll row. A wrapped
-                                        // child here inherits only the remaining
-                                        // width after path/fill controls; its long
-                                        // labels can then wrap into very tall
-                                        // buttons and push the canvas off-screen.
                                     } else {
                                         ui.add_sized(
                                             [156.0, 34.0],
@@ -10110,22 +10183,47 @@ impl Studio {
                                 && !self.welcome
                                 && !self.new_dialog
                                 && !self.manual_file_dialog
-                                && !self.test_brush_rect_logged
                             {
-                                self.test_brush_rect_logged = true;
                                 let rect = response.rect;
-                                crate::studio_log!(
-                                    "UI_TEST_BRUSH_RECT: {:.2} {:.2} {:.2} {:.2} {:.2}",
-                                    rect.left(),
-                                    rect.top(),
-                                    rect.width(),
-                                    rect.height(),
-                                    self.context.pixels_per_point()
-                                );
+                                let marker = [
+                                    (rect.left() * 100.0).round() as i32,
+                                    (rect.top() * 100.0).round() as i32,
+                                    (rect.width() * 100.0).round() as i32,
+                                    (rect.height() * 100.0).round() as i32,
+                                    (self.context.pixels_per_point() * 1000.0).round() as i32,
+                                ];
+                                if self.test_brush_rect_logged != Some(marker) {
+                                    self.test_brush_rect_logged = Some(marker);
+                                    crate::studio_log!(
+                                        "UI_TEST_BRUSH_RECT: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                        rect.left(),
+                                        rect.top(),
+                                        rect.width(),
+                                        rect.height(),
+                                        self.context.pixels_per_point()
+                                    );
+                                }
+                                if response.hovered() || response.clicked() {
+                                    crate::studio_log!(
+                                        "UI_TEST_BRUSH_POINTER: {} {} {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                        response.hovered(),
+                                        response.clicked(),
+                                        rect.left(),
+                                        rect.top(),
+                                        rect.width(),
+                                        rect.height(),
+                                        self.context.pixels_per_point()
+                                    );
+                                }
                             }
                             if response.clicked() {
                                 self.symmetry_origin_armed = false;
                                 self.tool = tool;
+                                if tool == EditTool::VectorPath {
+                                    self.select_inspector_tab(
+                                        crate::workspace::InspectorTab::Edit,
+                                    );
+                                }
                                 if tool != EditTool::Brush {
                                     self.mask_editing_layer = None;
                                 }
@@ -10618,6 +10716,16 @@ impl Studio {
                                     },
                                 )
                             });
+                            if self.test_path_dialog {
+                                crate::studio_log!(
+                                    "UI_TEST_INSPECTOR_CLOSE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    close.rect.left(),
+                                    close.rect.top(),
+                                    close.rect.width(),
+                                    close.rect.height(),
+                                    ui.ctx().pixels_per_point(),
+                                );
+                            }
                             if close.clicked() {
                                 close_inspector_requested = true;
                             }
@@ -10626,77 +10734,73 @@ impl Studio {
                             ui.small("Return to the canvas without changing the active tool");
                         }
                     }
-                    // Compact drawers keep one 44-point tab row and let it
-                    // scroll horizontally instead of spending half of the
-                    // available canvas height on a wrapped second row.
+                    // Keep one ordered, horizontally scrolling navigation
+                    // strip in every Inspector layout. Compact drawers reserve
+                    // a fixed close action beside the strip so it never scrolls
+                    // out of reach.
                     let tab_items = [
                         (crate::workspace::InspectorTab::Layers, "Layers", "Layers"),
-                        // Keep References near the top of the compact section
-                        // picker. At 640×480, the final popup row otherwise
-                        // collides with the bottom status area and cannot be
-                        // selected reliably by mouse or touch.
-                        (
-                            crate::workspace::InspectorTab::References,
-                            "References",
-                            if desktop_dock { "Refs" } else { "References" },
-                        ),
                         (crate::workspace::InspectorTab::Brush, "Brush", "Brush"),
                         (crate::workspace::InspectorTab::Edit, "Edit", "Edit"),
                         (crate::workspace::InspectorTab::Color, "Color", "Color"),
+                        (
+                            crate::workspace::InspectorTab::References,
+                            "References",
+                            "References",
+                        ),
                     ];
                     let compact_drawer = !desktop_dock && !full_sheet;
                     if compact_drawer {
                         ui.horizontal(|ui| {
-                            let picker_width = (content_width
+                            let tab_strip_width = (content_width
                                 - 44.0
                                 - ui.spacing().item_spacing.x)
                                 .max(1.0);
-                            let selected_label = tab_items
-                                .iter()
-                                .find_map(|(tab, label, _)| (*tab == self.inspector_tab).then_some(*label))
-                                .unwrap_or("Layers");
-                            let previous_tab = self.inspector_tab;
-                            let picker = egui::ComboBox::from_id_salt(
-                                "studio-inspector-tab-picker",
-                            )
-                            .width(picker_width)
-                            .selected_text(selected_label)
-                            .show_ui(ui, |ui| {
-                                for &(tab, label, _) in &tab_items {
-                                    let response = ui.selectable_value(
-                                        &mut self.inspector_tab,
-                                        tab,
-                                        label,
-                                    );
-                                    if self.test_path_dialog {
-                                        crate::studio_log!(
-                                            "UI_TEST_INSPECTOR_TAB_OPTION_RECT: {label} {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                            response.rect.left(),
-                                            response.rect.top(),
-                                            response.rect.width(),
-                                            response.rect.height(),
-                                            ui.ctx().pixels_per_point(),
-                                        );
-                                    }
-                                }
-                            });
-                            picker.response.widget_info(|| {
-                                let mut info =
-                                    egui::WidgetInfo::new(egui::WidgetType::ComboBox);
-                                info.enabled = ui.is_enabled();
-                                info.label = Some("Inspector section".into());
-                                info.current_text_value = Some(selected_label.to_owned());
-                                info
-                            });
-                            workspace_changed |= self.inspector_tab != previous_tab;
+                            let tab_scroll = egui::ScrollArea::horizontal()
+                                .id_salt("studio-inspector-tabs-compact")
+                                .max_height(44.0)
+                                .max_width(tab_strip_width)
+                                .scroll_source(egui::containers::scroll_area::ScrollSource::ALL)
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        for &(tab, label, visible_label) in &tab_items {
+                                            let (response, changed) =
+                                                inspector_tab_button_named(
+                                                    ui,
+                                                    &mut self.inspector_tab,
+                                                    tab,
+                                                    label,
+                                                    visible_label,
+                                                    visible_label.len() as f32 * 7.0 + 20.0,
+                                                );
+                                            workspace_changed |= changed;
+                                            if changed || response.gained_focus() {
+                                                response.scroll_to_me(Some(egui::Align::Center));
+                                            }
+                                            if self.test_path_dialog {
+                                                crate::studio_log!(
+                                                    "UI_TEST_INSPECTOR_TAB_RECT: {label} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                    response.rect.left(),
+                                                    response.rect.top(),
+                                                    response.rect.width(),
+                                                    response.rect.height(),
+                                                    ui.ctx().pixels_per_point(),
+                                                );
+                                            }
+                                        }
+                                    });
+                                });
                             if self.test_path_dialog {
                                 crate::studio_log!(
-                                    "UI_TEST_INSPECTOR_TAB_PICKER_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                    picker.response.rect.left(),
-                                    picker.response.rect.top(),
-                                    picker.response.rect.width(),
-                                    picker.response.rect.height(),
-                                    ui.ctx().pixels_per_point(),
+                                    "UI_TEST_INSPECTOR_TAB_SCROLL: {:.1} {:.1} {:.1} {:.1} {:.1} {:.1} {:.1}",
+                                    tab_scroll.inner_rect.left(),
+                                    tab_scroll.inner_rect.top(),
+                                    tab_scroll.inner_rect.width(),
+                                    tab_scroll.inner_rect.height(),
+                                    tab_scroll.state.offset.x,
+                                    tab_scroll.content_size.x,
+                                    ctx.pixels_per_point(),
                                 );
                             }
                             let close = ui
@@ -10709,6 +10813,16 @@ impl Studio {
                                     "Close Inspector",
                                 )
                             });
+                            if self.test_path_dialog {
+                                crate::studio_log!(
+                                    "UI_TEST_INSPECTOR_COMPACT_CLOSE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    close.rect.left(),
+                                    close.rect.top(),
+                                    close.rect.width(),
+                                    close.rect.height(),
+                                    ui.ctx().pixels_per_point(),
+                                );
+                            }
                             if close.clicked() {
                                 close_inspector_requested = true;
                             }
@@ -10719,6 +10833,7 @@ impl Studio {
                                 .id_salt("studio-inspector-tabs")
                                 .max_height(44.0)
                                 .max_width(content_width.max(1.0))
+                                .scroll_source(egui::containers::scroll_area::ScrollSource::ALL)
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
@@ -11142,6 +11257,72 @@ impl Studio {
                             }
                             crate::workspace::InspectorTab::Edit => {
                                 let project = session.live_mut().project_mut();
+                                crate::ui_tokens::section_heading(ui, "Selected vector", None);
+                                let selected_path = self.selected_vector_path.and_then(|path_id| {
+                                    project.state().layers.iter().find_map(|layer| {
+                                        (layer.visible && !layer.locked)
+                                            .then(|| {
+                                                layer
+                                                    .vector_paths
+                                                    .iter()
+                                                    .find(|path| path.id == path_id)
+                                            })
+                                            .flatten()
+                                            .cloned()
+                                    })
+                                });
+                                if let Some(path) = selected_path {
+                                    vector_path_inspector_contents(
+                                        ui,
+                                        &path,
+                                        [
+                                            f64::from(project.state().width),
+                                            f64::from(project.state().height),
+                                        ],
+                                        project.brush.color,
+                                        VectorPathInspectorState {
+                                            node_editor: &mut self.vector_node_editor,
+                                            handle_editor: &mut self.vector_handle_editor,
+                                            pending_style: &mut self.pending_vector_style,
+                                            canvas_input_exclusions: &mut self
+                                                .canvas_input_exclusions,
+                                        },
+                                        actions,
+                                        self.test_path_dialog,
+                                    );
+                                } else {
+                                    let selected_layer = project.state().selected;
+                                    let vector_paths = project
+                                        .state()
+                                        .layers
+                                        .iter()
+                                        .find(|layer| layer.id == selected_layer)
+                                        .map(|layer| layer.vector_paths.clone())
+                                        .unwrap_or_default();
+                                    if vector_paths.is_empty() {
+                                        ui.label("Select or draw an editable path on the canvas.");
+                                    } else {
+                                        ui.label("Choose a path from the active layer:");
+                                        for path in vector_paths {
+                                            let label = format!("Path {} · {} anchors", path.id, path.anchor_points().len());
+                                            let select = ui.add_sized(
+                                                [ui.available_width(), 44.0],
+                                                egui::Button::new(label),
+                                            );
+                                            select.widget_info(|| {
+                                                egui::WidgetInfo::labeled(
+                                                    egui::WidgetType::Button,
+                                                    ui.is_enabled(),
+                                                    format!("Select vector path {}", path.id),
+                                                )
+                                            });
+                                            if select.clicked() {
+                                                actions.push(Action::SelectVectorPath(path.id));
+                                            }
+                                        }
+                                    }
+                                }
+                                ui.separator();
                                 crate::ui_tokens::section_heading(ui, "Canvas and selection", None);
                                 let mut transparent = project.state().background.is_none();
                                 if ui.checkbox(&mut transparent, "Transparent background").changed()

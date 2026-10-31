@@ -7,14 +7,32 @@ Artwork preservation and cross-platform validation apply to every track.
 
 ## Canvas-first design handoff — active implementation
 
-The canvas-first design was integrated in commit `bd73664`: Layers, Brush,
-Edit, Color and References share one contextual Inspector, which adapts to
-narrow windows without overwriting roomy workspace preferences and retains a
-clear 640×480 canvas strip. Layers and masks use real document transactions;
-references remain workspace-only and stay out of artwork exports. The full
-Linux Xorg/XTest workflow produced 75 populated screenshots for this slice.
-Actions run [`41039508985`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41039508985)
-passed on Windows, Linux and macOS.
+Layers, Brush, Edit, Color, and References share the existing egui/winit
+Inspector. Layers and masks use real document transactions; references remain
+workspace-only and stay out of artwork exports. The accepted Layers hierarchy
+checkpoint is at `3427604`.
+
+Milestone 2 is implemented locally on top of that checkpoint. The tab order is
+now Layers / Brush / Edit / Color / References in a horizontally scrollable
+strip, with the Canvas/close control fixed outside it. The selected-vector
+anchor, handle, geometry, and style controls are integrated into Edit while
+direct canvas manipulation remains available. A real pointer-only XTest enters
+anchor editing and verifies rendered handles without invoking the `H` shortcut.
+The full Linux Xorg/XTest artwork workflow passed locally with 80 screenshots;
+the compact tab strip scrolled to References and pointer selection succeeded.
+Populated narrow Layers/References and vector-edit captures were inspected.
+Formatting, strict host Clippy, workspace build, Windows GNU check/Clippy, 400
+workspace tests, and required llvmpipe/GL smoke were previously verified for
+this Rust state; Python helper tests pass. The M2 hosted matrix is pending until
+its implementation commit is pushed. The preceding cross-platform baseline run
+[`41102591526`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41102591526)
+is not a substitute for M2's own Actions result.
+
+The next UI slice is Milestone 3: viewport-derived Inspector widths that do not
+overwrite saved preferences during temporary scale/resize changes, plus
+reference-overlay edge snapping and protected canvas controls. Milestone 4
+requires screenshots for all six viewport/scale cases, dark/light/high-contrast
+review, and independent QA. Phase 8.3 remains active.
 
 Phase 10 now includes optional deterministic freehand-to-cubic creation and
 undoable closed-path fills in the existing V tool. Smooth paths preserve all
@@ -34,21 +52,18 @@ log excerpt in the job summary for diagnosis on the next run. Software GPU
 testing does not validate the owner's Iris Xe, S Pen or native screen-reader
 behavior.
 
-The current local continuation adds vector-only SVG export for supported line
-and cubic paths and closed fills, preserving path visibility, order, supported
-colors/alpha, and layer opacity. A real UI test parses the exported file,
-checks native `.rpl` source integrity, and validates document-specific omission
-disclosure. SVG import and complete raster/mask/document round-trip are not
-implemented. The full Linux Xorg/XTest workflow passes with 78 captures and 394
-workspace tests pass locally. Run [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
-failed only on the Ubuntu alpha artwork step; diagnose and fix it before calling
-this slice cross-platform verified.
+Phase 10's vector-only SVG export supports the existing line/cubic paths and
+closed fills, preserving path visibility, order, supported colors/alpha, and
+layer opacity. A real UI test parses the export, checks native `.rpl` source
+integrity, and discloses unsupported content. SVG import and full
+raster/mask/document round-trip remain unimplemented. Actions run
+[`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+is historical: Windows and macOS passed while Ubuntu failed on the vector anchor
+editing observation. The current local XTest run now passes that real pointer
+interaction; the new M2 commit still needs its own cross-platform Actions result.
 
-Phase 8.3 and Phase 10 remain active. The next UI slice corrects compact
-Inspector navigation to match the handoff's Layers/Brush/Edit/Color/References
-order; the next vector slice extends connected path creation and editing through
-the real canvas workflow. Do not treat this checkpoint, screenshots or
-automated checks as Phase 8.3 or Phase 10 completion.
+Do not treat this checkpoint, screenshots or automated checks as Phase 8.3 or
+Phase 10 completion.
 
 ## Adopted product identity — BitchPixel
 

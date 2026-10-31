@@ -65,19 +65,6 @@ mod tests {
                         (crate::workspace::InspectorTab::Layers, "Layers"),
                         (crate::workspace::InspectorTab::Brush, "Brush"),
                         (crate::workspace::InspectorTab::Edit, "Edit"),
-                    ] {
-                        crate::studio::inspector_tab_button_named(
-                            ui,
-                            &mut selected,
-                            tab,
-                            label,
-                            label,
-                            64.0,
-                        );
-                    }
-                });
-                ui.horizontal(|ui| {
-                    for (tab, label) in [
                         (crate::workspace::InspectorTab::Color, "Color"),
                         (crate::workspace::InspectorTab::References, "References"),
                     ] {
@@ -116,7 +103,98 @@ mod tests {
                 Some(if selected_state { "True" } else { "False" }.to_string()),
                 "{label}: {node:?}"
             );
+            assert_eq!(node.bounds().map(|bounds| bounds.height()), Some(44.0));
         }
+        let mut ordered_labels = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| {
+                node.label()
+                    .filter(|label| {
+                        matches!(*label, "Layers" | "Brush" | "Edit" | "Color" | "References")
+                    })
+                    .zip(node.bounds().map(|bounds| bounds.x0))
+            })
+            .collect::<Vec<_>>();
+        ordered_labels.sort_by(|a, b| a.1.total_cmp(&b.1));
+        assert_eq!(
+            ordered_labels
+                .iter()
+                .map(|(label, _)| *label)
+                .collect::<Vec<_>>(),
+            ["Layers", "Brush", "Edit", "Color", "References"],
+            "the accessible Inspector destinations retain their visual navigation order"
+        );
+    }
+
+    #[test]
+    fn inspector_tab_strip_follows_approved_order_and_activates_from_keyboard_focus() {
+        let context = app_context();
+        let tabs = [
+            (crate::workspace::InspectorTab::Layers, "Layers"),
+            (crate::workspace::InspectorTab::Brush, "Brush"),
+            (crate::workspace::InspectorTab::Edit, "Edit"),
+            (crate::workspace::InspectorTab::Color, "Color"),
+            (crate::workspace::InspectorTab::References, "References"),
+        ];
+        let mut selected = crate::workspace::InspectorTab::Layers;
+        let mut edit_id = None;
+        let render = |context: &egui::Context,
+                      selected: &mut crate::workspace::InspectorTab,
+                      edit_id: &mut Option<egui::Id>| {
+            context.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        for &(tab, label) in &tabs {
+                            let (response, _) = crate::studio::inspector_tab_button_named(
+                                ui,
+                                selected,
+                                tab,
+                                label,
+                                label,
+                                label.len() as f32 * 7.0 + 20.0,
+                            );
+                            if tab == crate::workspace::InspectorTab::Edit {
+                                *edit_id = Some(response.id);
+                            }
+                        }
+                    });
+                });
+            })
+        };
+        let _ = render(&context, &mut selected, &mut edit_id);
+        context.memory_mut(|memory| memory.request_focus(edit_id.expect("Edit tab is focusable")));
+        let input = egui::RawInput {
+            events: vec![egui::Event::Key {
+                key: egui::Key::Space,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            ..Default::default()
+        };
+        let _ = context.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    for &(tab, label) in &tabs {
+                        crate::studio::inspector_tab_button_named(
+                            ui,
+                            &mut selected,
+                            tab,
+                            label,
+                            label,
+                            label.len() as f32 * 7.0 + 20.0,
+                        );
+                    }
+                });
+            });
+        });
+        assert_eq!(selected, crate::workspace::InspectorTab::Edit);
+        assert!(
+            context.memory(|memory| memory.has_focus(edit_id.expect("Edit tab is focusable"))),
+            "activating an Inspector destination keeps keyboard focus on its navigation control"
+        );
     }
 
     #[test]
@@ -164,6 +242,18 @@ mod tests {
         ] {
             assert!(nodes.contains(label), "{label} missing from tree: {nodes}");
         }
+        for label in ["Incoming handle", "Outgoing handle"] {
+            let node = tree
+                .nodes
+                .iter()
+                .map(|(_, node)| node)
+                .find(|node| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("{label} missing from handle tree"));
+            assert!(
+                node.bounds()
+                    .is_some_and(|bounds| bounds.width() >= 44.0 && bounds.height() >= 44.0)
+            );
+        }
         assert!(
             nodes.contains("role: Button") && nodes.contains("role: SpinButton"),
             "handle selection and coordinate editing need keyboard control semantics: {nodes}"
@@ -171,6 +261,77 @@ mod tests {
         assert!(
             actions.is_empty(),
             "rendering controls must not edit the path"
+        );
+    }
+
+    #[test]
+    fn inspector_vector_editor_exposes_selected_path_and_touch_sized_controls() {
+        let context = app_context();
+        context.enable_accesskit();
+        let mut path = VectorPath::from_polyline(
+            17,
+            &[[8.0, 12.0], [32.0, 30.0], [56.0, 14.0]],
+            [140, 70, 220, 255],
+            3.0,
+        )
+        .unwrap();
+        path.segments[0] = VectorSegment::CubicTo {
+            control1: [14.0, 24.0],
+            control2: [25.0, 35.0],
+            point: [32.0, 30.0],
+        };
+        let mut node_editor = Some((path.id, 0, path.start));
+        let mut handle_editor = None;
+        let mut pending_style = None;
+        let mut exclusions = Vec::new();
+        let mut actions = Vec::new();
+        let output = context.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::studio::vector_path_inspector_contents(
+                    ui,
+                    &path,
+                    [128.0, 128.0],
+                    [80, 140, 220],
+                    crate::studio::VectorPathInspectorState {
+                        node_editor: &mut node_editor,
+                        handle_editor: &mut handle_editor,
+                        pending_style: &mut pending_style,
+                        canvas_input_exclusions: &mut exclusions,
+                    },
+                    &mut actions,
+                    false,
+                );
+            });
+        });
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("Inspector vector controls should be exposed to AccessKit");
+        let nodes = tree.nodes.iter().map(|(_, node)| node).collect::<Vec<_>>();
+        for (label, role) in [
+            ("Edit vector anchors", "CheckBox"),
+            ("Vector anchor 1 controls", "Button"),
+        ] {
+            let node = nodes
+                .iter()
+                .find(|node| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("missing {label}: {nodes:#?}"));
+            assert_eq!(format!("{:?}", node.role()), role, "{node:?}");
+            assert_eq!(node.bounds().map(|bounds| bounds.height()), Some(44.0));
+            assert!(node.bounds().is_some_and(|bounds| bounds.width() >= 44.0));
+        }
+        assert!(nodes.iter().any(|node| {
+            node.label()
+                .is_some_and(|label| label.starts_with("Vector stroke width"))
+                && node.bounds().is_some_and(|bounds| bounds.height() >= 44.0)
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.label() == Some("Apply current color to vector path")
+                && node.bounds().is_some_and(|bounds| bounds.height() >= 44.0)
+        }));
+        assert!(
+            actions.is_empty(),
+            "displaying Inspector controls is read-only"
         );
     }
 
