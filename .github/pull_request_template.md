@@ -37,7 +37,8 @@ What isn't implemented, remains unverified, or might regress?
 
 ## Reviewer checklist
 
-- [ ] PR targets the current integration branch, not `main`, unless this is a separately approved release/legal/docs change.
+- [ ] PR targets `main`. The alpha-baseline PR uses a pinned branch at the exact verified commit; ordinary feature work moves to short-lived branches based on `main` after that baseline is merged.
+- [ ] This is an alpha development integration, not a production release; no release or licensing change is implied by merging it.
 - [ ] No unapproved breaking document-format changes or silent loss of editable artwork.
 - [ ] No telemetry, forced account, subscription, or paid feature gates.
 - [ ] Third-party license notices and original content rights are preserved.
