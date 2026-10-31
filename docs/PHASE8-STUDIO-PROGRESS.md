@@ -1,5 +1,116 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Milestone 3 compact-Inspector correction (2026-10-31; local verification)
+
+The pushed branch head before this correction is `52d7e2d`. Actions run
+[`41167207361`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41167207361)
+failed the Linux alpha artwork smoke at the unchanged compact Inspector bounds
+assertion: `('overlay', 'Layers', 8.0, 133.0, 641.0, 239.2, 1.0)` at 640×480.
+The layer-row sizing used egui's intentionally expanded clip rectangle as
+available layout width, and a long, non-truncated layer-name button could
+request more than its assigned width. That let the resizable Inspector grow
+past the logical viewport. The rows now size from the actual ScrollArea
+viewport, cap against the window and stack viewport, and truncate only the
+visible label while preserving its full accessible name. A focused geometry
+regression covers expanded clips. The compact palette's outer width is reduced
+by two points to preserve the strict open-canvas budget; all tool targets stay
+at least 44 points. No UI assertion was weakened.
+
+Local verification for this correction: formatting, strict host Clippy, strict
+Windows GNU target Clippy, Windows GNU workspace check, workspace build, the
+full workspace suite (**406 tests**), and required llvmpipe/OpenGL GPU smoke
+passed. The first full Xorg/XTest run passed the 640×480 Inspector bounds and
+canvas-space assertions and proceeded through populated layer, mask, vector,
+and recovery workflows, but exhausted the shared `/tmp` volume while writing
+its final recovery checkpoint. A second run used workspace-backed temporary
+storage and again passed the compact layout and later application interactions;
+it was intentionally interrupted at the vector save/reopen sequence while
+opening the requested draft PR. A third workspace-backed run reached the
+vector-document reset workflow, but its long-running execution session
+disconnected before it returned an exit status; this is not counted as a pass.
+The correction is committed and pushed as
+`59215fa48a75d1c3921d564b0328db1254f6e821`; draft PR #7 targets `main`.
+Run `41212726653` tested the pre-fix head and failed; runs
+[`41212731366`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41212731366)
+and
+[`41212736549`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41212736549)
+were still in progress when checked. Thus the complete Linux artwork workflow
+and hosted Windows/Linux/macOS CI for the correction remain pending, as does a
+new Windows artifact. The inspected 640×480 populated Layers capture is in
+`/tmp/bitchpixel-inspector-checkpoint-fixed2/layers-panel-populated-light-narrow.png`
+from an earlier attempt; the temporary directory was later cleared when the
+execution environment restarted.
+
+## Approved UI implementation — Inspector responsiveness and reference safety (2026-10-31, local validation)
+
+This short-lived implementation branch starts from verified `main`
+`b0a4d7e60ec3c86dc45a1c8f209e64c50fe2495e`. The unified Inspector now chooses
+first-run dock widths from the effective logical viewport: 360 points at
+1920×1080, 336 at 1280×720 (the 150% 1920×1080 case), 320 at 1280×800, and 288
+at 853×533. The 640×480 drawer remains 256 points when the canvas budget allows;
+the 150%-scaled compact viewport uses the full-height sheet. An explicit
+workspace preference distinguishes an artist-resized dock from a responsive
+default; older version-1 settings with a non-default width migrate as customized.
+Temporary viewport clamping does not replace the roomy saved width.
+
+Pinned references now avoid the movable palette, Inspector, and visible
+Zoom/Fit controls for all docking edges. Dragging within 24 logical points of a
+safe edge snaps the reference overlay there; movement remains workspace-only,
+temporary clamping is not saved, and a pointer gesture on the overlay remains
+excluded from canvas painting. The Linux Xorg/XTest artwork workflow now tests
+the actual pointer drag, edge snap, and absence of a canvas stroke.
+
+Rust 1.90 local validation passed formatting, strict workspace Clippy, the full
+workspace suite (**405 tests**, including the llvmpipe/GL GPU smoke), workspace
+build, and the Windows GNU workspace cross-check. Python syntax compilation of
+the expanded XTest workflow passed. This environment has no Xvfb/XTest server,
+so the full Linux artwork UI gesture has not been run locally. Hosted run
+[`41163726555`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41163726555)
+passed Windows and macOS, but Linux stopped before the new drag test at the
+existing 24%-footprint assertion: the reference panel's frame made its realized
+height exceed the newly reduced safe canvas. The first fix reserved eight
+points, but the actual compact layout still realized a 134-point frame because
+the image's 48-point minimum and 44-point controls dominated. The title and
+outer padding are now tighter while the navigation targets stay 44 points and
+the visible image remains 48 points. The 24%-footprint assertion is unchanged.
+Hosted run `41164373970` showed this residual bound failure. The follow-up
+passed formatting, all **405 workspace tests**, strict Clippy, build,
+llvmpipe/GL GPU smoke, Windows GNU cross-check, and Python syntax validation.
+Hosted run `41164917867` passed the 24%-footprint assertion and then timed out
+waiting for the direct pointer drag to reach its snapped location; the Linux
+check did not complete. The title label owned the drag response, but movement
+was being read from the parent Area; the gesture was therefore accepted by the
+child and discarded by the parent. Movement now consumes the title response's
+per-frame pointer deltas, applies bounded viewport snapping on release, and
+clears drag state on release or cancellation. The Linux workflow still asserts
+the actual snapped position and no-paint behavior; failure output includes the
+title drag lifecycle and panel bounds. After this follow-up, formatting, all
+**405 workspace tests**, strict Clippy, workspace build, Windows GNU check,
+llvmpipe GPU smoke, Python syntax validation, helper tests, and diff checks
+pass locally. Local Xvfb remains unavailable. The generated screenshots have not
+been visually inspected. The six-layout populated visual
+review remains Milestone 4, and the approved icon/grouped-toolbar and
+visual/accessibility stages remain ahead. This is not a complete approved UI or
+hardware evaluation.
+
+Hosted run [`41166324868`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41166324868)
+did not validate the drag fix because Linux stopped earlier at the populated
+Layers-row containment assertion. At 1280×800, the row was sized against the
+outer scroll-area width and extended beneath the scrollbar gutter by 13.6
+logical points. The row now derives its width from the clipped content edge and
+uses compact spacing while retaining 44-point controls. The existing real UI
+containment assertion is unchanged. This correction has not yet been compiled
+or tested in the current shell (Rust tooling is unavailable); the pushed hosted
+matrix is required before proceeding. No new screenshot or visual acceptance is
+claimed.
+
+The `f3b0f48` matrix also caught a mask Actions target 0.9 points beyond the
+360-point headless accessibility viewport. The mask-row width calculation
+reserved only the two gaps after the status label, omitting its leading gap.
+It now reserves all three horizontal-layout gaps without reducing the 44-point
+Edit/Actions targets. The semantic bounds test remains unchanged; this narrow
+layout correction also awaits hosted validation.
+
 ## Canvas-first Inspector Milestone 2 — tabs and vector editing integration (2026-10-30, locally verified)
 
 This checkpoint builds on `3427604` on `feature/studio-overdrive-phase-8`.

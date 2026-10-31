@@ -7,6 +7,51 @@ Artwork preservation and cross-platform validation apply to every track.
 
 ## Canvas-first design handoff — active implementation
 
+The first approved implementation slice is in progress on
+`feat/inspector-responsive-references`, based on verified `main`
+`b0a4d7e60ec3c86dc45a1c8f209e64c50fe2495e`. Responsive first-run Inspector
+widths now follow the approved effective-viewport table while preserving
+explicitly resized preferences across temporary scaling/narrowing. Pinned
+references avoid the palette, Inspector, and visible Zoom/Fit strip, and now
+magnetically snap on pointer release within 24 logical points; the Linux
+artwork workflow asserts this real gesture does not paint. Local formatting,
+strict Clippy, all 405 workspace tests (including llvmpipe GPU smoke), workspace
+build, and Windows GNU check pass. The Xorg workflow's syntax check passes, but
+this local environment has no Xvfb. Actions run
+[`41163726555`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41163726555)
+passed Windows and macOS; Linux failed the pre-existing 24%-footprint UI
+assertion because the panel frame exceeded a newly constrained reference
+viewport. The first eight-point frame allowance was insufficient because the
+reference's 48-point minimum image plus 44-point controls established a 134-point
+outer minimum. A follow-up tightens only title and outer padding, retaining the
+44-point controls, useful image and unchanged 24% assertion. Run `41164373970`
+confirmed the residual bound issue. The follow-up passes formatting, all 405
+workspace tests, strict Clippy, workspace build, llvmpipe/GL GPU smoke, Windows
+GNU check, and Python syntax validation. Run `41164917867` passed the footprint
+bound but timed out waiting for the pointer drag to reach its snapped position.
+The 46fa991 diagnostics confirmed that the Area never saw hover/drag, while its
+child title had the explicit drag response. Movement now consumes the title
+response's per-frame deltas and snaps on its release event; the unchanged Linux
+pointer-level assertion will verify the fix. Test-only response and geometry
+diagnostics remain available. Xvfb is unavailable locally, and generated
+screenshots have not yet been visually reviewed. The six-layout visual
+acceptance and subsequent approved icon, grouped toolbar, and
+visual/accessibility stages remain incomplete.
+
+The follow-up hosted run `41166324868` stopped earlier in the Linux workflow at
+the existing populated Layers-row containment check: at 1280×800, a row used
+the outer scroll-area width and extended into the scrollbar gutter. The row now
+uses its clipped content edge for sizing and tighter spacing without shrinking
+its 44-point controls; the UI assertion is unchanged. Rust tooling is absent
+from the current execution shell, so the source correction still requires the
+hosted cross-platform matrix before this milestone can proceed.
+
+Run `41166928479` also found the mask Actions target 0.9 logical points outside
+the 360-point Accessibility test viewport. The horizontal mask row now reserves
+the leading gap and both action gaps when sizing its status label; the 44-point
+controls and accessibility bounds assertion remain unchanged. This adjustment
+needs the next hosted run for compilation and confirmation.
+
 Layers, Brush, Edit, Color, and References share the existing egui/winit
 Inspector. Layers and masks use real document transactions; references remain
 workspace-only and stay out of artwork exports. The accepted Layers hierarchy
@@ -28,11 +73,16 @@ its implementation commit is pushed. The preceding cross-platform baseline run
 [`41102591526`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41102591526)
 is not a substitute for M2's own Actions result.
 
-The next UI slice is Milestone 3: viewport-derived Inspector widths that do not
-overwrite saved preferences during temporary scale/resize changes, plus
-reference-overlay edge snapping and protected canvas controls. Milestone 4
-requires screenshots for all six viewport/scale cases, dark/light/high-contrast
-review, and independent QA. Phase 8.3 remains active.
+Inspector Milestone 3's responsive widths and reference placement are
+implemented, but the latest hosted run exposed a 640×480 compact Layers overflow.
+The local correction constrains layer rows to their true ScrollArea viewport and
+preserves the 44-point tool targets; targeted UI assertions and local Rust checks
+pass. A full Linux artwork run and hosted cross-platform CI for the correction
+are still pending. After this milestone passes review and CI, the next focused
+PR integrates the approved Material Symbols Rounded assets and compact grouped
+toolbar. Inspector Milestone 4 then captures all six viewport/scale cases and
+reviews populated dark/light/high-contrast layouts before independent QA. Phase
+8.3 remains active.
 
 Phase 10 now includes optional deterministic freehand-to-cubic creation and
 undoable closed-path fills in the existing V tool. Smooth paths preserve all
