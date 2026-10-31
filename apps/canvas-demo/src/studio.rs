@@ -13220,7 +13220,11 @@ impl Studio {
                                         active_compact_reference + 1,
                                         reference_count
                                     ))
-                                    .sense(egui::Sense::drag()),
+                                    // Let the movable Area own the pointer
+                                    // gesture. A child drag response here can
+                                    // capture the title gesture without moving
+                                    // the containing reference overlay.
+                                    .sense(egui::Sense::hover()),
                                 );
                                 drag_title.widget_info(|| egui::WidgetInfo::labeled(
                                     egui::WidgetType::Label,
@@ -13312,6 +13316,24 @@ impl Studio {
                 let realized = area.response.rect;
                 if realized.is_positive() {
                     let position = [realized.left(), realized.top()];
+                    if self.test_path_dialog
+                        && (area.response.hovered()
+                            || area.response.dragged()
+                            || area.response.drag_stopped())
+                    {
+                        crate::studio_log!(
+                            "UI_TEST_REFERENCE_PIP_DRAG_STATE: hover={} dragged={} stopped={} rect={:.1},{:.1},{:.1},{:.1} delta={:.1},{:.1}",
+                            area.response.hovered(),
+                            area.response.dragged(),
+                            area.response.drag_stopped(),
+                            realized.left(),
+                            realized.top(),
+                            realized.width(),
+                            realized.height(),
+                            area.response.drag_delta().x,
+                            area.response.drag_delta().y,
+                        );
+                    }
                     if area.response.dragged() {
                         self.reference_pip_position = position;
                         workspace_changed = true;

@@ -32,12 +32,22 @@ points, but the actual compact layout still realized a 134-point frame because
 the image's 48-point minimum and 44-point controls dominated. The title and
 outer padding are now tighter while the navigation targets stay 44 points and
 the visible image remains 48 points. The 24%-footprint assertion is unchanged.
-Hosted run `41164373970` showed this residual bound failure. The follow-up is
-now locally verified with formatting, all **405 workspace tests**, strict
-Clippy, build, llvmpipe/GL GPU smoke, Windows GNU cross-check, and Python syntax
-validation. Local Xvfb remains unavailable, and the hosted rerun for this
-specific correction is pending after push. The run's diagnostic and screenshot
-artifacts have not been visually inspected. The six-layout populated visual
+Hosted run `41164373970` showed this residual bound failure. The follow-up
+passed formatting, all **405 workspace tests**, strict Clippy, build,
+llvmpipe/GL GPU smoke, Windows GNU cross-check, and Python syntax validation.
+Hosted run `41164917867` passed the 24%-footprint assertion and then timed out
+waiting for the direct pointer drag to reach its snapped location; the Linux
+check did not complete. Inspection found that the title label installed its
+own drag interaction inside an already movable egui Area, which could consume
+the pointer gesture without moving the containing overlay. The title now uses
+a non-intercepting hover response and lets the Area own the drag. The Linux
+workflow still asserts the actual snapped position and no-paint behavior; it
+also reports the last panel bounds and test-only drag-response markers on
+failure. Formatting, all **405 workspace tests**, strict Clippy, workspace
+build, Windows GNU check, llvmpipe GPU smoke, Python syntax validation, helper
+tests, and diff checks pass locally. Hosted verification of this correction is
+pending; local Xvfb remains unavailable. The generated screenshots have not
+been visually inspected. The six-layout populated visual
 review remains Milestone 4, and the approved icon/grouped-toolbar and
 visual/accessibility stages remain ahead. This is not a complete approved UI or
 hardware evaluation.

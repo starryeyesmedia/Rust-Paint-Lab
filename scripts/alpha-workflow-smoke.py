@@ -2353,13 +2353,22 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             drag_at(drag_start_x,drag_start_y,
                     drag_start_x+(target_left-rx)*reference_pip[4],
                     drag_start_y+(target_top-ry)*reference_pip[4])
-            snapped_reference=wait(
-                lambda:(lambda rect:rect if rect
-                        and abs(rect[0]-(safe_viewport[0]+8.0))<=1.0
-                        and abs(rect[1]-(safe_viewport[1]+8.0))<=1.0 else None)(
-                    stable_window_rect_marker('UI_TEST_REFERENCE_PIP_RECT')),
-                'dragged pinned reference reports its snapped position',
-            )
+            try:
+                snapped_reference=wait(
+                    lambda:(lambda rect:rect if rect
+                            and abs(rect[0]-(safe_viewport[0]+8.0))<=1.0
+                            and abs(rect[1]-(safe_viewport[1]+8.0))<=1.0 else None)(
+                        stable_window_rect_marker('UI_TEST_REFERENCE_PIP_RECT')),
+                    'dragged pinned reference reports its snapped position',
+                )
+            except AssertionError as error:
+                current_reference=stable_window_rect_marker('UI_TEST_REFERENCE_PIP_RECT')
+                drag_states=[line for line in application_log_lines()
+                             if line.startswith('UI_TEST_REFERENCE_PIP_DRAG_STATE: ')]
+                raise AssertionError(
+                    f'{error}; initial={reference_pip}; safe={safe_viewport}; '
+                    f'current={current_reference}; drag states={drag_states[-8:]}'
+                ) from error
             assert abs(snapped_reference[0]-(safe_viewport[0]+8.0))<=1.0 \
                 and abs(snapped_reference[1]-(safe_viewport[1]+8.0))<=1.0, \
                 f'reference image did not snap to the safe canvas edges: {snapped_reference}, {safe_viewport}'
