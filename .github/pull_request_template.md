@@ -37,10 +37,11 @@ What isn't implemented, remains unverified, or might regress?
 
 ## Reviewer checklist
 
-- [ ] PR targets `main`. The alpha-baseline PR uses a pinned branch at the exact verified commit; ordinary feature work moves to short-lived branches based on `main` after that baseline is merged.
-- [ ] This is an alpha development integration, not a production release; no release or licensing change is implied by merging it.
-- [ ] No unapproved breaking document-format changes or silent loss of editable artwork.
-- [ ] No telemetry, forced account, subscription, or paid feature gates.
-- [ ] Third-party license notices and original content rights are preserved.
-- [ ] All required CI jobs are green before merge.
-- [ ] Explicit human approval before merge; Codex must not self-merge.
+- [ ] This is one focused feature or correction, and its `feat/*`, `fix/*`, `test/*`, `docs/*`, or `chore/*` branch starts from current `main`.
+- [ ] PR targets `main`; no changes were committed directly to `main`.
+- [ ] Existing painting behavior, editable artwork compatibility, recovery, and other working functionality are preserved or their intentional changes are explained and tested.
+- [ ] Untested physical hardware and accessibility behavior are explicitly documented; CI or synthetic tests are not presented as device validation.
+- [ ] This is alpha development, not a production release; no release or licensing change is implied by merging it.
+- [ ] No telemetry, forced account, subscription, or paid feature gates; third-party notices and original content rights are preserved.
+- [ ] Ubuntu, Windows, and macOS required CI jobs are green before merge.
+- [ ] An eligible human reviewer approved the PR before merge; Codex must not self-merge.
