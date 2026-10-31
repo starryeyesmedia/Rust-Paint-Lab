@@ -43,5 +43,5 @@ What isn't implemented, remains unverified, or might regress?
 - [ ] Untested physical hardware and accessibility behavior are explicitly documented; CI or synthetic tests are not presented as device validation.
 - [ ] This is alpha development, not a production release; no release or licensing change is implied by merging it.
 - [ ] No telemetry, forced account, subscription, or paid feature gates; third-party notices and original content rights are preserved.
-- [ ] Ubuntu, Windows, and macOS required CI jobs are green before merge.
+- [ ] `check (ubuntu-latest)`, `check (windows-latest)`, and `check (macos-latest)` are green on this PR commit before merge.
 - [ ] An eligible human reviewer approved the PR before merge; Codex must not self-merge.
