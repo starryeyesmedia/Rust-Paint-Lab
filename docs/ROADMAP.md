@@ -29,13 +29,14 @@ confirmed the residual bound issue. The follow-up passes formatting, all 405
 workspace tests, strict Clippy, workspace build, llvmpipe/GL GPU smoke, Windows
 GNU check, and Python syntax validation. Run `41164917867` passed the footprint
 bound but timed out waiting for the pointer drag to reach its snapped position.
-The title label's child drag sensor could consume the gesture without moving
-its movable Area; it now leaves the drag to the Area. This hypothesis awaits
-the unchanged Linux pointer-level snap assertion in hosted CI. Test-only
-response and geometry diagnostics remain available. Xvfb is unavailable
-locally, and generated screenshots have not yet been visually reviewed. The
-six-layout visual acceptance and subsequent approved icon, grouped toolbar,
-and visual/accessibility stages remain incomplete.
+The 46fa991 diagnostics confirmed that the Area never saw hover/drag, while its
+child title had the explicit drag response. Movement now consumes the title
+response's per-frame deltas and snaps on its release event; the unchanged Linux
+pointer-level assertion will verify the fix. Test-only response and geometry
+diagnostics remain available. Xvfb is unavailable locally, and generated
+screenshots have not yet been visually reviewed. The six-layout visual
+acceptance and subsequent approved icon, grouped toolbar, and
+visual/accessibility stages remain incomplete.
 
 Layers, Brush, Edit, Color, and References share the existing egui/winit
 Inspector. Layers and masks use real document transactions; references remain

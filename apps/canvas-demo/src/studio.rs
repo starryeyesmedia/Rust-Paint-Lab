@@ -5940,6 +5940,7 @@ pub struct Studio {
     references: Vec<ReferenceImage>,
     references_pinned: bool,
     reference_pip_position: [f32; 2],
+    reference_pip_drag_origin: Option<[f32; 2]>,
     reference_pip_snap_pending: Option<[f32; 2]>,
     reference_pip_visible: bool,
     reference_layout_was_pinned: bool,
@@ -6223,6 +6224,7 @@ impl Studio {
             preferences_path,
             references_pinned: preferences.references_pinned,
             reference_pip_position: preferences.reference_pip_position,
+            reference_pip_drag_origin: None,
             reference_pip_snap_pending: None,
             reference_pip_visible: false,
             reference_layout_was_pinned: false,
@@ -13160,6 +13162,10 @@ impl Studio {
                 })
                 .flatten();
             self.reference_pip_visible = reference_pip_rect.is_some();
+            if reference_pip_rect.is_none() {
+                self.reference_pip_drag_origin = None;
+                self.reference_pip_snap_pending = None;
+            }
             let reference_overlay_active = reference_pip_rect.is_some();
             let reference_visible_workspace = false;
             if self.test_path_dialog
@@ -13194,6 +13200,7 @@ impl Studio {
                 let reference_id = reference.layout.path.clone();
                 let mut close_pip = false;
                 let mut pip_request = None;
+                let mut title_drag_state = None;
                 let pip_size = pip_rect.size();
                 let pending_snap = self.reference_pip_snap_pending.take();
                 let area = egui::Area::new(egui::Id::new("studio-reference-picture-in-picture"))
@@ -13201,7 +13208,10 @@ impl Studio {
                     .default_pos(pip_rect.min)
                     .default_size(pip_size)
                     .constrain_to(screen_viewport)
-                    .movable(true);
+                    // The title is the explicit drag handle. Keep movement in
+                    // its response so controls and image gestures cannot move
+                    // the overlay accidentally.
+                    .movable(false);
                 let area = if let Some(position) = pending_snap {
                     area.current_pos(egui::pos2(position[0], position[1]))
                 } else {
@@ -13220,12 +13230,15 @@ impl Studio {
                                         active_compact_reference + 1,
                                         reference_count
                                     ))
-                                    // Let the movable Area own the pointer
-                                    // gesture. A child drag response here can
-                                    // capture the title gesture without moving
-                                    // the containing reference overlay.
-                                    .sense(egui::Sense::hover()),
+                                    .sense(egui::Sense::drag()),
                                 );
+                                title_drag_state = Some((
+                                    drag_title.hovered(),
+                                    drag_title.drag_started(),
+                                    drag_title.dragged(),
+                                    drag_title.drag_stopped(),
+                                    drag_title.drag_delta(),
+                                ));
                                 drag_title.widget_info(|| egui::WidgetInfo::labeled(
                                     egui::WidgetType::Label,
                                     true,
@@ -13315,42 +13328,78 @@ impl Studio {
                     });
                 let realized = area.response.rect;
                 if realized.is_positive() {
-                    let position = [realized.left(), realized.top()];
+                    let area_position = [realized.left(), realized.top()];
+                    let (title_hovered, title_started, title_dragged, title_stopped, title_delta) =
+                        title_drag_state.unwrap_or((false, false, false, false, egui::Vec2::ZERO));
+                    if title_started || (title_dragged && self.reference_pip_drag_origin.is_none())
+                    {
+                        self.reference_pip_drag_origin = Some(area_position);
+                        self.reference_pip_position = area_position;
+                    }
+                    let drag_origin = self.reference_pip_drag_origin;
+                    let drag_position = drag_origin.map(|_| {
+                        let candidate = [
+                            self.reference_pip_position[0] + title_delta.x,
+                            self.reference_pip_position[1] + title_delta.y,
+                        ];
+                        crate::studio_layout::reference_picture_in_picture(
+                            screen_viewport,
+                            candidate,
+                        )
+                        .map(|rect| [rect.left(), rect.top()])
+                        .unwrap_or(self.reference_pip_position)
+                    });
                     if self.test_path_dialog
-                        && (area.response.hovered()
-                            || area.response.dragged()
-                            || area.response.drag_stopped())
+                        && (title_hovered || title_started || title_dragged || title_stopped)
                     {
                         crate::studio_log!(
-                            "UI_TEST_REFERENCE_PIP_DRAG_STATE: hover={} dragged={} stopped={} rect={:.1},{:.1},{:.1},{:.1} delta={:.1},{:.1}",
-                            area.response.hovered(),
-                            area.response.dragged(),
-                            area.response.drag_stopped(),
+                            "UI_TEST_REFERENCE_PIP_DRAG_STATE: title_hover={} started={} dragged={} stopped={} rect={:.1},{:.1},{:.1},{:.1} delta={:.1},{:.1}",
+                            title_hovered,
+                            title_started,
+                            title_dragged,
+                            title_stopped,
                             realized.left(),
                             realized.top(),
                             realized.width(),
                             realized.height(),
-                            area.response.drag_delta().x,
-                            area.response.drag_delta().y,
+                            title_delta.x,
+                            title_delta.y,
                         );
                     }
-                    if area.response.dragged() {
+                    if title_dragged && let Some(position) = drag_position {
                         self.reference_pip_position = position;
+                        self.reference_pip_snap_pending = Some(position);
                         workspace_changed = true;
                     }
-                    if area.response.drag_stopped()
-                        && let Some(snapped) =
-                            crate::studio_layout::snap_reference_picture(screen_viewport, realized)
-                    {
-                        let snapped_position = [snapped.left(), snapped.top()];
-                        if (position[0] - snapped_position[0]).abs() > 0.5
-                            || (position[1] - snapped_position[1]).abs() > 0.5
-                        {
-                            self.reference_pip_position = snapped_position;
-                            self.reference_pip_snap_pending = Some(snapped_position);
+                    if title_stopped {
+                        if drag_origin.is_some() {
+                            let position = self.reference_pip_position;
+                            let dragged_rect = egui::Rect::from_min_size(
+                                egui::pos2(position[0], position[1]),
+                                realized.size(),
+                            );
+                            if let Some(snapped) = crate::studio_layout::snap_reference_picture(
+                                screen_viewport,
+                                dragged_rect,
+                            ) {
+                                let snapped_position = [snapped.left(), snapped.top()];
+                                self.reference_pip_position = snapped_position;
+                                self.reference_pip_snap_pending = Some(snapped_position);
+                            } else {
+                                self.reference_pip_position = position;
+                                self.reference_pip_snap_pending = Some(position);
+                            }
                             workspace_changed = true;
                             ctx.request_repaint();
                         }
+                        self.reference_pip_drag_origin = None;
+                    } else if drag_origin.is_some()
+                        && !ctx.input(|input| input.pointer.primary_down())
+                        && !title_dragged
+                    {
+                        // Clear stale drag state after focus loss or pointer
+                        // cancellation, without retaining a stuck gesture.
+                        self.reference_pip_drag_origin = None;
                     }
                     if self.test_path_dialog {
                         crate::studio_log!(
@@ -13365,6 +13414,8 @@ impl Studio {
                 }
                 if close_pip {
                     self.references_pinned = false;
+                    self.reference_pip_drag_origin = None;
+                    self.reference_pip_snap_pending = None;
                     workspace_changed = true;
                 }
                 compact_reference_request = pip_request;
