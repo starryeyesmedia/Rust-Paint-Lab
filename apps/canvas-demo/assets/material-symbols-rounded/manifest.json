@@ -1,0 +1,166 @@
+{
+  "source": "Google Material Symbols Rounded",
+  "repository": "https://github.com/google/material-design-icons",
+  "revision": "10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7",
+  "source_directory": "symbols/web/{name}/materialsymbolsrounded/{name}_24px.svg",
+  "license": "Apache-2.0",
+  "rendered_mask": {
+    "size_px": 96,
+    "tinting": "white alpha mask tinted by egui at draw time",
+    "regeneration": "python3 scripts/render-material-symbols.py"
+  },
+  "assets": {
+    "add_box": {
+      "svg_sha256": "c590367c0cfced35f574b4e183694ec8c7b1504508ed393cabb99ba3f8b1726b",
+      "png_sha256": "6c22ce95ba293f5aa4dc694d1a52ec1de6f4a50b5e85b3d2efc2b2ec7d3b310c"
+    },
+    "blender": {
+      "svg_sha256": "d6836b5e1dfe3e1108ba11271a580561eea43852689d2061b7bbadef42de99c9",
+      "png_sha256": "d0a0d484d4abc222b290cd9c0eaa76b7ce72aa120833f30510c3bf866dbe93b5"
+    },
+    "brush": {
+      "svg_sha256": "812d629e12c7e2388ffc09b08d6a894e2d18a29c4746a991a4de43e3fe7e92f8",
+      "png_sha256": "57b56fb4b5d16c1cbc4360f50c5cfec278173c07580563e99e98fbe7037f4cd5"
+    },
+    "check": {
+      "svg_sha256": "51e706757e18de60cb7ade1cf0ae272708932d36e417365f14977ee039cd85b8",
+      "png_sha256": "b24b966d224eed353aa16efb9624e7bf700825b013bedef8f0818d06805b443b"
+    },
+    "chevron_left": {
+      "svg_sha256": "b621e8d21b9068ab30ef742da8cad826766b05c37efd079a40e87c30b3ad4be0",
+      "png_sha256": "f78454fcc0a8f6d49b799193accf0b39ce85d8991684b1f63e92f93a573fab39"
+    },
+    "chevron_right": {
+      "svg_sha256": "8cb67ac33f0e21e96a13b2274f21d27e96312097fea0c5260bf979ffea396140",
+      "png_sha256": "18a6118bb4ccc803c8d85baa76508e95f9710e361f669fb4e4916cd9d52e9b36"
+    },
+    "circle": {
+      "svg_sha256": "adf550b8d06942c7a6d77e650b0279ccdb6cc888761dcb4d1e860105c623fcaf",
+      "png_sha256": "f6acd942f4ed9a758694fb02c18ea3e01cdca15428f707d16aa7668e842cdb05"
+    },
+    "close": {
+      "svg_sha256": "fabc7e16160e93ed11d6d72b87f5c67092d04abfcc1fc2410fab1abe075cd8fc",
+      "png_sha256": "1bc461a14f3a850ae08d657d55230d44c19747b9fcbc12b86f520c798d865147"
+    },
+    "colorize": {
+      "svg_sha256": "a1ff86a41becac706f976ca56f05c9a54e4ca9483535bb05785182fae632fca9",
+      "png_sha256": "e2e44278cf9a91717c408f292fa9848f45166bc764d618ca1a94e4617b8fc552"
+    },
+    "deselect": {
+      "svg_sha256": "1a7381138b517cc5d58336b56c84c08d8c7dd3e35c731630e687755060cd6cb9",
+      "png_sha256": "2a78362db7b026804e7c5769cb7a30fcd88ebb27131ce936d679d672568300a0"
+    },
+    "diagonal_line": {
+      "svg_sha256": "2caf61f5b7efa75ae6e55385f3b0d68296e17e1b7d1ee135ee287a54e6c70877",
+      "png_sha256": "10988483bbc84f9840d7e41355a5c1e340d98ee2e6e1b2c8a608c8b762657f6e"
+    },
+    "drag_indicator": {
+      "svg_sha256": "0996dc745ce9b9acdcd5b46d1641b1e1bd28b15af06541ddcbe829ffa83e8b89",
+      "png_sha256": "9f473022a7ed226250e6ec2e6fe45da90737944e46e389d90037c341455d678f"
+    },
+    "expand_more": {
+      "svg_sha256": "10488099ef0e4ce5ad32be35d57b6ae0970e6325bfd5f4230ae81adc0c7d0824",
+      "png_sha256": "9c841942cf0025045038003254235f1bb185f4a2289c7490a092f4cf1ca7a31e"
+    },
+    "flip": {
+      "svg_sha256": "999789fb2faa0c13d8a96062af2eb5a234c68bbfa239b82740fb8ce2c3455aaa",
+      "png_sha256": "ddabdd3652cbc5e6eb280eaf807dff24ea579ae26fccf6404ba8de224fc5cc1d"
+    },
+    "folder_open": {
+      "svg_sha256": "0c71f5c57aacdde741f36551aea966125ade2ee4b81d15f2396b1d85e0418f00",
+      "png_sha256": "203e8d4394f08bbfd35c7876fed71a468467365761c12f15c379cd6a771b2e5a"
+    },
+    "format_color_fill": {
+      "svg_sha256": "6cf99f9fb2202dcc2d5e1d53aa2969b94862d814338858f68d4fc70949361c8f",
+      "png_sha256": "c83b819828ef30b6f83d86ae4dbdb37b4ffef9306399f44d7411d66f99cf42d4"
+    },
+    "image": {
+      "svg_sha256": "a53eee7018c2f02e0d825f3c8acb11cd1aa80161a09ce5d34c7579eb32fd3094",
+      "png_sha256": "a5980470a054a08d791ab3094daf1aca7151815e982aa8e77d3c427d7a70d962"
+    },
+    "ink_eraser": {
+      "svg_sha256": "34dec00748e5ae7876e920edff3edbb03bbab96bad8f820aba4686a5ae43aee3",
+      "png_sha256": "00f52cbb12ac708bcc344d35069ba7c48e73f1cf893a16a1e4fec230ae5f49d7"
+    },
+    "lasso_select": {
+      "svg_sha256": "742610e88f11006937e09d9bf4c2b8f55d6ecf7187bdfda0f132605f91cdf203",
+      "png_sha256": "93989ee10fc6bc33946caabf635d72e7e39ed93acb06ae75f94794244cb11d7e"
+    },
+    "layers": {
+      "svg_sha256": "60d86c9818101a3e8b971cfe0267de8e125292a9897c56290a11e2a927310915",
+      "png_sha256": "737d5cf68e988118748cbdd551ce54baba67a7451b2c6960ec4e7ad7d162873b"
+    },
+    "linear_scale": {
+      "svg_sha256": "26a7ffdffb2cd16970c6fc33316ea000fc9ea5b332d94f4b438b701f2933c1a5",
+      "png_sha256": "ff8dc35c8433e7e0a7dad5482ed4053d96c5537e7e572915140c44c9bb95a486"
+    },
+    "lock": {
+      "svg_sha256": "148a3da500ee74920d4f80984e8f73830b1f4e613bac095502d854b9c700315c",
+      "png_sha256": "43a682b78c1d6d75d4d0430ff676e5a19cc12de7eea859e89fdad3a8940a2210"
+    },
+    "lock_open": {
+      "svg_sha256": "a48b483c600fd2f869036741dd3b2a4c74a66af94f7ede64c80da84a6e66fbbd",
+      "png_sha256": "742ba0daa0191c5beb3913498f7619611da60fb883a2a333b8b82ec3aa59fd60"
+    },
+    "more_horiz": {
+      "svg_sha256": "498ade89fbbdd4f4ab9b90bb49bae4cc6b2dc0ff0f019b6b051ac641a7bd5872",
+      "png_sha256": "e923882b74cfb8280ddf443b702cf9e32e390a475db49552eeee1fc322702eb4"
+    },
+    "palette": {
+      "svg_sha256": "0b847ea803e92b6e1c792103c89e7448659cb001032ffd5699c1f956ca74f656",
+      "png_sha256": "00d8c0a001ca80169ef6355c6b4f2f333c4f5dcef46cac68e8ea5f12559828ec"
+    },
+    "polyline": {
+      "svg_sha256": "4a283759c740d3d33d1f32c3124caeab4ec678429a67dc47ee1996d5c912e2a8",
+      "png_sha256": "ebb8f6fbd1ad65ea62791c1f34a7cfcd816c224649dfa22acf43ce93d8fc765b"
+    },
+    "radio_button_unchecked": {
+      "svg_sha256": "adf550b8d06942c7a6d77e650b0279ccdb6cc888761dcb4d1e860105c623fcaf",
+      "png_sha256": "f6acd942f4ed9a758694fb02c18ea3e01cdca15428f707d16aa7668e842cdb05"
+    },
+    "rectangle": {
+      "svg_sha256": "b357a3b1fabf8f2398eb3e382fadcd3d45ec14f34d34df9e8771cb650cbd8280",
+      "png_sha256": "4a4032928c584e40270aa388581e557c30816abd6a57fa9b6104f24bfce01ceb"
+    },
+    "redo": {
+      "svg_sha256": "ff096bea20898aecf61578df7c73f176e2cbed8b6378d9017e7789ad271535cf",
+      "png_sha256": "edb2f742b6c1fa3a064ffc3be53fd96264ba5e85994a180792c50bad1e139221"
+    },
+    "save": {
+      "svg_sha256": "255efe89310c0f6efe6ec0db3987f74f0490e7542ddcd631b2eb4b343b276b7b",
+      "png_sha256": "ab939481bc848b12beb5b010c381c5858a39d56cbe446457ddd0372020746eea"
+    },
+    "select_all": {
+      "svg_sha256": "2e5cdc765060939a911116980c17f57273cb6f1fa43924a941ecfc85b99d4f0c",
+      "png_sha256": "02bfbaf34a88010d42a175d758cf24f870052ea59eae6510dd498c0b7b57c481"
+    },
+    "settings": {
+      "svg_sha256": "6cd47de90647ece6b00922f497f8c4ea9c1649548cf15828d1df9d78d5bdf30d",
+      "png_sha256": "a7d70f391da495b4470c907ca6fe3bc758fb6dcbc54c07e3c3cef3c5172f6963"
+    },
+    "shape_line": {
+      "svg_sha256": "26715227464f5d2d5a31568949f34c9d01e237baa4a0c0214e0c9de89a04ffd4",
+      "png_sha256": "59a5dfcc40a114df331dfb301e34aa61fc61a3755e05a6eff81430694801ccea"
+    },
+    "shapes": {
+      "svg_sha256": "ce25ff31fb87a76b64b085bfdd8b366fe14d324e595071f47dbdc3269efdb90e",
+      "png_sha256": "ceaec44a14bf4b19df0aa5e7b2b0ed16a3fccd6792a4efc50b1dbaa09392906c"
+    },
+    "touch_app": {
+      "svg_sha256": "85766b305058a6192bb9858141614755718b36058160fc91274bd2da7fe506ab",
+      "png_sha256": "8a70e047cd354b346874455b6da684c22991eb7b8073d9eed88017dae349ab65"
+    },
+    "undo": {
+      "svg_sha256": "dcd97edcb0f867c19ccff7032e8cebf08a0737898d1d480efdbc6e9468a7ee76",
+      "png_sha256": "754c9b4fd1feaa9092570dc011369ae90671f348d5d2dd69f5e66a3e80f2e3f8"
+    },
+    "visibility": {
+      "svg_sha256": "024cf2e18ddffaed7d0f9e6872f7a09a76cc81349414a3869ae47a1f412b30ce",
+      "png_sha256": "02de53f903349182e87b4a0688197f60290fee3e8c46b2c6adc6c54900d86af8"
+    },
+    "visibility_off": {
+      "svg_sha256": "ab88d1ce3372969907d0294f8b7596e5f635797a87fce1ee2e372f866088fee6",
+      "png_sha256": "9cb3f2bb0bff85d20fbc682617b05b1b5e00a9bbe0e4e8486364ba923fe78db7"
+    }
+  }
+}

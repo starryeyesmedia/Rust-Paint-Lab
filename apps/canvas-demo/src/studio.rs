@@ -5609,10 +5609,11 @@ fn layer_thumbnail(
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum EditTool {
+pub(crate) enum EditTool {
     Brush,
     Smudge,
     ColorMix,
+    Fill,
     Rectangle,
     Ellipse,
     Lasso,
@@ -5835,7 +5836,12 @@ pub struct Studio {
     test_reference_centered: bool,
     test_palette_rect_logged: Option<[i32; 5]>,
     test_palette_grip_rect_logged: Option<[i32; 5]>,
-    test_palette_toggle_logged: Option<[i32; 5]>,
+    test_toolbar_more_rect_logged: Option<[i32; 5]>,
+    test_toolbar_family_rects: [Option<[i32; 5]>; 5],
+    test_toolbar_direct_rects: [Option<[i32; 5]>; 3],
+    test_toolbar_smudge_rect_logged: Option<[i32; 5]>,
+    test_view_menu_rect_logged: Option<[i32; 5]>,
+    test_ui_scale_slider_rect_logged: Option<[i32; 5]>,
     test_brush_rect_logged: Option<[i32; 5]>,
     test_brush_layout_logged: bool,
     test_brush_preview_logged: bool,
@@ -5896,7 +5902,11 @@ pub struct Studio {
     palette_drag_offset: [f32; 2],
     palette_viewport_height: f32,
     palette_was_horizontal: bool,
-    palette_collapsed: bool,
+    toolbar_focus_ids: Vec<egui::Id>,
+    toolbar_popup_trigger: Option<egui::Id>,
+    toolbar_focus_restore: Option<egui::Id>,
+    toolbar_more_page: usize,
+    last_non_eraser_brush: BrushKind,
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
     palette_rect: Option<egui::Rect>,
@@ -6120,7 +6130,12 @@ impl Studio {
             test_reference_centered: false,
             test_palette_rect_logged: None,
             test_palette_grip_rect_logged: None,
-            test_palette_toggle_logged: None,
+            test_toolbar_more_rect_logged: None,
+            test_toolbar_family_rects: [None; 5],
+            test_toolbar_direct_rects: [None; 3],
+            test_toolbar_smudge_rect_logged: None,
+            test_view_menu_rect_logged: None,
+            test_ui_scale_slider_rect_logged: None,
             test_brush_rect_logged: None,
             test_brush_layout_logged: false,
             test_brush_preview_logged: false,
@@ -6184,7 +6199,11 @@ impl Studio {
             palette_drag_offset: [0.0; 2],
             palette_viewport_height: 0.0,
             palette_was_horizontal: false,
-            palette_collapsed: preferences.palette_collapsed,
+            toolbar_focus_ids: Vec::new(),
+            toolbar_popup_trigger: None,
+            toolbar_focus_restore: None,
+            toolbar_more_page: 0,
+            last_non_eraser_brush: BrushKind::Round,
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
             palette_rect: None,
@@ -6274,6 +6293,386 @@ impl Studio {
             new_from_welcome: false,
             picker_from_welcome: false,
         }
+    }
+
+    pub fn toolbar_has_keyboard_focus(&self) -> bool {
+        self.context
+            .memory(|memory| memory.focused())
+            .is_some_and(|focused| self.toolbar_focus_ids.contains(&focused))
+    }
+
+    fn set_brush_preset(&mut self, brush: &mut Brush, kind: BrushKind) {
+        if kind != BrushKind::Eraser {
+            self.last_non_eraser_brush = kind;
+        } else if brush.kind != BrushKind::Eraser {
+            self.last_non_eraser_brush = brush.kind;
+        }
+        activate_brush_preset(brush, kind);
+    }
+
+    fn select_toolbar_tool(
+        &mut self,
+        entry: crate::studio_toolbar::ToolEntry,
+        session: &mut CanvasSession,
+    ) {
+        let current_brush = session.live().project().brush.kind;
+        let project = session.live_mut().project_mut();
+        if entry.icon == crate::studio_icons::Icon::Eraser {
+            self.set_brush_preset(&mut project.brush, BrushKind::Eraser);
+        } else if entry.tool == EditTool::Brush && current_brush == BrushKind::Eraser {
+            self.set_brush_preset(&mut project.brush, self.last_non_eraser_brush);
+        }
+        self.symmetry_origin_armed = false;
+        self.tool = entry.tool;
+        if let Some(family) = crate::studio_toolbar::ToolFamily::containing(self.tool) {
+            self.toolbar_more_page = crate::studio_toolbar::ToolFamily::ORDERED
+                .iter()
+                .position(|candidate| *candidate == family)
+                .unwrap_or(0);
+        }
+        if self.tool == EditTool::VectorPath {
+            self.select_inspector_tab(crate::workspace::InspectorTab::Edit);
+        }
+        if self.tool != EditTool::Brush {
+            self.mask_editing_layer = None;
+        }
+        let editing_mask = self.mask_editing_layer == Some(project.state().selected);
+        session.live_mut().set_stroke_mode(stroke_mode_for_tool(
+            self.tool,
+            self.color_mix_strength,
+            editing_mask,
+        ));
+        if self.tool != EditTool::VectorPath {
+            self.vector_node_editor = None;
+            self.vector_handle_editor = None;
+        }
+        if matches!(
+            self.tool,
+            EditTool::ShapeLine
+                | EditTool::ShapeRectangle
+                | EditTool::ShapeEllipse
+                | EditTool::QuickShape
+                | EditTool::VectorPath
+                | EditTool::Gradient
+        ) {
+            self.brush_flyout_open = false;
+            self.color_flyout_open = false;
+        }
+        if self.test_path_dialog {
+            crate::studio_log!("UI_TEST_ACTIVE_TOOL: {:?}", self.tool);
+            crate::studio_log!("UI_TEST_TOOL_SELECTION: {}", entry.label);
+        }
+    }
+
+    fn show_tool_family(
+        &mut self,
+        ui: &mut egui::Ui,
+        family: crate::studio_toolbar::ToolFamily,
+        session: &mut CanvasSession,
+        actions: &mut Vec<Action>,
+    ) -> egui::Response {
+        use crate::studio_toolbar::ToolFamily;
+        let popup_id = egui::Id::new(("approved-tool-family", family));
+        let was_open = egui::Popup::is_id_open(ui.ctx(), popup_id);
+        let active = family.active(self.tool);
+        let current_name = active.map_or("Choose a tool", |entry| entry.label);
+        let icon = active.map_or_else(|| family.representative(), |entry| entry.icon);
+        let trigger = crate::studio_icons::group_button(
+            ui,
+            icon,
+            family.label(),
+            current_name,
+            family.members().len(),
+            was_open,
+        );
+        self.toolbar_focus_ids.push(trigger.id);
+        if self.test_path_dialog {
+            let rect = trigger.rect;
+            let marker = [
+                (rect.left() * 100.0).round() as i32,
+                (rect.top() * 100.0).round() as i32,
+                (rect.width() * 100.0).round() as i32,
+                (rect.height() * 100.0).round() as i32,
+                (ui.ctx().pixels_per_point() * 1000.0).round() as i32,
+            ];
+            let index = ToolFamily::ORDERED
+                .iter()
+                .position(|candidate| *candidate == family)
+                .expect("every tool family is ordered");
+            if self.test_toolbar_family_rects[index] != Some(marker) {
+                self.test_toolbar_family_rects[index] = Some(marker);
+                crate::studio_log!(
+                    "UI_TEST_TOOL_FAMILY_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                    family.label(),
+                    rect.left(),
+                    rect.top(),
+                    rect.width(),
+                    rect.height(),
+                    ui.ctx().pixels_per_point()
+                );
+            }
+        }
+
+        let open_from_keyboard = trigger.has_focus()
+            && ui.input(|input| {
+                input.key_pressed(egui::Key::ArrowDown)
+                    || input.key_pressed(egui::Key::Enter)
+                    || input.key_pressed(egui::Key::Space)
+            });
+        let open_command = if open_from_keyboard {
+            if self.test_path_dialog {
+                crate::studio_log!("UI_TEST_TOOL_FAMILY_OPENED: {} keyboard", family.label());
+            }
+            Some(egui::SetOpenCommand::Bool(true))
+        } else if trigger.clicked() {
+            if was_open {
+                Some(egui::SetOpenCommand::Toggle)
+            } else {
+                egui::Popup::close_all(ui.ctx());
+                self.toolbar_popup_trigger = Some(trigger.id);
+                if self.test_path_dialog {
+                    crate::studio_log!("UI_TEST_TOOL_FAMILY_OPENED: {} pointer", family.label());
+                }
+                Some(egui::SetOpenCommand::Bool(true))
+            }
+        } else {
+            None
+        };
+        if open_from_keyboard {
+            egui::Popup::close_all(ui.ctx());
+            self.toolbar_popup_trigger = Some(trigger.id);
+        }
+
+        let (preferred, alternatives) = match self.palette_dock {
+            crate::workspace::PaletteDock::Right => (
+                egui::RectAlign::LEFT_START,
+                [
+                    egui::RectAlign::LEFT_END,
+                    egui::RectAlign::RIGHT_START,
+                    egui::RectAlign::RIGHT_END,
+                ],
+            ),
+            crate::workspace::PaletteDock::Top | crate::workspace::PaletteDock::Bottom => (
+                egui::RectAlign::BOTTOM_START,
+                [
+                    egui::RectAlign::TOP_START,
+                    egui::RectAlign::BOTTOM_END,
+                    egui::RectAlign::TOP_END,
+                ],
+            ),
+            _ => (
+                egui::RectAlign::RIGHT_START,
+                [
+                    egui::RectAlign::RIGHT_END,
+                    egui::RectAlign::LEFT_START,
+                    egui::RectAlign::LEFT_END,
+                ],
+            ),
+        };
+        let response = egui::Popup::menu(&trigger)
+            .id(popup_id)
+            .align(preferred)
+            .align_alternatives(&alternatives)
+            .width(256.0)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .open_memory(open_command)
+            .show(|menu| {
+                let mut close = false;
+                menu.horizontal(|ui| {
+                    ui.heading(family.label());
+                    ui.add_space(ui.available_width());
+                    let response = crate::studio_icons::button(
+                        ui,
+                        crate::studio_icons::Icon::Close,
+                        &format!("Close {} tools", family.label()),
+                        None,
+                        false,
+                        [44.0, 44.0],
+                    );
+                    if response.clicked() {
+                        close = true;
+                        self.toolbar_focus_restore = Some(trigger.id);
+                        self.toolbar_popup_trigger = None;
+                    }
+                    self.toolbar_focus_ids.push(response.id);
+                });
+                menu.separator();
+                let group_id = egui::Id::new(("approved-tool-radio-group", family));
+                menu.ctx().accesskit_node_builder(group_id, |node| {
+                    node.set_role(egui::accesskit::Role::RadioGroup);
+                    node.set_label(family.label());
+                });
+                let mut popup_focus = Vec::new();
+                let mut selected_focus = None;
+                menu.scope_builder(
+                    egui::UiBuilder::new()
+                        .id_salt(("approved-tool-family-choices", family))
+                        .accessibility_parent(group_id),
+                    |menu| {
+                        for entry in family.members() {
+                            let row = crate::studio_icons::menu_choice(
+                                menu,
+                                entry.icon,
+                                entry.label,
+                                (!entry.shortcut.is_empty()).then_some(entry.shortcut),
+                                self.tool == entry.tool,
+                            );
+                            self.toolbar_focus_ids.push(row.id);
+                            if self.test_path_dialog && entry.label == "Smudge" {
+                                let rect = row.rect;
+                                let marker = [
+                                    (rect.left() * 100.0).round() as i32,
+                                    (rect.top() * 100.0).round() as i32,
+                                    (rect.width() * 100.0).round() as i32,
+                                    (rect.height() * 100.0).round() as i32,
+                                    (menu.ctx().pixels_per_point() * 1000.0).round() as i32,
+                                ];
+                                if self.test_toolbar_smudge_rect_logged != Some(marker) {
+                                    self.test_toolbar_smudge_rect_logged = Some(marker);
+                                    crate::studio_log!(
+                                        "UI_TEST_TOOL_MENU_SMUDGE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                        rect.left(), rect.top(), rect.width(), rect.height(),
+                                        menu.ctx().pixels_per_point()
+                                    );
+                                }
+                            }
+                            popup_focus.push(row.id);
+                            if self.tool == entry.tool {
+                                selected_focus = Some(row.id);
+                            }
+                            if row.clicked() {
+                                if self.test_path_dialog {
+                                    crate::studio_log!("UI_TEST_TOOL_SELECTED: {}", entry.label);
+                                }
+                                self.select_toolbar_tool(*entry, session);
+                                self.toolbar_focus_restore = Some(trigger.id);
+                                self.toolbar_popup_trigger = None;
+                                close = true;
+                            }
+                        }
+                    },
+                );
+                if family == ToolFamily::Selection {
+                    menu.separator();
+                    let can_deselect = session.live().project().state().selection.is_some();
+                    let response = crate::studio_icons::menu_action(
+                        menu,
+                        crate::studio_icons::Icon::Deselect,
+                        "Deselect",
+                        can_deselect,
+                        (!can_deselect).then_some("There is no active selection to remove."),
+                    );
+                    self.toolbar_focus_ids.push(response.id);
+                    if response.clicked() {
+                        actions.push(Action::Deselect);
+                        close = true;
+                        self.toolbar_focus_restore = Some(trigger.id);
+                        self.toolbar_popup_trigger = None;
+                    }
+                }
+                if family == ToolFamily::Vector {
+                    menu.separator();
+                    let selected_path = self.selected_vector_path.and_then(|path_id| {
+                        session
+                            .live()
+                            .project()
+                            .state()
+                            .layers
+                            .iter()
+                            .find_map(|layer| {
+                                layer
+                                    .vector_paths
+                                    .iter()
+                                    .find(|path| path.id == path_id)
+                                    .map(|path| (path_id, path.start))
+                            })
+                    });
+                    let enabled = selected_path.is_some();
+                    let editing = selected_path.is_some_and(|(path_id, _)| {
+                        self.vector_node_editor
+                            .is_some_and(|(editor_path, _, _)| editor_path == path_id)
+                    });
+                    let reason = (!enabled)
+                        .then_some("Select an editable vector path before editing its anchors.");
+                    let response = crate::studio_icons::menu_action(
+                        menu,
+                        crate::studio_icons::Icon::EditAnchors,
+                        if editing {
+                            "Stop editing anchors"
+                        } else {
+                            "Edit anchors"
+                        },
+                        enabled,
+                        reason,
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::Button,
+                            enabled,
+                            editing,
+                            if enabled {
+                                "Edit anchors"
+                            } else {
+                                "Edit anchors unavailable. Select an editable vector path first."
+                            },
+                        )
+                    });
+                    self.toolbar_focus_ids.push(response.id);
+                    if response.clicked()
+                        && let Some((path_id, _)) = selected_path
+                    {
+                        self.tool = EditTool::VectorPath;
+                        if self.toggle_vector_anchor_editor(path_id, session) {
+                            self.toolbar_focus_restore = Some(trigger.id);
+                            self.toolbar_popup_trigger = None;
+                            close = true;
+                        }
+                    }
+                }
+                if close {
+                    menu.close();
+                }
+                if was_open {
+                    let nav = menu.input(|input| {
+                        let direction = if input.key_pressed(egui::Key::ArrowDown) {
+                            Some(true)
+                        } else if input.key_pressed(egui::Key::ArrowUp) {
+                            Some(false)
+                        } else {
+                            None
+                        };
+                        (
+                            direction,
+                            input.key_pressed(egui::Key::Home),
+                            input.key_pressed(egui::Key::End),
+                        )
+                    });
+                    let focused = popup_focus
+                        .iter()
+                        .position(|id| menu.memory(|memory| memory.has_focus(*id)));
+                    let target = if nav.1 {
+                        popup_focus.first().copied()
+                    } else if nav.2 {
+                        popup_focus.last().copied()
+                    } else if let (Some(direction), Some(index)) = (nav.0, focused) {
+                        crate::studio_toolbar::adjacent_focus(index, popup_focus.len(), direction)
+                            .and_then(|index| popup_focus.get(index).copied())
+                    } else if open_from_keyboard || trigger.clicked() {
+                        selected_focus.or_else(|| popup_focus.first().copied())
+                    } else {
+                        None
+                    };
+                    if let Some(target) = target {
+                        menu.memory_mut(|memory| memory.request_focus(target));
+                    }
+                }
+            });
+        if response.is_some() && open_from_keyboard {
+            // The first pass can place focus before the popup row IDs have been
+            // registered. A subsequent popup pass will select the active row.
+            ui.ctx().request_repaint();
+        }
+        trigger
     }
 
     pub fn init_accesskit(
@@ -6401,6 +6800,12 @@ impl Studio {
             (client_px[0] / f64::from(scale)) as f32,
             (client_px[1] / f64::from(scale)) as f32,
         );
+        // Winit sends painting contacts through a separate input route. While
+        // an egui popup is open, a contact anywhere is reserved for dismissing
+        // or operating that popup; it must never fall through to the canvas.
+        if egui::Popup::is_any_open(&self.context) {
+            return true;
+        }
         // The selected vector anchor editor is a menu popup hosted inside the
         // contextual toolbar. Its egui layer is not consistently reported as
         // Foreground on every backend, so track its realized bounds explicitly
@@ -6619,6 +7024,21 @@ impl Studio {
         }
         if matches!(event, E::Focused(false)) {
             self.placement_drag = None;
+        }
+        if egui::Popup::is_any_open(&self.context)
+            && matches!(
+                event,
+                E::MouseInput {
+                    state: ElementState::Pressed,
+                    ..
+                } | E::Touch(winit::event::Touch {
+                    phase: winit::event::TouchPhase::Started,
+                    ..
+                })
+            )
+        {
+            let response = self.input.on_window_event(window, event);
+            return (true, response.repaint);
         }
         if self.symmetry_origin_mouse_event(event, session) {
             window.request_redraw();
@@ -7269,7 +7689,8 @@ impl Studio {
             return true;
         }
         use paint_input::Phase;
-        let outside = self.blocks_canvas()
+        let outside = egui::Popup::is_any_open(&self.context)
+            || self.blocks_canvas()
             || self.reference_under_client(s.position_px)
             || self.floating_ui_under_client(s.position_px)
             || !self
@@ -7573,6 +7994,29 @@ impl Studio {
                     }
                 }
                 return true;
+            }
+            return true;
+        }
+        if self.tool == EditTool::Fill {
+            if phase != Phase::Down
+                || session.mode() != crate::interaction::Mode::Live
+                || self.blocks_canvas()
+                || self
+                    .mapping
+                    .is_none_or(|mapping| !mapping.contains_client(client))
+                || self.reference_under_client(client)
+                || self.floating_ui_under_client(client)
+            {
+                return false;
+            }
+            session.mouse(MouseEvent::Interrupted, 0);
+            let result = session.live_mut().project_mut().fill_selection(false);
+            self.status = match result {
+                Ok(()) => "Fill applied to the current selection · Ctrl+Z to undo".into(),
+                Err(error) => error.to_string(),
+            };
+            if self.test_path_dialog {
+                crate::studio_log!("UI_TEST_FILL_TOOL_APPLIED: {}", self.status);
             }
             return true;
         }
@@ -8244,6 +8688,42 @@ impl Studio {
         end[1] = end[1].clamp(0.0, height);
         end
     }
+
+    fn toggle_vector_anchor_editor(&mut self, path_id: u64, session: &CanvasSession) -> bool {
+        let start = session
+            .live()
+            .project()
+            .state()
+            .layers
+            .iter()
+            .find_map(|layer| {
+                layer
+                    .vector_paths
+                    .iter()
+                    .find(|path| path.id == path_id)
+                    .map(|path| path.start)
+            });
+        let Some(start) = start else {
+            self.status = "Select a vector path before editing anchors".into();
+            return false;
+        };
+        self.selected_vector_path = Some(path_id);
+        let editing = self
+            .vector_node_editor
+            .is_some_and(|(editor_path, _, _)| editor_path == path_id);
+        self.vector_node_editor = (!editing).then_some((path_id, 0, start));
+        self.vector_handle_editor = None;
+        self.test_vector_node_rect_logged = false;
+        self.status = if editing {
+            "Vector anchor editing closed".into()
+        } else {
+            "Vector anchors visible · select an anchor to edit its Bézier handles".into()
+        };
+        if self.test_path_dialog {
+            crate::studio_log!("UI_TEST_VECTOR_NODE_EDITING: {} {}", path_id, !editing);
+        }
+        true
+    }
     pub fn tool_shortcut(&mut self, key: char, session: &mut CanvasSession) {
         session.mouse(MouseEvent::Interrupted, 0);
         self.edit_pointer = None;
@@ -8271,36 +8751,13 @@ impl Studio {
             if self.tool != EditTool::VectorPath {
                 return;
             }
-            let selected = self.selected_vector_path.and_then(|path_id| {
-                session
-                    .live()
-                    .project()
-                    .state()
-                    .layers
-                    .iter()
-                    .find_map(|layer| {
-                        layer
-                            .vector_paths
-                            .iter()
-                            .find(|path| path.id == path_id)
-                            .map(|path| (path_id, path.start))
-                    })
-            });
-            if let Some((path_id, start)) = selected {
-                let editing = self
+            if let Some(path_id) = self.selected_vector_path {
+                let before = self
                     .vector_node_editor
-                    .is_some_and(|(editor_path, _, _)| editor_path == path_id);
-                self.vector_node_editor = (!editing).then_some((path_id, 0, start));
-                self.vector_handle_editor = None;
-                self.test_vector_node_rect_logged = false;
-                self.status = if editing {
-                    "Vector anchor editing closed · H toggles anchor editing".into()
-                } else {
-                    "Vector anchors visible · select an anchor to edit its Bézier handles · H toggles anchor editing".into()
-                };
-                if self.test_path_dialog {
-                    crate::studio_log!("UI_TEST_VECTOR_NODE_SHORTCUT: {} {}", path_id, !editing);
-                    crate::studio_log!("UI_TEST_VECTOR_NODE_EDITING: {} {}", path_id, !editing);
+                    .is_some_and(|(id, _, _)| id == path_id);
+                let changed = self.toggle_vector_anchor_editor(path_id, session);
+                if self.test_path_dialog && changed {
+                    crate::studio_log!("UI_TEST_VECTOR_NODE_SHORTCUT: {} {}", path_id, !before);
                 }
             } else {
                 self.status = "Select a vector path before editing anchors".into();
@@ -8335,6 +8792,11 @@ impl Studio {
             'v' => EditTool::VectorPath,
             _ => EditTool::Brush,
         };
+        if self.tool == EditTool::Brush && session.live().project().brush.kind == BrushKind::Eraser
+        {
+            let project = session.live_mut().project_mut();
+            self.set_brush_preset(&mut project.brush, self.last_non_eraser_brush);
+        }
         if self.tool == EditTool::VectorPath {
             self.select_inspector_tab(crate::workspace::InspectorTab::Edit);
         }
@@ -8585,6 +9047,9 @@ impl Studio {
         }
         if egui::Popup::is_any_open(&self.context) {
             egui::Popup::close_all(&self.context);
+            if let Some(trigger) = self.toolbar_popup_trigger.take() {
+                self.toolbar_focus_restore = Some(trigger);
+            }
             if self.test_path_dialog {
                 crate::studio_log!("UI_TEST_ESCAPE_DISMISSED: menu");
             }
@@ -8741,7 +9206,10 @@ impl Studio {
             reduced_motion: self.reduced_motion,
             ui_scale: self.ui_scale,
             palette_dock: self.palette_dock,
-            palette_collapsed: self.palette_collapsed,
+            // Older workspace files stored the rejected expanding-shelf state.
+            // Keep the field for backwards compatibility but always write the
+            // approved compact toolbar mode.
+            palette_collapsed: false,
             handedness: self.handedness,
             palette_position: self.palette_position,
             layers_flyout_position: self.layers_flyout_position,
@@ -8993,7 +9461,7 @@ impl Studio {
                                 ui.close();
                             }
                         });
-                        ui.menu_button("View", |ui| {
+                        let view_menu = ui.menu_button("View", |ui| {
                             ui.label("Appearance");
                             for (mode, label) in [
                                 (crate::workspace::AppearanceMode::Dark, "Dark"),
@@ -9107,12 +9575,30 @@ impl Studio {
                                 .changed();
                             ui.horizontal(|ui| {
                                 ui.label("Interface size");
-                                workspace_changed |= ui
-                                    .add(
-                                        egui::Slider::new(&mut self.ui_scale, 0.8..=1.6)
-                                            .show_value(true),
-                                    )
-                                    .changed();
+                                let slider = ui.add(
+                                    egui::Slider::new(&mut self.ui_scale, 0.8..=1.6)
+                                        .show_value(true),
+                                );
+                                workspace_changed |= slider.changed();
+                                if self.test_path_dialog {
+                                    let rect = slider.rect;
+                                    let marker = [
+                                        (rect.left() * 100.0).round() as i32,
+                                        (rect.top() * 100.0).round() as i32,
+                                        (rect.width() * 100.0).round() as i32,
+                                        (rect.height() * 100.0).round() as i32,
+                                        (ctx.pixels_per_point() * 1000.0).round() as i32,
+                                    ];
+                                    if self.test_ui_scale_slider_rect_logged != Some(marker) {
+                                        self.test_ui_scale_slider_rect_logged = Some(marker);
+                                        crate::studio_log!(
+                                            "UI_TEST_UI_SCALE_SLIDER_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                            rect.left(), rect.top(), rect.width(), rect.height(),
+                                            ctx.pixels_per_point()
+                                        );
+                                    }
+                                    crate::studio_log!("UI_TEST_UI_SCALE: {:.3}", self.ui_scale);
+                                }
                             });
                             if ui.button("Reset appearance").clicked() {
                                 self.appearance_mode = crate::workspace::AppearanceMode::Dark;
@@ -9129,6 +9615,24 @@ impl Studio {
                             ui.label("0  Fit canvas");
                             ui.label("F11  Full screen");
                         });
+                        if self.test_path_dialog {
+                            let rect = view_menu.response.rect;
+                            let marker = [
+                                (rect.left() * 100.0).round() as i32,
+                                (rect.top() * 100.0).round() as i32,
+                                (rect.width() * 100.0).round() as i32,
+                                (rect.height() * 100.0).round() as i32,
+                                (ctx.pixels_per_point() * 1000.0).round() as i32,
+                            ];
+                            if self.test_view_menu_rect_logged != Some(marker) {
+                                self.test_view_menu_rect_logged = Some(marker);
+                                crate::studio_log!(
+                                    "UI_TEST_VIEW_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                    rect.left(), rect.top(), rect.width(), rect.height(),
+                                    ctx.pixels_per_point()
+                                );
+                            }
+                        }
                         ui.menu_button("Window", |ui| {
                             if ui
                                 .checkbox(&mut self.show_controls, "Inspector · F6")
@@ -9163,7 +9667,6 @@ impl Studio {
                                         crate::workspace::PaletteDock::Right
                                     }
                                 };
-                                self.palette_collapsed = false;
                                 self.palette_position = [72.0, 64.0];
                                 self.navigation = Default::default();
                                 for (index, reference) in self.references.iter_mut().enumerate() {
@@ -9326,7 +9829,7 @@ impl Studio {
                                                 );
                                             }
                                             if preset.clicked() {
-                                                activate_brush_preset(&mut project.brush, kind);
+                                                self.set_brush_preset(&mut project.brush, kind);
                                                 if self.test_path_dialog {
                                                     crate::studio_log!("UI_TEST_QUICK_BRUSH_SELECTED: {kind:?}");
                                                 }
@@ -9894,6 +10397,19 @@ impl Studio {
                                             .text("Opacity"),
                                     );
                                     ui.weak("Drag · Esc cancels");
+                                } else if self.tool == EditTool::Fill {
+                                    ui.strong("Fill");
+                                    ui.weak("Click the canvas to fill the selection or current layer");
+                                    let color = session.live().project().brush.color;
+                                    let swatch = crate::studio_icons::color_swatch(
+                                        ui,
+                                        egui::Color32::from_rgb(color[0], color[1], color[2]),
+                                        "Fill color · open Color controls",
+                                    );
+                                    if swatch.clicked() {
+                                        self.select_inspector_tab(crate::workspace::InspectorTab::Color);
+                                        workspace_changed = true;
+                                    }
                                 } else {
                                     let has_selection =
                                         session.live().project().state().selection.is_some();
@@ -9902,6 +10418,7 @@ impl Studio {
                                         EditTool::Ellipse => "Ellipse selection",
                                         EditTool::Lasso => "Freehand selection",
                                         EditTool::Eyedropper => "Eyedropper",
+                                        EditTool::Fill => "Fill",
                                         EditTool::Brush => "Brush",
                                         EditTool::Smudge => "Smudge",
                                         EditTool::ColorMix => "Color Mixer",
@@ -9942,13 +10459,51 @@ impl Studio {
                                         self.inspector_tab = crate::workspace::InspectorTab::Edit;
                                         workspace_changed = true;
                                     }
-                                    if ui
-                                        .add_enabled(has_selection, egui::Button::new("Deselect"))
-                                        .clicked()
-                                    {
-                                        actions.push(Action::Deselect);
+                                }
+                                ui.separator();
+                                let symmetry_button = crate::studio_icons::button(
+                                    ui,
+                                    crate::studio_icons::Icon::Symmetry,
+                                    "Symmetry guide",
+                                    Some("Y"),
+                                    self.symmetry_panel_open,
+                                    [44.0, 44.0],
+                                );
+                                if symmetry_button.clicked() {
+                                    self.symmetry_panel_open = !self.symmetry_panel_open;
+                                    if !self.symmetry_panel_open {
+                                        self.symmetry_origin_armed = false;
                                     }
                                 }
+                                let brush_kind = session.live().project().brush.kind;
+                                let current_tool = if self.tool == EditTool::Brush
+                                    && brush_kind == BrushKind::Eraser
+                                {
+                                    "Eraser"
+                                } else {
+                                    match self.tool {
+                                        EditTool::Brush => "Brush",
+                                        EditTool::Smudge => "Smudge",
+                                        EditTool::ColorMix => "Color mixer",
+                                        EditTool::Fill => "Fill",
+                                        EditTool::Rectangle => "Rectangle selection",
+                                        EditTool::Ellipse => "Ellipse selection",
+                                        EditTool::Lasso => "Lasso selection",
+                                        EditTool::Eyedropper => "Eyedropper",
+                                        EditTool::ShapeLine => "Line",
+                                        EditTool::ShapeRectangle => "Rectangle",
+                                        EditTool::ShapeEllipse => "Ellipse",
+                                        EditTool::QuickShape => "QuickShape",
+                                        EditTool::VectorPath => "Create path",
+                                        EditTool::Gradient => "Gradient",
+                                    }
+                                };
+                                let family = crate::studio_toolbar::ToolFamily::containing(self.tool);
+                                let family_name = family.map_or("Direct tools", |family| family.label());
+                                let family_count = family.map_or(3, |family| family.members().len());
+                                ui.separator();
+                                ui.strong(current_tool);
+                                ui.weak(format!("{family_name} · {family_count} tools"));
                             });
                                 });
                         });
@@ -10001,13 +10556,11 @@ impl Studio {
                     || self.palette_was_horizontal != horizontal_palette;
             self.palette_viewport_height = palette_area_height;
             self.palette_was_horizontal = horizontal_palette;
-            let compact_palette =
-                self.palette_collapsed || horizontal_palette || screen.width() < 760.0;
             let area = egui::Area::new(egui::Id::new("tool palette"))
                 .movable(false)
                 .constrain_to(screen.shrink(4.0))
                 .order(egui::Order::Foreground)
-                .default_size(egui::vec2(80.0, palette_area_height))
+                .default_size(egui::vec2(72.0, palette_area_height))
                 .sizing_pass(palette_geometry_changed)
                 .current_pos(dock_position);
             let mut palette_grip_drag_started = false;
@@ -10015,25 +10568,30 @@ impl Studio {
             let mut palette_grip_drag_stopped = false;
             let palette_response = area.show(ctx, |ui| {
                 crate::ui_tokens::tool_palette_frame(ui.visuals()).show(ui, |ui| {
-                    if compact_palette && !horizontal_palette {
-                        // Keep 44pt tool targets while reclaiming two points
-                        // of chrome in the 640pt canvas/Inspector layout. The
-                        // saved drawer can then retain its approved width
-                        // without dropping below the verified open-canvas
-                        // budget beside the palette.
-                        ui.set_width(56.0);
-                    }
-                    if horizontal_palette {
-                        ui.set_min_width((screen.width() - 16.0).clamp(1.0, 640.0));
-                    }
-                    let mut draw_tools = |ui: &mut egui::Ui| {
-                        if !horizontal_palette {
-                            ui.add_space(8.0);
-                        }
+                    ui.set_width(56.0);
+                    egui::ScrollArea::vertical()
+                        .id_salt("approved-tool-rail-scroll")
+                        .max_height((palette_viewport.height() - 16.0).max(120.0))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                    let toolbar_root = egui::Id::new("bitchpixel-tools-toolbar-region");
+                    ctx.accesskit_node_builder(toolbar_root, |node| {
+                        node.set_role(egui::accesskit::Role::Toolbar);
+                        node.set_label("Tools");
+                    });
+                    self.toolbar_focus_ids.clear();
+                    ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .id_salt("approved-material-tool-rail")
+                            .accessibility_parent(toolbar_root),
+                        |ui| {
+                            ui.set_width(56.0);
+                            ui.add_space(4.0);
                             let grip = crate::studio_icons::palette_drag_handle(ui);
                             palette_grip_drag_started = grip.drag_started();
                             palette_grip_dragged = grip.dragged();
                             palette_grip_drag_stopped = grip.drag_stopped();
+                            self.toolbar_focus_ids.push(grip.id);
                             if self.test_path_dialog {
                                 let rect = grip.rect;
                                 let marker = [
@@ -10047,417 +10605,222 @@ impl Studio {
                                     self.test_palette_grip_rect_logged = Some(marker);
                                     crate::studio_log!(
                                         "UI_TEST_PALETTE_GRIP_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                        rect.left(),
-                                        rect.top(),
-                                        rect.width(),
-                                        rect.height(),
+                                        rect.left(), rect.top(), rect.width(), rect.height(),
                                         ctx.pixels_per_point(),
                                     );
                                 }
                             }
-                        if !horizontal_palette && screen.width() >= 760.0 {
-                            let expanded = !self.palette_collapsed;
-                            let response = crate::studio_icons::button(
-                                ui,
-                                if expanded {
-                                    crate::studio_icons::Icon::ChevronLeft
+
+                            let mut rail_focus = vec![grip.id];
+                            for (direct_index, entry) in crate::studio_toolbar::DIRECT_TOOLS
+                                .into_iter()
+                                .enumerate()
+                            {
+                                let brush_kind = session.live().project().brush.kind;
+                                let selected = if entry.icon == crate::studio_icons::Icon::Eraser {
+                                    brush_kind == BrushKind::Eraser
+                                } else if entry.icon == crate::studio_icons::Icon::Brush {
+                                    self.tool == EditTool::Brush && brush_kind != BrushKind::Eraser
                                 } else {
-                                    crate::studio_icons::Icon::ChevronRight
-                                },
-                                if expanded {
-                                    "Collapse tools"
-                                } else {
-                                    "Expand tools"
-                                },
-                                None,
-                                false,
-                                [46.0, 36.0],
-                            );
-                            if self.test_path_dialog {
-                                let rect = response.rect;
-                                let marker = [
-                                    (rect.left() * 100.0).round() as i32,
-                                    (rect.top() * 100.0).round() as i32,
-                                    (rect.width() * 100.0).round() as i32,
-                                    (rect.height() * 100.0).round() as i32,
-                                    (ctx.pixels_per_point() * 1000.0).round() as i32,
-                                ];
-                                if self.test_palette_toggle_logged != Some(marker) {
-                                    self.test_palette_toggle_logged = Some(marker);
-                                crate::studio_log!(
-                                    "UI_TEST_PALETTE_TOGGLE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                    rect.left(),
-                                    rect.top(),
-                                    rect.width(),
-                                    rect.height(),
-                                    ctx.pixels_per_point(),
-                                );
-                                }
-                            }
-                            if response.clicked() {
-                                self.palette_collapsed = expanded;
-                                workspace_changed = true;
-                                if self.test_path_dialog {
-                                    crate::studio_log!(
-                                        "UI_TEST_PALETTE_STATE: collapsed={}",
-                                        self.palette_collapsed
-                                    );
-                                }
-                            }
-                        }
-                        let mut previous_tool_group = None;
-                        for (tool, icon, name, shortcut, group) in [
-                            (
-                                EditTool::Brush,
-                                crate::studio_icons::Icon::Brush,
-                                "Brush",
-                                "B",
-                                0,
-                            ),
-                            (
-                                EditTool::Smudge,
-                                crate::studio_icons::Icon::Smudge,
-                                "Smudge",
-                                "S",
-                                0,
-                            ),
-                            (
-                                EditTool::ColorMix,
-                                crate::studio_icons::Icon::ColorMixer,
-                                "Color Mixer",
-                                "X",
-                                0,
-                            ),
-                            (
-                                EditTool::Rectangle,
-                                crate::studio_icons::Icon::RectangleSelection,
-                                "Rectangle selection",
-                                "M",
-                                1,
-                            ),
-                            (
-                                EditTool::Ellipse,
-                                crate::studio_icons::Icon::EllipseSelection,
-                                "Ellipse selection",
-                                "E",
-                                1,
-                            ),
-                            (
-                                EditTool::Lasso,
-                                crate::studio_icons::Icon::Lasso,
-                                "Freehand lasso",
-                                "K",
-                                1,
-                            ),
-                            (
-                                EditTool::ShapeLine,
-                                crate::studio_icons::Icon::Line,
-                                "Draw line",
-                                "L",
-                                2,
-                            ),
-                            (
-                                EditTool::VectorPath,
-                                crate::studio_icons::Icon::Path,
-                                "Editable vector path",
-                                "V",
-                                2,
-                            ),
-                            (
-                                EditTool::ShapeRectangle,
-                                crate::studio_icons::Icon::Rectangle,
-                                "Draw rectangle",
-                                "R",
-                                2,
-                            ),
-                            (
-                                EditTool::ShapeEllipse,
-                                crate::studio_icons::Icon::Ellipse,
-                                "Draw ellipse",
-                                "O",
-                                2,
-                            ),
-                            (
-                                EditTool::QuickShape,
-                                crate::studio_icons::Icon::QuickShape,
-                                "QuickShape recognition",
-                                "Q",
-                                2,
-                            ),
-                            (
-                                EditTool::Gradient,
-                                crate::studio_icons::Icon::Gradient,
-                                "Gradient",
-                                "G",
-                                2,
-                            ),
-                            (
-                                EditTool::Eyedropper,
-                                crate::studio_icons::Icon::Eyedropper,
-                                "Eyedropper",
-                                "I",
-                                3,
-                            ),
-                        ] {
-                            if previous_tool_group.is_some_and(|previous| previous != group) {
-                                ui.separator();
-                            }
-                            previous_tool_group = Some(group);
-                            let response = if compact_palette {
-                                crate::studio_icons::button(
+                                    self.tool == entry.tool
+                                };
+                                let response = crate::studio_icons::button(
                                     ui,
-                                    icon,
-                                    name,
-                                    Some(shortcut),
-                                    self.tool == tool,
-                                    [46.0, 46.0],
-                                )
-                            } else {
-                                ui.horizontal(|ui| {
-                                    let response = crate::studio_icons::button(
-                                        ui,
-                                        icon,
-                                        name,
-                                        Some(shortcut),
-                                        self.tool == tool,
-                                        [46.0, 46.0],
-                                    );
-                                    ui.label(name);
-                                    response
-                                })
-                                .inner
-                            };
-                            if tool == EditTool::Brush
-                                && self.test_path_dialog
-                                && !self.welcome
-                                && !self.new_dialog
-                                && !self.manual_file_dialog
-                            {
-                                let rect = response.rect;
-                                let marker = [
-                                    (rect.left() * 100.0).round() as i32,
-                                    (rect.top() * 100.0).round() as i32,
-                                    (rect.width() * 100.0).round() as i32,
-                                    (rect.height() * 100.0).round() as i32,
-                                    (self.context.pixels_per_point() * 1000.0).round() as i32,
-                                ];
-                                if self.test_brush_rect_logged != Some(marker) {
-                                    self.test_brush_rect_logged = Some(marker);
-                                    crate::studio_log!(
-                                        "UI_TEST_BRUSH_RECT: {:.2} {:.2} {:.2} {:.2} {:.2}",
-                                        rect.left(),
-                                        rect.top(),
-                                        rect.width(),
-                                        rect.height(),
-                                        self.context.pixels_per_point()
-                                    );
-                                }
-                                if response.hovered() || response.clicked() {
-                                    crate::studio_log!(
-                                        "UI_TEST_BRUSH_POINTER: {} {} {:.2} {:.2} {:.2} {:.2} {:.2}",
-                                        response.hovered(),
-                                        response.clicked(),
-                                        rect.left(),
-                                        rect.top(),
-                                        rect.width(),
-                                        rect.height(),
-                                        self.context.pixels_per_point()
-                                    );
-                                }
-                            }
-                            if response.clicked() {
-                                self.symmetry_origin_armed = false;
-                                self.tool = tool;
-                                if tool == EditTool::VectorPath {
-                                    self.select_inspector_tab(
-                                        crate::workspace::InspectorTab::Edit,
-                                    );
-                                }
-                                if tool != EditTool::Brush {
-                                    self.mask_editing_layer = None;
-                                }
-                                let editing_mask = self.mask_editing_layer
-                                    == Some(session.live().project().state().selected);
-                                let stroke_mode = stroke_mode_for_tool(
-                                    tool,
-                                    self.color_mix_strength,
-                                    editing_mask,
+                                    entry.icon,
+                                    entry.label,
+                                    (!entry.shortcut.is_empty()).then_some(entry.shortcut),
+                                    selected,
+                                    [44.0, 44.0],
                                 );
-                                session.live_mut().set_stroke_mode(stroke_mode);
+                                self.toolbar_focus_ids.push(response.id);
+                                rail_focus.push(response.id);
                                 if self.test_path_dialog {
-                                    crate::studio_log!("UI_TEST_ACTIVE_TOOL: {:?}", self.tool);
+                                    let rect = response.rect;
+                                    let marker = [
+                                        (rect.left() * 100.0).round() as i32,
+                                        (rect.top() * 100.0).round() as i32,
+                                        (rect.width() * 100.0).round() as i32,
+                                        (rect.height() * 100.0).round() as i32,
+                                        (ctx.pixels_per_point() * 1000.0).round() as i32,
+                                    ];
+                                    if self.test_toolbar_direct_rects[direct_index] != Some(marker) {
+                                        self.test_toolbar_direct_rects[direct_index] = Some(marker);
+                                        crate::studio_log!(
+                                            "UI_TEST_TOOL_DIRECT_RECT: {} {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                            entry.label,
+                                            rect.left(), rect.top(), rect.width(), rect.height(),
+                                            ctx.pixels_per_point()
+                                        );
+                                    }
                                 }
-                                // Tool selection changes the active drawing
-                                // context, not the Inspector destination. The
-                                // contextual strip updates from `tool`; artists
-                                // keep their chosen Inspector tab and can reach
-                                // every other section without a forced jump.
-                                let old_panels_closed = self.brush_flyout_open
-                                    || self.layers_flyout_open
-                                    || self.color_flyout_open;
-                                self.brush_flyout_open = false;
-                                self.layers_flyout_open = false;
-                                self.color_flyout_open = false;
-                                if old_panels_closed {
-                                    workspace_changed = true;
+                                if entry.icon == crate::studio_icons::Icon::Brush
+                                    && self.test_path_dialog
+                                    && !self.welcome
+                                    && !self.new_dialog
+                                    && !self.manual_file_dialog
+                                {
+                                    let rect = response.rect;
+                                    let marker = [
+                                        (rect.left() * 100.0).round() as i32,
+                                        (rect.top() * 100.0).round() as i32,
+                                        (rect.width() * 100.0).round() as i32,
+                                        (rect.height() * 100.0).round() as i32,
+                                        (ctx.pixels_per_point() * 1000.0).round() as i32,
+                                    ];
+                                    if self.test_brush_rect_logged != Some(marker) {
+                                        self.test_brush_rect_logged = Some(marker);
+                                        crate::studio_log!(
+                                            "UI_TEST_BRUSH_RECT: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                            rect.left(), rect.top(), rect.width(), rect.height(),
+                                            ctx.pixels_per_point()
+                                        );
+                                    }
+                                    if response.hovered() || response.clicked() {
+                                        crate::studio_log!(
+                                            "UI_TEST_BRUSH_POINTER: {} {} {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                            response.hovered(), response.clicked(), rect.left(),
+                                            rect.top(), rect.width(), rect.height(),
+                                            ctx.pixels_per_point()
+                                        );
+                                    }
+                                }
+                                if response.clicked() {
+                                    self.select_toolbar_tool(entry, session);
                                 }
                             }
-                        }
-                        ui.separator();
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Color,
-                            "Color controls",
-                            Some("C"),
-                            self.color_flyout_open,
-                            [46.0, 46.0],
-                        )
-                        .clicked()
-                        {
-                            self.brush_flyout_open = false;
-                            self.layers_flyout_open = false;
-                            self.color_flyout_open = false;
-                            if self.show_controls
-                                && self.inspector_tab == crate::workspace::InspectorTab::Color
-                            {
-                                self.show_controls = false;
+
+                            ui.separator();
+                            let compact_groups = palette_viewport.height() < 520.0
+                                || screen.width() < 760.0;
+                            let family_index = crate::studio_toolbar::ToolFamily::containing(self.tool)
+                                .map(|family| {
+                                    crate::studio_toolbar::ToolFamily::ORDERED
+                                        .iter()
+                                        .position(|candidate| *candidate == family)
+                                        .unwrap_or(0)
+                                })
+                                .unwrap_or_else(|| {
+                                    self.toolbar_more_page
+                                        % crate::studio_toolbar::ToolFamily::ORDERED.len()
+                                });
+                            if compact_groups {
+                                self.toolbar_more_page = family_index;
+                            }
+                            let families: Vec<_> = if compact_groups {
+                                vec![crate::studio_toolbar::ToolFamily::ORDERED[family_index]]
                             } else {
-                                self.show_controls = true;
-                                self.inspector_tab = crate::workspace::InspectorTab::Color;
-                            }
-                            workspace_changed = true;
-                            ctx.request_repaint();
-                        }
-                        let symmetry_button = crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Symmetry,
-                            "Drawing symmetry and guides",
-                            Some("Y"),
-                            self.symmetry_panel_open,
-                            [46.0, 46.0],
-                        );
-                        if self.test_path_dialog {
-                            crate::studio_log!(
-                                "UI_TEST_SYMMETRY_BUTTON_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
-                                symmetry_button.rect.left(),
-                                symmetry_button.rect.top(),
-                                symmetry_button.rect.width(),
-                                symmetry_button.rect.height(),
-                                ctx.pixels_per_point()
-                            );
-                        }
-                        if symmetry_button.clicked() {
-                            self.symmetry_panel_open = !self.symmetry_panel_open;
-                            if !self.symmetry_panel_open {
-                                self.symmetry_origin_armed = false;
-                            }
-                            ctx.request_repaint();
-                        }
-                        if !compact_palette {
-                            let layers = ui
-                                .button("Layers")
-                                .on_hover_text("Open Layers in the Inspector");
-                            if layers.clicked() {
-                                self.show_controls = true;
-                                self.inspector_tab = crate::workspace::InspectorTab::Layers;
-                                self.layers_flyout_open = false;
-                                self.brush_flyout_open = false;
-                                self.color_flyout_open = false;
-                                workspace_changed = true;
-                                ctx.request_repaint();
-                            }
-                        } else if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Layers,
-                            "Layers",
-                            None,
-                            false,
-                            [46.0, 46.0],
-                        )
-                        .clicked()
-                        {
-                            self.show_controls = true;
-                            self.inspector_tab = crate::workspace::InspectorTab::Layers;
-                            self.layers_flyout_open = false;
-                            self.brush_flyout_open = false;
-                            self.color_flyout_open = false;
-                            workspace_changed = true;
-                            ctx.request_repaint();
-                        }
-                        ui.separator();
-                        let can_add_reference =
-                            self.references.len() < crate::workspace::MAX_REFERENCES;
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Reference,
-                            "Reference Images",
-                            None,
-                            false,
-                            [46.0, 46.0],
-                        )
-                        .clicked()
-                        {
-                            self.show_controls = true;
-                            self.inspector_tab = crate::workspace::InspectorTab::References;
-                            self.layers_flyout_open = false;
-                            self.brush_flyout_open = false;
-                            self.color_flyout_open = false;
-                            workspace_changed = true;
-                            if can_add_reference {
-                                self.picker = Some(FileRequest::AddReferences);
-                            } else {
-                                self.status = format!(
-                                    "Reference board is full ({} images maximum)",
-                                    crate::workspace::MAX_REFERENCES
+                                crate::studio_toolbar::ToolFamily::ORDERED.to_vec()
+                            };
+                            for family in families.iter().copied() {
+                                let response = self.show_tool_family(
+                                    ui, family, session, actions,
                                 );
+                                rail_focus.push(response.id);
                             }
-                        }
-                        ui.separator();
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Deselect,
-                            "Deselect",
-                            Some("Ctrl+D"),
-                            false,
-                            [46.0, 42.0],
-                        )
-                        .clicked()
-                        {
-                            actions.push(Action::Deselect);
-                        }
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Fill,
-                            "Fill selection",
-                            Some("Ctrl+F"),
-                            false,
-                            [46.0, 42.0],
-                        )
-                        .clicked()
-                        {
-                            actions.push(Action::Fill(false));
-                        }
-                        if crate::studio_icons::button(
-                            ui,
-                            crate::studio_icons::Icon::Eraser,
-                            "Erase selection",
-                            Some("Ctrl+X"),
-                            false,
-                            [46.0, 42.0],
-                        )
-                        .clicked()
-                        {
-                            actions.push(Action::Fill(true));
-                        }
-                    };
-                    if horizontal_palette {
-                        ui.horizontal_wrapped(&mut draw_tools);
-                    } else {
-                        egui::ScrollArea::vertical()
-                            .max_height((palette_viewport.height() - 16.0).max(120.0))
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| ui.vertical_centered(&mut draw_tools));
-                    }
+
+                            if compact_groups {
+                                let more = crate::studio_icons::button(
+                                    ui,
+                                    crate::studio_icons::Icon::ExpandMore,
+                                    "More tool families",
+                                    Some("Page Down"),
+                                    false,
+                                    [44.0, 44.0],
+                                );
+                                if self.test_path_dialog {
+                                    let rect = more.rect;
+                                    let marker = [
+                                        (rect.left() * 100.0).round() as i32,
+                                        (rect.top() * 100.0).round() as i32,
+                                        (rect.width() * 100.0).round() as i32,
+                                        (rect.height() * 100.0).round() as i32,
+                                        (ctx.pixels_per_point() * 1000.0).round() as i32,
+                                    ];
+                                    if self.test_toolbar_more_rect_logged != Some(marker) {
+                                        self.test_toolbar_more_rect_logged = Some(marker);
+                                        crate::studio_log!(
+                                            "UI_TEST_TOOLBAR_MORE_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                            rect.left(), rect.top(), rect.width(), rect.height(),
+                                            ctx.pixels_per_point()
+                                        );
+                                    }
+                                }
+                                self.toolbar_focus_ids.push(more.id);
+                                rail_focus.push(more.id);
+                                if more.clicked() {
+                                    self.toolbar_more_page = (family_index + 1)
+                                        % crate::studio_toolbar::ToolFamily::ORDERED.len();
+                                    ctx.request_repaint();
+                                    if self.test_path_dialog {
+                                        crate::studio_log!(
+                                            "UI_TEST_TOOLBAR_MORE: {}",
+                                            crate::studio_toolbar::ToolFamily::ORDERED[
+                                                self.toolbar_more_page
+                                            ].label()
+                                        );
+                                    }
+                                }
+                            }
+
+                            if !egui::Popup::is_any_open(ctx) {
+                                let navigation = ui.input(|input| {
+                                    (
+                                        input.key_pressed(egui::Key::ArrowUp),
+                                        input.key_pressed(egui::Key::ArrowDown),
+                                        input.key_pressed(egui::Key::Home),
+                                        input.key_pressed(egui::Key::End),
+                                        input.key_pressed(egui::Key::PageUp),
+                                        input.key_pressed(egui::Key::PageDown),
+                                    )
+                                });
+                                let focused = rail_focus.iter().position(|id| {
+                                    ui.memory(|memory| memory.focused() == Some(*id))
+                                });
+                                if let Some(index) = focused {
+                                    if navigation.0 || navigation.1 {
+                                        let target = crate::studio_toolbar::adjacent_focus(
+                                            index, rail_focus.len(), navigation.1,
+                                        )
+                                        .and_then(|index| rail_focus.get(index).copied());
+                                        if let Some(target) = target {
+                                            ui.memory_mut(|memory| memory.request_focus(target));
+                                        }
+                                    } else if navigation.2 {
+                                        if let Some(target) = rail_focus.first() {
+                                            ui.memory_mut(|memory| memory.request_focus(*target));
+                                        }
+                                    } else if navigation.3
+                                        && let Some(target) = rail_focus.last()
+                                    {
+                                        ui.memory_mut(|memory| memory.request_focus(*target));
+                                    }
+                                    if compact_groups && (navigation.4 || navigation.5) {
+                                        self.toolbar_more_page = if navigation.5 {
+                                            (family_index + 1)
+                                                % crate::studio_toolbar::ToolFamily::ORDERED.len()
+                                        } else {
+                                            family_index.saturating_sub(1)
+                                        };
+                                        ctx.request_repaint();
+                                    }
+                                }
+                            }
+                            if self.test_path_dialog {
+                                let scale = ctx.pixels_per_point();
+                                let rect = egui::AreaState::load(ctx, egui::Id::new("tool palette"))
+                                    .map(|state| state.rect());
+                                if let Some(rect) = rect {
+                                    crate::studio_log!(
+                                        "UI_TEST_APPROVED_TOOLBAR: compact={} groups={} rect={:.1},{:.1},{:.1},{:.1} scale={:.2}",
+                                        compact_groups,
+                                        families.len(),
+                                        rect.left(), rect.top(), rect.width(), rect.height(), scale
+                                    );
+                                }
+                            }
+                        },
+                    );
+                        });
                 });
             });
             let rect = palette_response.response.rect;
@@ -11189,7 +11552,7 @@ impl Studio {
                                                 fully_visible_preset_cards += 1;
                                             }
                                             if activated {
-                                                activate_brush_preset(&mut project.brush, kind);
+                                                self.set_brush_preset(&mut project.brush, kind);
                                                 if self.test_path_dialog {
                                                     crate::studio_log!(
                                                         "UI_TEST_INSPECTOR_BRUSH_SELECTED: {:?}",
@@ -12554,7 +12917,7 @@ impl Studio {
                                             );
                                         }
                                         if activated {
-                                            activate_brush_preset(&mut project.brush, kind);
+                                            self.set_brush_preset(&mut project.brush, kind);
                                         }
                                         let favorite = self.favorite_brushes.contains(&kind);
                                         let response = ui.add_sized(
@@ -12592,7 +12955,7 @@ impl Studio {
                                             let texture = self.brush_preset_texture(ui.ctx(), kind);
                                             let (activated, _) = brush_preset_card_with_preview(ui, kind, selected, project.brush.color, 148.0, 82.0, texture);
                                             if activated {
-                                                activate_brush_preset(&mut project.brush, kind);
+                                                self.set_brush_preset(&mut project.brush, kind);
                                             }
                                             let favorite = self.favorite_brushes.contains(&kind);
                                             let label = if favorite { "★" } else { "☆" };
@@ -15567,6 +15930,26 @@ impl Studio {
             self.paint_placed_image_preview(ctx, central, session, size);
             self.placed_image_controls(ctx, session, &mut actions);
         });
+        if let Some(trigger) = self.toolbar_popup_trigger
+            && !crate::studio_toolbar::ToolFamily::ORDERED
+                .iter()
+                .any(|family| {
+                    egui::Popup::is_id_open(
+                        &self.context,
+                        egui::Id::new(("approved-tool-family", *family)),
+                    )
+                })
+        {
+            self.toolbar_popup_trigger = None;
+            self.toolbar_focus_restore.get_or_insert(trigger);
+            if self.test_path_dialog {
+                crate::studio_log!("UI_TEST_TOOL_FAMILY_CLOSED");
+            }
+        }
+        if let Some(target) = self.toolbar_focus_restore.take() {
+            ctx.memory_mut(|memory| memory.request_focus(target));
+            ctx.request_repaint();
+        }
         // Tool controls are edited inside the UI frame. Capture their latest
         // mode parameters before subsequent native pointer events arrive.
         if let Err(error) = session.live_mut().project_mut().set_symmetry(self.symmetry) {

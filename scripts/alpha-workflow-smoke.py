@@ -550,6 +550,45 @@ def screenshot_region_difference(left, right, region):
 def palette_bounds():
     return window_rect_marker('UI_TEST_PALETTE_RECT')
 
+def toolbar_more_bounds():
+    return window_rect_marker('UI_TEST_TOOLBAR_MORE_RECT')
+
+def toolbar_family_bounds(family):
+    prefix=f'UI_TEST_TOOL_FAMILY_RECT: {family} '
+    lines=[line[len(prefix):] for line in application_log_lines()
+           if line.startswith(prefix)]
+    return tuple(map(float,lines[-1].split()[:5])) if lines else None
+
+def toolbar_smudge_bounds():
+    return window_rect_marker('UI_TEST_TOOL_MENU_SMUDGE_RECT')
+
+def toolbar_direct_bounds(name):
+    prefix=f'UI_TEST_TOOL_DIRECT_RECT: {name} '
+    lines=[line[len(prefix):] for line in application_log_lines()
+           if line.startswith(prefix)]
+    return tuple(map(float,lines[-1].split()[:5])) if lines else None
+
+def view_menu_bounds():
+    return window_rect_marker('UI_TEST_VIEW_MENU_RECT')
+
+def interface_scale_slider_bounds():
+    return window_rect_marker('UI_TEST_UI_SCALE_SLIDER_RECT')
+
+def set_interface_scale(window, prefs, scale):
+    current=json.loads(prefs.read_text()).get('ui_scale',1.0)
+    if abs(float(current)-scale)<0.02:
+        return
+    view=wait(view_menu_bounds,'View menu remains reachable for interface-size verification')
+    click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
+    slider=wait(interface_scale_slider_bounds,'View exposes the real Interface size slider')
+    fraction=(scale-0.8)/(1.6-0.8)
+    click_at((slider[0]+slider[2]*fraction)*slider[4],
+             (slider[1]+slider[3]/2)*slider[4])
+    wait(lambda:abs(float(json.loads(prefs.read_text()).get('ui_scale',0))-scale)<0.02,
+         f'the application persists Interface size {scale:.0%}')
+    key('Escape')
+    time.sleep(0.15)
+
 def palette_chrome_clearance():
     lines=[line for line in application_log_lines()
            if line.startswith('UI_TEST_PALETTE_CHROME_CLEARANCE: ')]
@@ -1991,28 +2030,126 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert palette[3] >= 440.0, f'normal-height tool rail should show more than a clipped handful of tools: {palette}'
             assert palette[1] + palette[3] <= 800/palette[4] - 40.0, \
                 f'tool rail must leave the bottom status area accessible: {palette}'
-            toggle=wait(lambda: settled_window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
-                        'compact palette exposes a keyboard-labeled expand control')
-            click_at((toggle[0]+toggle[2]/2)*toggle[4],
-                     (toggle[1]+toggle[3]/2)*toggle[4])
-            wait(lambda: event_marker('UI_TEST_PALETTE_STATE') == 'collapsed=false',
-                 'the toolbar can expand from its compact default')
-            wait(lambda: json.loads(prefs.read_text()).get('palette_collapsed') is False,
-                 'expanded toolbar preference is persisted')
-            expanded=wait(lambda: (lambda bounds: bounds if bounds and bounds[2]>100 else None)(palette_bounds()),
-                          'expanded toolbar exposes labeled tools')
-            assert expanded[2] > palette[2], \
-                f'expanded toolbar should provide more room for tool names: compact={palette}, expanded={expanded}'
-            toggle=wait(lambda: settled_window_rect_marker('UI_TEST_PALETTE_TOGGLE_RECT'),
-                        'expanded toolbar exposes its updated collapse control')
-            click_at((toggle[0]+toggle[2]/2)*toggle[4],
-                     (toggle[1]+toggle[3]/2)*toggle[4])
-            wait(lambda: event_marker('UI_TEST_PALETTE_STATE') == 'collapsed=true',
-                 'the expanded toolbar collapses back to its compact rail')
-            wait(lambda: json.loads(prefs.read_text()).get('palette_collapsed') is True,
-                 'compact toolbar preference is persisted')
-            palette=wait(lambda: (lambda bounds: bounds if bounds and bounds[2]<=90 else None)(palette_bounds()),
-                         'compact toolbar width returns after collapse')
+            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
+                         'the approved Paint Effects group is visible in the tool rail')
+            before_strokes=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
+            click_at((effects[0]+effects[2]/2)*effects[4],
+                     (effects[1]+effects[3]/2)*effects[4])
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
+                 'the Paint Effects popup opens from a real pointer click')
+            capture_window(window,'approved-toolbar-paint-effects-popup')
+            mapping=wait(canvas_mapping_marker,'the canvas bounds are available for popup dismissal')
+            stroke_count=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            commit_count=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
+            close_count=event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')
+            click_at(((mapping[0]+mapping[2])/2)*palette[4],
+                     ((mapping[1]+mapping[3])/2)*palette[4])
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')>close_count,
+                 'clicking the canvas dismisses the tool popup')
+            time.sleep(0.12)
+            assert event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')==stroke_count==before_strokes, \
+                'popup dismissal on the canvas must not start a paint stroke'
+            assert event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')==commit_count, \
+                'popup dismissal must not commit an unintended canvas stroke'
+            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
+                         'Paint Effects remains reachable after popup dismissal')
+            click_at((effects[0]+effects[2]/2)*effects[4],
+                     (effects[1]+effects[3]/2)*effects[4])
+            smudge=wait(toolbar_smudge_bounds,'the Smudge option is exposed with a real pointer target')
+            assert smudge[2]>=44 and smudge[3]>=44, f'Smudge popup target is smaller than 44 points: {smudge}'
+            click_at((smudge[0]+smudge[2]/2)*smudge[4],
+                     (smudge[1]+smudge[3]/2)*smudge[4])
+            wait(lambda:event_marker('UI_TEST_TOOL_SELECTED')=='Smudge',
+                 'the Smudge menu item selects the existing Smudge tool')
+            capture_window(window,'approved-toolbar-smudge-selected')
+            brush=wait(brush_rect,'the direct Brush action remains available')
+            click_at((brush[0]+brush[2]/2)*brush[4],
+                     (brush[1]+brush[3]/2)*brush[4])
+            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+                 'the direct Brush action returns from Smudge to Brush')
+            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
+                         'Paint Effects remains available for keyboard operation')
+            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
+            click_at((effects[0]+effects[2]/2)*effects[4],
+                     (effects[1]+effects[3]/2)*effects[4])
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
+                 'the Paint Effects popup opens before keyboard navigation')
+            key('Down');key('Return')
+            wait(lambda:event_marker('UI_TEST_TOOL_SELECTED')=='Color mixer',
+                 'arrow and Enter keys navigate and activate the next tool in the group')
+            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
+            key('Return')
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
+                 'focus returns to the group trigger after selection and Enter reopens it')
+            close_count=event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')
+            key('Escape')
+            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')>close_count,
+                 'Escape closes the tool popup and restores its trigger focus')
+            brush=wait(brush_rect,'the direct Brush action remains available after keyboard use')
+            click_at((brush[0]+brush[2]/2)*brush[4],
+                     (brush[1]+brush[3]/2)*brush[4])
+            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+                 'Brush is active before compact toolbar verification')
+            resize_window(window,640,480)
+            compact=wait(palette_bounds,'the approved toolbar remains visible at 640x480')
+            assert compact[0]>=-1 and compact[1]>=-1 \
+                and compact[0]+compact[2]<=640/compact[4]+1 \
+                and compact[1]+compact[3]<=480/compact[4]+1, \
+                f'compact toolbar must remain inside the 640x480 viewport: {compact}'
+            assert compact[2]<=90, f'compact toolbar must stay a narrow single-column rail: {compact}'
+            more=wait(toolbar_more_bounds,'narrow toolbar provides the approved grouped-family navigation')
+            assert more[2]>=44 and more[3]>=44, f'More tool families target is smaller than 44 points: {more}'
+            capture_window(window,'approved-toolbar-compact-640')
+            observed_families=[]
+            for expected_family in ['Color Application','Shapes','Selection','Vector','Paint Effects']:
+                count=event_line_count('UI_TEST_TOOLBAR_MORE: ')
+                more=wait(toolbar_more_bounds,'More tool families remains visible at compact size')
+                click_at((more[0]+more[2]/2)*more[4],
+                         (more[1]+more[3]/2)*more[4])
+                wait(lambda:event_line_count('UI_TEST_TOOLBAR_MORE: ')>count,
+                     f'the compact toolbar advances to {expected_family}')
+                selected_family=event_marker('UI_TEST_TOOLBAR_MORE')
+                assert selected_family==expected_family, \
+                    f'approved compact group order mismatch: expected {expected_family}, got {selected_family}'
+                observed_families.append(selected_family)
+            assert observed_families==['Color Application','Shapes','Selection','Vector','Paint Effects']
+            layouts=[('640x480-100',640,480,1.0),
+                     ('1280x800-100',1280,800,1.0),
+                     ('1920x1080-100',1920,1080,1.0)]
+            def verify_toolbar_layout(name,width,height,scale):
+                rect=wait(palette_bounds,f'{name} toolbar geometry settles')
+                assert abs(rect[4]-scale)<0.03, \
+                    f'{name} must use the requested logical scale {scale}: {rect}'
+                assert rect[0]>=-1 and rect[1]>=-1 \
+                    and rect[0]+rect[2]<=width/scale+1 \
+                    and rect[1]+rect[3]<=height/scale+1, \
+                    f'{name} toolbar is outside its logical viewport: {rect}'
+                for name_tool in ['Brush','Eraser','Eyedropper']:
+                    target=wait(lambda:toolbar_direct_bounds(name_tool),
+                                f'{name} exposes the direct {name_tool} target')
+                    assert target[2]>=44 and target[3]>=44, \
+                        f'{name} {name_tool} target is smaller than 44 logical points: {target}'
+                    assert target[0]>=-1 and target[1]>=-1 \
+                        and target[0]+target[2]<=width/scale+1 \
+                        and target[1]+target[3]<=height/scale+1, \
+                        f'{name} {name_tool} target is outside the window: {target}'
+                capture_window(window,f'approved-toolbar-{name}')
+                return rect
+            verify_toolbar_layout('640x480-100',640,480,1.0)
+            resize_window(window,1280,800)
+            palette=verify_toolbar_layout('1280x800-100',1280,800,1.0)
+            resize_window(window,1920,1080)
+            verify_toolbar_layout('1920x1080-100',1920,1080,1.0)
+            set_interface_scale(window,prefs,1.5)
+            for name,width,height in [('640x480-150',640,480),
+                                      ('1280x800-150',1280,800),
+                                      ('1920x1080-150',1920,1080)]:
+                resize_window(window,width,height)
+                verify_toolbar_layout(name,width,height,1.5)
+            set_interface_scale(window,prefs,1.0)
+            resize_window(window,1280,800)
+            palette=wait(palette_bounds,'the toolbar restores its normal layout after resizing')
             assert json.loads(prefs.read_text()).get('palette_dock') == 'Left', \
                 'clicking toolbar controls must not move or redock the palette'
             grip=wait(lambda: window_rect_marker('UI_TEST_PALETTE_GRIP_RECT'),
