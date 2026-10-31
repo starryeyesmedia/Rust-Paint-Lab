@@ -159,37 +159,14 @@ touch, latency, or GPU compatibility based on compilation or synthetic tests.
 Record commands, outcomes, and unrun checks honestly.
 
 ## Git and PR workflow
-The approved migration is to use `main` as BitchPixel's alpha integration
-branch after the exact verified baseline is explicitly approved and merged.
-Candidate `2b3728c2f8316113a1a409c5fec43562c1c5e1b0` passed the Windows, Linux,
-and macOS matrix in Actions run
-[`41153331593`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41153331593).
-It is pinned at `alpha/verified-baseline-2b3728c`; that branch must not move.
-Until the owner merges the baseline PR, preserve
-`feature/studio-overdrive-phase-8` and its development history as-is. After
-approval and merge, branch each new assignment from the latest `main` into a
-short-lived `feat/*`, `fix/*`, `docs/*`, or `chore/*` branch.
-
-- Never commit directly to `main`. After the baseline transition, do not push
-  new assignment work directly to the legacy Phase 8 branch either.
-- Preserve all existing commits and concurrent work. Never reset, rebase,
-  force-push, or delete the legacy development branch to make the migration
-  appear linear.
-- Commit, push, and validate meaningful checkpoints on the short-lived work
-  branch. Multi-checkpoint work may share one focused PR; avoid one PR for every
-  tiny commit.
-- Open a draft PR targeting `main` when the work is meaningfully underway.
-  Include changed behavior, test results, native-format/recovery risks,
-  screenshots for interface changes, and explicit device-testing limitations.
-- Diagnose failed CI on the PR branch. Do not weaken meaningful assertions.
-  Require successful `check (ubuntu-latest)`, `check (windows-latest)`, and
-  `check (macos-latest)` jobs before proposing a merge. An automated pass does
-  not replace owner review or physical S Pen/accessibility testing.
-- Codex must never self-merge, publish a release, make licensing decisions, or
-  alter protected branch settings without explicit owner approval. Keep blocked
-  work as a draft PR with exact continuation notes.
-- Follow `docs/DEVELOPMENT-WORKFLOW.md`. Repository rulesets must be separately
-  configured by an administrator to enforce these requirements.
+- `main` is the alpha integration branch. The owner merged verified baseline PR #6; current baseline checkpoint is `ac375418dfe4c833b932bcaecee785810532681f`. This is an alpha development baseline, not a production release.
+- Start every new assignment from the latest fetched `main` on a short-lived `feat/*`, `fix/*`, `test/*`, `docs/*`, or `chore/*` branch. Keep one focused PR per coherent feature or correction. Never commit directly to `main`.
+- Preserve artwork compatibility, recovery, Undo/Redo, painting behavior, and other working functionality. Explain and test intentional changes to these areas before proposing merge.
+- Preserve the full history and the legacy `feature/studio-overdrive-phase-8` branch. Do not reset, rebase, force-push, or delete it to make history appear linear. Keep merge commits enabled; do not require linear history.
+- Run and require successful `check (ubuntu-latest)`, `check (windows-latest)`, and `check (macos-latest)` CI on the PR commit before merge. Diagnose failures; never weaken meaningful tests to turn CI green.
+- Require eligible human review before merge. Codex must not self-merge, publish a release, make licensing decisions, or alter repository rules without explicit owner authorization.
+- PRs must describe behavior, compatibility/recovery risks, tests and CI links. Include and inspect screenshots for UI changes. Explicitly document physical hardware and accessibility behavior that remains untested; CI and synthetic tests are not hardware or screen-reader validation.
+- Repository rulesets are administrator-managed. Recommended settings and the single-reviewer fallback are documented in `docs/DEVELOPMENT-WORKFLOW.md`.
 
 ## Overdrive protocol
 Maintain `docs/PHASE8-STUDIO-PROGRESS.md` with tested checkpoints, partial/missing
