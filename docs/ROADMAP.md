@@ -7,6 +7,21 @@ Artwork preservation and cross-platform validation apply to every track.
 
 ## Canvas-first design handoff — active implementation
 
+The first approved implementation slice is in progress on
+`feat/inspector-responsive-references`, based on verified `main`
+`b0a4d7e60ec3c86dc45a1c8f209e64c50fe2495e`. Responsive first-run Inspector
+widths now follow the approved effective-viewport table while preserving
+explicitly resized preferences across temporary scaling/narrowing. Pinned
+references avoid the palette, Inspector, and visible Zoom/Fit strip, and now
+magnetically snap on pointer release within 24 logical points; the Linux
+artwork workflow asserts this real gesture does not paint. Local formatting,
+strict Clippy, all 405 workspace tests (including llvmpipe GPU smoke), workspace
+build, and Windows GNU check pass. The Xorg workflow's syntax check passes, but
+this local environment has no Xvfb; its actual pointer scenario and the
+cross-platform hosted matrix remain pending until push. The six-layout visual
+acceptance and subsequent approved icon, grouped toolbar, and visual/accessibility
+stages remain incomplete.
+
 Layers, Brush, Edit, Color, and References share the existing egui/winit
 Inspector. Layers and masks use real document transactions; references remain
 workspace-only and stay out of artwork exports. The accepted Layers hierarchy
@@ -28,11 +43,12 @@ its implementation commit is pushed. The preceding cross-platform baseline run
 [`41102591526`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41102591526)
 is not a substitute for M2's own Actions result.
 
-The next UI slice is Milestone 3: viewport-derived Inspector widths that do not
-overwrite saved preferences during temporary scale/resize changes, plus
-reference-overlay edge snapping and protected canvas controls. Milestone 4
-requires screenshots for all six viewport/scale cases, dark/light/high-contrast
-review, and independent QA. Phase 8.3 remains active.
+Inspector Milestone 3 is now implemented locally. After this branch is reviewed
+and merged, the next focused PR integrates the approved Material Symbols Rounded
+assets and compact grouped toolbar, followed by the approved visual consistency
+and accessibility corrections. Inspector Milestone 4 then captures all six
+viewport/scale cases and reviews populated dark/light/high-contrast layouts
+before independent QA. Phase 8.3 remains active.
 
 Phase 10 now includes optional deterministic freehand-to-cubic creation and
 undoable closed-path fills in the existing V tool. Smooth paths preserve all

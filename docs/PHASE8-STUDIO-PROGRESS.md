@@ -1,5 +1,34 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Approved UI implementation — Inspector responsiveness and reference safety (2026-10-31, local validation)
+
+This short-lived implementation branch starts from verified `main`
+`b0a4d7e60ec3c86dc45a1c8f209e64c50fe2495e`. The unified Inspector now chooses
+first-run dock widths from the effective logical viewport: 360 points at
+1920×1080, 336 at 1280×720 (the 150% 1920×1080 case), 320 at 1280×800, and 288
+at 853×533. The 640×480 drawer remains 256 points when the canvas budget allows;
+the 150%-scaled compact viewport uses the full-height sheet. An explicit
+workspace preference distinguishes an artist-resized dock from a responsive
+default; older version-1 settings with a non-default width migrate as customized.
+Temporary viewport clamping does not replace the roomy saved width.
+
+Pinned references now avoid the movable palette, Inspector, and visible
+Zoom/Fit controls for all docking edges. Dragging within 24 logical points of a
+safe edge snaps the reference overlay there; movement remains workspace-only,
+temporary clamping is not saved, and a pointer gesture on the overlay remains
+excluded from canvas painting. The Linux Xorg/XTest artwork workflow now tests
+the actual pointer drag, edge snap, and absence of a canvas stroke.
+
+Rust 1.90 local validation passed formatting, strict workspace Clippy, the full
+workspace suite (**405 tests**, including the llvmpipe/GL GPU smoke), workspace
+build, and the Windows GNU workspace cross-check. Python syntax compilation of
+the expanded XTest workflow passed. This environment has no Xvfb/XTest server,
+so the full Linux artwork UI gesture has not been run locally. The new branch's
+Windows/Linux/macOS Actions run is pending until push; no hosted result or
+Windows artifact is claimed yet. The six-layout populated visual review remains
+Milestone 4, and the approved icon/grouped-toolbar and visual/accessibility
+stages remain ahead. This is not a complete approved UI or hardware evaluation.
+
 ## Canvas-first Inspector Milestone 2 — tabs and vector editing integration (2026-10-30, locally verified)
 
 This checkpoint builds on `3427604` on `feature/studio-overdrive-phase-8`.

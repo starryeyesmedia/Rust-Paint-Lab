@@ -77,7 +77,7 @@ pub fn reference_picture_in_picture(
 
 /// Return a bounded dock width only when the remaining canvas can retain its
 /// minimum usable width. The caller uses a compact overlay otherwise.
-pub fn inspector_dock_width(viewport: egui::Rect, preferred: f32) -> Option<f32> {
+pub fn inspector_dock_width(viewport: egui::Rect, preferred: f32, user_width: bool) -> Option<f32> {
     if !preferred.is_finite()
         || viewport.width() < DESKTOP_DOCK_MIN_WIDTH
         || viewport.height() < DESKTOP_DOCK_MIN_HEIGHT
@@ -87,7 +87,27 @@ pub fn inspector_dock_width(viewport: egui::Rect, preferred: f32) -> Option<f32>
         return None;
     }
     let maximum = inspector_max_dock_width(viewport);
-    Some(preferred.clamp(MIN_INSPECTOR_DOCK_WIDTH, maximum))
+    let requested = if user_width {
+        preferred
+    } else {
+        inspector_default_dock_width(viewport)
+    };
+    Some(requested.clamp(MIN_INSPECTOR_DOCK_WIDTH, maximum))
+}
+
+/// First-run dock widths for the approved logical viewport states. The
+/// 1280×720 case is the 1920×1080 window at 150% UI scale; the taller
+/// 1280×800 case is the native-size laptop layout at 100%.
+pub fn inspector_default_dock_width(viewport: egui::Rect) -> f32 {
+    if viewport.width() >= 1600.0 {
+        360.0
+    } else if viewport.width() >= 1200.0 && viewport.height() <= 760.0 {
+        336.0
+    } else if viewport.width() >= 1200.0 {
+        320.0
+    } else {
+        288.0
+    }
 }
 
 /// Match the maximum user-resizable Inspector width to the current desktop
@@ -263,24 +283,111 @@ pub fn pinned_reference_viewport(
     canvas: egui::Rect,
     inspector: Option<egui::Rect>,
     palette: Option<egui::Rect>,
+    protected_controls: &[egui::Rect],
 ) -> egui::Rect {
-    const GAP: f32 = 8.0;
     let mut safe = canvas;
-    if let Some(inspector) = inspector.filter(|panel| safe.intersects(*panel)) {
-        if inspector.center().x >= safe.center().x {
-            safe.max.x = safe.max.x.min(inspector.left() - GAP);
-        } else {
-            safe.min.x = safe.min.x.max(inspector.right() + GAP);
-        }
+    for obstacle in inspector.into_iter().chain(palette) {
+        safe = reference_viewport_avoiding(safe, obstacle);
     }
-    if let Some(palette) = palette.filter(|panel| safe.intersects(*panel)) {
-        if palette.center().x <= safe.center().x {
-            safe.min.x = safe.min.x.max(palette.right() + GAP);
-        } else {
-            safe.max.x = safe.max.x.min(palette.left() - GAP);
-        }
+    for obstacle in protected_controls {
+        safe = reference_viewport_avoiding(safe, *obstacle);
     }
-    if safe.is_positive() { safe } else { canvas }
+    if safe.is_positive() {
+        safe
+    } else {
+        egui::Rect::NOTHING
+    }
+}
+
+/// Exclude a foreground control area from a canvas region while retaining the
+/// largest remaining axis-aligned area for a pinned reference overlay.
+fn reference_viewport_avoiding(viewport: egui::Rect, obstacle: egui::Rect) -> egui::Rect {
+    const GAP: f32 = 8.0;
+    let intersection = viewport.intersect(obstacle);
+    if !viewport.is_positive() || !intersection.is_positive() {
+        return viewport;
+    }
+    let candidates = [
+        egui::Rect::from_min_max(
+            viewport.min,
+            egui::pos2(viewport.right(), intersection.top() - GAP),
+        ),
+        egui::Rect::from_min_max(
+            egui::pos2(viewport.left(), intersection.bottom() + GAP),
+            viewport.max,
+        ),
+        egui::Rect::from_min_max(
+            viewport.min,
+            egui::pos2(intersection.left() - GAP, viewport.bottom()),
+        ),
+        egui::Rect::from_min_max(
+            egui::pos2(intersection.right() + GAP, viewport.top()),
+            viewport.max,
+        ),
+    ];
+    candidates
+        .into_iter()
+        .filter(|candidate| candidate.is_positive())
+        .max_by(|left, right| left.area().total_cmp(&right.area()))
+        .unwrap_or(egui::Rect::NOTHING)
+}
+
+/// Conservative reservation for the bottom-right Zoom/Fit control strip. Its
+/// bounds include the surrounding frame and pointer target padding.
+pub fn canvas_navigation_protection_rect(canvas: egui::Rect) -> egui::Rect {
+    if !canvas.is_positive() {
+        return egui::Rect::NOTHING;
+    }
+    let width = 258.0_f32.min(canvas.width());
+    let height = 64.0_f32.min(canvas.height());
+    egui::Rect::from_min_max(
+        egui::pos2(canvas.right() - width, canvas.bottom() - height),
+        canvas.max,
+    )
+}
+
+/// Snap a dragged reference picture to the safe canvas/Inspector/window edges
+/// when its edge comes within 24 logical points. Positions outside the safe
+/// area are clamped, while valid unsnapped positions are preserved.
+pub fn snap_reference_picture(
+    safe_viewport: egui::Rect,
+    current: egui::Rect,
+) -> Option<egui::Rect> {
+    const EDGE_GAP: f32 = 8.0;
+    const SNAP_DISTANCE: f32 = 24.0;
+    if !safe_viewport.is_positive()
+        || !current.is_positive()
+        || !current.min.is_finite()
+        || !current.size().is_finite()
+    {
+        return None;
+    }
+    let safe_min = safe_viewport.min + egui::vec2(EDGE_GAP, EDGE_GAP);
+    let safe_max = safe_viewport.max - egui::vec2(EDGE_GAP, EDGE_GAP);
+    if safe_max.x < safe_min.x || safe_max.y < safe_min.y {
+        return None;
+    }
+    let size = egui::vec2(
+        current.width().min(safe_max.x - safe_min.x),
+        current.height().min(safe_max.y - safe_min.y),
+    );
+    let snap_axis = |start: f32, extent: f32, minimum: f32, maximum: f32| {
+        let end = start + extent;
+        let to_start = (start - minimum).abs();
+        let to_end = (maximum - end).abs();
+        if to_start <= SNAP_DISTANCE && to_start <= to_end {
+            minimum
+        } else if to_end <= SNAP_DISTANCE {
+            maximum - extent
+        } else {
+            start.clamp(minimum, maximum - extent)
+        }
+    };
+    let position = egui::pos2(
+        snap_axis(current.left(), size.x, safe_min.x, safe_max.x),
+        snap_axis(current.top(), size.y, safe_min.y, safe_max.y),
+    );
+    Some(egui::Rect::from_min_size(position, size))
 }
 
 /// Whether a reference window's current position is an artist preference or
@@ -698,32 +805,77 @@ mod tests {
     #[test]
     fn inspector_dock_preserves_minimum_canvas_space_and_clamps_width() {
         let wide = rect(0.0, 0.0, 1280.0, 800.0);
-        assert_eq!(inspector_dock_width(wide, 336.0), Some(336.0));
-        assert_eq!(inspector_dock_width(wide, 480.0), Some(360.0));
+        assert_eq!(inspector_dock_width(wide, 336.0, true), Some(336.0));
+        assert_eq!(inspector_dock_width(wide, 480.0, true), Some(360.0));
         let large = rect(0.0, 0.0, 1920.0, 1080.0);
-        assert_eq!(inspector_dock_width(large, 480.0), Some(400.0));
+        assert_eq!(inspector_dock_width(large, 480.0, true), Some(400.0));
         assert_eq!(inspector_max_dock_width(large), 400.0);
         let constrained = rect(0.0, 0.0, 800.0, 600.0);
-        let width = inspector_dock_width(constrained, 480.0).unwrap();
+        let width = inspector_dock_width(constrained, 480.0, true).unwrap();
         assert_eq!(width, 360.0);
         assert!(constrained.width() - width >= MIN_CANVAS_WIDTH);
         assert_eq!(
-            inspector_dock_width(rect(0.0, 0.0, 599.0, 480.0), 336.0),
+            inspector_dock_width(rect(0.0, 0.0, 599.0, 480.0), 336.0, true),
             None
         );
         assert_eq!(
-            inspector_dock_width(rect(0.0, 0.0, 640.0, 480.0), 336.0),
+            inspector_dock_width(rect(0.0, 0.0, 640.0, 480.0), 336.0, true),
             None
         );
         assert_eq!(
-            inspector_dock_width(rect(0.0, 0.0, 1280.0, 499.0), 336.0),
+            inspector_dock_width(rect(0.0, 0.0, 1280.0, 499.0), 336.0, true),
             None
         );
         assert_eq!(
-            inspector_dock_width(rect(0.0, 0.0, 900.0, 200.0), 336.0),
+            inspector_dock_width(rect(0.0, 0.0, 900.0, 200.0), 336.0, true),
             None
         );
-        assert_eq!(inspector_dock_width(wide, f32::NAN), None);
+        assert_eq!(inspector_dock_width(wide, f32::NAN, true), None);
+    }
+
+    #[test]
+    fn inspector_first_run_widths_match_all_approved_effective_viewports() {
+        let states = [
+            (rect(0.0, 0.0, 1920.0, 1080.0), 360.0),
+            (rect(0.0, 0.0, 1280.0, 720.0), 336.0),
+            (rect(0.0, 0.0, 1280.0, 800.0), 320.0),
+            (rect(0.0, 0.0, 853.0, 533.0), 288.0),
+        ];
+        for (viewport, expected) in states {
+            assert_eq!(inspector_default_dock_width(viewport), expected);
+            assert_eq!(
+                inspector_dock_width(viewport, 320.0, false),
+                Some(expected),
+                "viewport {viewport:?}"
+            );
+        }
+
+        assert_eq!(
+            inspector_dock_width(rect(0.0, 0.0, 640.0, 480.0), 320.0, false),
+            None,
+            "640×480 at 100% uses its compact drawer"
+        );
+        assert_eq!(
+            inspector_drawer_width(rect(0.0, 0.0, 640.0, 480.0), 70.5, 256.0),
+            Some(256.0),
+            "the 640×480 first-run drawer is 256 logical points when the canvas budget allows it"
+        );
+        let narrow_150 = rect(0.0, 0.0, 427.0, 320.0);
+        assert_eq!(
+            inspector_dock_width(narrow_150, 320.0, false),
+            None,
+            "640×480 at 150% uses a full-height compact sheet"
+        );
+        assert!(inspector_uses_full_sheet(narrow_150));
+    }
+
+    #[test]
+    fn custom_inspector_width_is_preserved_and_only_temporarily_constrained() {
+        let roomy = rect(0.0, 0.0, 1920.0, 1080.0);
+        let constrained = rect(0.0, 0.0, 853.0, 533.0);
+        assert_eq!(inspector_dock_width(roomy, 384.0, true), Some(384.0));
+        assert_eq!(inspector_dock_width(constrained, 384.0, true), Some(360.0));
+        assert_eq!(inspector_dock_width(roomy, 384.0, true), Some(384.0));
     }
 
     #[test]
@@ -889,7 +1041,7 @@ mod tests {
         let canvas = rect(70.0, 108.0, 930.0, 619.0);
         let inspector = rect(700.0, 108.0, 300.0, 619.0);
         let palette = rect(70.0, 160.0, 64.0, 360.0);
-        let safe = pinned_reference_viewport(canvas, Some(inspector), Some(palette));
+        let safe = pinned_reference_viewport(canvas, Some(inspector), Some(palette), &[]);
         assert!(canvas.contains_rect(safe));
         assert!(!safe.intersects(inspector));
         assert!(!safe.intersects(palette));
@@ -897,9 +1049,53 @@ mod tests {
         assert!((safe.right() - 692.0).abs() < f32::EPSILON);
 
         let right_palette = rect(640.0, 160.0, 64.0, 360.0);
-        let right_safe = pinned_reference_viewport(canvas, None, Some(right_palette));
+        let right_safe = pinned_reference_viewport(canvas, None, Some(right_palette), &[]);
         assert!(!right_safe.intersects(right_palette));
         assert!((right_safe.right() - 632.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn pinned_reference_viewport_protects_canvas_navigation_controls() {
+        let canvas = rect(0.0, 0.0, 1280.0, 800.0);
+        let controls = canvas_navigation_protection_rect(canvas);
+        assert_eq!(controls.size(), egui::vec2(258.0, 64.0));
+        let safe = pinned_reference_viewport(canvas, None, None, &[controls]);
+        assert!(!safe.intersects(controls));
+        assert!(safe.bottom() <= controls.top() - 8.0);
+        assert!(safe.is_positive());
+
+        let bottom_palette = rect(220.0, 730.0, 420.0, 54.0);
+        let with_bottom_palette =
+            pinned_reference_viewport(canvas, None, Some(bottom_palette), &[]);
+        assert!(!with_bottom_palette.intersects(bottom_palette));
+        assert!(with_bottom_palette.bottom() <= bottom_palette.top() - 8.0);
+    }
+
+    #[test]
+    fn pinned_reference_snaps_to_safe_edges_with_a_24_point_threshold() {
+        let safe = rect(100.0, 80.0, 800.0, 600.0);
+        let near_left_top = rect(117.0, 94.0, 192.0, 144.0);
+        assert_eq!(
+            snap_reference_picture(safe, near_left_top),
+            Some(rect(108.0, 88.0, 192.0, 144.0))
+        );
+
+        let near_right_bottom = rect(688.0, 510.0, 192.0, 144.0);
+        assert_eq!(
+            snap_reference_picture(safe, near_right_bottom),
+            Some(rect(700.0, 528.0, 192.0, 144.0))
+        );
+
+        let outside_snap = rect(133.0, 113.0, 192.0, 144.0);
+        assert_eq!(
+            snap_reference_picture(safe, outside_snap),
+            Some(outside_snap)
+        );
+
+        let offscreen = rect(-300.0, 900.0, 192.0, 144.0);
+        let clamped = snap_reference_picture(safe, offscreen).unwrap();
+        assert!(safe.shrink(8.0).contains_rect(clamped));
+        assert!(snap_reference_picture(safe, egui::Rect::NOTHING).is_none());
     }
 
     #[test]

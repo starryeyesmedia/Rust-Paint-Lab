@@ -5872,6 +5872,7 @@ pub struct Studio {
     workspace_controls_position: [f32; 2],
     workspace_controls_size: [f32; 2],
     inspector_width: f32,
+    inspector_width_customized: bool,
     compact_inspector_position: [f32; 2],
     compact_inspector_size: [f32; 2],
     brush_flyout_open: bool,
@@ -5939,6 +5940,7 @@ pub struct Studio {
     references: Vec<ReferenceImage>,
     references_pinned: bool,
     reference_pip_position: [f32; 2],
+    reference_pip_snap_pending: Option<[f32; 2]>,
     reference_pip_visible: bool,
     reference_layout_was_pinned: bool,
     workspace_save_pending: bool,
@@ -6157,6 +6159,7 @@ impl Studio {
             workspace_controls_position: preferences.workspace_controls_position,
             workspace_controls_size: preferences.workspace_controls_size,
             inspector_width: preferences.inspector_width,
+            inspector_width_customized: preferences.inspector_width_customized,
             compact_inspector_position: preferences.compact_inspector_position,
             compact_inspector_size: preferences.compact_inspector_size,
             brush_flyout_open: false,
@@ -6220,6 +6223,7 @@ impl Studio {
             preferences_path,
             references_pinned: preferences.references_pinned,
             reference_pip_position: preferences.reference_pip_position,
+            reference_pip_snap_pending: None,
             reference_pip_visible: false,
             reference_layout_was_pinned: false,
             workspace_save_pending: false,
@@ -6385,20 +6389,21 @@ impl Studio {
         if self.show_controls {
             let viewport = self.context.content_rect();
             let inspector_rect = self.inspector_rect.or_else(|| {
-                crate::studio_layout::inspector_dock_width(viewport, self.inspector_width)
-                    .map(|width| {
-                        egui::Rect::from_min_max(
-                            egui::pos2(viewport.right() - width, viewport.top()),
-                            viewport.max,
-                        )
-                    })
-                    .or_else(|| {
-                        egui::AreaState::load(
-                            &self.context,
-                            egui::Id::new("studio-inspector-compact"),
-                        )
+                crate::studio_layout::inspector_dock_width(
+                    viewport,
+                    self.inspector_width,
+                    self.inspector_width_customized,
+                )
+                .map(|width| {
+                    egui::Rect::from_min_max(
+                        egui::pos2(viewport.right() - width, viewport.top()),
+                        viewport.max,
+                    )
+                })
+                .or_else(|| {
+                    egui::AreaState::load(&self.context, egui::Id::new("studio-inspector-compact"))
                         .map(|state| state.rect())
-                    })
+                })
             });
             if inspector_rect.is_some_and(|rect| {
                 crate::studio_layout::client_point_in_rect(rect, client_px, scale)
@@ -8708,6 +8713,7 @@ impl Studio {
             workspace_controls_position: self.workspace_controls_position,
             workspace_controls_size: self.workspace_controls_size,
             inspector_width: self.inspector_width,
+            inspector_width_customized: self.inspector_width_customized,
             compact_inspector_position: self.compact_inspector_position,
             compact_inspector_size: self.compact_inspector_size,
             ..Default::default()
@@ -10617,8 +10623,11 @@ impl Studio {
                 let mut close_inspector_requested = false;
                 let mut remove_reference = None;
                 let mut selected_reference = None;
-                let dock_width =
-                    crate::studio_layout::inspector_dock_width(screen, self.inspector_width);
+                let dock_width = crate::studio_layout::inspector_dock_width(
+                    screen,
+                    self.inspector_width,
+                    self.inspector_width_customized,
+                );
                 let inspector_default_width = self.inspector_width;
                 let desktop_dock = dock_width.is_some();
                 let inspector_viewport = crate::studio_layout::inspector_safe_viewport(
@@ -11961,11 +11970,33 @@ impl Studio {
                         );
                     }
                 };
+                let mut inspector_resizing = false;
                 let panel_rect = if desktop_dock {
                     let max_width = crate::studio_layout::inspector_max_dock_width(screen);
+                    let panel_id = egui::Id::new("studio-inspector");
+                    let resize_id = panel_id.with("__resize");
+                    inspector_resizing = ctx
+                        .read_response(resize_id)
+                        .is_some_and(|response| response.dragged());
+                    // SidePanel state normally wins over default_width. Apply
+                    // the responsive first-run or temporarily constrained
+                    // width to its persisted geometry unless the user is
+                    // actively dragging the resize handle. This keeps the
+                    // roomy preference intact for when a narrow window grows
+                    // again.
+                    if !inspector_resizing
+                        && let (Some(width), Some(mut state)) = (
+                            dock_width,
+                            egui::containers::panel::PanelState::load(ctx, panel_id),
+                        )
+                        && (state.rect.width() - width).abs() > 0.5
+                    {
+                        state.rect.max.x = state.rect.min.x + width;
+                        ctx.data_mut(|data| data.insert_persisted(panel_id, state));
+                    }
                     // egui's SidePanel width APIs are expressed in outer
                     // points, including the frame margins.
-                    let panel = egui::SidePanel::right("studio-inspector")
+                    let panel = egui::SidePanel::right(panel_id)
                         .resizable(true)
                         .default_width(dock_width.unwrap_or(inspector_default_width))
                         .width_range(crate::studio_layout::MIN_INSPECTOR_DOCK_WIDTH..=max_width)
@@ -12097,9 +12128,19 @@ impl Studio {
                             ctx.pixels_per_point()
                         );
                     }
-                    if desktop_dock && (rect.width() - self.inspector_width).abs() > 0.5 {
-                        self.inspector_width = rect.width().clamp(280.0, 480.0);
-                        workspace_changed = true;
+                    if desktop_dock && inspector_resizing {
+                        let width = rect.width().clamp(280.0, 480.0);
+                        if (width - self.inspector_width).abs() > 0.5
+                            || !self.inspector_width_customized
+                        {
+                            self.inspector_width = width;
+                            self.inspector_width_customized = true;
+                            workspace_changed = true;
+                        }
+                    } else if desktop_dock && !self.inspector_width_customized {
+                        // Do not persist a responsive default as an explicit
+                        // user resize. It will be recalculated for the next
+                        // effective viewport and UI scale.
                     } else if !desktop_dock {
                         let stored_size = self.compact_inspector_size;
                         if crate::studio_layout::compact_drawer_can_persist_size(
@@ -13078,10 +13119,22 @@ impl Studio {
             let reference_presentation_transition =
                 temporary_pinned_workspace != self.reference_layout_was_pinned;
             if temporary_pinned_workspace {
+                let navigation_controls_visible = !self.welcome
+                    && !self.new_dialog
+                    && !self.manual_file_dialog
+                    && !self.brush_flyout_open
+                    && !self.layers_flyout_open
+                    && !self.color_flyout_open;
+                let protected_controls = navigation_controls_visible
+                    .then(|| crate::studio_layout::canvas_navigation_protection_rect(*central))
+                    .filter(|rect| rect.is_positive())
+                    .into_iter()
+                    .collect::<Vec<_>>();
                 let safe_viewport = crate::studio_layout::pinned_reference_viewport(
                     screen_viewport,
                     self.inspector_rect,
                     self.palette_rect,
+                    &protected_controls,
                 );
                 if safe_viewport != screen_viewport {
                     screen_viewport = safe_viewport;
@@ -13142,13 +13195,19 @@ impl Studio {
                 let mut close_pip = false;
                 let mut pip_request = None;
                 let pip_size = pip_rect.size();
+                let pending_snap = self.reference_pip_snap_pending.take();
                 let area = egui::Area::new(egui::Id::new("studio-reference-picture-in-picture"))
                     .order(egui::Order::Foreground)
                     .default_pos(pip_rect.min)
                     .default_size(pip_size)
                     .constrain_to(screen_viewport)
-                    .movable(true)
-                    .show(ctx, |ui| {
+                    .movable(true);
+                let area = if let Some(position) = pending_snap {
+                    area.current_pos(egui::pos2(position[0], position[1]))
+                } else {
+                    area
+                };
+                let area = area.show(ctx, |ui| {
                         egui::Frame::window(ui.style())
                             .inner_margin(egui::Margin::same(6))
                             .show(ui, |ui| {
@@ -13256,6 +13315,20 @@ impl Studio {
                     if area.response.dragged() {
                         self.reference_pip_position = position;
                         workspace_changed = true;
+                    }
+                    if area.response.drag_stopped()
+                        && let Some(snapped) =
+                            crate::studio_layout::snap_reference_picture(screen_viewport, realized)
+                    {
+                        let snapped_position = [snapped.left(), snapped.top()];
+                        if (position[0] - snapped_position[0]).abs() > 0.5
+                            || (position[1] - snapped_position[1]).abs() > 0.5
+                        {
+                            self.reference_pip_position = snapped_position;
+                            self.reference_pip_snap_pending = Some(snapped_position);
+                            workspace_changed = true;
+                            ctx.request_repaint();
+                        }
                     }
                     if self.test_path_dialog {
                         crate::studio_log!(

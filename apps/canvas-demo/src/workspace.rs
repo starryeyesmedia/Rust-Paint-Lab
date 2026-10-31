@@ -281,6 +281,11 @@ pub struct WorkspacePreferences {
     /// do not replace this preference while the window is temporarily narrow.
     #[serde(default = "default_inspector_width")]
     pub inspector_width: f32,
+    /// Distinguish an intentional dock resize from the first-run responsive
+    /// default. Missing in earlier version-1 settings; non-default saved widths
+    /// are recognized as user preferences during validation.
+    #[serde(default)]
+    pub inspector_width_customized: bool,
     #[serde(default = "default_compact_inspector_position")]
     pub compact_inspector_position: [f32; 2],
     #[serde(default = "default_compact_inspector_size")]
@@ -375,6 +380,7 @@ impl Default for WorkspacePreferences {
             workspace_controls_position: default_workspace_controls_position(),
             workspace_controls_size: default_workspace_controls_size(),
             inspector_width: default_inspector_width(),
+            inspector_width_customized: false,
             compact_inspector_position: default_compact_inspector_position(),
             compact_inspector_size: default_compact_inspector_size(),
             smooth_vector_paths: false,
@@ -420,6 +426,9 @@ impl WorkspacePreferences {
             || !self.new_document.validate()
         {
             return false;
+        }
+        if (self.inspector_width - default_inspector_width()).abs() > 0.5 {
+            self.inspector_width_customized = true;
         }
         self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
         self.canvas_zoom = self.canvas_zoom.clamp(0.25, 8.0);
@@ -733,6 +742,7 @@ mod tests {
             inspector_tab: InspectorTab::References,
             reference_pip_position: [240.0, 180.0],
             inspector_width: 412.0,
+            inspector_width_customized: true,
             compact_inspector_position: [20.0, 48.0],
             compact_inspector_size: [280.0, 560.0],
             ..Default::default()
@@ -745,6 +755,7 @@ mod tests {
         assert!(restored.references_pinned);
         assert_eq!(restored.reference_pip_position, [240.0, 180.0]);
         assert_eq!(restored.inspector_width, 412.0);
+        assert!(restored.inspector_width_customized);
         assert_eq!(restored.compact_inspector_position, [20.0, 48.0]);
         assert_eq!(restored.compact_inspector_size, [280.0, 560.0]);
         restored.inspector_width = 1_000.0;
@@ -758,6 +769,23 @@ mod tests {
             ..Default::default()
         };
         assert!(!invalid_position.validate());
+    }
+
+    #[test]
+    fn legacy_roomy_inspector_width_is_preserved_as_a_user_preference() {
+        let encoded = serde_json::json!({
+            "version": 1,
+            "dark_theme": true,
+            "brush_panel_width": 260.0,
+            "references": [],
+            "show_controls": true,
+            "inspector_width": 380.0
+        });
+        let mut preferences: WorkspacePreferences = serde_json::from_value(encoded).unwrap();
+        assert!(!preferences.inspector_width_customized);
+        assert!(preferences.validate());
+        assert_eq!(preferences.inspector_width, 380.0);
+        assert!(preferences.inspector_width_customized);
     }
 
     #[test]

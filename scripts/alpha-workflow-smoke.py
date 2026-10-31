@@ -2339,6 +2339,33 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                 'pinning references must not reopen independent floating utility windows'
             assert pip_image[2] >= 140 and pip_image[3] >= 48, \
                 f'pinned reference image area is not useful: {pip_image}'
+            # Drag the workspace-only reference near the safe canvas corner.
+            # A direct UI gesture must magnetically snap it within 24 logical
+            # points and must not leak its pointer stream into painting.
+            stroke_starts_before_reference_drag=sum(
+                line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                for line in application_log_lines()
+            )
+            target_left=safe_viewport[0]+8.0+16.0
+            target_top=safe_viewport[1]+8.0+16.0
+            drag_start_x=(rx+rw/2)*reference_pip[4]
+            drag_start_y=(ry+12.0)*reference_pip[4]
+            drag_at(drag_start_x,drag_start_y,
+                    drag_start_x+(target_left-rx)*reference_pip[4],
+                    drag_start_y+(target_top-ry)*reference_pip[4])
+            snapped_reference=wait(
+                lambda:(lambda rect:rect if rect
+                        and abs(rect[0]-(safe_viewport[0]+8.0))<=1.0
+                        and abs(rect[1]-(safe_viewport[1]+8.0))<=1.0 else None)(
+                    stable_window_rect_marker('UI_TEST_REFERENCE_PIP_RECT')),
+                'dragged pinned reference reports its snapped position',
+            )
+            assert abs(snapped_reference[0]-(safe_viewport[0]+8.0))<=1.0 \
+                and abs(snapped_reference[1]-(safe_viewport[1]+8.0))<=1.0, \
+                f'reference image did not snap to the safe canvas edges: {snapped_reference}, {safe_viewport}'
+            assert sum(line.startswith('UI_TEST_MOUSE_STROKE_STARTED: ')
+                       for line in application_log_lines())==stroke_starts_before_reference_drag, \
+                'reference-overlay movement must not start a canvas stroke'
             reference_tab=wait(lambda: inspector_tab_rect('References'),
                                'the References tab remains available for unpinning')
             click_at((reference_tab[0]+reference_tab[2]/2)*reference_tab[4],
