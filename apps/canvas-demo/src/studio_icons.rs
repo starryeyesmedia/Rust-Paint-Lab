@@ -2,6 +2,8 @@
 //! cached monochrome texture. The matching SVG sources stay unchanged beside
 //! the generated, offline PNG masks used by egui.
 
+pub const TOOL_POPUP_WIDTH: f32 = 256.0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Icon {
     Brush,
@@ -102,9 +104,8 @@ pub fn menu_choice(
     shortcut: Option<&str>,
     selected: bool,
 ) -> egui::Response {
-    let width = ui.available_width().max(220.0);
     let response = ui.add_sized(
-        [width, 44.0],
+        [TOOL_POPUP_WIDTH, 44.0],
         egui::Button::selectable(selected, format!("    {label}")),
     );
     response.widget_info(|| {
@@ -148,10 +149,12 @@ pub fn menu_action(
     enabled: bool,
     explanation: Option<&str>,
 ) -> egui::Response {
-    let width = ui.available_width().max(220.0);
     let response = ui
         .add_enabled_ui(enabled, |ui| {
-            ui.add_sized([width, 44.0], egui::Button::new(format!("    {label}")))
+            ui.add_sized(
+                [TOOL_POPUP_WIDTH, 44.0],
+                egui::Button::new(format!("    {label}")),
+            )
         })
         .inner;
     let accessible_label = explanation.map_or_else(
@@ -632,6 +635,8 @@ mod tests {
                 .iter()
                 .all(|rect| rect.width() >= 44.0 && rect.height() >= 44.0)
         );
+        assert_eq!(bounds[1].width(), TOOL_POPUP_WIDTH);
+        assert_eq!(bounds[2].width(), TOOL_POPUP_WIDTH);
     }
 
     #[test]

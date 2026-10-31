@@ -5898,6 +5898,9 @@ pub struct Studio {
     reduced_motion: bool,
     ui_scale: f32,
     palette_dock: crate::workspace::PaletteDock,
+    // Preserve the serialized legacy preference while the approved compact
+    // toolbar replaces the old expanding shelf.
+    palette_collapsed: bool,
     palette_dragging: bool,
     palette_drag_offset: [f32; 2],
     palette_viewport_height: f32,
@@ -5906,6 +5909,7 @@ pub struct Studio {
     toolbar_popup_trigger: Option<egui::Id>,
     toolbar_focus_restore: Option<egui::Id>,
     toolbar_more_page: usize,
+    toolbar_scroll_target: Option<crate::studio_toolbar::ToolFamily>,
     last_non_eraser_brush: BrushKind,
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
@@ -6195,6 +6199,7 @@ impl Studio {
             reduced_motion: preferences.reduced_motion,
             ui_scale: preferences.ui_scale,
             palette_dock: preferences.palette_dock,
+            palette_collapsed: preferences.palette_collapsed,
             palette_dragging: false,
             palette_drag_offset: [0.0; 2],
             palette_viewport_height: 0.0,
@@ -6203,6 +6208,7 @@ impl Studio {
             toolbar_popup_trigger: None,
             toolbar_focus_restore: None,
             toolbar_more_page: 0,
+            toolbar_scroll_target: None,
             last_non_eraser_brush: BrushKind::Round,
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
@@ -6385,6 +6391,7 @@ impl Studio {
             family.members().len(),
             was_open,
         );
+        let opening_from_pointer = trigger.clicked() && !was_open;
         self.toolbar_focus_ids.push(trigger.id);
         if self.test_path_dialog {
             let rect = trigger.rect;
@@ -6473,29 +6480,37 @@ impl Studio {
             .id(popup_id)
             .align(preferred)
             .align_alternatives(&alternatives)
-            .width(256.0)
+            .width(crate::studio_icons::TOOL_POPUP_WIDTH)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .open_memory(open_command)
             .show(|menu| {
+                // `Popup::width` sets the area's default width, but justified
+                // menu rows can still expand to an unbounded content width.
+                // Cap the actual content UI so pointer hit regions and the
+                // dismissal surface stay within the visible popup.
+                menu.set_max_width(crate::studio_icons::TOOL_POPUP_WIDTH);
                 let mut close = false;
-                menu.horizontal(|ui| {
-                    ui.heading(family.label());
-                    ui.add_space(ui.available_width());
-                    let response = crate::studio_icons::button(
-                        ui,
-                        crate::studio_icons::Icon::Close,
-                        &format!("Close {} tools", family.label()),
-                        None,
-                        false,
-                        [44.0, 44.0],
-                    );
-                    if response.clicked() {
-                        close = true;
-                        self.toolbar_focus_restore = Some(trigger.id);
-                        self.toolbar_popup_trigger = None;
-                    }
-                    self.toolbar_focus_ids.push(response.id);
-                });
+                menu.allocate_ui_with_layout(
+                    egui::vec2(crate::studio_icons::TOOL_POPUP_WIDTH, 44.0),
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        let response = crate::studio_icons::button(
+                            ui,
+                            crate::studio_icons::Icon::Close,
+                            &format!("Close {} tools", family.label()),
+                            None,
+                            false,
+                            [44.0, 44.0],
+                        );
+                        ui.heading(family.label());
+                        if response.clicked() {
+                            close = true;
+                            self.toolbar_focus_restore = Some(trigger.id);
+                            self.toolbar_popup_trigger = None;
+                        }
+                        self.toolbar_focus_ids.push(response.id);
+                    },
+                );
                 menu.separator();
                 let group_id = egui::Id::new(("approved-tool-radio-group", family));
                 menu.ctx().accesskit_node_builder(group_id, |node| {
@@ -6632,7 +6647,7 @@ impl Studio {
                 if close {
                     menu.close();
                 }
-                if was_open {
+                if was_open || opening_from_pointer || open_from_keyboard {
                     let nav = menu.input(|input| {
                         let direction = if input.key_pressed(egui::Key::ArrowDown) {
                             Some(true)
@@ -6654,10 +6669,24 @@ impl Studio {
                         popup_focus.first().copied()
                     } else if nav.2 {
                         popup_focus.last().copied()
-                    } else if let (Some(direction), Some(index)) = (nav.0, focused) {
-                        crate::studio_toolbar::adjacent_focus(index, popup_focus.len(), direction)
+                    } else if let Some(direction) = nav.0 {
+                        focused
+                            .and_then(|index| {
+                                crate::studio_toolbar::adjacent_focus(
+                                    index,
+                                    popup_focus.len(),
+                                    direction,
+                                )
+                            })
                             .and_then(|index| popup_focus.get(index).copied())
-                    } else if open_from_keyboard || trigger.clicked() {
+                            .or_else(|| {
+                                if direction {
+                                    popup_focus.first().copied()
+                                } else {
+                                    popup_focus.last().copied()
+                                }
+                            })
+                    } else if open_from_keyboard || opening_from_pointer {
                         selected_focus.or_else(|| popup_focus.first().copied())
                     } else {
                         None
@@ -7026,17 +7055,12 @@ impl Studio {
             self.placement_drag = None;
         }
         if egui::Popup::is_any_open(&self.context)
-            && matches!(
-                event,
-                E::MouseInput {
-                    state: ElementState::Pressed,
-                    ..
-                } | E::Touch(winit::event::Touch {
-                    phase: winit::event::TouchPhase::Started,
-                    ..
-                })
-            )
+            && matches!(event, E::MouseInput { .. } | E::Touch(_))
         {
+            // A popup owns the complete pointer/touch sequence. Forwarding
+            // only Down/Started loses the matching release, so egui cannot
+            // recognize outside-click dismissal; forwarding the terminal
+            // events here also prevents them from reaching the canvas painter.
             let response = self.input.on_window_event(window, event);
             return (true, response.repaint);
         }
@@ -9052,6 +9076,7 @@ impl Studio {
             }
             if self.test_path_dialog {
                 crate::studio_log!("UI_TEST_ESCAPE_DISMISSED: menu");
+                crate::studio_log!("UI_TEST_TOOL_FAMILY_CLOSED: Escape");
             }
             return true;
         }
@@ -9206,10 +9231,9 @@ impl Studio {
             reduced_motion: self.reduced_motion,
             ui_scale: self.ui_scale,
             palette_dock: self.palette_dock,
-            // Older workspace files stored the rejected expanding-shelf state.
-            // Keep the field for backwards compatibility but always write the
-            // approved compact toolbar mode.
-            palette_collapsed: false,
+            // Keep legacy workspace state intact; the compact grouped rail no
+            // longer uses this preference to choose a presentation mode.
+            palette_collapsed: self.palette_collapsed,
             handedness: self.handedness,
             palette_position: self.palette_position,
             layers_flyout_position: self.layers_flyout_position,
@@ -9259,10 +9283,31 @@ impl Studio {
         if workspace_changed {
             self.workspace_needs_save = false;
         }
+        // At very narrow logical viewports the 150% tool rail is taller than
+        // the canvas-only strip and is anchored against the full window edge.
+        // Reserve its width in the application chrome so the rail cannot sit
+        // over the menu actions or brush controls in that constrained mode.
+        let compact_toolbar_chrome_gutter = {
+            let viewport = ctx.content_rect();
+            if viewport.width() < 500.0 && viewport.height() < 400.0 {
+                // The compact 150% rail ends at 76.5 points; 78 points leaves
+                // a small clear gap while preserving enough room for every
+                // application-menu target on a 640-point physical window.
+                78.0
+            } else {
+                0.0
+            }
+        };
         if !self.welcome {
             egui::TopBottomPanel::top("document tools").show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    crate::ui_tokens::brand_wordmark(ui, 18.0);
+                    if compact_toolbar_chrome_gutter > 0.0 {
+                        ui.add_space(compact_toolbar_chrome_gutter);
+                        crate::ui_tokens::brand_wordmark(ui, 12.0);
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                    } else {
+                        crate::ui_tokens::brand_wordmark(ui, 18.0);
+                    }
                     ui.separator();
                     egui::MenuBar::new().ui(ui, |ui| {
                         ui.menu_button("File", |ui| {
@@ -9573,12 +9618,18 @@ impl Studio {
                             workspace_changed |= ui
                                 .checkbox(&mut self.reduced_motion, "Reduce interface motion")
                                 .changed();
+                            ui.label("Interface size");
+                            let mut scale_slider_response = None;
                             ui.horizontal(|ui| {
-                                ui.label("Interface size");
-                                let slider = ui.add(
+                                let slider = ui.add_sized(
+                                    [152.0, 44.0],
                                     egui::Slider::new(&mut self.ui_scale, 0.8..=1.6)
-                                        .show_value(true),
+                                        .show_value(false),
                                 );
+                                ui.label(format!("{:.0}%", self.ui_scale * 100.0));
+                                scale_slider_response = Some(slider);
+                            });
+                            if let Some(slider) = scale_slider_response {
                                 workspace_changed |= slider.changed();
                                 if self.test_path_dialog {
                                     let rect = slider.rect;
@@ -9599,7 +9650,7 @@ impl Studio {
                                     }
                                     crate::studio_log!("UI_TEST_UI_SCALE: {:.3}", self.ui_scale);
                                 }
-                            });
+                            }
                             if ui.button("Reset appearance").clicked() {
                                 self.appearance_mode = crate::workspace::AppearanceMode::Dark;
                                 self.accent_scheme = crate::workspace::AccentScheme::Violet;
@@ -9736,7 +9787,7 @@ impl Studio {
                             ));
                             ui.label("Brush Ctrl+B · Color C · Layers Ctrl+L");
                         });
-                        ui.menu_button("Help", |ui| {
+                        let help_menu = ui.menu_button("Help", |ui| {
                             ui.label("BitchPixel — painting without permission");
                             ui.separator();
                             ui.label("Brush size [ / ] · fine adjustment: Shift+[ / Shift+]");
@@ -9751,6 +9802,14 @@ impl Studio {
                             ui.label("Ctrl+Shift+M Artwork recovery manager");
                             ui.label("Ctrl+Z / Ctrl+Y Undo / Redo · Esc Close");
                         });
+                        if self.test_path_dialog {
+                            let rect = help_menu.response.rect;
+                            crate::studio_log!(
+                                "UI_TEST_HELP_MENU_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                rect.left(), rect.top(), rect.width(), rect.height(),
+                                ctx.pixels_per_point()
+                            );
+                        }
                     });
                 });
             });
@@ -9772,6 +9831,9 @@ impl Studio {
                                 .auto_shrink([false, true])
                                 .show(ui, |ui| {
                             ui.horizontal(|ui| {
+                                if compact_toolbar_chrome_gutter > 0.0 {
+                                    ui.add_space(compact_toolbar_chrome_gutter);
+                                }
                                 let selected_layer = session.live().project().state().selected;
                                 if self.mask_editing_layer == Some(selected_layer) {
                                     let foreground = ui.visuals().strong_text_color();
@@ -10551,6 +10613,7 @@ impl Studio {
                 crate::workspace::PaletteDock::Top | crate::workspace::PaletteDock::Bottom
             );
             let palette_area_height = (palette_viewport.height() - 16.0).max(120.0);
+            let compact_groups = palette_viewport.height() < 520.0 || screen.width() < 760.0;
             let palette_geometry_changed =
                 (self.palette_viewport_height - palette_area_height).abs() > 1.0
                     || self.palette_was_horizontal != horizontal_palette;
@@ -10569,11 +10632,6 @@ impl Studio {
             let palette_response = area.show(ctx, |ui| {
                 crate::ui_tokens::tool_palette_frame(ui.visuals()).show(ui, |ui| {
                     ui.set_width(56.0);
-                    egui::ScrollArea::vertical()
-                        .id_salt("approved-tool-rail-scroll")
-                        .max_height((palette_viewport.height() - 16.0).max(120.0))
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
                     let toolbar_root = egui::Id::new("bitchpixel-tools-toolbar-region");
                     ctx.accesskit_node_builder(toolbar_root, |node| {
                         node.set_role(egui::accesskit::Role::Toolbar);
@@ -10586,6 +10644,13 @@ impl Studio {
                             .accessibility_parent(toolbar_root),
                         |ui| {
                             ui.set_width(56.0);
+                            if compact_groups {
+                                // At 150% scaling a 640×480 window has only
+                                // 320 logical points of height. Keep the
+                                // 44-point controls intact while removing the
+                                // generous desktop-only gaps between them.
+                                ui.spacing_mut().item_spacing.y = 1.0;
+                            }
                             ui.add_space(4.0);
                             let grip = crate::studio_icons::palette_drag_handle(ui);
                             palette_grip_drag_started = grip.drag_started();
@@ -10690,8 +10755,6 @@ impl Studio {
                             }
 
                             ui.separator();
-                            let compact_groups = palette_viewport.height() < 520.0
-                                || screen.width() < 760.0;
                             let family_index = crate::studio_toolbar::ToolFamily::containing(self.tool)
                                 .map(|family| {
                                     crate::studio_toolbar::ToolFamily::ORDERED
@@ -10703,19 +10766,80 @@ impl Studio {
                                     self.toolbar_more_page
                                         % crate::studio_toolbar::ToolFamily::ORDERED.len()
                                 });
-                            if compact_groups {
-                                self.toolbar_more_page = family_index;
-                            }
-                            let families: Vec<_> = if compact_groups {
-                                vec![crate::studio_toolbar::ToolFamily::ORDERED[family_index]]
+                            self.toolbar_more_page = family_index;
+                            // Keep Brush, Eraser, Eyedropper, and the More
+                            // control stationary. Only the grouped families
+                            // scroll, so compact windows never hide the three
+                            // direct-access tools.
+                            let reserved_toolbar_height = 44.0 * 5.0 + 28.0;
+                            let groups_viewport_height = if compact_groups {
+                                (palette_area_height - reserved_toolbar_height).max(44.0)
                             } else {
-                                crate::studio_toolbar::ToolFamily::ORDERED.to_vec()
+                                280.0
                             };
-                            for family in families.iter().copied() {
-                                let response = self.show_tool_family(
-                                    ui, family, session, actions,
-                                );
-                                rail_focus.push(response.id);
+                            let pending_scroll_target = self.toolbar_scroll_target;
+                            let groups_output = egui::ScrollArea::vertical()
+                                .id_salt("approved-tool-family-scroll")
+                                .max_height(groups_viewport_height)
+                                .auto_shrink([false, false])
+                                .show(ui, |groups_ui| {
+                                    let mut groups = Vec::with_capacity(
+                                        crate::studio_toolbar::ToolFamily::ORDERED.len(),
+                                    );
+                                    for (index, family) in crate::studio_toolbar::ToolFamily::ORDERED
+                                        .into_iter()
+                                        .enumerate()
+                                    {
+                                        if index == 2 {
+                                            // Separate color application from
+                                            // the shape and construction tools.
+                                            groups_ui.separator();
+                                        }
+                                        let response = self.show_tool_family(
+                                            groups_ui, family, session, actions,
+                                        );
+                                        rail_focus.push(response.id);
+                                        if pending_scroll_target == Some(family) {
+                                            response.scroll_to_me(Some(egui::Align::Min));
+                                        }
+                                        groups.push((family, response.rect));
+                                    }
+                                    groups
+                                });
+                            if let Some(target) = pending_scroll_target
+                                && let Some((_, target_rect)) = groups_output
+                                    .inner
+                                    .iter()
+                                    .find(|(family, _)| *family == target)
+                            {
+                                // Scrollbar clipping can differ from the row
+                                // edge by a fraction of a point; allow normal
+                                // layout rounding without accepting a clipped
+                                // 44-point control.
+                                let target_is_visible = groups_output
+                                    .inner_rect
+                                    .expand(1.0)
+                                    .contains_rect(*target_rect);
+                                if target_is_visible {
+                                    self.toolbar_scroll_target = None;
+                                    if self.test_path_dialog {
+                                        crate::studio_log!(
+                                            "UI_TEST_TOOLBAR_SCROLLED: {} offset={:.1} target={:.1},{:.1},{:.1},{:.1} viewport={:.1},{:.1},{:.1},{:.1}",
+                                            target.label(),
+                                            groups_output.state.offset.y,
+                                            target_rect.left(),
+                                            target_rect.top(),
+                                            target_rect.width(),
+                                            target_rect.height(),
+                                            groups_output.inner_rect.left(),
+                                            groups_output.inner_rect.top(),
+                                            groups_output.inner_rect.width(),
+                                            groups_output.inner_rect.height()
+                                        );
+                                    }
+                                } else {
+                                    ctx.request_repaint();
+                                }
                             }
 
                             if compact_groups {
@@ -10747,18 +10871,22 @@ impl Studio {
                                 }
                                 self.toolbar_focus_ids.push(more.id);
                                 rail_focus.push(more.id);
-                                if more.clicked() {
-                                    self.toolbar_more_page = (family_index + 1)
-                                        % crate::studio_toolbar::ToolFamily::ORDERED.len();
-                                    ctx.request_repaint();
+                                if more.clicked()
+                                    && let Some(target) =
+                                        crate::studio_toolbar::adjacent_family(family_index, true)
+                                {
+                                    self.toolbar_more_page = crate::studio_toolbar::ToolFamily::ORDERED
+                                        .iter()
+                                        .position(|family| *family == target)
+                                        .unwrap_or(0);
+                                    self.toolbar_scroll_target = Some(target);
                                     if self.test_path_dialog {
                                         crate::studio_log!(
                                             "UI_TEST_TOOLBAR_MORE: {}",
-                                            crate::studio_toolbar::ToolFamily::ORDERED[
-                                                self.toolbar_more_page
-                                            ].label()
+                                            target.label()
                                         );
                                     }
+                                    ctx.request_repaint();
                                 }
                             }
 
@@ -10794,13 +10922,20 @@ impl Studio {
                                     {
                                         ui.memory_mut(|memory| memory.request_focus(*target));
                                     }
-                                    if compact_groups && (navigation.4 || navigation.5) {
-                                        self.toolbar_more_page = if navigation.5 {
-                                            (family_index + 1)
-                                                % crate::studio_toolbar::ToolFamily::ORDERED.len()
-                                        } else {
-                                            family_index.saturating_sub(1)
-                                        };
+                                    if compact_groups
+                                        && (navigation.4 || navigation.5)
+                                        && let Some(target) =
+                                            crate::studio_toolbar::adjacent_family(
+                                                family_index,
+                                                navigation.5,
+                                            )
+                                    {
+                                        self.toolbar_more_page =
+                                            crate::studio_toolbar::ToolFamily::ORDERED
+                                                .iter()
+                                                .position(|family| *family == target)
+                                                .unwrap_or(0);
+                                        self.toolbar_scroll_target = Some(target);
                                         ctx.request_repaint();
                                     }
                                 }
@@ -10813,14 +10948,13 @@ impl Studio {
                                     crate::studio_log!(
                                         "UI_TEST_APPROVED_TOOLBAR: compact={} groups={} rect={:.1},{:.1},{:.1},{:.1} scale={:.2}",
                                         compact_groups,
-                                        families.len(),
+                                        groups_output.inner.len(),
                                         rect.left(), rect.top(), rect.width(), rect.height(), scale
                                     );
                                 }
                             }
                         },
                     );
-                        });
                 });
             });
             let rect = palette_response.response.rect;
@@ -10989,7 +11123,18 @@ impl Studio {
                 };
                 if compact_workspace {
                     ui.horizontal(|ui| {
-                        ui.strong(save_status);
+                        if compact_toolbar_chrome_gutter > 0.0 {
+                            ui.add_space(compact_toolbar_chrome_gutter);
+                            ui.strong(match save_status {
+                                "Unsaved changes · recovery available" => {
+                                    "Unsaved · recovery ready"
+                                }
+                                "Unsaved changes" => "Unsaved",
+                                status => status,
+                            });
+                        } else {
+                            ui.strong(save_status);
+                        }
                         ui.separator();
                         if let Some(error) = session.live().document_error() {
                             ui.colored_label(egui::Color32::LIGHT_RED, error);

@@ -553,6 +553,18 @@ def palette_bounds():
 def toolbar_more_bounds():
     return window_rect_marker('UI_TEST_TOOLBAR_MORE_RECT')
 
+def toolbar_scrolled_bounds(family):
+    prefix=f'UI_TEST_TOOLBAR_SCROLLED: {family} '
+    lines=[line[len(prefix):] for line in application_log_lines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    values={key: value for key,value in
+            (field.split('=',1) for field in lines[-1].split() if '=' in field)}
+    target=tuple(map(float,values['target'].split(',')))
+    viewport=tuple(map(float,values['viewport'].split(',')))
+    return float(values['offset']),target,viewport
+
 def toolbar_family_bounds(family):
     prefix=f'UI_TEST_TOOL_FAMILY_RECT: {family} '
     lines=[line[len(prefix):] for line in application_log_lines()
@@ -571,6 +583,12 @@ def toolbar_direct_bounds(name):
 def view_menu_bounds():
     return window_rect_marker('UI_TEST_VIEW_MENU_RECT')
 
+def help_menu_bounds():
+    return window_rect_marker('UI_TEST_HELP_MENU_RECT')
+
+def quick_brush_menu_bounds():
+    return window_rect_marker('UI_TEST_QUICK_BRUSH_MENU_RECT')
+
 def interface_scale_slider_bounds():
     return window_rect_marker('UI_TEST_UI_SCALE_SLIDER_RECT')
 
@@ -581,12 +599,26 @@ def set_interface_scale(window, prefs, scale):
     view=wait(view_menu_bounds,'View menu remains reachable for interface-size verification')
     click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
     slider=wait(interface_scale_slider_bounds,'View exposes the real Interface size slider')
+    capture_window(window,f'interface-scale-menu-{int(scale*100)}')
     fraction=(scale-0.8)/(1.6-0.8)
-    click_at((slider[0]+slider[2]*fraction)*slider[4],
+    # egui maps the slider value between the handle centers, not the outside
+    # edge of Response::rect. Clicking the raw 87.5% rectangle coordinate
+    # therefore rounded to the maximum (160%) on a narrow menu row.
+    handle_inset=slider[3]*0.30
+    target_x=slider[0]+handle_inset+(slider[2]-2*handle_inset)*fraction
+    trace('interface-scale', 'current', current, 'target', scale,
+          'slider', slider, 'pointer', target_x, slider[1]+slider[3]/2)
+    click_at(target_x*slider[4],
              (slider[1]+slider[3]/2)*slider[4])
     wait(lambda:abs(float(json.loads(prefs.read_text()).get('ui_scale',0))-scale)<0.02,
          f'the application persists Interface size {scale:.0%}')
-    key('Escape')
+    # Toggle the standard View menu from its own trigger. Clicking the canvas
+    # here would be a real paint gesture because this menu is not one of the
+    # Studio flyouts that owns outside-click dismissal.
+    view=wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
+        view_menu_bounds()),
+        'the View menu trigger remains reachable after changing interface size')
+    click_at((view[0]+view[2]/2)*view[4],(view[1]+view[3]/2)*view[4])
     time.sleep(0.15)
 
 def palette_chrome_clearance():
@@ -2058,6 +2090,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                      (effects[1]+effects[3]/2)*effects[4])
             smudge=wait(toolbar_smudge_bounds,'the Smudge option is exposed with a real pointer target')
             assert smudge[2]>=44 and smudge[3]>=44, f'Smudge popup target is smaller than 44 points: {smudge}'
+            assert smudge[2]<=256, f'Smudge popup row must remain within the approved bounded menu width: {smudge}'
             click_at((smudge[0]+smudge[2]/2)*smudge[4],
                      (smudge[1]+smudge[3]/2)*smudge[4])
             wait(lambda:event_marker('UI_TEST_TOOL_SELECTED')=='Smudge',
@@ -2103,16 +2136,18 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             capture_window(window,'approved-toolbar-compact-640')
             observed_families=[]
             for expected_family in ['Color Application','Shapes','Selection','Vector','Paint Effects']:
-                count=event_line_count('UI_TEST_TOOLBAR_MORE: ')
+                count=event_line_count(f'UI_TEST_TOOLBAR_SCROLLED: {expected_family} ')
                 more=wait(toolbar_more_bounds,'More tool families remains visible at compact size')
                 click_at((more[0]+more[2]/2)*more[4],
                          (more[1]+more[3]/2)*more[4])
-                wait(lambda:event_line_count('UI_TEST_TOOLBAR_MORE: ')>count,
-                     f'the compact toolbar advances to {expected_family}')
-                selected_family=event_marker('UI_TEST_TOOLBAR_MORE')
-                assert selected_family==expected_family, \
-                    f'approved compact group order mismatch: expected {expected_family}, got {selected_family}'
-                observed_families.append(selected_family)
+                scrolled=wait(lambda:toolbar_scrolled_bounds(expected_family)
+                              if event_line_count(f'UI_TEST_TOOLBAR_SCROLLED: {expected_family} ')
+                              >count else None,
+                              f'the compact rail scrolls to {expected_family}')
+                _,target,viewport=scrolled
+                assert target[1]>=viewport[1]-1 and target[1]+target[3]<=viewport[1]+viewport[3]+1, \
+                    f'{expected_family} must be visible after More scrolls the grouped rail: {scrolled}'
+                observed_families.append(expected_family)
             assert observed_families==['Color Application','Shapes','Selection','Vector','Paint Effects']
             layouts=[('640x480-100',640,480,1.0),
                      ('1280x800-100',1280,800,1.0),
@@ -2134,6 +2169,40 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                         and target[0]+target[2]<=width/scale+1 \
                         and target[1]+target[3]<=height/scale+1, \
                         f'{name} {name_tool} target is outside the window: {target}'
+                if name=='640x480-150':
+                    view=wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
+                        view_menu_bounds()),
+                        '150% compact layout keeps the View menu outside the toolbar')
+                    help_menu=wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
+                        help_menu_bounds()),
+                        '150% compact layout keeps the last application menu reachable')
+                    brush_menu=wait(quick_brush_menu_bounds,
+                                    '150% compact layout exposes the real Brush preset control')
+                    assert view[0]>=rect[0]+rect[2]-1.0, \
+                        f'150% compact toolbar obscures the View/document menu: palette={rect} menu={view}'
+                    assert help_menu[0]+help_menu[2]<=width/scale+1.0, \
+                        f'150% compact layout clips the Help menu: {help_menu}'
+                    assert brush_menu[0]>=rect[0]+rect[2]-1.0, \
+                        f'150% compact toolbar obscures Brush preset control: palette={rect} preset={brush_menu}'
+                    more=wait(toolbar_more_bounds,
+                              '150% narrow layout keeps the More target reachable')
+                    assert more[2]>=44 and more[3]>=44, \
+                        f'150% More target is smaller than 44 logical points: {more}'
+                    assert more[0]>=-1 and more[1]>=-1 \
+                        and more[0]+more[2]<=width/scale+1 \
+                        and more[1]+more[3]<=height/scale+1, \
+                        f'150% More target is outside the logical viewport: {more}'
+                    count=event_line_count('UI_TEST_TOOLBAR_SCROLLED: Color Application ')
+                    click_at((more[0]+more[2]/2)*more[4],
+                             (more[1]+more[3]/2)*more[4])
+                    scrolled=wait(lambda:toolbar_scrolled_bounds('Color Application')
+                                  if event_line_count('UI_TEST_TOOLBAR_SCROLLED: Color Application ')
+                                  >count else None,
+                                  '150% More scrolls the family rail to Color Application')
+                    _,target_rect,viewport_rect=scrolled
+                    assert target_rect[1]>=viewport_rect[1]-1 \
+                        and target_rect[1]+target_rect[3]<=viewport_rect[1]+viewport_rect[3]+1, \
+                        f'150% Color Application must be visible in the scrolled rail: {scrolled}'
                 capture_window(window,f'approved-toolbar-{name}')
                 return rect
             verify_toolbar_layout('640x480-100',640,480,1.0)

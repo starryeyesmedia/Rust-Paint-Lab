@@ -187,6 +187,21 @@ pub(crate) fn adjacent_focus(index: usize, count: usize, forward: bool) -> Optio
     })
 }
 
+/// Pick the next family that the compact rail should reveal, wrapping once
+/// the last family has been reached.
+pub(crate) fn adjacent_family(index: usize, forward: bool) -> Option<ToolFamily> {
+    let count = ToolFamily::ORDERED.len();
+    if count == 0 {
+        return None;
+    }
+    let index = if forward {
+        index.saturating_add(1) % count
+    } else {
+        index.checked_sub(1).unwrap_or(count - 1)
+    };
+    Some(ToolFamily::ORDERED[index])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,5 +340,14 @@ mod tests {
         assert_eq!(adjacent_focus(7, 8, true), Some(7));
         assert_eq!(adjacent_focus(7, 8, false), Some(6));
         assert_eq!(adjacent_focus(0, 0, true), None);
+    }
+
+    #[test]
+    fn compact_more_navigation_targets_adjacent_families_in_approved_order() {
+        assert_eq!(adjacent_family(0, true), Some(ToolFamily::ColorApplication));
+        assert_eq!(adjacent_family(3, true), Some(ToolFamily::Vector));
+        assert_eq!(adjacent_family(4, true), Some(ToolFamily::PaintEffects));
+        assert_eq!(adjacent_family(0, false), Some(ToolFamily::Vector));
+        assert_eq!(adjacent_family(4, false), Some(ToolFamily::Selection));
     }
 }
