@@ -159,30 +159,37 @@ touch, latency, or GPU compatibility based on compilation or synthetic tests.
 Record commands, outcomes, and unrun checks honestly.
 
 ## Git and PR workflow
-The existing `feature/studio-overdrive-phase-8` branch is currently the
-integration target for BitchPixel application development; `main` is reserved
-for owner-approved stable work. For all **new** feature and bug-fix work:
-- Fetch the latest integration HEAD and branch into short-lived `feat/*`,
-  `fix/*`, `docs/*`, or `chore/*` work branches before making changes.
-- Do **not** commit or push directly to `main` or the integration branch.
-  Preserve existing commits and concurrent in-progress work; never force-push
-  another contributor's branch.
-- Commit, push and validate meaningful checkpoints on the work branch.
-  Multi-hour Codex sessions may contain several checkpoints on one coherent PR
-  branch; a separate PR for every tiny commit is unnecessary.
-- Open a **draft pull request** targeting the integration branch when work is
-  meaningfully underway. Populate the PR template with changed behavior, CI
-  results, native-format/recovery risks, screenshot review where applicable,
-  and explicit device-testing limitations. Keep updating the same PR branch.
-- Diagnose failed CI and fix it on the PR branch; do not bypass test failures
-  by weakening meaningful checks. Require successful Windows, Linux and macOS
-  jobs before proposing a merge. An automated pass does not replace owner
-  review or physical S Pen/accessibility testing.
-- Codex must **never self-merge**, merge development into `main`, create
-  releases, or change protected branch settings without explicit owner approval.
-  Leave blocked or unfinished work as a draft PR with a precise continuation.
-- Follow `docs/DEVELOPMENT-WORKFLOW.md`. GitHub protection/rulesets must be
-  separately enabled by a repository administrator to enforce this policy.
+The approved migration is to use `main` as BitchPixel's alpha integration
+branch after the exact verified baseline is explicitly approved and merged.
+Candidate `2b3728c2f8316113a1a409c5fec43562c1c5e1b0` passed the Windows, Linux,
+and macOS matrix in Actions run
+[`41153331593`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41153331593).
+It is pinned at `alpha/verified-baseline-2b3728c`; that branch must not move.
+Until the owner merges the baseline PR, preserve
+`feature/studio-overdrive-phase-8` and its development history as-is. After
+approval and merge, branch each new assignment from the latest `main` into a
+short-lived `feat/*`, `fix/*`, `docs/*`, or `chore/*` branch.
+
+- Never commit directly to `main`. After the baseline transition, do not push
+  new assignment work directly to the legacy Phase 8 branch either.
+- Preserve all existing commits and concurrent work. Never reset, rebase,
+  force-push, or delete the legacy development branch to make the migration
+  appear linear.
+- Commit, push, and validate meaningful checkpoints on the short-lived work
+  branch. Multi-checkpoint work may share one focused PR; avoid one PR for every
+  tiny commit.
+- Open a draft PR targeting `main` when the work is meaningfully underway.
+  Include changed behavior, test results, native-format/recovery risks,
+  screenshots for interface changes, and explicit device-testing limitations.
+- Diagnose failed CI on the PR branch. Do not weaken meaningful assertions.
+  Require successful `check (ubuntu-latest)`, `check (windows-latest)`, and
+  `check (macos-latest)` jobs before proposing a merge. An automated pass does
+  not replace owner review or physical S Pen/accessibility testing.
+- Codex must never self-merge, publish a release, make licensing decisions, or
+  alter protected branch settings without explicit owner approval. Keep blocked
+  work as a draft PR with exact continuation notes.
+- Follow `docs/DEVELOPMENT-WORKFLOW.md`. Repository rulesets must be separately
+  configured by an administrator to enforce these requirements.
 
 ## Overdrive protocol
 Maintain `docs/PHASE8-STUDIO-PROGRESS.md` with tested checkpoints, partial/missing
