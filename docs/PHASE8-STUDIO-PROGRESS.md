@@ -63,6 +63,13 @@ or tested in the current shell (Rust tooling is unavailable); the pushed hosted
 matrix is required before proceeding. No new screenshot or visual acceptance is
 claimed.
 
+The `f3b0f48` matrix also caught a mask Actions target 0.9 points beyond the
+360-point headless accessibility viewport. The mask-row width calculation
+reserved only the two gaps after the status label, omitting its leading gap.
+It now reserves all three horizontal-layout gaps without reducing the 44-point
+Edit/Actions targets. The semantic bounds test remains unchanged; this narrow
+layout correction also awaits hosted validation.
+
 ## Canvas-first Inspector Milestone 2 — tabs and vector editing integration (2026-10-30, locally verified)
 
 This checkpoint builds on `3427604` on `feature/studio-overdrive-phase-8`.

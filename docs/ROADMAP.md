@@ -46,6 +46,12 @@ its 44-point controls; the UI assertion is unchanged. Rust tooling is absent
 from the current execution shell, so the source correction still requires the
 hosted cross-platform matrix before this milestone can proceed.
 
+Run `41166928479` also found the mask Actions target 0.9 logical points outside
+the 360-point Accessibility test viewport. The horizontal mask row now reserves
+the leading gap and both action gaps when sizing its status label; the 44-point
+controls and accessibility bounds assertion remain unchanged. This adjustment
+needs the next hosted run for compilation and confirmation.
+
 Layers, Brush, Edit, Color, and References share the existing egui/winit
 Inspector. Layers and masks use real document transactions; references remain
 workspace-only and stay out of artwork exports. The accepted Layers hierarchy

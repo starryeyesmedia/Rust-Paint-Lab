@@ -4484,8 +4484,13 @@ fn layer_inspector_contents(
                             } else {
                                 "Mask"
                             };
+                            // `available_width` is measured after the mask
+                            // thumbnail, but the horizontal layout still adds
+                            // a gap before the status label and between both
+                            // action buttons. Reserve all three gaps so the
+                            // final More target stays inside narrow Inspectors.
                             let reserved_controls = 44.0 * 2.0
-                                + ui.spacing().item_spacing.x * 2.0;
+                                + ui.spacing().item_spacing.x * 3.0;
                             let status_width = (ui.available_width() - reserved_controls).max(1.0);
                             let status = ui.add_sized(
                                 [status_width, 44.0],
