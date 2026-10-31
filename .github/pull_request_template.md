@@ -38,10 +38,10 @@ What isn't implemented, remains unverified, or might regress?
 ## Reviewer checklist
 
 - [ ] This is one focused feature or correction, and its `feat/*`, `fix/*`, `test/*`, `docs/*`, or `chore/*` branch starts from current `main`.
-- [ ] PR targets `main`; no changes were committed directly to `main`.
+- [ ] PR targets `main`, BitchPixel’s alpha integration branch; the work branch started from current `main`, with no direct commits to `main`.
 - [ ] Existing painting behavior, editable artwork compatibility, recovery, and other working functionality are preserved or their intentional changes are explained and tested.
 - [ ] Untested physical hardware and accessibility behavior are explicitly documented; CI or synthetic tests are not presented as device validation.
 - [ ] This is alpha development, not a production release; no release or licensing change is implied by merging it.
 - [ ] No telemetry, forced account, subscription, or paid feature gates; third-party notices and original content rights are preserved.
 - [ ] `check (ubuntu-latest)`, `check (windows-latest)`, and `check (macos-latest)` are green on this PR commit before merge.
-- [ ] An eligible human reviewer approved the PR before merge; Codex must not self-merge.
+- [ ] An independent human reviewer approved where available; otherwise the owner performed explicit manual review before merge. Codex must not self-merge.
