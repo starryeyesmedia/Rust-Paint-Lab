@@ -52,6 +52,17 @@ review remains Milestone 4, and the approved icon/grouped-toolbar and
 visual/accessibility stages remain ahead. This is not a complete approved UI or
 hardware evaluation.
 
+Hosted run [`41166324868`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41166324868)
+did not validate the drag fix because Linux stopped earlier at the populated
+Layers-row containment assertion. At 1280×800, the row was sized against the
+outer scroll-area width and extended beneath the scrollbar gutter by 13.6
+logical points. The row now derives its width from the clipped content edge and
+uses compact spacing while retaining 44-point controls. The existing real UI
+containment assertion is unchanged. This correction has not yet been compiled
+or tested in the current shell (Rust tooling is unavailable); the pushed hosted
+matrix is required before proceeding. No new screenshot or visual acceptance is
+claimed.
+
 ## Canvas-first Inspector Milestone 2 — tabs and vector editing integration (2026-10-30, locally verified)
 
 This checkpoint builds on `3427604` on `feature/studio-overdrive-phase-8`.

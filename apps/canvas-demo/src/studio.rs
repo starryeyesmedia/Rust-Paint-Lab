@@ -4052,10 +4052,12 @@ fn layer_inspector_contents(
         // A vertical ScrollArea normally lets its children request their
         // preferred width. Layer rows contain several fixed-size controls,
         // so a long name could silently widen the entire SidePanel past its
-        // viewport constraint. Keep every row inside the stack's measured
-        // width and shorten only its visual label; its accessible name and
-        // hover text retain the complete layer name.
-        ui.set_width(stack_width);
+        // viewport constraint. The scrollbar also reduces the visible inner
+        // width; use that viewport (rather than the outer scroll-area width)
+        // so row actions cannot end up underneath its thumb or gutter.
+        let row_left = ui.min_rect().left();
+        let row_viewport_width = (ui.clip_rect().right() - row_left).max(44.0);
+        ui.set_width(row_viewport_width);
         for (row_index, row_data) in rows.iter().enumerate() {
             let row = row_data.clone();
             let selected = row.id == selected_id;
@@ -4079,11 +4081,11 @@ fn layer_inspector_contents(
             };
             let rename_id = egui::Id::new(("layer-flyout-name", row.id));
             crate::ui_tokens::card_frame(ui.visuals(), selected)
-                .inner_margin(egui::Margin::same(4))
+                .inner_margin(egui::Margin::same(2))
                 .show(ui, |ui| {
-                    ui.set_max_width((stack_width - 10.0).max(44.0));
+                    ui.set_max_width((row_viewport_width - 4.0).max(44.0));
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.spacing_mut().item_spacing.x = 2.0;
                         if compact {
                             // Compact rows use the full layer-name target as
                             // their drag surface. The desktop keeps its
@@ -4299,7 +4301,7 @@ fn layer_inspector_contents(
                             // their inter-control spacing. Clamp the name to
                             // what actually fits instead of allowing long
                             // names to grow the parent dock off-screen.
-                            (stack_width - 10.0 - 5.0 * 44.0 - 5.0 * 8.0)
+                            (row_viewport_width - 4.0 - 5.0 * 44.0 - 5.0 * 2.0)
                                 .max(44.0)
                                 .min(ui.available_width().max(44.0))
                         };

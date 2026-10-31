@@ -38,6 +38,14 @@ screenshots have not yet been visually reviewed. The six-layout visual
 acceptance and subsequent approved icon, grouped toolbar, and
 visual/accessibility stages remain incomplete.
 
+The follow-up hosted run `41166324868` stopped earlier in the Linux workflow at
+the existing populated Layers-row containment check: at 1280×800, a row used
+the outer scroll-area width and extended into the scrollbar gutter. The row now
+uses its clipped content edge for sizing and tighter spacing without shrinking
+its 44-point controls; the UI assertion is unchanged. Rust tooling is absent
+from the current execution shell, so the source correction still requires the
+hosted cross-platform matrix before this milestone can proceed.
+
 Layers, Brush, Edit, Color, and References share the existing egui/winit
 Inspector. Layers and masks use real document transactions; references remain
 workspace-only and stay out of artwork exports. The accepted Layers hierarchy
