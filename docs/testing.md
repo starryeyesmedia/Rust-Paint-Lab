@@ -101,6 +101,9 @@ Inspector docks (1920×1080→360 pt, 1280×720→336 pt, 1280×800→320 pt,
 temporary geometry is checked separately from retained artist preferences.
 Geometry tests cover all-edge panel/palette avoidance, Zoom/Fit protection,
 24-point snapping, clamping, and invalid viewports.
+The compact layer-row regression test ensures egui's expanded clip margin cannot
+inflate the Inspector and that rows respect the narrower viewport while keeping
+the 44-point minimum for essential controls.
 
 The real pinned-reference pointer drag and no-paint assertion runs as part of
 the complete Linux workflow:

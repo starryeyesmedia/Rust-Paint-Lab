@@ -73,12 +73,16 @@ its implementation commit is pushed. The preceding cross-platform baseline run
 [`41102591526`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41102591526)
 is not a substitute for M2's own Actions result.
 
-Inspector Milestone 3 is now implemented locally. After this branch is reviewed
-and merged, the next focused PR integrates the approved Material Symbols Rounded
-assets and compact grouped toolbar, followed by the approved visual consistency
-and accessibility corrections. Inspector Milestone 4 then captures all six
-viewport/scale cases and reviews populated dark/light/high-contrast layouts
-before independent QA. Phase 8.3 remains active.
+Inspector Milestone 3's responsive widths and reference placement are
+implemented, but the latest hosted run exposed a 640×480 compact Layers overflow.
+The local correction constrains layer rows to their true ScrollArea viewport and
+preserves the 44-point tool targets; targeted UI assertions and local Rust checks
+pass. A full Linux artwork run and hosted cross-platform CI for the correction
+are still pending. After this milestone passes review and CI, the next focused
+PR integrates the approved Material Symbols Rounded assets and compact grouped
+toolbar. Inspector Milestone 4 then captures all six viewport/scale cases and
+reviews populated dark/light/high-contrast layouts before independent QA. Phase
+8.3 remains active.
 
 Phase 10 now includes optional deterministic freehand-to-cubic creation and
 undoable closed-path fills in the existing V tool. Smooth paths preserve all

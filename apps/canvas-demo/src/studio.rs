@@ -3885,6 +3885,25 @@ struct InspectorLayerRow {
     vector_paths: Vec<(u64, bool)>,
 }
 
+/// Return the usable layer-row width without treating egui's expanded clip
+/// margin as real layout space. `ScrollArea` and resizable `Window` expand
+/// their clip rectangles slightly to avoid edge flicker; using that expanded
+/// right edge as a requested widget width can make the compact Inspector's
+/// auto-sized content wider than its safe viewport after a resize.
+fn layer_rows_viewport_width(
+    clip_rect: egui::Rect,
+    max_rect: egui::Rect,
+    row_left: f32,
+    stack_viewport_right: f32,
+) -> f32 {
+    (clip_rect
+        .right()
+        .min(max_rect.right())
+        .min(stack_viewport_right)
+        - row_left)
+        .max(44.0)
+}
+
 fn layer_inspector_contents(
     ui: &mut egui::Ui,
     project: &mut Engine,
@@ -4048,7 +4067,7 @@ fn layer_inspector_contents(
     // rows; use the one outer tab scrollbar there. Roomier compact drawers and
     // desktop docks retain the independent stack scroll and fixed footer.
     let compact_outer_scroll = compact && ui.available_height() < 320.0;
-    let mut draw_rows = |ui: &mut egui::Ui| {
+    let mut draw_rows = |ui: &mut egui::Ui, viewport_width: f32| {
         // A vertical ScrollArea normally lets its children request their
         // preferred width. Layer rows contain several fixed-size controls,
         // so a long name could silently widen the entire SidePanel past its
@@ -4056,7 +4075,14 @@ fn layer_inspector_contents(
         // width; use that viewport (rather than the outer scroll-area width)
         // so row actions cannot end up underneath its thumb or gutter.
         let row_left = ui.min_rect().left();
-        let row_viewport_width = (ui.clip_rect().right() - row_left).max(44.0);
+        let viewport_left = ui.available_rect_before_wrap().left();
+        let stack_viewport_right = viewport_left + viewport_width;
+        let row_viewport_width = layer_rows_viewport_width(
+            ui.clip_rect(),
+            ui.max_rect(),
+            row_left,
+            stack_viewport_right,
+        );
         ui.set_width(row_viewport_width);
         for (row_index, row_data) in rows.iter().enumerate() {
             let row = row_data.clone();
@@ -4314,7 +4340,8 @@ fn layer_inspector_contents(
                                     crate::ui_tokens::TypeRole::LayerName,
                                     ui.visuals().text_color(),
                                 ),
-                            ),
+                            )
+                            .truncate(),
                         );
                         label.widget_info(|| {
                             egui::WidgetInfo::selected(
@@ -4645,11 +4672,13 @@ fn layer_inspector_contents(
         }
     };
     let stack_viewport = if compact_outer_scroll {
-        let viewport = ui.clip_rect();
-        draw_rows(ui);
+        let viewport = ui.available_rect_before_wrap();
+        draw_rows(ui, viewport.width());
         viewport
     } else {
-        scroll.show(ui, draw_rows).inner_rect
+        scroll
+            .show_viewport(ui, |ui, viewport| draw_rows(ui, viewport.width()))
+            .inner_rect
     };
     if test_mode {
         crate::studio_log!(
@@ -9987,7 +10016,12 @@ impl Studio {
             let palette_response = area.show(ctx, |ui| {
                 crate::ui_tokens::tool_palette_frame(ui.visuals()).show(ui, |ui| {
                     if compact_palette && !horizontal_palette {
-                        ui.set_width(58.0);
+                        // Keep 44pt tool targets while reclaiming two points
+                        // of chrome in the 640pt canvas/Inspector layout. The
+                        // saved drawer can then retain its approved width
+                        // without dropping below the verified open-canvas
+                        // budget beside the palette.
+                        ui.set_width(56.0);
                     }
                     if horizontal_palette {
                         ui.set_min_width((screen.width() - 16.0).clamp(1.0, 640.0));
@@ -17610,6 +17644,30 @@ mod tests {
         let shortened = super::compact_layer_label("彩色 Layer 🌱 copy", 51.0);
         assert!(shortened.ends_with('…'));
         assert!(shortened.chars().count() <= 6);
+    }
+
+    #[test]
+    fn compact_layer_stack_does_not_size_to_expanded_clip_margin() {
+        // egui deliberately expands clips to avoid edge flicker. That margin
+        // is not available layout space: a layer stack must not use it to
+        // enlarge the resizable Inspector beyond its compact viewport.
+        let max_rect = egui::Rect::from_min_max(egui::pos2(23.0, 0.0), egui::pos2(2_240.0, 240.0));
+        let expanded_clip =
+            egui::Rect::from_min_max(egui::pos2(20.0, 0.0), egui::pos2(611.0, 240.0));
+        let width = super::layer_rows_viewport_width(expanded_clip, max_rect, 23.0, 594.0);
+        assert_eq!(width, 571.0);
+        assert!(23.0 + width <= 594.0);
+
+        let narrow_clip = egui::Rect::from_min_max(egui::pos2(23.0, 0.0), egui::pos2(320.0, 240.0));
+        assert_eq!(
+            super::layer_rows_viewport_width(narrow_clip, max_rect, 23.0, 500.0),
+            297.0
+        );
+        let tiny = egui::Rect::from_min_max(egui::pos2(23.0, 0.0), egui::pos2(30.0, 240.0));
+        assert_eq!(
+            super::layer_rows_viewport_width(tiny, max_rect, 23.0, 500.0),
+            44.0
+        );
     }
 
     #[test]

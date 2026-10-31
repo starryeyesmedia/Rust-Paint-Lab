@@ -1,5 +1,37 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## Milestone 3 compact-Inspector correction (2026-10-31; local verification)
+
+The pushed branch head before this correction is `52d7e2d`. Actions run
+[`41167207361`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41167207361)
+failed the Linux alpha artwork smoke at the unchanged compact Inspector bounds
+assertion: `('overlay', 'Layers', 8.0, 133.0, 641.0, 239.2, 1.0)` at 640×480.
+The layer-row sizing used egui's intentionally expanded clip rectangle as
+available layout width, and a long, non-truncated layer-name button could
+request more than its assigned width. That let the resizable Inspector grow
+past the logical viewport. The rows now size from the actual ScrollArea
+viewport, cap against the window and stack viewport, and truncate only the
+visible label while preserving its full accessible name. A focused geometry
+regression covers expanded clips. The compact palette's outer width is reduced
+by two points to preserve the strict open-canvas budget; all tool targets stay
+at least 44 points. No UI assertion was weakened.
+
+Local verification for this correction: formatting, strict host Clippy, strict
+Windows GNU target Clippy, Windows GNU workspace check, workspace build, the
+full workspace suite (**406 tests**), and required llvmpipe/OpenGL GPU smoke
+passed. The first full Xorg/XTest run passed the 640×480 Inspector bounds and
+canvas-space assertions and proceeded through populated layer, mask, vector,
+and recovery workflows, but exhausted the shared `/tmp` volume while writing
+its final recovery checkpoint. A second run used workspace-backed temporary
+storage and again passed the compact layout and later application interactions;
+it was intentionally interrupted at the vector save/reopen sequence while
+opening the requested draft PR. Thus the complete Linux artwork workflow and
+hosted Windows/Linux/macOS CI for the correction remain pending. The inspected
+640×480 populated Layers capture is in
+`/tmp/bitchpixel-inspector-checkpoint-fixed2/layers-panel-populated-light-narrow.png`.
+The working-tree correction has not yet been pushed; no Windows artifact for it
+is available yet.
+
 ## Approved UI implementation — Inspector responsiveness and reference safety (2026-10-31, local validation)
 
 This short-lived implementation branch starts from verified `main`
