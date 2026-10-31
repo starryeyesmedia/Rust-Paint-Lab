@@ -1,0 +1,18 @@
+[package]
+name = "paint-document"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+[dependencies]
+paint-stroke = { path = "../stroke" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+png = "0.18"
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
+roxmltree = "=0.21.1"
+[lints]
+workspace = true
+[dev-dependencies]
+paint-input = { path = "../input" }

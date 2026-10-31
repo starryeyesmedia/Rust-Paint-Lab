@@ -1,0 +1,444 @@
+//! Application-only palettes for the studio shell. Document and raster colors
+//! are rendered by a separate pipeline and are not changed by these settings.
+
+use crate::workspace::{AccentScheme, AppearanceMode};
+
+fn rgb(color: [u8; 3]) -> egui::Color32 {
+    egui::Color32::from_rgb(color[0], color[1], color[2])
+}
+
+fn color(scheme: AccentScheme, custom: Option<[u8; 3]>, dark: bool) -> egui::Color32 {
+    let value = match scheme {
+        AccentScheme::Violet => [0xC5, 0x5C, 0xFF],
+        AccentScheme::Blue => [0x60, 0xA5, 0xFA],
+        AccentScheme::Teal => [0x2D, 0xD4, 0xBF],
+        AccentScheme::Coral => [0xFB, 0x71, 0x85],
+        AccentScheme::Green => [0x4A, 0xDE, 0x80],
+        AccentScheme::Neutral if dark => [0xC7, 0xC9, 0xD3],
+        AccentScheme::Neutral => [0x59, 0x5B, 0x68],
+        AccentScheme::Custom => custom.unwrap_or([0xC5, 0x5C, 0xFF]),
+    };
+    rgb(value)
+}
+
+fn linear_channel(value: u8) -> f32 {
+    let value = f32::from(value) / 255.0;
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+pub fn contrast_ratio(a: egui::Color32, b: egui::Color32) -> f32 {
+    let luminance = |color: egui::Color32| {
+        0.2126 * linear_channel(color.r())
+            + 0.7152 * linear_channel(color.g())
+            + 0.0722 * linear_channel(color.b())
+    };
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+fn mix(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 {
+    let amount = amount.clamp(0.0, 1.0);
+    let channel =
+        |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * amount).round() as u8;
+    egui::Color32::from_rgb(
+        channel(a.r(), b.r()),
+        channel(a.g(), b.g()),
+        channel(a.b(), b.b()),
+    )
+}
+
+fn ensure_control_contrast(accent: egui::Color32, surface: egui::Color32) -> egui::Color32 {
+    if contrast_ratio(accent, surface) >= 3.0 {
+        return accent;
+    }
+    let black = egui::Color32::BLACK;
+    let white = egui::Color32::WHITE;
+    let target = if contrast_ratio(black, surface) > contrast_ratio(white, surface) {
+        black
+    } else {
+        white
+    };
+    (1..=20)
+        .map(|step| mix(accent, target, step as f32 / 20.0))
+        .find(|candidate| contrast_ratio(*candidate, surface) >= 3.0)
+        .unwrap_or(target)
+}
+
+/// Keep active control text accessible while preserving the chosen purple hue.
+/// egui also uses the active widget foreground for `RichText::strong`; setting
+/// a black foreground on a bright violet accent would otherwise turn every
+/// strong label black on the dark studio surface. Move only the selected fill
+/// toward the application surface until its foreground is readable.
+fn active_fill_for_text(
+    accent: egui::Color32,
+    surface: egui::Color32,
+    foreground: egui::Color32,
+) -> egui::Color32 {
+    if contrast_ratio(foreground, accent) >= 4.5 {
+        return accent;
+    }
+    (1..=100)
+        .map(|step| mix(accent, surface, step as f32 / 100.0))
+        .find(|candidate| contrast_ratio(foreground, *candidate) >= 4.5)
+        .unwrap_or(surface)
+}
+
+fn readable_foreground(background: egui::Color32) -> egui::Color32 {
+    let black = egui::Color32::BLACK;
+    let white = egui::Color32::WHITE;
+    if contrast_ratio(black, background) >= contrast_ratio(white, background) {
+        black
+    } else {
+        white
+    }
+}
+
+/// Ensure a rendered text color has at least 4.5:1 contrast against its actual
+/// surface. This is used at prominent text call sites as well as in palette
+/// tests, so custom egui visuals cannot silently reintroduce low-contrast copy.
+pub fn readable_text_color(foreground: egui::Color32, background: egui::Color32) -> egui::Color32 {
+    if contrast_ratio(foreground, background) >= 4.5 {
+        return foreground;
+    }
+    let target = readable_foreground(background);
+    (1..=100)
+        .map(|step| mix(foreground, target, step as f32 / 100.0))
+        .find(|candidate| contrast_ratio(*candidate, background) >= 4.5)
+        .unwrap_or(target)
+}
+
+/// Returns an accent suitable for heading-sized text (at least 4.5:1 against
+/// the chosen surface), while retaining the original hue as far as possible.
+pub fn readable_text_accent(accent: egui::Color32, surface: egui::Color32) -> egui::Color32 {
+    readable_text_color(accent, surface)
+}
+
+/// Returns a purple-to-magenta text gradient only when every sampled color
+/// remains readable on the selected surface. High-contrast mode should use a
+/// single foreground color instead.
+pub fn accessible_text_gradient(
+    start: egui::Color32,
+    end: egui::Color32,
+    surface: egui::Color32,
+) -> Option<[egui::Color32; 2]> {
+    let start = readable_text_color(start, surface);
+    let end = readable_text_color(end, surface);
+    let colors = [start, end];
+    (text_gradient_min_contrast(colors, surface) >= 4.5).then_some(colors)
+}
+
+pub fn text_gradient_min_contrast(colors: [egui::Color32; 2], surface: egui::Color32) -> f32 {
+    (0..=32)
+        .map(|step| contrast_ratio(mix(colors[0], colors[1], step as f32 / 32.0), surface))
+        .fold(f32::INFINITY, f32::min)
+}
+
+pub fn visuals(
+    mode: AppearanceMode,
+    system_dark: bool,
+    scheme: AccentScheme,
+    custom_accent: Option<[u8; 3]>,
+) -> egui::Visuals {
+    let dark = mode.is_dark(system_dark);
+    let (background, surface, elevated, border, text, weak_text) = if dark {
+        (
+            rgb([0x10, 0x0D, 0x17]), // Midnight violet around artwork
+            rgb([0x1A, 0x15, 0x22]),
+            rgb([0x28, 0x20, 0x34]),
+            rgb([0x4D, 0x3A, 0x60]),
+            rgb([0xFB, 0xF8, 0xFF]),
+            rgb([0xD1, 0xC8, 0xDC]),
+        )
+    } else {
+        (
+            rgb([0xF8, 0xF5, 0xFB]),
+            rgb([0xFF, 0xFC, 0xFF]),
+            rgb([0xF0, 0xE9, 0xF6]),
+            rgb([0xD5, 0xC5, 0xE0]),
+            rgb([0x27, 0x20, 0x30]),
+            rgb([0x58, 0x4D, 0x62]),
+        )
+    };
+    let accent = ensure_control_contrast(color(scheme, custom_accent, dark), background);
+    let active_fill = active_fill_for_text(accent, background, text);
+    let text_on_active = readable_foreground(active_fill);
+    let hover = mix(elevated, accent, 0.14);
+    let selected = mix(elevated, accent, 0.28);
+
+    let mut visuals = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    visuals.dark_mode = dark;
+    visuals.override_text_color = None;
+    visuals.weak_text_color = Some(weak_text);
+    visuals.panel_fill = background;
+    visuals.window_fill = surface;
+    visuals.window_stroke = egui::Stroke::new(1.0, border);
+    // Cards and inactive controls sit one step above the app background, so
+    // the workspace reads as a coordinated surface system in both themes.
+    visuals.faint_bg_color = elevated;
+    visuals.extreme_bg_color = if dark {
+        background
+    } else {
+        egui::Color32::WHITE
+    };
+    visuals.text_edit_bg_color = Some(if dark {
+        background
+    } else {
+        egui::Color32::WHITE
+    });
+    visuals.code_bg_color = elevated;
+    visuals.hyperlink_color = accent;
+    visuals.warn_fg_color = if dark {
+        rgb([0xFF, 0xD1, 0x74])
+    } else {
+        rgb([0x8A, 0x56, 0x00])
+    };
+    visuals.error_fg_color = if dark {
+        rgb([0xFF, 0x85, 0x8A])
+    } else {
+        rgb([0xB2, 0x1D, 0x28])
+    };
+    visuals.selection.bg_fill = selected;
+    visuals.selection.stroke = egui::Stroke::new(1.0, accent);
+
+    let set_widget = |widget: &mut egui::style::WidgetVisuals,
+                      fill: egui::Color32,
+                      weak_fill: egui::Color32,
+                      edge: egui::Color32,
+                      foreground: egui::Color32| {
+        widget.bg_fill = fill;
+        widget.weak_bg_fill = weak_fill;
+        widget.bg_stroke = egui::Stroke::new(1.0, edge);
+        widget.fg_stroke = egui::Stroke::new(1.5, foreground);
+        widget.corner_radius = 7.0.into();
+        widget.expansion = 0.0;
+    };
+    set_widget(
+        &mut visuals.widgets.noninteractive,
+        surface,
+        elevated,
+        border,
+        text,
+    );
+    set_widget(
+        &mut visuals.widgets.inactive,
+        surface,
+        elevated,
+        border,
+        text,
+    );
+    set_widget(&mut visuals.widgets.hovered, hover, hover, accent, text);
+    set_widget(
+        &mut visuals.widgets.active,
+        active_fill,
+        active_fill,
+        accent,
+        text_on_active,
+    );
+    set_widget(&mut visuals.widgets.open, selected, selected, accent, text);
+    visuals
+}
+
+/// Strengthen text, control boundaries, and selection contrast without changing
+/// document/canvas color. This is an optional application accessibility mode.
+pub fn high_contrast(mut visuals: egui::Visuals, dark: bool) -> egui::Visuals {
+    let background = if dark {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
+    };
+    let foreground = if dark {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::BLACK
+    };
+    let edge = if dark {
+        egui::Color32::from_rgb(255, 230, 96)
+    } else {
+        egui::Color32::from_rgb(24, 48, 132)
+    };
+    visuals.panel_fill = background;
+    visuals.window_fill = background;
+    visuals.faint_bg_color = background;
+    visuals.extreme_bg_color = background;
+    visuals.override_text_color = Some(foreground);
+    visuals.weak_text_color = Some(foreground);
+    visuals.window_stroke = egui::Stroke::new(2.0, edge);
+    visuals.selection.stroke = egui::Stroke::new(2.0, edge);
+    for widget in [
+        &mut visuals.widgets.noninteractive,
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+    ] {
+        widget.fg_stroke = egui::Stroke::new(2.0, foreground);
+        widget.bg_stroke = egui::Stroke::new(2.0, edge);
+        widget.weak_bg_fill = background;
+        widget.bg_fill = background;
+    }
+    visuals
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn midnight_violet_palette_keeps_text_and_accent_controls_contrasting() {
+        for (scheme, custom) in [
+            (AccentScheme::Violet, None),
+            (AccentScheme::Blue, None),
+            (AccentScheme::Teal, None),
+            (AccentScheme::Coral, None),
+            (AccentScheme::Green, None),
+            (AccentScheme::Neutral, None),
+            (AccentScheme::Custom, Some([120, 30, 190])),
+        ] {
+            for mode in [AppearanceMode::Dark, AppearanceMode::Light] {
+                let visuals = visuals(mode, false, scheme, custom);
+                assert!(
+                    contrast_ratio(
+                        visuals.widgets.noninteractive.fg_stroke.color,
+                        visuals.panel_fill
+                    ) >= 4.5
+                );
+                assert!(
+                    contrast_ratio(visuals.weak_text_color(), visuals.panel_fill) >= 4.5,
+                    "weak metadata text must remain readable in {mode:?} with {scheme:?}"
+                );
+                assert!(contrast_ratio(visuals.widgets.active.bg_fill, visuals.panel_fill) >= 3.0);
+                assert!(
+                    contrast_ratio(
+                        visuals.widgets.active.fg_stroke.color,
+                        visuals.widgets.active.bg_fill
+                    ) >= 4.5
+                );
+                assert!(
+                    contrast_ratio(visuals.strong_text_color(), visuals.panel_fill) >= 4.5,
+                    "strong labels must remain readable on {mode:?} surfaces with {scheme:?}"
+                );
+                assert!(
+                    contrast_ratio(visuals.widgets.active.bg_fill, visuals.panel_fill) >= 3.0,
+                    "active state must stay distinct from the surface on {mode:?} with {scheme:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn approved_midnight_violet_theme_uses_charcoal_surfaces_and_a_purple_primary() {
+        let palette = visuals(AppearanceMode::Dark, true, AccentScheme::Violet, None);
+        let purple = palette.hyperlink_color;
+        assert!(purple.r() > purple.g() && purple.b() > purple.g());
+        assert!(palette.panel_fill.r() < 32 && palette.panel_fill.g() < 32);
+        assert!(palette.window_fill.r() < 40 && palette.window_fill.b() < 50);
+        assert!(contrast_ratio(purple, palette.panel_fill) >= 3.0);
+    }
+
+    #[test]
+    fn heading_accent_is_readable_in_both_themes_and_high_contrast_states() {
+        for dark in [false, true] {
+            for high in [false, true] {
+                let mut palette = visuals(
+                    if dark {
+                        AppearanceMode::Dark
+                    } else {
+                        AppearanceMode::Light
+                    },
+                    dark,
+                    AccentScheme::Violet,
+                    None,
+                );
+                if high {
+                    palette = high_contrast(palette, dark);
+                }
+                let accent = readable_text_accent(palette.hyperlink_color, palette.panel_fill);
+                assert!(contrast_ratio(accent, palette.panel_fill) >= 4.5);
+            }
+        }
+    }
+
+    #[test]
+    fn brand_slogan_gradient_is_only_returned_when_all_samples_meet_text_contrast() {
+        let requested = [
+            egui::Color32::from_rgb(156, 108, 255),
+            egui::Color32::from_rgb(234, 111, 214),
+        ];
+        for mode in [AppearanceMode::Dark, AppearanceMode::Light] {
+            let palette = visuals(mode, mode.is_dark(false), AccentScheme::Violet, None);
+            let surface = crate::ui_tokens::hero_surface(&palette);
+            let colors = accessible_text_gradient(requested[0], requested[1], surface)
+                .expect("theme has a readable purple-magenta text gradient");
+            assert!(text_gradient_min_contrast(colors, surface) >= 4.5);
+        }
+    }
+
+    #[test]
+    fn visible_body_text_and_prominent_text_are_contrast_safe_on_home_surface() {
+        for mode in [AppearanceMode::Dark, AppearanceMode::Light] {
+            let palette = visuals(mode, mode.is_dark(false), AccentScheme::Violet, None);
+            let rendered_body_color = palette.text_color();
+            let safe_heading = readable_text_color(rendered_body_color, palette.window_fill);
+            let safe_weak_copy =
+                readable_text_color(palette.weak_text_color(), palette.window_fill);
+            assert!(contrast_ratio(safe_heading, palette.window_fill) >= 4.5);
+            assert!(contrast_ratio(safe_weak_copy, palette.window_fill) >= 4.5);
+            for dark in [false, true] {
+                let high = high_contrast(palette.clone(), dark);
+                let safe = readable_text_color(high.text_color(), high.window_fill);
+                assert!(contrast_ratio(safe, high.window_fill) >= 4.5);
+            }
+        }
+    }
+
+    #[test]
+    fn follow_system_appearance_uses_the_supplied_platform_theme() {
+        assert!(
+            visuals(
+                AppearanceMode::FollowSystem,
+                true,
+                AccentScheme::Violet,
+                None
+            )
+            .dark_mode
+        );
+        assert!(
+            !visuals(
+                AppearanceMode::FollowSystem,
+                false,
+                AccentScheme::Violet,
+                None
+            )
+            .dark_mode
+        );
+    }
+
+    #[test]
+    fn high_contrast_mode_keeps_text_legible_and_control_edges_distinct() {
+        for dark in [true, false] {
+            let base = visuals(
+                if dark {
+                    AppearanceMode::Dark
+                } else {
+                    AppearanceMode::Light
+                },
+                dark,
+                AccentScheme::Violet,
+                None,
+            );
+            let high = high_contrast(base, dark);
+            let text = high.override_text_color.unwrap();
+            assert!(contrast_ratio(text, high.panel_fill) >= 7.0);
+            assert!(contrast_ratio(high.widgets.inactive.bg_stroke.color, high.panel_fill) >= 3.0);
+            assert!(high.widgets.inactive.bg_stroke.width >= 2.0);
+        }
+    }
+}

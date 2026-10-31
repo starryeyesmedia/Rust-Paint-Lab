@@ -1,0 +1,5 @@
+paint-input-replay 1
+sample 300 1 pen down 100 300 0.2 - - 1 1 1
+sample 900 1 pen move 280 140 0.5 - - 1 1 1
+sample 1500 1 pen move 500 340 1 - - 1 1 1
+capture_lost 2600 1

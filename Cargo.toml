@@ -1,0 +1,13 @@
+[workspace]
+members = ["crates/input", "crates/stroke", "crates/document", "apps/stylus-diagnostic", "apps/canvas-demo"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"

@@ -1,0 +1,290 @@
+name: Rust checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+      - name: Test incremental GUI smoke log indexing
+        run: python -m unittest discover -s scripts -p "test_*.py"
+      - name: Install Linux display and software GPU prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libwayland-dev mesa-vulkan-drivers xvfb xauth libxtst6 x11-apps
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: python scripts/check-tests.py
+        env:
+          RPL_REQUIRE_GPU: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
+      - run: cargo build --workspace --locked
+      - name: Linux virtual-window replay smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        env:
+          WGPU_BACKEND: vulkan
+          RPL_UI_SCREENSHOT_DIR: ${{ runner.temp }}/rpl-studio-ui
+        run: |
+          set +e
+          xvfb-run -a cargo run --locked -p canvas-demo -- --exit-after-demo > /tmp/canvas-window-smoke.log 2>&1
+          outcome=$?
+          set -e
+          cat /tmp/canvas-window-smoke.log
+          if [ "$outcome" -ne 0 ]; then
+            python3 - <<'PYTHON'
+          from pathlib import Path
+          text = Path('/tmp/canvas-window-smoke.log').read_text()[-6000:]
+          text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Canvas window smoke::' + text)
+          PYTHON
+          fi
+          exit "$outcome"
+      - name: Linux live mouse window smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        env:
+          WGPU_BACKEND: vulkan
+        run: |
+          set +e
+          xvfb-run -a python3 scripts/live-mouse-window-smoke.py > /tmp/live-mouse-window-smoke.log 2>&1
+          outcome=$?
+          set -e
+          cat /tmp/live-mouse-window-smoke.log
+          if [ "$outcome" -ne 0 ]; then
+            python3 - <<'PYTHON'
+          from pathlib import Path
+          text = Path('/tmp/live-mouse-window-smoke.log').read_text()[-6000:]
+          text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Live mouse window smoke::' + text)
+          PYTHON
+          fi
+          exit "$outcome"
+      - name: Linux alpha artwork workflow smoke
+        if: runner.os == 'Linux'
+        # The expanded vector-handle workflow exceeded the former 15-minute
+        # step timeout on hosted Linux. The full local Xorg/llvmpipe workflow
+        # took about 17 minutes; keep every assertion and allow for the slower
+        # hosted software renderer instead of truncating validation.
+        timeout-minutes: 25
+        env:
+          WGPU_BACKEND: vulkan
+          RPL_UI_SCREENSHOT_DIR: ${{ runner.temp }}/rpl-studio-ui
+        run: |
+          set +e
+          xvfb-run -a -s "-screen 0 2200x1400x24" python3 scripts/alpha-workflow-smoke.py > /tmp/alpha-workflow.log 2>&1
+          outcome=$?
+          set -e
+          cat /tmp/alpha-workflow.log
+          if [ "$outcome" -ne 0 ]; then
+            python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          detail=Path('/tmp/alpha-workflow.log').read_text(errors='replace')[-2800:]
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as summary:
+              summary.write('### Linux alpha artwork workflow failure details\n\n```text\n')
+              summary.write(detail)
+              summary.write('\n```\n')
+          print('::error title=Alpha artwork workflow::'+detail.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+          PYTHON
+          fi
+          exit "$outcome"
+      - name: Linux placed-image workflow smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        env:
+          WGPU_BACKEND: vulkan
+          RPL_UI_SCREENSHOT_DIR: ${{ runner.temp }}/rpl-studio-ui
+        run: |
+          set +e
+          xvfb-run -a -s "-screen 0 1600x1000x24" python3 scripts/place-image-smoke.py > /tmp/place-image-smoke.log 2>&1
+          outcome=$?
+          set -e
+          cat /tmp/place-image-smoke.log
+          if [ "$outcome" -ne 0 ]; then
+            python3 - <<'PYTHON'
+          from pathlib import Path
+          text=Path('/tmp/place-image-smoke.log').read_text()[-6000:]
+          print('::error title=Placed-image workflow::'+text.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+          PYTHON
+          fi
+          exit "$outcome"
+      - name: Upload Linux rendered studio screenshots
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-paint-lab-studio-ui-smoke
+          path: ${{ runner.temp }}/rpl-studio-ui/*.png
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload Linux alpha smoke diagnostics
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-paint-lab-linux-ui-diagnostics
+          path: /tmp/alpha-workflow.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Build portable Windows diagnostic
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --locked -p stylus-diagnostic --target x86_64-pc-windows-msvc
+      - name: Package Windows diagnostic and inspect runtime dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'target/x86_64-pc-windows-msvc/release/stylus-diagnostic.exe'
+          if (!(Test-Path $exe -PathType Leaf)) { throw 'Release executable is missing' }
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or !$vs) { throw 'Cannot locate Visual C++ tools' }
+          $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$dumpbin) { throw 'Cannot locate dumpbin' }
+          $imports = & $dumpbin.FullName /dependents $exe
+          if ($LASTEXITCODE -ne 0) { throw 'DLL import inspection failed' }
+          $imports | Write-Output
+          if ($imports -match '(?i)\b(vcruntime[^\s]*|msvcp[^\s]*|ucrtbase|api-ms-win-crt-[^\s]*)\.dll\b') {
+            throw 'Portable build unexpectedly depends on a dynamic Visual C++ runtime'
+          }
+          $package = 'target/windows-diagnostic-package'
+          New-Item -ItemType Directory -Force $package | Out-Null
+          Copy-Item $exe "$package/stylus-diagnostic.exe"
+          Copy-Item 'docs/windows-diagnostic-README.txt' "$package/README.txt"
+          Copy-Item 'docs/licenses/windows-rs-MIT.txt' "$package/THIRD-PARTY-LICENSE.txt"
+          $rust = rustc --version
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify Rust toolchain' }
+          @("Commit: $env:GITHUB_SHA", "Toolchain: $rust", 'Target: x86_64-pc-windows-msvc',
+            'Release build; static CRT; unsigned executable', '', 'DLL import inspection:', $imports) |
+            Set-Content "$package/BUILD.txt" -Encoding utf8
+          $hash = (Get-FileHash "$package/stylus-diagnostic.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  stylus-diagnostic.exe" | Set-Content "$package/SHA256SUMS.txt" -Encoding ascii
+      - name: Upload Windows diagnostic
+        if: runner.os == 'Windows'
+        id: windows-diagnostic
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-paint-lab-windows-diagnostic
+          path: target/windows-diagnostic-package/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Build portable Windows canvas demo
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --locked -p canvas-demo --target x86_64-pc-windows-msvc
+      - name: Package Windows canvas demo
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'target/x86_64-pc-windows-msvc/release/canvas-demo.exe'
+          if (!(Test-Path $exe -PathType Leaf)) { throw 'Canvas executable is missing' }
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or !$vs) { throw 'Cannot locate Visual C++ tools' }
+          $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$dumpbin) { throw 'Cannot locate dumpbin' }
+          $imports = & $dumpbin.FullName /dependents $exe
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas DLL inspection failed' }
+          $imports | Write-Output
+          $headers = & $dumpbin.FullName /headers $exe
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas executable header inspection failed' }
+          if (($headers -join "`n") -notmatch '(?i)subsystem[^\r\n]*Windows GUI') {
+            throw 'Canvas executable is not configured for the Windows GUI subsystem'
+          }
+          if ($imports -match '(?i)\b(vcruntime[^\s]*|msvcp[^\s]*|ucrtbase|api-ms-win-crt-[^\s]*)\.dll\b') {
+            throw 'Canvas unexpectedly depends on a dynamic Visual C++ runtime'
+          }
+          $package = 'target/windows-canvas-package'
+          New-Item -ItemType Directory -Force $package | Out-Null
+          Copy-Item $exe "$package/canvas-demo.exe"
+          Copy-Item 'docs/windows-canvas-README.txt' "$package/README.txt"
+          New-Item -ItemType Directory -Force "$package/docs" | Out-Null
+          Copy-Item 'docs/windows-startup-smoke.md' "$package/docs/windows-startup-smoke.md"
+          Copy-Item 'docs/overdrive-user-guide.md' "$package/USER-GUIDE.md"
+          python scripts/canvas-licenses.py --output "$package/THIRD-PARTY-NOTICES.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas license notice generation failed' }
+          Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Value "`n`nBundled font: Manrope (SIL Open Font License 1.1)`n"
+          Get-Content -Raw 'assets/fonts/Manrope-OFL.txt' | Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Encoding utf8
+          Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Value "`n`nBundled font: Outfit (SIL Open Font License 1.1)`n"
+          Get-Content -Raw 'assets/fonts/Outfit-OFL.txt' | Add-Content -Path "$package/THIRD-PARTY-NOTICES.txt" -Encoding utf8
+          $rust = rustc --version
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify canvas toolchain' }
+          @("Commit: $env:GITHUB_SHA", "Toolchain: $rust", 'Target: x86_64-pc-windows-msvc',
+            'Release; Windows GUI subsystem; static CRT; unsigned; system FXC shader compiler', '',
+            'Direct DLL imports:', $imports) |
+            Set-Content "$package/BUILD.txt" -Encoding utf8
+          $hash = (Get-FileHash "$package/canvas-demo.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  canvas-demo.exe" | Set-Content "$package/SHA256SUMS.txt" -Encoding ascii
+      - name: Upload Windows canvas demo
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-paint-lab-canvas-demo
+          path: target/windows-canvas-package/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Windows visible canvas startup smoke
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        env:
+          RPL_STARTUP_SMOKE: '1'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $result = & ./scripts/windows-startup-smoke.ps1
+          if ($result -eq 'INCONCLUSIVE') {
+            Write-Host '::warning title=Windows GUI startup smoke inconclusive::The hosted runner has no compatible graphics adapter; use the dedicated interactive Windows strategy in docs/windows-startup-smoke.md.'
+            if ($env:GITHUB_STEP_SUMMARY) {
+              'Windows GUI startup smoke was inconclusive because this hosted runner exposed no compatible wgpu adapter. The application was not reported as launched.' | Add-Content $env:GITHUB_STEP_SUMMARY
+            }
+          }
+          elseif ($result -ne 'PASSED') {
+            throw "Unexpected Windows GUI smoke result: $result"
+          }
+
+      - name: Package Linux or macOS painting alpha
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p canvas-demo
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          package=target/desktop-alpha-package
+          mkdir -p "$package"
+          cp target/release/canvas-demo "$package/"
+          cp docs/overdrive-user-guide.md "$package/README.md"
+          cp docs/desktop-package-README.txt "$package/README.txt"
+          python3 scripts/canvas-licenses.py --target "$host" --output "$package/THIRD-PARTY-NOTICES.txt"
+          { printf '\n\nBundled font: Manrope (SIL Open Font License 1.1)\n'; cat assets/fonts/Manrope-OFL.txt; printf '\n\nBundled font: Outfit (SIL Open Font License 1.1)\n'; cat assets/fonts/Outfit-OFL.txt; } >> "$package/THIRD-PARTY-NOTICES.txt"
+          { echo "Commit: $GITHUB_SHA"; rustc --version; echo "Target: $host"; echo 'Unsigned development alpha; no notarization'; } > "$package/BUILD.txt"
+          if [ "$RUNNER_OS" = Linux ]; then ldd target/release/canvas-demo > "$package/SYSTEM-LIBRARIES.txt"; else otool -L target/release/canvas-demo > "$package/SYSTEM-LIBRARIES.txt"; fi
+          (cd "$package" && shasum -a 256 canvas-demo > SHA256SUMS.txt)
+          tar -czf target/painting-alpha.tar.gz -C "$package" .
+      - name: Upload Linux or macOS painting alpha
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-paint-lab-${{ runner.os }}-${{ runner.arch }}-alpha
+          path: target/painting-alpha.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+      - name: macOS visible canvas startup smoke
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: python3 scripts/macos-startup-smoke.py

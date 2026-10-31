@@ -1,0 +1,1042 @@
+//! Persisted, artwork-independent workspace preferences.
+use paint_document::brush::BrushKind;
+use serde::{Deserialize, Serialize};
+use std::{fs::File, io::Read, path::PathBuf};
+
+pub const MAX_REFERENCES: usize = 6;
+pub const MAX_REFERENCE_PATH: usize = 4096;
+pub const MAX_PREFERENCES_BYTES: usize = 64 * 1024;
+pub const MAX_RECENT_DOCUMENT_SIZES: usize = 8;
+pub const MAX_RECENT_BRUSH_COLORS: usize = 12;
+pub const MAX_SAVED_COLOR_SWATCHES: usize = 24;
+pub const MAX_FAVORITE_BRUSHES: usize = 10;
+pub const MIN_REFERENCE_ZOOM: f32 = 0.25;
+pub const MAX_REFERENCE_ZOOM: f32 = 8.0;
+
+fn default_reference_zoom() -> f32 {
+    1.0
+}
+
+fn default_reference_pan() -> [f32; 2] {
+    [0.0, 0.0]
+}
+
+fn default_canvas_zoom() -> f64 {
+    1.0
+}
+
+fn default_canvas_pan() -> [f64; 2] {
+    [0.0, 0.0]
+}
+
+fn default_ui_scale() -> f32 {
+    1.0
+}
+
+fn default_palette_position() -> [f32; 2] {
+    [72.0, 54.0]
+}
+
+fn default_layers_flyout_position() -> [f32; 2] {
+    [760.0, 96.0]
+}
+
+fn default_layers_flyout_size() -> [f32; 2] {
+    [300.0, 260.0]
+}
+
+fn default_brush_flyout_position() -> [f32; 2] {
+    [104.0, 72.0]
+}
+
+fn default_color_flyout_position() -> [f32; 2] {
+    [104.0, 300.0]
+}
+
+fn default_workspace_controls_position() -> [f32; 2] {
+    [820.0, 88.0]
+}
+
+fn default_workspace_controls_size() -> [f32; 2] {
+    [360.0, 620.0]
+}
+
+fn default_inspector_width() -> f32 {
+    320.0
+}
+
+fn default_compact_inspector_position() -> [f32; 2] {
+    [8.0, 56.0]
+}
+
+fn default_compact_inspector_size() -> [f32; 2] {
+    [256.0, 420.0]
+}
+
+fn default_reference_pip_position() -> [f32; 2] {
+    [30000.0, 30000.0]
+}
+
+fn default_palette_collapsed() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum InspectorTab {
+    #[default]
+    Layers,
+    Brush,
+    Edit,
+    Color,
+    References,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaletteDock {
+    #[default]
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Floating,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Handedness {
+    #[default]
+    Right,
+    Left,
+}
+
+pub fn remember_brush_color(colors: &mut Vec<[u8; 3]>, color: [u8; 3]) {
+    colors.retain(|existing| *existing != color);
+    colors.insert(0, color);
+    colors.truncate(MAX_RECENT_BRUSH_COLORS);
+}
+
+/// Add a reusable workspace-only paint color. Duplicate colors are ignored so
+/// a saved palette remains small and intentional.
+pub fn add_saved_color_swatch(swatches: &mut Vec<[u8; 3]>, color: [u8; 3]) -> bool {
+    if swatches.contains(&color) || swatches.len() >= MAX_SAVED_COLOR_SWATCHES {
+        return false;
+    }
+    swatches.push(color);
+    true
+}
+
+pub fn remove_saved_color_swatch(swatches: &mut Vec<[u8; 3]>, index: usize) -> Option<[u8; 3]> {
+    (index < swatches.len()).then(|| swatches.remove(index))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppearanceMode {
+    Dark,
+    Light,
+    FollowSystem,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccentScheme {
+    #[default]
+    Violet,
+    Blue,
+    Teal,
+    Coral,
+    Green,
+    Neutral,
+    Custom,
+}
+
+impl AppearanceMode {
+    pub fn is_dark(self, system_dark: bool) -> bool {
+        match self {
+            Self::Dark => true,
+            Self::Light => false,
+            Self::FollowSystem => system_dark,
+        }
+    }
+}
+
+impl Default for AppearanceMode {
+    fn default() -> Self {
+        Self::Dark
+    }
+}
+
+fn default_show_controls() -> bool {
+    false
+}
+
+fn default_color_mix_strength() -> f64 {
+    0.55
+}
+
+pub fn load(path: &std::path::Path) -> Option<WorkspacePreferences> {
+    let mut bytes = Vec::new();
+    File::open(path)
+        .ok()?
+        .take(MAX_PREFERENCES_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > MAX_PREFERENCES_BYTES {
+        return None;
+    }
+    let mut preferences: WorkspacePreferences = serde_json::from_slice(&bytes).ok()?;
+    preferences.validate().then_some(preferences)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReferenceLayout {
+    pub path: PathBuf,
+    pub position: [f32; 2],
+    pub size: [f32; 2],
+    pub opacity: f32,
+    #[serde(default = "default_reference_zoom")]
+    pub view_zoom: f32,
+    #[serde(default = "default_reference_pan")]
+    pub view_pan: [f32; 2],
+    #[serde(default)]
+    pub position_locked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspacePreferences {
+    pub version: u32,
+    pub dark_theme: bool,
+    /// Missing on legacy version-1 settings; derive the mode from `dark_theme`.
+    #[serde(default)]
+    pub appearance_mode: Option<AppearanceMode>,
+    #[serde(default)]
+    pub accent_scheme: AccentScheme,
+    #[serde(default)]
+    pub custom_accent_rgb: Option<[u8; 3]>,
+    pub brush_panel_width: f32,
+    #[serde(default = "default_show_controls")]
+    pub show_controls: bool,
+    pub references: Vec<ReferenceLayout>,
+    /// Keep reference-image overlays visible while the Inspector is open.
+    /// Reference images remain workspace-only and are never serialized into
+    /// the artwork document or its exports.
+    #[serde(default)]
+    pub references_pinned: bool,
+    /// Workspace-only position of the selected reference's compact canvas overlay.
+    #[serde(default = "default_reference_pip_position")]
+    pub reference_pip_position: [f32; 2],
+    #[serde(default)]
+    pub new_document: NewDocumentPreferences,
+    #[serde(default)]
+    pub recent_document_sizes: Vec<RecentDocumentSize>,
+    #[serde(default)]
+    pub recent_brush_colors: Vec<[u8; 3]>,
+    #[serde(default)]
+    pub saved_color_swatches: Vec<[u8; 3]>,
+    #[serde(default)]
+    pub favorite_brushes: Vec<BrushKind>,
+    /// Color-mixer pigment blend, kept as a workspace tool preference so the
+    /// native artwork and brush-preset schemas stay backward compatible.
+    #[serde(default = "default_color_mix_strength")]
+    pub color_mix_strength: f64,
+    /// Local, artwork-independent drawing assistance. Missing from legacy
+    /// preferences defaults to disabled and does not alter native documents.
+    #[serde(default)]
+    pub symmetry: paint_document::Symmetry,
+    /// Native pen barrel-button assignment; absent in older preference files.
+    #[serde(default)]
+    pub barrel_action: crate::barrel::BarrelAction,
+    #[serde(default = "default_canvas_zoom")]
+    pub canvas_zoom: f64,
+    #[serde(default = "default_canvas_pan")]
+    pub canvas_pan: [f64; 2],
+    #[serde(default)]
+    pub inspector_tab: InspectorTab,
+    #[serde(default)]
+    pub high_contrast: bool,
+    #[serde(default)]
+    pub reduced_motion: bool,
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: f32,
+    #[serde(default)]
+    pub palette_dock: PaletteDock,
+    #[serde(default = "default_palette_collapsed")]
+    pub palette_collapsed: bool,
+    #[serde(default)]
+    pub handedness: Handedness,
+    #[serde(default = "default_palette_position")]
+    pub palette_position: [f32; 2],
+    #[serde(default = "default_layers_flyout_position")]
+    pub layers_flyout_position: [f32; 2],
+    #[serde(default = "default_layers_flyout_size")]
+    pub layers_flyout_size: [f32; 2],
+    #[serde(default = "default_brush_flyout_position")]
+    pub brush_flyout_position: [f32; 2],
+    #[serde(default = "default_color_flyout_position")]
+    pub color_flyout_position: [f32; 2],
+    #[serde(default = "default_workspace_controls_position")]
+    pub workspace_controls_position: [f32; 2],
+    #[serde(default = "default_workspace_controls_size")]
+    pub workspace_controls_size: [f32; 2],
+    /// Width of the canvas-side Inspector on roomy layouts. Compact overlays
+    /// do not replace this preference while the window is temporarily narrow.
+    #[serde(default = "default_inspector_width")]
+    pub inspector_width: f32,
+    #[serde(default = "default_compact_inspector_position")]
+    pub compact_inspector_position: [f32; 2],
+    #[serde(default = "default_compact_inspector_size")]
+    pub compact_inspector_size: [f32; 2],
+    /// Workspace-only choice to turn new freehand vector paths into editable
+    /// cubic curves. Missing from old preferences preserves polyline behavior.
+    #[serde(default)]
+    pub smooth_vector_paths: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentDocumentSize {
+    pub width_px: u32,
+    pub height_px: u32,
+    pub dpi: u32,
+}
+
+impl RecentDocumentSize {
+    pub fn valid(self) -> bool {
+        (1..=4096).contains(&self.width_px)
+            && (1..=4096).contains(&self.height_px)
+            && (1..=9600).contains(&self.dpi)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NewDocumentPreferences {
+    pub width: f64,
+    pub height: f64,
+    pub dpi: u32,
+    pub unit: crate::document_setup::DocumentUnit,
+    pub background: [u8; 3],
+    pub transparent: bool,
+}
+
+impl Default for NewDocumentPreferences {
+    fn default() -> Self {
+        Self {
+            width: 1600.0,
+            height: 1000.0,
+            dpi: 300,
+            unit: crate::document_setup::DocumentUnit::Pixels,
+            background: [255; 3],
+            transparent: false,
+        }
+    }
+}
+
+impl NewDocumentPreferences {
+    fn validate(&mut self) -> bool {
+        self.unit.to_pixels(self.width, self.dpi).is_some()
+            && self.unit.to_pixels(self.height, self.dpi).is_some()
+    }
+}
+
+impl Default for WorkspacePreferences {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            dark_theme: true,
+            appearance_mode: Some(AppearanceMode::Dark),
+            accent_scheme: AccentScheme::Violet,
+            custom_accent_rgb: None,
+            brush_panel_width: 260.0,
+            show_controls: false,
+            references: Vec::new(),
+            references_pinned: false,
+            reference_pip_position: default_reference_pip_position(),
+            new_document: NewDocumentPreferences::default(),
+            recent_document_sizes: Vec::new(),
+            recent_brush_colors: Vec::new(),
+            saved_color_swatches: Vec::new(),
+            favorite_brushes: Vec::new(),
+            color_mix_strength: default_color_mix_strength(),
+            symmetry: paint_document::Symmetry::default(),
+            barrel_action: crate::barrel::BarrelAction::default(),
+            canvas_zoom: 1.0,
+            canvas_pan: [0.0, 0.0],
+            inspector_tab: InspectorTab::Layers,
+            high_contrast: false,
+            reduced_motion: false,
+            ui_scale: 1.0,
+            palette_dock: PaletteDock::Left,
+            palette_collapsed: true,
+            handedness: Handedness::Right,
+            palette_position: [72.0, 54.0],
+            layers_flyout_position: default_layers_flyout_position(),
+            layers_flyout_size: default_layers_flyout_size(),
+            brush_flyout_position: default_brush_flyout_position(),
+            color_flyout_position: default_color_flyout_position(),
+            workspace_controls_position: default_workspace_controls_position(),
+            workspace_controls_size: default_workspace_controls_size(),
+            inspector_width: default_inspector_width(),
+            compact_inspector_position: default_compact_inspector_position(),
+            compact_inspector_size: default_compact_inspector_size(),
+            smooth_vector_paths: false,
+        }
+    }
+}
+
+impl WorkspacePreferences {
+    pub fn effective_appearance_mode(&self) -> AppearanceMode {
+        self.appearance_mode.unwrap_or(if self.dark_theme {
+            AppearanceMode::Dark
+        } else {
+            AppearanceMode::Light
+        })
+    }
+
+    /// Reject unknown schemas and bound untrusted disk data before creating UI.
+    pub fn validate(&mut self) -> bool {
+        if self.version != 1
+            || !self.brush_panel_width.is_finite()
+            || !self.canvas_zoom.is_finite()
+            || !self.ui_scale.is_finite()
+            || !self.palette_position.iter().all(|v| v.is_finite())
+            || !self.layers_flyout_position.iter().all(|v| v.is_finite())
+            || !self.layers_flyout_size.iter().all(|v| v.is_finite())
+            || !self.brush_flyout_position.iter().all(|v| v.is_finite())
+            || !self.color_flyout_position.iter().all(|v| v.is_finite())
+            || !self
+                .workspace_controls_position
+                .iter()
+                .all(|v| v.is_finite())
+            || !self.workspace_controls_size.iter().all(|v| v.is_finite())
+            || !self.inspector_width.is_finite()
+            || !self
+                .compact_inspector_position
+                .iter()
+                .all(|v| v.is_finite())
+            || !self.compact_inspector_size.iter().all(|v| v.is_finite())
+            || !self.reference_pip_position.iter().all(|v| v.is_finite())
+            || !self.color_mix_strength.is_finite()
+            || !self.symmetry.validate()
+            || !self.canvas_pan.iter().all(|v| v.is_finite())
+            || !self.new_document.validate()
+        {
+            return false;
+        }
+        self.brush_panel_width = self.brush_panel_width.clamp(180.0, 640.0);
+        self.canvas_zoom = self.canvas_zoom.clamp(0.25, 8.0);
+        self.ui_scale = self.ui_scale.clamp(0.8, 1.6);
+        self.color_mix_strength = self.color_mix_strength.clamp(0.0, 1.0);
+        self.palette_position = self.palette_position.map(|v| v.clamp(0.0, 32768.0));
+        self.layers_flyout_position = self.layers_flyout_position.map(|v| v.clamp(0.0, 32768.0));
+        self.layers_flyout_size = [
+            self.layers_flyout_size[0].clamp(220.0, 800.0),
+            self.layers_flyout_size[1].clamp(160.0, 1200.0),
+        ];
+        self.brush_flyout_position = self.brush_flyout_position.map(|v| v.clamp(0.0, 32768.0));
+        self.color_flyout_position = self.color_flyout_position.map(|v| v.clamp(0.0, 32768.0));
+        self.workspace_controls_position = self
+            .workspace_controls_position
+            .map(|v| v.clamp(0.0, 32768.0));
+        self.workspace_controls_size = [
+            self.workspace_controls_size[0].clamp(240.0, 900.0),
+            self.workspace_controls_size[1].clamp(200.0, 1400.0),
+        ];
+        self.inspector_width = self.inspector_width.clamp(280.0, 480.0);
+        self.compact_inspector_position = self
+            .compact_inspector_position
+            .map(|v| v.clamp(0.0, 32768.0));
+        self.compact_inspector_size = [
+            self.compact_inspector_size[0].clamp(220.0, 800.0),
+            self.compact_inspector_size[1].clamp(180.0, 1400.0),
+        ];
+        self.reference_pip_position = self.reference_pip_position.map(|v| v.clamp(0.0, 32768.0));
+        self.canvas_pan = self.canvas_pan.map(|v| v.clamp(-32768.0, 32768.0));
+        if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
+            self.accent_scheme = AccentScheme::Violet;
+        }
+        let mut seen = Vec::new();
+        self.recent_document_sizes.retain(|size| {
+            if !size.valid() || seen.contains(size) {
+                false
+            } else {
+                seen.push(*size);
+                true
+            }
+        });
+        self.recent_document_sizes
+            .truncate(MAX_RECENT_DOCUMENT_SIZES);
+        let mut seen_colors = Vec::new();
+        self.recent_brush_colors.retain(|color| {
+            if seen_colors.contains(color) {
+                false
+            } else {
+                seen_colors.push(*color);
+                true
+            }
+        });
+        self.recent_brush_colors.truncate(MAX_RECENT_BRUSH_COLORS);
+        let mut seen_swatches = Vec::new();
+        self.saved_color_swatches.retain(|color| {
+            if seen_swatches.contains(color) {
+                false
+            } else {
+                seen_swatches.push(*color);
+                true
+            }
+        });
+        self.saved_color_swatches.truncate(MAX_SAVED_COLOR_SWATCHES);
+        let mut seen_brushes = Vec::new();
+        self.favorite_brushes.retain(|brush| {
+            if seen_brushes.contains(brush) {
+                false
+            } else {
+                seen_brushes.push(*brush);
+                true
+            }
+        });
+        self.favorite_brushes.truncate(MAX_FAVORITE_BRUSHES);
+        self.references.truncate(MAX_REFERENCES);
+        self.references.retain_mut(|reference| {
+            let path_len = reference.path.as_os_str().len();
+            if path_len == 0
+                || path_len > MAX_REFERENCE_PATH
+                || !reference.position.iter().all(|v| v.is_finite())
+                || !reference.size.iter().all(|v| v.is_finite())
+                || !reference.view_pan.iter().all(|v| v.is_finite())
+                || !reference.opacity.is_finite()
+                || !reference.view_zoom.is_finite()
+            {
+                return false;
+            }
+            reference.position = reference.position.map(|v| v.clamp(-10000.0, 10000.0));
+            reference.size = reference.size.map(|v| v.clamp(180.0, 1600.0));
+            reference.opacity = reference.opacity.clamp(0.05, 1.0);
+            reference.view_zoom = reference
+                .view_zoom
+                .clamp(MIN_REFERENCE_ZOOM, MAX_REFERENCE_ZOOM);
+            reference.view_pan = reference.view_pan.map(|v| v.clamp(-10000.0, 10000.0));
+            true
+        });
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preferences_round_trip_and_bound_saved_layout() {
+        let mut preferences = WorkspacePreferences {
+            show_controls: false,
+            palette_dock: PaletteDock::Floating,
+            palette_collapsed: true,
+            handedness: Handedness::Left,
+            palette_position: [400.0, 250.0],
+            ..Default::default()
+        };
+        preferences.references.push(ReferenceLayout {
+            path: "reference.png".into(),
+            position: [f32::NAN, 12.0],
+            size: [100.0, 5000.0],
+            opacity: 2.0,
+            view_zoom: 1.0,
+            view_pan: [0.0, 0.0],
+            position_locked: false,
+        });
+        assert!(preferences.validate());
+        // Non-finite persisted geometry is discarded rather than reaching egui.
+        assert!(preferences.references.is_empty());
+        preferences.references.push(ReferenceLayout {
+            path: "reference.png".into(),
+            position: [12.0, -10.0],
+            size: [100.0, 5000.0],
+            opacity: 2.0,
+            view_zoom: 1.0,
+            view_pan: [0.0, 0.0],
+            position_locked: false,
+        });
+        assert!(preferences.validate());
+        assert_eq!(preferences.references[0].size, [180.0, 1600.0]);
+        assert_eq!(preferences.references[0].opacity, 1.0);
+        let json = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&json).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored, preferences);
+    }
+
+    #[test]
+    fn floating_palette_rejects_nonfinite_position_and_bounds_extreme_values() {
+        let mut preferences = WorkspacePreferences {
+            palette_dock: PaletteDock::Floating,
+            palette_position: [f32::INFINITY, 0.0],
+            ..Default::default()
+        };
+        assert!(!preferences.validate());
+        preferences.palette_position = [-100.0, 100_000.0];
+        assert!(preferences.validate());
+        assert_eq!(preferences.palette_position, [0.0, 32768.0]);
+    }
+
+    #[test]
+    fn all_four_palette_docks_roundtrip_as_workspace_preferences() {
+        for dock in [
+            PaletteDock::Left,
+            PaletteDock::Right,
+            PaletteDock::Top,
+            PaletteDock::Bottom,
+            PaletteDock::Floating,
+        ] {
+            let preferences = WorkspacePreferences {
+                palette_dock: dock,
+                ..WorkspacePreferences::default()
+            };
+            let encoded = serde_json::to_vec(&preferences).unwrap();
+            let mut decoded: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+            assert!(decoded.validate());
+            assert_eq!(decoded.palette_dock, dock);
+        }
+    }
+
+    #[test]
+    fn floating_layer_panel_geometry_is_persisted_and_bounded() {
+        let mut preferences = WorkspacePreferences {
+            layers_flyout_position: [120.0, -40.0],
+            layers_flyout_size: [900.0, 90.0],
+            brush_flyout_position: [-200.0, 40_000.0],
+            color_flyout_position: [300.0, 400.0],
+            workspace_controls_position: [510.0, -12.0],
+            workspace_controls_size: [1200.0, 80.0],
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        assert_eq!(preferences.layers_flyout_position, [120.0, 0.0]);
+        assert_eq!(preferences.layers_flyout_size, [800.0, 160.0]);
+        assert_eq!(preferences.brush_flyout_position, [0.0, 32768.0]);
+        assert_eq!(preferences.color_flyout_position, [300.0, 400.0]);
+        assert_eq!(preferences.workspace_controls_position, [510.0, 0.0]);
+        assert_eq!(preferences.workspace_controls_size, [900.0, 200.0]);
+
+        let json = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&json).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.layers_flyout_position, [120.0, 0.0]);
+        assert_eq!(restored.layers_flyout_size, [800.0, 160.0]);
+        assert_eq!(restored.brush_flyout_position, [0.0, 32768.0]);
+        assert_eq!(restored.color_flyout_position, [300.0, 400.0]);
+        assert_eq!(restored.workspace_controls_position, [510.0, 0.0]);
+        assert_eq!(restored.workspace_controls_size, [900.0, 200.0]);
+
+        restored.layers_flyout_position[0] = f32::INFINITY;
+        assert!(!restored.validate());
+    }
+
+    #[test]
+    fn legacy_reference_layout_defaults_navigation_and_validation_bounds_it() {
+        let mut preferences: WorkspacePreferences = serde_json::from_str(
+            r#"{"version":1,"dark_theme":true,"brush_panel_width":260,"show_controls":true,"references":[{"path":"reference.png","position":[10,20],"size":[360,300],"opacity":0.7}]}"#,
+        )
+        .unwrap();
+        assert_eq!(preferences.references[0].view_zoom, 1.0);
+        assert_eq!(preferences.references[0].view_pan, [0.0, 0.0]);
+        assert!(!preferences.references[0].position_locked);
+        preferences.references[0].view_zoom = 100.0;
+        preferences.references[0].view_pan = [20_000.0, -20_000.0];
+        assert!(preferences.validate());
+        assert_eq!(preferences.references[0].view_zoom, MAX_REFERENCE_ZOOM);
+        assert_eq!(preferences.references[0].view_pan, [10_000.0, -10_000.0]);
+    }
+
+    #[test]
+    fn preferences_reject_unknown_versions_and_limit_reference_count() {
+        let mut preferences = WorkspacePreferences {
+            version: 99,
+            ..Default::default()
+        };
+        assert!(!preferences.validate());
+        preferences.version = 1;
+        for i in 0..MAX_REFERENCES + 2 {
+            preferences.references.push(ReferenceLayout {
+                path: format!("{i}.png").into(),
+                position: [0.0, 0.0],
+                size: [300.0, 300.0],
+                opacity: 0.5,
+                view_zoom: 1.0,
+                view_pan: [0.0, 0.0],
+                position_locked: false,
+            });
+        }
+        assert!(preferences.validate());
+        assert_eq!(preferences.references.len(), MAX_REFERENCES);
+    }
+
+    #[test]
+    fn oversized_preferences_file_is_ignored_before_json_decode() {
+        let path = std::env::temp_dir().join(format!(
+            "rpl-workspace-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, vec![b' '; MAX_PREFERENCES_BYTES + 1]).unwrap();
+        assert!(load(&path).is_none());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn older_preferences_load_with_safe_document_setup_defaults() {
+        let mut preferences: WorkspacePreferences = serde_json::from_str(
+            r#"{"version":1,"dark_theme":false,"brush_panel_width":300,"references":[]}"#,
+        )
+        .unwrap();
+        assert!(preferences.validate());
+        assert_eq!(preferences.new_document.width, 1600.0);
+        assert_eq!(preferences.new_document.height, 1000.0);
+        assert_eq!(preferences.layers_flyout_position, [760.0, 96.0]);
+        assert_eq!(preferences.layers_flyout_size, [300.0, 260.0]);
+        assert_eq!(preferences.brush_flyout_position, [104.0, 72.0]);
+        assert_eq!(preferences.color_flyout_position, [104.0, 300.0]);
+        assert_eq!(preferences.workspace_controls_position, [820.0, 88.0]);
+        assert_eq!(preferences.workspace_controls_size, [360.0, 620.0]);
+        assert_eq!(preferences.inspector_width, 320.0);
+        assert_eq!(preferences.compact_inspector_position, [8.0, 56.0]);
+        assert_eq!(preferences.compact_inspector_size, [256.0, 420.0]);
+        assert!(!preferences.new_document.transparent);
+        assert!(!preferences.show_controls);
+        assert!(!preferences.references_pinned);
+        assert_eq!(preferences.appearance_mode, None);
+        assert_eq!(preferences.canvas_zoom, 1.0);
+        assert_eq!(preferences.canvas_pan, [0.0, 0.0]);
+        assert_eq!(preferences.color_mix_strength, 0.55);
+        assert_eq!(preferences.symmetry, paint_document::Symmetry::default());
+        assert_eq!(preferences.inspector_tab, InspectorTab::Layers);
+        assert!(!preferences.high_contrast);
+        assert!(!preferences.reduced_motion);
+        assert_eq!(preferences.ui_scale, 1.0);
+        assert_eq!(preferences.palette_dock, PaletteDock::Left);
+        assert!(preferences.palette_collapsed);
+        assert_eq!(preferences.handedness, Handedness::Right);
+        assert_eq!(preferences.palette_position, [72.0, 54.0]);
+        assert_eq!(preferences.accent_scheme, AccentScheme::Violet);
+        assert_eq!(
+            preferences.effective_appearance_mode(),
+            AppearanceMode::Light
+        );
+    }
+
+    #[test]
+    fn inspector_tab_and_roomy_width_are_persisted_and_bounded() {
+        let mut preferences = WorkspacePreferences {
+            show_controls: true,
+            references_pinned: true,
+            inspector_tab: InspectorTab::References,
+            reference_pip_position: [240.0, 180.0],
+            inspector_width: 412.0,
+            compact_inspector_position: [20.0, 48.0],
+            compact_inspector_size: [280.0, 560.0],
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.inspector_tab, InspectorTab::References);
+        assert!(restored.references_pinned);
+        assert_eq!(restored.reference_pip_position, [240.0, 180.0]);
+        assert_eq!(restored.inspector_width, 412.0);
+        assert_eq!(restored.compact_inspector_position, [20.0, 48.0]);
+        assert_eq!(restored.compact_inspector_size, [280.0, 560.0]);
+        restored.inspector_width = 1_000.0;
+        assert!(restored.validate());
+        assert_eq!(restored.inspector_width, 480.0);
+        restored.inspector_width = f32::NAN;
+        assert!(!restored.validate());
+
+        let mut invalid_position = WorkspacePreferences {
+            reference_pip_position: [f32::INFINITY, 0.0],
+            ..Default::default()
+        };
+        assert!(!invalid_position.validate());
+    }
+
+    #[test]
+    fn canvas_navigation_preferences_roundtrip_and_are_bounded() {
+        let mut preferences = WorkspacePreferences {
+            canvas_zoom: 3.25,
+            canvas_pan: [-1200.0, 740.5],
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.canvas_zoom, 3.25);
+        assert_eq!(restored.canvas_pan, [-1200.0, 740.5]);
+
+        restored.canvas_zoom = 99.0;
+        restored.canvas_pan = [-1_000_000.0, 1_000_000.0];
+        assert!(restored.validate());
+        assert_eq!(restored.canvas_zoom, 8.0);
+        assert_eq!(restored.canvas_pan, [-32768.0, 32768.0]);
+        restored.canvas_zoom = f64::NAN;
+        assert!(!restored.validate());
+    }
+
+    #[test]
+    fn accessibility_preferences_persist_and_clamp_interface_scale() {
+        let mut preferences = WorkspacePreferences {
+            high_contrast: true,
+            reduced_motion: true,
+            ui_scale: 1.35,
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(restored.validate());
+        assert!(restored.high_contrast);
+        assert!(restored.reduced_motion);
+        assert_eq!(restored.ui_scale, 1.35);
+        restored.ui_scale = 9.0;
+        assert!(restored.validate());
+        assert_eq!(restored.ui_scale, 1.6);
+        restored.ui_scale = f32::NAN;
+        assert!(!restored.validate());
+    }
+
+    #[test]
+    fn appearance_settings_roundtrip_and_invalid_custom_scheme_falls_back_safely() {
+        let mut preferences = WorkspacePreferences {
+            appearance_mode: Some(AppearanceMode::FollowSystem),
+            accent_scheme: AccentScheme::Custom,
+            custom_accent_rgb: Some([144, 104, 220]),
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored, preferences);
+        restored.custom_accent_rgb = None;
+        assert!(restored.validate());
+        assert_eq!(restored.accent_scheme, AccentScheme::Violet);
+    }
+
+    #[test]
+    fn recent_brush_colors_are_deduplicated_newest_first_and_bounded() {
+        let mut colors = Vec::new();
+        for value in 0..MAX_RECENT_BRUSH_COLORS as u8 + 2 {
+            remember_brush_color(&mut colors, [value, 20, 30]);
+        }
+        remember_brush_color(&mut colors, [2, 20, 30]);
+        assert_eq!(colors.len(), MAX_RECENT_BRUSH_COLORS);
+        assert_eq!(colors[0], [2, 20, 30]);
+        assert_eq!(colors.iter().filter(|&&c| c == [2, 20, 30]).count(), 1);
+
+        let mut preferences = WorkspacePreferences {
+            recent_brush_colors: colors.clone(),
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.recent_brush_colors, colors);
+        restored.recent_brush_colors = vec![[1, 2, 3], [1, 2, 3]];
+        assert!(restored.validate());
+        assert_eq!(restored.recent_brush_colors, vec![[1, 2, 3]]);
+    }
+
+    #[test]
+    fn saved_color_palette_is_deduplicated_bounded_persistent_and_legacy_safe() {
+        let mut swatches = Vec::new();
+        for value in 0..MAX_SAVED_COLOR_SWATCHES as u8 {
+            assert!(add_saved_color_swatch(&mut swatches, [value, 20, 30]));
+        }
+        assert!(!add_saved_color_swatch(&mut swatches, [0, 20, 30]));
+        assert!(!add_saved_color_swatch(&mut swatches, [240, 20, 30]));
+        assert_eq!(swatches.len(), MAX_SAVED_COLOR_SWATCHES);
+        assert_eq!(
+            remove_saved_color_swatch(&mut swatches, 0),
+            Some([0, 20, 30])
+        );
+        assert_eq!(remove_saved_color_swatch(&mut swatches, usize::MAX), None);
+        assert!(add_saved_color_swatch(&mut swatches, [240, 20, 30]));
+
+        let mut preferences = WorkspacePreferences {
+            saved_color_swatches: swatches.clone(),
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.saved_color_swatches, swatches);
+
+        restored.saved_color_swatches = vec![[1, 2, 3], [1, 2, 3]];
+        assert!(restored.validate());
+        assert_eq!(restored.saved_color_swatches, vec![[1, 2, 3]]);
+        let mut legacy: WorkspacePreferences = serde_json::from_str(
+            r#"{"version":1,"dark_theme":false,"brush_panel_width":300,"references":[]}"#,
+        )
+        .unwrap();
+        assert!(legacy.validate());
+        assert!(legacy.saved_color_swatches.is_empty());
+    }
+
+    #[test]
+    fn favorite_brushes_roundtrip_deduplicate_and_remain_bounded() {
+        let mut preferences = WorkspacePreferences {
+            favorite_brushes: vec![
+                BrushKind::Ink,
+                BrushKind::Round,
+                BrushKind::Ink,
+                BrushKind::Pencil,
+                BrushKind::Soft,
+                BrushKind::Marker,
+                BrushKind::Calligraphy,
+                BrushKind::Airbrush,
+                BrushKind::Eraser,
+                BrushKind::Wash,
+                BrushKind::Textured,
+                BrushKind::Round,
+            ],
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        assert_eq!(preferences.favorite_brushes.len(), MAX_FAVORITE_BRUSHES);
+        assert_eq!(preferences.favorite_brushes[0], BrushKind::Ink);
+        assert_eq!(preferences.favorite_brushes[1], BrushKind::Round);
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut loaded = serde_json::from_slice::<WorkspacePreferences>(&bytes).unwrap();
+        assert!(loaded.validate());
+        assert_eq!(loaded.favorite_brushes, preferences.favorite_brushes);
+
+        let legacy = br#"{"version":1,"dark_theme":true,"brush_panel_width":260.0,"show_controls":false,"references":[]}"#;
+        let mut legacy = serde_json::from_slice::<WorkspacePreferences>(legacy).unwrap();
+        assert!(legacy.validate());
+        assert!(legacy.favorite_brushes.is_empty());
+        assert_eq!(legacy.color_mix_strength, 0.55);
+        assert_eq!(legacy.symmetry, paint_document::Symmetry::default());
+    }
+
+    #[test]
+    fn color_mixer_strength_is_persisted_and_clamped_in_workspace_preferences() {
+        let mut preferences = WorkspacePreferences {
+            color_mix_strength: 0.73,
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut loaded: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(loaded.validate());
+        assert_eq!(loaded.color_mix_strength, 0.73);
+
+        loaded.color_mix_strength = 2.0;
+        assert!(loaded.validate());
+        assert_eq!(loaded.color_mix_strength, 1.0);
+        loaded.color_mix_strength = f64::NAN;
+        assert!(!loaded.validate());
+    }
+
+    #[test]
+    fn symmetry_origin_and_radial_axes_persist_and_reject_invalid_geometry() {
+        let symmetry = paint_document::Symmetry {
+            mode: paint_document::SymmetryMode::Radial,
+            axes: 12,
+            center: [0.32, 0.68],
+        };
+        let mut preferences = WorkspacePreferences {
+            symmetry,
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut loaded: WorkspacePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert!(loaded.validate());
+        assert_eq!(loaded.symmetry, symmetry);
+
+        loaded.symmetry.axes = 17;
+        assert!(!loaded.validate());
+        loaded.symmetry.axes = 6;
+        loaded.symmetry.center[1] = f64::NAN;
+        assert!(!loaded.validate());
+    }
+
+    #[test]
+    fn barrel_action_defaults_to_eraser_and_roundtrips_as_a_workspace_preference() {
+        let mut preferences = WorkspacePreferences::default();
+        assert_eq!(
+            preferences.barrel_action,
+            crate::barrel::BarrelAction::Eraser
+        );
+        preferences.barrel_action = crate::barrel::BarrelAction::Pan;
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let loaded: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(loaded.barrel_action, crate::barrel::BarrelAction::Pan);
+
+        let legacy = serde_json::to_vec(&WorkspacePreferences::default()).unwrap();
+        let legacy = String::from_utf8(legacy)
+            .unwrap()
+            .replace("\"barrel_action\":\"eraser\",", "");
+        let loaded: WorkspacePreferences = serde_json::from_str(&legacy).unwrap();
+        assert_eq!(loaded.barrel_action, crate::barrel::BarrelAction::Eraser);
+    }
+
+    #[test]
+    fn smooth_vector_creation_is_backward_compatible_and_persistent() {
+        let mut preferences = WorkspacePreferences::default();
+        assert!(!preferences.smooth_vector_paths);
+        preferences.smooth_vector_paths = true;
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let loaded: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(loaded.smooth_vector_paths);
+
+        let legacy = r#"{"version":1,"dark_theme":true,"brush_panel_width":260,"references":[]}"#;
+        let loaded: WorkspacePreferences = serde_json::from_str(legacy).unwrap();
+        assert!(!loaded.smooth_vector_paths);
+    }
+
+    #[test]
+    fn invalid_saved_document_setup_is_rejected() {
+        let mut preferences = WorkspacePreferences::default();
+        preferences.new_document.width = f64::NAN;
+        assert!(!preferences.validate());
+    }
+
+    #[test]
+    fn recent_dimensions_are_valid_deduplicated_and_bounded() {
+        let mut preferences = WorkspacePreferences::default();
+        let size = RecentDocumentSize {
+            width_px: 1200,
+            height_px: 1800,
+            dpi: 300,
+        };
+        preferences.recent_document_sizes = vec![
+            size,
+            size,
+            RecentDocumentSize {
+                width_px: 0,
+                height_px: 64,
+                dpi: 96,
+            },
+        ];
+        preferences
+            .recent_document_sizes
+            .extend(
+                (0..MAX_RECENT_DOCUMENT_SIZES + 2).map(|i| RecentDocumentSize {
+                    width_px: 400 + i as u32,
+                    height_px: 300,
+                    dpi: 96,
+                }),
+            );
+        assert!(preferences.validate());
+        assert_eq!(
+            preferences.recent_document_sizes.len(),
+            MAX_RECENT_DOCUMENT_SIZES
+        );
+        assert_eq!(preferences.recent_document_sizes[0], size);
+        assert_eq!(preferences.recent_document_sizes[1].width_px, 400);
+    }
+}
