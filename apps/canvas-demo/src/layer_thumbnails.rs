@@ -8,7 +8,7 @@ use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 
 use egui::{Color32, Context, TextureHandle, TextureOptions};
-use paint_document::{Engine, Layer, TILE};
+use paint_document::{Engine, Layer, LayerMask, TILE, TILE_BYTES};
 
 pub const MAX_THUMBNAIL_WIDTH: usize = 96;
 pub const MAX_THUMBNAIL_HEIGHT: usize = 64;
@@ -27,6 +27,8 @@ struct CachedThumbnail {
     source_mask_tiles: std::collections::BTreeMap<(u32, u32), std::sync::Weak<Vec<u8>>>,
     image: ThumbnailImage,
     texture: TextureHandle,
+    mask_image: Option<ThumbnailImage>,
+    mask_texture: Option<TextureHandle>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,6 +81,10 @@ impl LayerThumbnailCache {
             }
 
             let image = layer_thumbnail_image(layer, document_size);
+            let mask_image = layer
+                .mask
+                .as_ref()
+                .map(|mask| mask_thumbnail_image(mask, document_size));
             let fingerprint = image_fingerprint(&image);
             let covered_pixels = image.pixels.iter().filter(|pixel| pixel.a() > 0).count();
             let colored_pixels = image
@@ -108,6 +114,21 @@ impl LayerThumbnailCache {
                     .map(|(key, tile)| (*key, std::sync::Arc::downgrade(tile)))
                     .collect();
                 cached.image = image;
+                if let Some(image) = mask_image.as_ref() {
+                    let egui_image = egui::ColorImage::new(image.size, image.pixels.clone());
+                    if let Some(texture) = cached.mask_texture.as_mut() {
+                        texture.set(egui_image, TextureOptions::LINEAR);
+                    } else {
+                        cached.mask_texture = Some(context.load_texture(
+                            format!("layer-mask-thumbnail-{}", layer.id),
+                            egui_image,
+                            TextureOptions::LINEAR,
+                        ));
+                    }
+                } else {
+                    cached.mask_texture = None;
+                }
+                cached.mask_image = mask_image;
             } else {
                 let texture = context.load_texture(
                     format!("layer-thumbnail-{}", layer.id),
@@ -132,6 +153,14 @@ impl LayerThumbnailCache {
                             .collect(),
                         image,
                         texture,
+                        mask_texture: mask_image.as_ref().map(|image| {
+                            context.load_texture(
+                                format!("layer-mask-thumbnail-{}", layer.id),
+                                egui::ColorImage::new(image.size, image.pixels.clone()),
+                                TextureOptions::LINEAR,
+                            )
+                        }),
+                        mask_image,
                     },
                 );
             }
@@ -158,6 +187,18 @@ impl LayerThumbnailCache {
         self.entries.get(&layer_id).map(|cached| &cached.image)
     }
 
+    pub fn mask_texture(&self, layer_id: u64) -> Option<&TextureHandle> {
+        self.entries
+            .get(&layer_id)
+            .and_then(|cached| cached.mask_texture.as_ref())
+    }
+
+    pub fn mask_image(&self, layer_id: u64) -> Option<&ThumbnailImage> {
+        self.entries
+            .get(&layer_id)
+            .and_then(|cached| cached.mask_image.as_ref())
+    }
+
     #[cfg(test)]
     fn rebuild_count(&self) -> usize {
         self.rebuild_count
@@ -169,23 +210,61 @@ pub fn layer_thumbnail_image(layer: &Layer, document_size: [u32; 2]) -> Thumbnai
     let height = document_size[1].max(1);
     let [preview_width, preview_height] = fit_size(width, height);
     let mut pixels = Vec::with_capacity(preview_width * preview_height);
+    // Cache only the one or two source tile rows sampled by this thumbnail row.
+    // This keeps temporary storage bounded to 2 MiB at maximum document width
+    // and rasterizes editable vector segments once per relevant tile instead of
+    // repeating path traversal for every 2×2 downsample point.
+    let tile_columns = width.div_ceil(TILE) as usize;
+    let mut tile_rows: Vec<(u32, Vec<Vec<u8>>)> = Vec::with_capacity(2);
 
     for y in 0..preview_height {
+        let source_rows = [0_u64, 1].map(|sample_y| {
+            ((4 * y as u64 + 2 * sample_y + 1) * u64::from(height) / (4 * preview_height as u64))
+                .min(u64::from(height - 1)) as u32
+        });
+        let needed_tile_rows = [source_rows[0] / TILE, source_rows[1] / TILE];
+        for tile_y in needed_tile_rows {
+            if tile_rows.iter().any(|(cached_y, _)| *cached_y == tile_y) {
+                continue;
+            }
+            let mut rendered = Vec::with_capacity(tile_columns);
+            for tile_x in 0..tile_columns {
+                let key = (tile_x as u32, tile_y);
+                let mut tile = layer
+                    .tiles
+                    .get(&key)
+                    .filter(|tile| tile.len() == TILE_BYTES)
+                    .map_or_else(|| vec![0; TILE_BYTES], |tile| tile.as_ref().clone());
+                paint_document::vector::rasterize_layer_tile(
+                    layer,
+                    key,
+                    [width, height],
+                    &mut tile,
+                );
+                rendered.push(tile);
+            }
+            tile_rows.push((tile_y, rendered));
+        }
+        tile_rows.retain(|(tile_y, _)| needed_tile_rows.contains(tile_y));
         for x in 0..preview_width {
             let mut channels = [0u32; 4];
             for sample_y in 0..2u64 {
+                let source_y = source_rows[sample_y as usize];
+                let tile_y = source_y / TILE;
+                let tile_row = &tile_rows
+                    .iter()
+                    .find(|(cached_y, _)| *cached_y == tile_y)
+                    .expect("sampled source tile row was prepared")
+                    .1;
                 for sample_x in 0..2u64 {
                     let source_x = ((4 * x as u64 + 2 * sample_x + 1) * u64::from(width)
                         / (4 * preview_width as u64))
                         .min(u64::from(width - 1)) as u32;
-                    let source_y = ((4 * y as u64 + 2 * sample_y + 1) * u64::from(height)
-                        / (4 * preview_height as u64))
-                        .min(u64::from(height - 1)) as u32;
                     let key = (source_x / TILE, source_y / TILE);
-                    let Some(tile) = layer.tiles.get(&key) else {
-                        continue;
-                    };
+                    let mut pixel = [0; 4];
                     let offset = ((source_y % TILE * TILE + source_x % TILE) * 4) as usize;
+                    pixel
+                        .copy_from_slice(&tile_row[(source_x / TILE) as usize][offset..offset + 4]);
                     let mask_alpha = layer
                         .mask
                         .as_ref()
@@ -199,7 +278,7 @@ pub fn layer_thumbnail_image(layer: &Layer, document_size: [u32; 2]) -> Thumbnai
                         .unwrap_or(255);
                     for channel in 0..4 {
                         channels[channel] +=
-                            (u32::from(tile[offset + channel]) * u32::from(mask_alpha) + 127) / 255;
+                            (u32::from(pixel[channel]) * u32::from(mask_alpha) + 127) / 255;
                     }
                 }
             }
@@ -215,6 +294,36 @@ pub fn layer_thumbnail_image(layer: &Layer, document_size: [u32; 2]) -> Thumbnai
         }
     }
 
+    ThumbnailImage {
+        size: [preview_width, preview_height],
+        pixels,
+    }
+}
+
+/// Build a bounded, grayscale preview of the stored mask, independently of
+/// the source raster thumbnail. Missing sparse mask tiles represent white.
+pub fn mask_thumbnail_image(mask: &LayerMask, document_size: [u32; 2]) -> ThumbnailImage {
+    let width = document_size[0].max(1);
+    let height = document_size[1].max(1);
+    let [preview_width, preview_height] = fit_size(width, height);
+    let mut pixels = Vec::with_capacity(preview_width * preview_height);
+    for y in 0..preview_height {
+        let source_y = (((2 * y as u64 + 1) * u64::from(height)) / (2 * preview_height as u64))
+            .min(u64::from(height - 1)) as u32;
+        for x in 0..preview_width {
+            let source_x = (((2 * x as u64 + 1) * u64::from(width)) / (2 * preview_width as u64))
+                .min(u64::from(width - 1)) as u32;
+            let key = (source_x / TILE, source_y / TILE);
+            let offset = (source_y % TILE * TILE + source_x % TILE) as usize;
+            let stored = mask
+                .tiles
+                .get(&key)
+                .filter(|tile| tile.len() == (TILE * TILE) as usize)
+                .map_or(255, |tile| tile[offset]);
+            let value = if mask.inverted { 255 - stored } else { stored };
+            pixels.push(Color32::from_gray(value));
+        }
+    }
     ThumbnailImage {
         size: [preview_width, preview_height],
         pixels,
@@ -239,6 +348,37 @@ fn layer_signature(layer: &Layer, document_size: [u32; 2]) -> u64 {
     layer.id.hash(&mut hasher);
     document_size.hash(&mut hasher);
     layer.opacity.hash(&mut hasher);
+    for path in &layer.vector_paths {
+        path.id.hash(&mut hasher);
+        path.visible.hash(&mut hasher);
+        path.width.to_bits().hash(&mut hasher);
+        path.stroke.hash(&mut hasher);
+        path.fill.hash(&mut hasher);
+        for coordinate in path.start {
+            coordinate.to_bits().hash(&mut hasher);
+        }
+        for segment in &path.segments {
+            match segment {
+                paint_document::vector::VectorSegment::LineTo { point } => {
+                    0_u8.hash(&mut hasher);
+                    for coordinate in point {
+                        coordinate.to_bits().hash(&mut hasher);
+                    }
+                }
+                paint_document::vector::VectorSegment::CubicTo {
+                    control1,
+                    control2,
+                    point,
+                } => {
+                    1_u8.hash(&mut hasher);
+                    for coordinate in control1.iter().chain(control2).chain(point) {
+                        coordinate.to_bits().hash(&mut hasher);
+                    }
+                }
+                paint_document::vector::VectorSegment::Close => 2_u8.hash(&mut hasher),
+            }
+        }
+    }
     for (key, tile) in &layer.tiles {
         key.hash(&mut hasher);
         (std::sync::Arc::as_ptr(tile) as *const u8 as usize).hash(&mut hasher);
@@ -317,6 +457,7 @@ mod tests {
             opacity,
             blend: Blend::Normal,
             mask: None,
+            vector_paths: Vec::new(),
             tiles: std::collections::BTreeMap::from([((0, 0), Arc::new(bytes))]),
         }
     }
@@ -341,6 +482,32 @@ mod tests {
         let tall = layer_thumbnail_image(&blank, [64, 4096]);
         assert_eq!(tall.size, [1, 64]);
         assert!(tall.pixels.len() <= MAX_THUMBNAIL_WIDTH * MAX_THUMBNAIL_HEIGHT);
+    }
+
+    #[test]
+    fn mask_thumbnail_is_distinct_bounded_grayscale_and_respects_inversion() {
+        let mut bytes = vec![255; (TILE * TILE) as usize];
+        bytes[..(TILE * TILE / 2) as usize].fill(0);
+        let mask = LayerMask {
+            enabled: true,
+            inverted: false,
+            tiles: std::collections::BTreeMap::from([((0, 0), Arc::new(bytes))]),
+        };
+        let image = mask_thumbnail_image(&mask, [64, 64]);
+        assert_eq!(image.size, [64, 64]);
+        assert_eq!(image.pixels.len(), 64 * 64);
+        assert_eq!(image.pixels[0], Color32::BLACK);
+        assert_eq!(image.pixels[32 * 64], Color32::WHITE);
+
+        let mut inverted = mask.clone();
+        inverted.inverted = true;
+        let inverted_image = mask_thumbnail_image(&inverted, [64, 64]);
+        assert_eq!(inverted_image.pixels[0], Color32::WHITE);
+        assert_eq!(inverted_image.pixels[32 * 64], Color32::BLACK);
+
+        let sparse = mask_thumbnail_image(&LayerMask::default(), [4096, 2048]);
+        assert!(sparse.pixels.len() <= MAX_THUMBNAIL_WIDTH * MAX_THUMBNAIL_HEIGHT);
+        assert!(sparse.pixels.iter().all(|pixel| *pixel == Color32::WHITE));
     }
 
     #[test]
@@ -482,6 +649,91 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("rpl.lock"));
         let _ = std::fs::remove_file(path.with_extension("rpl.bak"));
+    }
+
+    #[test]
+    fn vector_creation_style_visibility_and_movement_invalidate_layer_thumbnails() {
+        let context = Context::default();
+        let mut project = Engine::new(128, 64, 300).unwrap();
+        project.brush.color = [220, 40, 145];
+        project.brush.size = 4.0;
+        let mut cache = LayerThumbnailCache::default();
+        cache.refresh(&context, 0, &project);
+        let empty = image_fingerprint(cache.image(1).unwrap());
+
+        let path_id = project
+            .add_vector_path(&[[12.0, 14.0], [72.0, 42.0], [116.0, 20.0]])
+            .unwrap();
+        let created = cache.refresh(&context, 0, &project);
+        assert_eq!(created.len(), 1);
+        assert!(created[0].colored_pixels > 0);
+        let created_fingerprint = created[0].fingerprint;
+        assert_ne!(created_fingerprint, empty);
+
+        project
+            .edit(|state| {
+                state.layers[0].vector_paths[0].visible = false;
+                Ok(())
+            })
+            .unwrap();
+        let hidden = cache.refresh(&context, 0, &project);
+        assert_eq!(hidden.len(), 1);
+        assert_eq!(hidden[0].fingerprint, empty);
+
+        project
+            .edit(|state| {
+                state.layers[0].vector_paths[0].visible = true;
+                Ok(())
+            })
+            .unwrap();
+        project.translate_vector_path(path_id, [8.0, 0.0]).unwrap();
+        let moved = cache.refresh(&context, 0, &project);
+        assert_eq!(moved.len(), 1);
+        assert!(moved[0].colored_pixels > 0);
+        assert_ne!(moved[0].fingerprint, created_fingerprint);
+        project
+            .set_vector_path_style(path_id, [24, 110, 236, 128], 8.0)
+            .unwrap();
+        let styled = cache.refresh(&context, 0, &project);
+        assert_eq!(styled.len(), 1);
+        assert_ne!(styled[0].fingerprint, moved[0].fingerprint);
+
+        project.set_vector_path_closed(path_id, true).unwrap();
+        let closed = cache.refresh(&context, 0, &project);
+        assert_eq!(closed.len(), 1);
+        assert_ne!(closed[0].fingerprint, styled[0].fingerprint);
+
+        project
+            .set_vector_path_fill(path_id, Some([35, 185, 90, 255]))
+            .unwrap();
+        let filled = cache.refresh(&context, 0, &project);
+        assert_eq!(filled.len(), 1);
+        assert_ne!(filled[0].fingerprint, closed[0].fingerprint);
+
+        project.set_vector_path_fill(path_id, None).unwrap();
+        let unfilled = cache.refresh(&context, 0, &project);
+        assert_eq!(unfilled.len(), 1);
+        assert_ne!(unfilled[0].fingerprint, filled[0].fingerprint);
+        assert_eq!(cache.rebuild_count(), 8);
+    }
+
+    #[test]
+    fn dense_vector_layer_thumbnail_reuses_bounded_source_tile_rows() {
+        let mut project = Engine::new(2048, 2048, 300).unwrap();
+        project.brush.size = 24.0;
+        for path_index in 0..8 {
+            let points = (0..=1_024)
+                .map(|index| {
+                    [
+                        100.0 + index as f64 / 1_024.0,
+                        1_010.0 + f64::from(index % 2) * 0.05 + f64::from(path_index) * 0.1,
+                    ]
+                })
+                .collect::<Vec<_>>();
+            project.add_vector_path(&points).unwrap();
+        }
+        let image = layer_thumbnail_image(&project.state().layers[0], [2048, 2048]);
+        assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
     }
 
     #[test]

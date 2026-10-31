@@ -10,7 +10,11 @@ use std::{
 };
 const MAGIC_V1: &[u8; 8] = b"RPLALP01";
 const MAGIC_V2: &[u8; 8] = b"RPLALP02";
+const MAGIC_V3: &[u8; 8] = b"RPLALP03";
+const MAGIC_V4: &[u8; 8] = b"RPLALP04";
 pub(crate) const MAX_FILE: usize = 160 * 1024 * 1024;
+const MAX_METADATA_V1_V2: usize = 65_536;
+const MAX_METADATA_V3: usize = 8 * 1024 * 1024;
 const MAX_BRUSH_FILE: usize = 16 * 1024;
 static NONCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -25,9 +29,34 @@ fn hash(bytes: &[u8]) -> [u8; 32] {
 pub fn encode(state: &State) -> Result<Vec<u8>, PaintError> {
     state.validate()?;
     let has_masks = state.layers.iter().any(|layer| layer.mask.is_some());
-    let magic = if has_masks { MAGIC_V2 } else { MAGIC_V1 };
+    let has_vectors = state
+        .layers
+        .iter()
+        .any(|layer| !layer.vector_paths.is_empty())
+        || state.next_vector_id != 1;
+    let has_vector_fills = state
+        .layers
+        .iter()
+        .flat_map(|layer| &layer.vector_paths)
+        .any(|path| path.fill.is_some());
+    let has_mask_section = has_masks || has_vectors;
+    let magic = if has_vector_fills {
+        MAGIC_V4
+    } else if has_vectors {
+        MAGIC_V3
+    } else if has_masks {
+        MAGIC_V2
+    } else {
+        MAGIC_V1
+    };
     let meta = serde_json::to_vec(state)?;
-    if meta.len() > 65536 {
+    if meta.len()
+        > if has_vectors {
+            MAX_METADATA_V3
+        } else {
+            MAX_METADATA_V1_V2
+        }
+    {
         return Err(PaintError::Limit);
     }
     let raster_tiles: usize = state.layers.iter().map(|layer| layer.tiles.len()).sum();
@@ -37,7 +66,7 @@ pub fn encode(state: &State) -> Result<Vec<u8>, PaintError> {
         .filter_map(|layer| layer.mask.as_ref())
         .map(|mask| mask.tiles.len())
         .sum();
-    let mask_section_size = if has_masks {
+    let mask_section_size = if has_mask_section {
         4 + mask_tiles * (16 + MASK_TILE_BYTES)
     } else {
         0
@@ -56,7 +85,7 @@ pub fn encode(state: &State) -> Result<Vec<u8>, PaintError> {
             bytes.extend_from_slice(tile);
         }
     }
-    if has_masks {
+    if has_mask_section {
         bytes.extend_from_slice(&(mask_tiles as u32).to_le_bytes());
         for layer in &state.layers {
             if let Some(mask) = &layer.mask {
@@ -76,10 +105,12 @@ pub fn decode(bytes: &[u8]) -> Result<State, PaintError> {
     if bytes.len() < 48 || bytes.len() > MAX_FILE {
         return Err(PaintError::Invalid);
     }
-    let has_mask_section = if &bytes[..8] == MAGIC_V1 {
-        false
+    let (has_mask_section, has_vector_metadata) = if &bytes[..8] == MAGIC_V1 {
+        (false, false)
     } else if &bytes[..8] == MAGIC_V2 {
-        true
+        (true, false)
+    } else if &bytes[..8] == MAGIC_V3 || &bytes[..8] == MAGIC_V4 {
+        (true, true)
     } else {
         return Err(PaintError::Invalid);
     };
@@ -87,12 +118,27 @@ pub fn decode(bytes: &[u8]) -> Result<State, PaintError> {
         return Err(PaintError::Invalid);
     }
     let len = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
-    if len > 65536 || 12 + len + 4 > bytes.len() - 32 {
+    if len
+        > if has_vector_metadata {
+            MAX_METADATA_V3
+        } else {
+            MAX_METADATA_V1_V2
+        }
+        || 12 + len + 4 > bytes.len() - 32
+    {
         return Err(PaintError::Invalid);
     }
     let mut state: State = serde_json::from_slice(&bytes[12..12 + len])?;
     state.validate()?;
     if !has_mask_section && state.layers.iter().any(|layer| layer.mask.is_some()) {
+        return Err(PaintError::Invalid);
+    }
+    let contains_vectors = state.next_vector_id != 1
+        || state
+            .layers
+            .iter()
+            .any(|layer| !layer.vector_paths.is_empty());
+    if contains_vectors != has_vector_metadata {
         return Err(PaintError::Invalid);
     }
     let count = u32::from_le_bytes(bytes[12 + len..16 + len].try_into().unwrap()) as usize;
@@ -201,11 +247,20 @@ pub fn peek_dimensions(path: &Path) -> Option<(u32, u32, u32)> {
     }
     let mut prefix = [0u8; 12];
     file.read_exact(&mut prefix).ok()?;
-    if &prefix[..8] != MAGIC_V1 && &prefix[..8] != MAGIC_V2 {
+    if &prefix[..8] != MAGIC_V1
+        && &prefix[..8] != MAGIC_V2
+        && &prefix[..8] != MAGIC_V3
+        && &prefix[..8] != MAGIC_V4
+    {
         return None;
     }
     let metadata_len = u32::from_le_bytes(prefix[8..12].try_into().ok()?) as usize;
-    if metadata_len == 0 || metadata_len > 65536 {
+    let maximum_metadata = if &prefix[..8] == MAGIC_V3 || &prefix[..8] == MAGIC_V4 {
+        MAX_METADATA_V3
+    } else {
+        MAX_METADATA_V1_V2
+    };
+    if metadata_len == 0 || metadata_len > maximum_metadata {
         return None;
     }
     let mut metadata = vec![0; metadata_len];
@@ -501,6 +556,7 @@ pub fn import_png(path: &Path, engine: &mut crate::Engine) -> Result<(), PaintEr
             opacity: 255,
             blend: crate::Blend::Normal,
             mask: None,
+            vector_paths: Vec::new(),
             tiles,
         });
         s.selected = id;

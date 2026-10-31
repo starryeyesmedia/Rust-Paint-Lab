@@ -400,6 +400,13 @@ impl App {
         let active = live.active();
         let samples = live.scene().sample_count();
         let notice = live.notice();
+        let primary_release = matches!(
+            event,
+            MouseEvent::Button {
+                primary: true,
+                pressed: false
+            }
+        );
         self.session.mouse(event, self.time_ms());
         let live = self.session.live();
         if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some() && !active && live.active() {
@@ -417,6 +424,13 @@ impl App {
             if let Some(g) = &self.graphics {
                 g.window.request_redraw();
             }
+        }
+        if primary_release
+            && active
+            && !live.active()
+            && std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
+        {
+            canvas_demo::studio_log!("UI_TEST_MOUSE_STROKE_COMMITTED: {}", samples);
         }
     }
     fn check_capture(&mut self) {
@@ -554,6 +568,12 @@ impl ApplicationHandler<AppEvent> for App {
         self.tick = Instant::now();
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
+            && matches!(event, WindowEvent::KeyboardInput { ref event, .. }
+                if event.physical_key == PhysicalKey::Code(KeyCode::KeyS))
+        {
+            canvas_demo::studio_log!("UI_TEST_APP_KEY_S: received");
+        }
         self.check_capture();
         if let Some(g) = &mut self.graphics
             && let Some(studio) = &mut g.studio
@@ -643,7 +663,20 @@ impl ApplicationHandler<AppEvent> for App {
                             .is_some_and(|id| {
                                 egui::TextEdit::load_state(&studio.context, id).is_some()
                             });
-                        if focused_text_edit {
+                        if std::env::var_os("RPL_TEST_PATH_DIALOG").is_some()
+                            && event.physical_key == PhysicalKey::Code(KeyCode::KeyS)
+                        {
+                            canvas_demo::studio_log!(
+                                "UI_TEST_SAVE_SHORTCUT_KEY: control={} focused_text={}",
+                                self.modifiers.control_key(),
+                                focused_text_edit
+                            );
+                        }
+                        if text_editor_owns_key(
+                            focused_text_edit,
+                            self.modifiers.control_key(),
+                            event.physical_key,
+                        ) {
                             return Ok(());
                         }
                         if !studio.blocks_canvas()
@@ -666,7 +699,13 @@ impl ApplicationHandler<AppEvent> for App {
                                 PhysicalKey::Code(KeyCode::KeyM) => Some('m'),
                                 PhysicalKey::Code(KeyCode::KeyQ) => Some('q'),
                                 PhysicalKey::Code(KeyCode::KeyE) => {
-                                    Some(if self.modifiers.shift_key() { 'q' } else { 'e' })
+                                    Some(if self.modifiers.alt_key() {
+                                        'r'
+                                    } else if self.modifiers.shift_key() {
+                                        'q'
+                                    } else {
+                                        'e'
+                                    })
                                 }
                                 PhysicalKey::Code(KeyCode::KeyK) => Some('k'),
                                 PhysicalKey::Code(KeyCode::KeyS) => Some('s'),
@@ -678,6 +717,8 @@ impl ApplicationHandler<AppEvent> for App {
                                 PhysicalKey::Code(KeyCode::KeyO) => Some('o'),
                                 PhysicalKey::Code(KeyCode::KeyG) => Some('g'),
                                 PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
+                                PhysicalKey::Code(KeyCode::KeyV) => Some('v'),
+                                PhysicalKey::Code(KeyCode::KeyH) => Some('h'),
                                 _ => None,
                             };
                             if let Some(key) = key {
@@ -709,7 +750,13 @@ impl ApplicationHandler<AppEvent> for App {
                                     Some(if self.modifiers.shift_key() { 'a' } else { 'o' })
                                 }
                                 PhysicalKey::Code(KeyCode::KeyE) => {
-                                    Some(if self.modifiers.shift_key() { 'q' } else { 'e' })
+                                    Some(if self.modifiers.alt_key() {
+                                        'r'
+                                    } else if self.modifiers.shift_key() {
+                                        'q'
+                                    } else {
+                                        'e'
+                                    })
                                 }
                                 PhysicalKey::Code(KeyCode::KeyR) if self.modifiers.shift_key() => {
                                     Some('v')
@@ -801,6 +848,11 @@ impl ApplicationHandler<AppEvent> for App {
                     self.tick = now;
                     self.session.advance_replay(self.elapsed)?;
                     if let Some(g) = &mut self.graphics {
+                        let presented = g.draw(&mut self.session)?;
+                        // The frame can apply a save, undo, redo, or other
+                        // document operation while it is being drawn. Build
+                        // the window title afterward so its dirty marker
+                        // matches the state that was just presented.
                         let title = if g.studio.is_some() && self.session.mode() == Mode::Live {
                             format!(
                                 "BitchPixel — {} — {}×{}{}",
@@ -857,11 +909,12 @@ impl ApplicationHandler<AppEvent> for App {
                         } else {
                             title
                         };
-                        let presented = g.draw(&mut self.session)?;
-                        // Publish the ready title only after the first layout and frame.
-                        if presented {
-                            g.window.set_title(&title);
-                        }
+                        // Window metadata remains useful even when a surface
+                        // frame timed out or had to be recreated. In
+                        // particular, saving after Undo/Redo must clear the
+                        // dirty marker independently of whether this redraw
+                        // could be presented.
+                        g.window.set_title(&title);
                         if g.studio.as_ref().is_some_and(|s| s.close_ready) {
                             event_loop.exit();
                         }
@@ -1029,6 +1082,44 @@ fn run() -> Result<(), Failure> {
         return Err(error.into());
     }
     Ok(())
+}
+
+fn text_editor_owns_key(
+    focused_text_edit: bool,
+    control: bool,
+    key: winit::keyboard::PhysicalKey,
+) -> bool {
+    focused_text_edit && !matches!((control, key), (true, PhysicalKey::Code(KeyCode::KeyS)))
+}
+
+#[cfg(test)]
+mod keyboard_shortcut_tests {
+    use super::text_editor_owns_key;
+    use winit::keyboard::{KeyCode, PhysicalKey};
+
+    #[test]
+    fn save_remains_available_while_a_numeric_editor_has_focus() {
+        assert!(!text_editor_owns_key(
+            true,
+            true,
+            PhysicalKey::Code(KeyCode::KeyS)
+        ));
+        assert!(text_editor_owns_key(
+            true,
+            false,
+            PhysicalKey::Code(KeyCode::KeyS)
+        ));
+        assert!(text_editor_owns_key(
+            true,
+            true,
+            PhysicalKey::Code(KeyCode::KeyZ)
+        ));
+        assert!(!text_editor_owns_key(
+            false,
+            false,
+            PhysicalKey::Code(KeyCode::KeyB)
+        ));
+    }
 }
 
 #[cfg(target_os = "windows")]

@@ -61,16 +61,34 @@ fn default_workspace_controls_size() -> [f32; 2] {
     [360.0, 620.0]
 }
 
+fn default_inspector_width() -> f32 {
+    320.0
+}
+
+fn default_compact_inspector_position() -> [f32; 2] {
+    [8.0, 56.0]
+}
+
+fn default_compact_inspector_size() -> [f32; 2] {
+    [256.0, 420.0]
+}
+
+fn default_reference_pip_position() -> [f32; 2] {
+    [30000.0, 30000.0]
+}
+
 fn default_palette_collapsed() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InspectorTab {
     #[default]
     Layers,
     Brush,
     Edit,
+    Color,
+    References,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -198,6 +216,14 @@ pub struct WorkspacePreferences {
     #[serde(default = "default_show_controls")]
     pub show_controls: bool,
     pub references: Vec<ReferenceLayout>,
+    /// Keep reference-image overlays visible while the Inspector is open.
+    /// Reference images remain workspace-only and are never serialized into
+    /// the artwork document or its exports.
+    #[serde(default)]
+    pub references_pinned: bool,
+    /// Workspace-only position of the selected reference's compact canvas overlay.
+    #[serde(default = "default_reference_pip_position")]
+    pub reference_pip_position: [f32; 2],
     #[serde(default)]
     pub new_document: NewDocumentPreferences,
     #[serde(default)]
@@ -251,6 +277,18 @@ pub struct WorkspacePreferences {
     pub workspace_controls_position: [f32; 2],
     #[serde(default = "default_workspace_controls_size")]
     pub workspace_controls_size: [f32; 2],
+    /// Width of the canvas-side Inspector on roomy layouts. Compact overlays
+    /// do not replace this preference while the window is temporarily narrow.
+    #[serde(default = "default_inspector_width")]
+    pub inspector_width: f32,
+    #[serde(default = "default_compact_inspector_position")]
+    pub compact_inspector_position: [f32; 2],
+    #[serde(default = "default_compact_inspector_size")]
+    pub compact_inspector_size: [f32; 2],
+    /// Workspace-only choice to turn new freehand vector paths into editable
+    /// cubic curves. Missing from old preferences preserves polyline behavior.
+    #[serde(default)]
+    pub smooth_vector_paths: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,6 +348,8 @@ impl Default for WorkspacePreferences {
             brush_panel_width: 260.0,
             show_controls: false,
             references: Vec::new(),
+            references_pinned: false,
+            reference_pip_position: default_reference_pip_position(),
             new_document: NewDocumentPreferences::default(),
             recent_document_sizes: Vec::new(),
             recent_brush_colors: Vec::new(),
@@ -334,6 +374,10 @@ impl Default for WorkspacePreferences {
             color_flyout_position: default_color_flyout_position(),
             workspace_controls_position: default_workspace_controls_position(),
             workspace_controls_size: default_workspace_controls_size(),
+            inspector_width: default_inspector_width(),
+            compact_inspector_position: default_compact_inspector_position(),
+            compact_inspector_size: default_compact_inspector_size(),
+            smooth_vector_paths: false,
         }
     }
 }
@@ -363,6 +407,13 @@ impl WorkspacePreferences {
                 .iter()
                 .all(|v| v.is_finite())
             || !self.workspace_controls_size.iter().all(|v| v.is_finite())
+            || !self.inspector_width.is_finite()
+            || !self
+                .compact_inspector_position
+                .iter()
+                .all(|v| v.is_finite())
+            || !self.compact_inspector_size.iter().all(|v| v.is_finite())
+            || !self.reference_pip_position.iter().all(|v| v.is_finite())
             || !self.color_mix_strength.is_finite()
             || !self.symmetry.validate()
             || !self.canvas_pan.iter().all(|v| v.is_finite())
@@ -389,6 +440,15 @@ impl WorkspacePreferences {
             self.workspace_controls_size[0].clamp(240.0, 900.0),
             self.workspace_controls_size[1].clamp(200.0, 1400.0),
         ];
+        self.inspector_width = self.inspector_width.clamp(280.0, 480.0);
+        self.compact_inspector_position = self
+            .compact_inspector_position
+            .map(|v| v.clamp(0.0, 32768.0));
+        self.compact_inspector_size = [
+            self.compact_inspector_size[0].clamp(220.0, 800.0),
+            self.compact_inspector_size[1].clamp(180.0, 1400.0),
+        ];
+        self.reference_pip_position = self.reference_pip_position.map(|v| v.clamp(0.0, 32768.0));
         self.canvas_pan = self.canvas_pan.map(|v| v.clamp(-32768.0, 32768.0));
         if self.accent_scheme == AccentScheme::Custom && self.custom_accent_rgb.is_none() {
             self.accent_scheme = AccentScheme::Violet;
@@ -639,8 +699,12 @@ mod tests {
         assert_eq!(preferences.color_flyout_position, [104.0, 300.0]);
         assert_eq!(preferences.workspace_controls_position, [820.0, 88.0]);
         assert_eq!(preferences.workspace_controls_size, [360.0, 620.0]);
+        assert_eq!(preferences.inspector_width, 320.0);
+        assert_eq!(preferences.compact_inspector_position, [8.0, 56.0]);
+        assert_eq!(preferences.compact_inspector_size, [256.0, 420.0]);
         assert!(!preferences.new_document.transparent);
         assert!(!preferences.show_controls);
+        assert!(!preferences.references_pinned);
         assert_eq!(preferences.appearance_mode, None);
         assert_eq!(preferences.canvas_zoom, 1.0);
         assert_eq!(preferences.canvas_pan, [0.0, 0.0]);
@@ -659,6 +723,41 @@ mod tests {
             preferences.effective_appearance_mode(),
             AppearanceMode::Light
         );
+    }
+
+    #[test]
+    fn inspector_tab_and_roomy_width_are_persisted_and_bounded() {
+        let mut preferences = WorkspacePreferences {
+            show_controls: true,
+            references_pinned: true,
+            inspector_tab: InspectorTab::References,
+            reference_pip_position: [240.0, 180.0],
+            inspector_width: 412.0,
+            compact_inspector_position: [20.0, 48.0],
+            compact_inspector_size: [280.0, 560.0],
+            ..Default::default()
+        };
+        assert!(preferences.validate());
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(restored.validate());
+        assert_eq!(restored.inspector_tab, InspectorTab::References);
+        assert!(restored.references_pinned);
+        assert_eq!(restored.reference_pip_position, [240.0, 180.0]);
+        assert_eq!(restored.inspector_width, 412.0);
+        assert_eq!(restored.compact_inspector_position, [20.0, 48.0]);
+        assert_eq!(restored.compact_inspector_size, [280.0, 560.0]);
+        restored.inspector_width = 1_000.0;
+        assert!(restored.validate());
+        assert_eq!(restored.inspector_width, 480.0);
+        restored.inspector_width = f32::NAN;
+        assert!(!restored.validate());
+
+        let mut invalid_position = WorkspacePreferences {
+            reference_pip_position: [f32::INFINITY, 0.0],
+            ..Default::default()
+        };
+        assert!(!invalid_position.validate());
     }
 
     #[test]
@@ -883,6 +982,20 @@ mod tests {
             .replace("\"barrel_action\":\"eraser\",", "");
         let loaded: WorkspacePreferences = serde_json::from_str(&legacy).unwrap();
         assert_eq!(loaded.barrel_action, crate::barrel::BarrelAction::Eraser);
+    }
+
+    #[test]
+    fn smooth_vector_creation_is_backward_compatible_and_persistent() {
+        let mut preferences = WorkspacePreferences::default();
+        assert!(!preferences.smooth_vector_paths);
+        preferences.smooth_vector_paths = true;
+        let encoded = serde_json::to_vec(&preferences).unwrap();
+        let loaded: WorkspacePreferences = serde_json::from_slice(&encoded).unwrap();
+        assert!(loaded.smooth_vector_paths);
+
+        let legacy = r#"{"version":1,"dark_theme":true,"brush_panel_width":260,"references":[]}"#;
+        let loaded: WorkspacePreferences = serde_json::from_str(legacy).unwrap();
+        assert!(!loaded.smooth_vector_paths);
     }
 
     #[test]

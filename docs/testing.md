@@ -733,6 +733,36 @@ history verification. Existing shape, gradient, PNG/OpenRaster, reference
 isolation, and forced-crash journal recovery steps still run in that same
 application workflow.
 
+### Editable layer masks — real XTest regression
+
+The mask workflow uses the selected layer's expandable settings rather than a
+nested Actions submenu. The Linux artwork smoke opens the rendered controls by
+their stable UI markers, clicks Add white mask, saves `.rpl` v2, and reopens that
+file through the application picker. Entering mask mode opens Brush Library;
+Escape dismisses that floating panel, and the test confirms that mask mode
+remains active before it paints with XTest. It verifies saved mask tiles changed
+while every source raster tile remained byte-identical, then checks exact
+Undo/Redo. It clicks the Enabled checkbox both ways, Invert, Clear to white, and
+Remove. Each change is validated against parsed saved state and its own exact
+history round trip; removing the last mask writes readable v1 metadata with the
+optional `mask` field omitted, and undo returns to the exact v2 state. Rust bool
+markers are compared using lowercase `true`/`false`. The later OpenRaster UI
+step must still report flattened masks. Document tests cover selection clipping,
+effective alpha compositing, source tile preservation, malformed v2 records,
+recovery and v1/v2 round trips. The full Linux/Xorg/XTest flow has passed locally
+on the existing display; a hosted run is still required to verify the CI runner.
+`cargo test` does not substitute for the Linux window workflow.
+
+On 2026-10-29, the final local validation passed all 336 workspace tests,
+formatting, strict Clippy, workspace build, Windows GNU target check/Clippy,
+`scripts/check-tests.py`, and the required llvmpipe GPU smoke. The complete
+Linux window workflow passed on `DISPLAY=:102` with Xorg/XTest and OpenGL
+software rendering, producing 59 PNGs. The mask-editing screenshot shows the
+contextual Brush Library open; the test dismisses it with Escape and confirms
+mask editing remains active before sending the canvas stroke. Screenshots were
+reviewed for mask editing, painted-mask state, and populated recovery. Hosted
+cross-platform CI remains pending for the corrected harness.
+
 On 2026-10-27 the local run passed **275 workspace tests**, formatting, strict
 Clippy, workspace build, Windows GNU workspace check/Clippy, the required
 llvmpipe/OpenGL offscreen GPU smoke, and the full Linux/Xorg/XTest artwork flow.
@@ -863,3 +893,427 @@ GitHub Actions runs the same workflow under `xvfb-run` with Mesa Vulkan. The
 current local execution used the dedicated Xorg display `:102` and llvmpipe GL;
 it validated software-rendered interaction, not physical pen pressure, pen tilt,
 Windows GUI behavior or hardware latency.
+
+## Editable vector-path slice
+
+The Phase 10 vector slice stores line and cubic path geometry in the owning
+raster layer while keeping its tile map authoritative for raster pixels. Test
+the path model, v1/v2/v3 compatibility, v4 filled-path persistence, recovery
+journal, history, layer duplication, and raster/OpenRaster flattening with:
+
+```sh
+cargo test --locked -p paint-document --test vector
+cargo test --locked -p paint-document --lib vector::tests
+cargo test --locked -p paint-document --test vector closed_vector_fill -- --nocapture
+cargo test --locked -p paint-document --test vector fill_work_budget -- --nocapture
+cargo test --locked -p paint-document --lib vector::tests::vector_fill_requires_a_closed_path_and_uses_even_odd_membership -- --nocapture
+cargo test --locked -p canvas-demo --lib vector_creation_visibility_and_movement_invalidate_layer_thumbnails
+cargo test --locked -p paint-document --test vector dense_editable_paths_keep_document_and_layer_previews_tile_bounded
+cargo test --locked -p canvas-demo --lib dense_vector_layer_thumbnail_reuses_bounded_source_tile_rows
+```
+
+The full Xorg/XTest application workflow creates a path through the V tool,
+checks the live canvas preview, saves and reopens it through the Open workflow,
+moves and deletes the object with exact undo/redo checks, then confirms
+OpenRaster rasterizes the path. The saved RPL v3 raster and mask tile tables must
+remain unchanged by vector creation; path metadata and the monotonic ID allocator
+are checksum-covered. The test also exercises the previously accepted Phase 9
+mask journal/recovery workflow and the existing painting/export regressions.
+
+V draws a connected polyline on an empty canvas area by default. The optional
+workspace-only **Smooth new paths** setting converts the same freehand samples
+to connected cubic Bézier segments while preserving each sampled anchor. It is
+off by default and old workspace preferences deserialize to the polyline mode.
+The choice is not stored in `.rpl`; both modes use the existing v3 path schema.
+Dragging a visible path moves the whole object; the contextual Delete path
+action removes it as one undoable transaction. Anchor selection, movement,
+insertion and supported deletion are available from the node editor. Existing
+cubic Bézier segments expose independent incoming/outgoing handle drag and
+numeric edit controls. OpenRaster and PNG rasterize vectors on export; only the
+native `.rpl` format retains editable path objects.
+
+The document-level smoothing conversion is deterministic, bounded by the same
+1,024-segment path limit, preserves exact endpoints, and shares tangents at
+interior anchors. Validate its geometry, invalid input handling, native save,
+roundtrip, rendering, raster isolation and single-transaction Undo/Redo with:
+
+```sh
+cargo test --locked -p paint-document smoothed -- --nocapture
+cargo test --locked -p paint-document --test vector smooth_vector_creation -- --nocapture
+cargo test --locked -p canvas-demo smooth_vector_creation_is_backward_compatible_and_persistent -- --nocapture
+```
+
+The Xorg/XTest artwork workflow enables this option through its real contextual
+control, draws through the V tool, checks the persisted cubic segments and
+unchanged raster/mask tile tables, captures `vector-smoothed-path`, and verifies
+Undo/Redo, application reopen and workspace-preference persistence. The same
+workflow first checks the legacy polyline default and continues through native
+save/reopen plus PNG/OpenRaster exports.
+
+The extended workflow then uses the selected path's real contextual controls to
+close it and apply the current brush color/opacity as a fill. It verifies that
+closing alone remains v3, filled geometry opts into v4, vector/mask tile tables
+remain byte-identical, undo returns to the closed-unfilled v3 file, redo restores
+the v4 file, and the filled object survives application reopen. It captures the
+populated `vector-filled-path` workspace state. Document tests additionally
+check even-odd interior membership, fill rendering and hit testing, native
+roundtrip, PNG/OpenRaster pixels, transaction history, and rejection when
+pixel-area × flattened-edge work exceeds the documented cap. Fill coverage is
+currently pixel-center sampled; this does not test coverage antialiasing.
+The Layers thumbnail cache regression also verifies cache invalidation and
+visible pixel changes for close, fill, and fill removal.
+
+Exact native cubic-coordinate stability is covered by:
+
+```sh
+cargo test --locked -p paint-document --test vector repeated_native_roundtrips_preserve_cubic_f64_coordinates_exactly
+```
+
+The test encodes, decodes and re-encodes nontrivial `f64` path coordinates for
+eight consecutive cycles, requiring both exact model equality and unchanged
+native bytes. The document crate enables serde_json's `float_roundtrip` parser
+feature; this improves numeric preservation without changing the RPL v1-v4
+schemas or older-format compatibility.
+
+The Xorg/XTest artwork workflow also injects a valid cubic path fixture, opens it
+through the application, edits an outgoing control handle by pointer, and
+verifies the saved coordinate, unchanged raster and mask tile tables, native
+reopen, and exact Undo/Redo. The editor exposes keyboard-accessible named X/Y
+controls plus an Apply action, represented in the AccessKit tree. A canvas
+mapping captured at pointer-down remains in use through pointer-up so contextual
+reflow after path selection cannot translate artwork on a stationary click.
+
+Latest local Phase 10 validation (2026-10-29): `cargo fmt --all -- --check`,
+strict host and Windows GNU Clippy, `cargo test --workspace --locked --quiet`
+(**352 passed**), `cargo build --workspace --locked`, Windows GNU workspace
+check, the required llvmpipe GPU smoke, and the full Xorg/XTest artwork workflow
+all passed. The Xorg workflow generated 61 PNG screenshots. During forced-crash
+recovery, raster and mask tile tables compare byte-for-byte; JSON document and
+vector metadata allow at most `1e-12` f64 serialization drift. The local
+graphics backend was Mesa llvmpipe/OpenGL on Xorg display `:102`; it does not
+validate a physical GPU, Windows/macOS GUI startup, or pen hardware. Hosted
+cross-platform Actions for this Phase 10 slice must pass after push.
+
+The Home and Layer thumbnail paths now rasterize and reuse at most one or two
+source-tile rows while sampling vector artwork; conservative control-point bounds
+skip unrelated paths per tile. Dense preview regressions use 8 paths and 8,192
+segments on a 2048 × 2048 document and confirm both thumbnails still contain the
+stroke. They completed in roughly 0.6 seconds for the Home preview and 0.5
+seconds for the Layer preview in the local debug test run; this is a regression
+fixture measurement, not a hardware benchmark. The full Xorg/XTest workflow
+passed before this thumbnail-only follow-up; the targeted dense preview tests and
+workspace suite pass on the updated code, with the hosted UI workflow pending.
+
+The post-optimization full Xorg/XTest rerun initially exposed stale test waits,
+not an application regression: repeated selection/transform and mask events were
+matched by earlier log markers. The script now snapshots marker counts before
+input and waits for a new commit, handle report, transform start/cancel, or mask
+toggle event as appropriate. It preserves the native file byte comparisons and
+Undo/Redo assertions. After this correction, the complete Linux workflow passed
+locally on display `:102` with Mesa llvmpipe/OpenGL and generated 61 screenshots.
+The visible path-creation state and populated narrow dark Recovery view were
+inspected. GitHub run `40818285789` records the pre-correction harness failure;
+the corrected harness requires a fresh Actions run after its commit. The prior
+vector commit passed the Windows, Linux and macOS matrix in run
+[`40817631458`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40817631458),
+including separate Windows canvas and stylus diagnostic artifacts.
+
+The current continuation additionally covers vector style edits. API tests
+verify width and RGBA color, geometry preservation, raster output, v3 encode,
+thumbnail invalidation, and exact Undo/Redo. The live UI test changes width
+through the selected-path slider and checks one transaction, persisted native
+state, unchanged raster/mask tables, thumbnail refresh, and exact undo/redo;
+the path is reopened through the application before movement/deletion checks.
+The current selected-path UI offers width and Apply color. Alpha remains
+available to the engine API, but no separate path-opacity widget is currently
+present.
+
+After the Layers automation began using the actual logged ScrollArea clip
+rectangle, the complete Xorg/XTest workflow passed locally with llvmpipe/OpenGL,
+including Add/Edit/Enable/Disable/Invert/Clear/Remove masks, recovery, export,
+and the editable vector workflow. The workspace has **354 tests**; formatting,
+strict Clippy, build, Windows GNU checks and GPU smoke passed in the same local
+validation. Hosted Windows/Linux/macOS validation must still pass for the
+current source commit. Do not interpret Linux llvmpipe or Windows cross-checks as
+physical Windows GUI, S Pen, macOS runtime, Narrator/NVDA or hardware-GPU tests.
+
+### Latest anchor-editing regression — 2026-10-29
+
+The selected path's **Edit anchors** control now exposes an accessible anchor
+selector and coordinate fields. The complete `scripts/alpha-workflow-smoke.py`
+Xorg/XTest run verifies anchor drag and vector-width slider gestures through
+actual application input. The test waits for the app to acknowledge each held
+pointer frame because XTest can otherwise deliver the press and release in a
+single egui frame. It asserts preview/commit behavior, path geometry in v3,
+unchanged raster and mask tile tables, thumbnail refresh, save/reopen, and exact
+Undo/Redo. The focused integration also rejects invalid coordinates/indices and
+locked layers atomically:
+
+```sh
+cargo test --locked -p paint-document --test vector
+```
+
+Local validation on 2026-10-29 passed formatting, strict host Clippy, all
+**356 workspace tests**, workspace build, Windows GNU workspace check and
+Clippy, and explicit llvmpipe GPU smoke. The complete Xorg/XTest workflow passed
+and generated 62 screenshots, which were inspected for the populated vector
+editor, Home, New Artwork, and narrow Layers/Reference layouts. A 360 px path in
+the 1800 × 2400 XTest artwork took 12.444 s for OpenRaster export in the UI and
+11.993 s in a standalone debug build; this is a software-rendering/debug timing,
+not a release build or hardware measurement. Hosted cross-platform Actions for
+these uncommitted changes are pending; the previous green Actions run validates
+only the prior commit. The node editor creates/moves anchors on existing
+polylines and now inserts/deletes supported anchors as described below; it does
+not yet author cubic curves, expose independent Bézier handles, or edit
+fill/transforms.
+
+### Editable vector anchor operations — 2026-10-29
+
+`paint-document` now inserts an anchor at the exact midpoint of a line or cubic
+segment (cubic segments use De Casteljau subdivision) and removes endpoints or
+interior anchors between line segments without approximation. Unsupported
+interior cubic joins, malformed indices, locked layers, segment-limit overflow,
+and non-finite geometry are rejected without mutating the document. Each engine
+operation creates one undoable transaction. Native v3 save/reopen, rendered
+pixels, and raster/mask tile isolation are covered by:
+
+```sh
+cargo test --locked -p paint-document --test vector
+```
+
+The Linux XTest workflow opens the `Anchor N` menu with real pointer input,
+inserts a midpoint, checks saved line/cubic segment geometry, unchanged raster
+and mask storage, thumbnail invalidation, save, undo and redo, then deletes the
+midpoint and checks that the original project bytes return. The screenshot suite
+adds `vector-node-editor-with-inserted-midpoint`. The complete workflow passed
+locally on Xorg display `:102` with Mesa llvmpipe/OpenGL and produced 63 PNGs; I
+inspected the new populated anchor-editor screenshot. This environment lacks an
+`Xvfb` executable but had a reusable Xorg server for XTest.
+
+Local Rust 1.90 validation after the anchor-operation changes: formatting,
+strict host Clippy, strict Windows GNU target Clippy, workspace build, Windows
+GNU workspace check, all **359 workspace tests**, and the required llvmpipe GPU
+smoke pass. Parent commit `8a0b5a0` passed the Windows/Linux/macOS Actions matrix
+in run [`40842835450`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40842835450);
+the insertion/deletion follow-up still needs its own hosted run.
+This does not establish physical pen/hardware behavior.
+
+### Cubic control handles and complete local regression — 2026-10-29
+
+The Xorg/XTest artwork workflow now selects, drags, and applies numeric edits to
+incoming/outgoing Bézier handles on an editable cubic path. It saves/reopens the
+path, checks that raster/mask tile tables are unchanged, and verifies exact
+Undo/Redo. A Color Mixer redo assertion found least-significant f64 metadata
+drift during repeated native JSON reads; `serde_json`'s `float_roundtrip`
+feature now retains exact geometry. The regression runs eight encode/decode
+cycles and also passes through the application workflow. No project schema
+changed.
+
+Validated locally with Rust 1.90:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo build --workspace --locked
+cargo check --workspace --locked --target x86_64-pc-windows-gnu
+cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
+RPL_REQUIRE_GPU=1 WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 XDG_RUNTIME_DIR=/tmp/bp-runtime \
+  cargo test --locked -p canvas-demo --test gpu_smoke -- --nocapture
+DISPLAY=:102 WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 XDG_RUNTIME_DIR=/tmp/bp-runtime \
+  RPL_KEEP_ALPHA_TEMP=1 RPL_UI_SCREENSHOT_DIR=/tmp/bp-vector-handles-smoke \
+  python3 scripts/alpha-workflow-smoke.py
+```
+
+All **364 workspace test cases** passed. The required GPU smoke used Mesa llvmpipe
+and passed its replay/live preview, commit/cancel, clipping, raster preview,
+Undo/Redo checks. The full Linux Xorg/XTest workflow passed the painting,
+masking, save/reopen, PNG/OpenRaster, recovery, gradients, shapes, vector handles,
+and history assertions; it generated 64 PNGs. I visually inspected the cubic
+handle workspace, mask editing, populated light Home, populated narrow Recovery,
+and populated narrow Layers/Reference captures. The XTest run measured OpenRaster
+export of the 1800 × 2400 vector fixture at 12.834 seconds in this debug-build,
+llvmpipe environment; this is not a release or hardware performance result.
+Windows GNU checks are compile/lint validation only, and hosted Actions for this
+working tree are pending. Windows GUI startup, macOS GUI startup, physical pen,
+Narrator/NVDA, and power-loss durability were not exercised here.
+
+### Line-to-cubic conversion follow-up (2026-10-29)
+
+`paint-document` covers line-to-cubic conversion, exact pixel preservation,
+native v3 round trips, undo/redo, and atomic rejection:
+
+```sh
+cargo test --locked -p paint-document --test vector
+```
+
+The current full local check passed formatting, strict host and Windows GNU
+Clippy, workspace build, Windows GNU target check, 366 workspace tests, and the
+required llvmpipe GPU smoke. The complete Xorg/XTest artwork script exited
+successfully after exercising conversion through the real anchor menu,
+save/reopen, undo/redo, cubic-handle editing, mask operations, and the broader
+painting/export/recovery regression. It produced 64 PNG screenshots. The exact
+Color Mixer redo mismatch seen in an earlier run was traced to floating-point
+metadata drift from JSON parsing; serde_json `float_roundtrip` now preserves the
+native geometry through repeated decode/encode cycles and the full UI redo test
+passes. No project schema changed.
+
+GitHub Actions run
+[`40867515476`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40867515476)
+passed Windows and macOS. Its Linux alpha artwork step exceeded the old
+15-minute timeout, so the workflow now gives that unchanged step 25 minutes.
+The updated workflow passed all platforms in run
+[`40887124571`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40887124571),
+including the Linux artwork workflow, and produced the Windows canvas and
+stylus diagnostic artifacts. The local Linux Xorg test and hosted builds do not
+validate physical S Pen behavior, Windows GUI startup, macOS startup,
+Narrator/NVDA, or power-loss durability.
+
+### Canvas-first handoff regression coverage (2026-10-29)
+
+The handoff regression checkpoint adds one mask-engine test and one mixed
+raster/mask/vector document integration test. The mask test checks a single
+stroke crossing into a rectangular selection, sample-by-sample clipping,
+raster-tile isolation, Undo/Redo, and a wholly outside no-op stroke. The mixed
+document test persists populated raster and mask tiles with an edited cubic
+handle, then verifies exact native Store reopen, journal recovery, PNG pixels,
+OpenRaster contents, and unchanged native state after export.
+
+```sh
+cargo test --locked -p paint-document --test masks
+cargo test --locked -p paint-document --test vector mixed_raster_mask_and_edited_vector_survive_store_journal_and_exports
+```
+
+The Linux XTest artwork workflow also tests real mouse strokes crossing and
+missing a mask selection, Stop Mask followed by an ordinary raster stroke, and
+an uninterrupted vector create/select/convert/new-handle-drag/save/reopen
+sequence. It checks native tile tables and document-space bounds instead of
+treating a control click or screenshot as proof of functionality. That expanded
+window workflow must pass in the hosted Linux Xorg job before this integration
+checkpoint is considered validated. The current cloud shell has no local X
+server/Xvfb command, so here only its Python syntax and the portable engine
+tests are checked locally; the workspace suite and GPU pixel smoke are separate
+validations, not substitutes for the XTest workflow.
+
+## Canvas-first Inspector and reference regressions
+
+The unified Inspector reuses the existing egui/winit and AccessKit integration;
+it does not replace the input or renderer architecture. The layout unit tests
+cover desktop docking with a protected canvas minimum, responsive compact/full-
+sheet selection, toolbar collision avoidance, temporary viewport clamping,
+bounded reference PIP size, and persistence of intentional PIP moves. Inspector
+tabs are tested as named selected radio controls in AccessKit output. Workspace
+preferences round-trip Inspector destinations and PIP placement independently
+from `.rpl` documents.
+
+The Linux Xorg/XTest `Linux alpha artwork workflow smoke` exercises the populated
+Layers stack and contextual actions, switches among Inspector tabs, imports and
+selects multiple reference images, pans and wheel-zooms the actual preview,
+pins one image as a bounded canvas PIP, switches tabs while it remains visible,
+and verifies that it never opens the legacy full-size reference windows. It
+captures the real application at constrained and standard sizes; screenshots
+must be inspected for clipping and canvas obstruction rather than counted as a
+functional assertion by themselves. In a shell without Xorg/Xvfb, this workflow
+is **unavailable**, not passed; only portable Rust tests and GPU smoke can run.
+
+Editable vector uniform scale/rotation and duplication are document
+transactions. Their tests check bounded geometry, raster/mask separation,
+native v3 reopen, and exact Undo/Redo. RPL v1/v2 reading and the v3 schema are
+unchanged. Application-level vector manipulation still requires the Linux
+XTest workflow; Windows GNU cross-checks do not establish native GUI or pen
+behavior.
+
+## Vector-only SVG export
+
+The SVG exporter writes visible editable line/cubic paths and closed even-odd
+fills, preserving path order, visibility, stroke/fill color and alpha, and layer
+opacity. It excludes the document background, raster pixels, and masks and
+reports non-Normal layer blending as unsupported. Native project data is never modified, and existing
+export files are not overwritten.
+
+Run serializer and no-clobber checks with:
+
+```sh
+cargo test --locked -p paint-document --test svg
+```
+
+The Linux Xorg/XTest application workflow invokes Ctrl+Alt+E on a populated
+editable vector document, parses the resulting SVG, checks that a cubic filled
+path is still represented by path commands, checks that vector-only omissions
+are reported, and compares the `.rpl` source bytes before and after export. It
+also captures the `vector-svg-export` UI state. SVG import and unsupported SVG
+shape/style features remain future work.
+
+The GitHub Actions matrix also runs the portable Python helper tests with:
+
+```sh
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+These cover incremental GUI smoke-log appends, partial lines, cached event
+counts, stable values, and truncation. The Linux anchor-editor scenario keeps
+the real Edit anchors click, then verifies the selected path's live editor state
+and a rendered anchor handle; event markers alone are not considered proof of
+the interaction.
+
+### Canvas-first Inspector Layers checkpoint
+
+The Layers hierarchy adds bounded raster and mask thumbnail checks, target
+selection, the actual editable vector-child visibility transaction, and
+AccessKit checks for named 44-point targets. Vector visibility is still the
+existing native `VectorPath.visible` field; no `.rpl` schema was changed. Run
+the relevant portable tests with:
+
+```sh
+cargo test --locked -p canvas-demo layer_thumbnails
+cargo test --locked -p canvas-demo populated_layers_inspector
+cargo test --locked -p paint-document --test vector vector_path_visibility
+```
+
+The complete `scripts/alpha-workflow-smoke.py` Xorg/XTest workflow uses the real
+window to select raster/mask/vector targets, toggle path and layer visibility,
+scroll populated layer rows, reach mask Edit/Stop, reorder layers, and verify
+thumbnail changes and native save/reopen/Undo/Redo without changing unrelated
+raster or mask tile data. At 640 × 480 it checks the compact single-scroll
+fallback; at roomier sizes it checks a distinct layer stack viewport and the
+selected-layer footer. The Inspector-specific viewport marker is used for row
+clipping checks because a legacy detached Layers surface can be present at the
+same time. The local checkpoint run produced 79 PNGs; inspected populated
+Layers screenshots covered 640 × 480, 1280 × 800, and 1920 × 1080. That local
+result is not the required six-layout/theme acceptance and does not replace
+hosted Windows/Linux/macOS Actions.
+
+### Canvas-first Inspector Milestone 2 — navigation and vector controls
+
+The compact and desktop Inspector use the same Layers / Brush / Edit / Color /
+References order. AccessKit regression tests inspect the named roles and order,
+the fixed close/Canvas action, keyboard selection, and minimum 44×44 logical
+point bounds. The compact strip opts into pointer/touch scrolling; the
+application test marker reports its viewport, content width, and scroll offset.
+
+The full Linux `scripts/alpha-workflow-smoke.py` test activates the selected
+path's Edit anchors action with a real pointer click and no `H` shortcut
+fallback. It then checks the live node-edit state and a rendered selected
+handle. Existing direct-canvas path movement and cubic-handle editing remain
+tested through pointer input and native save/reopen/Undo/Redo. Vector style,
+anchor navigation/insertion/deletion, explicit current-color application, and
+raster/mask isolation are included in the running-app regression. At compact
+size, the tab test performs drag scrolling, asserts that References is fully
+within the tab viewport, and selects it through its visible pointer target.
+
+M2's local Linux run ended with `ALPHA_WORKFLOW_SMOKE: PASSED` and captured 80
+PNG files. I inspected the populated `layers-panel-populated-light-narrow`,
+`reference-inspector-dark-narrow`, `vector-node-editor`, and
+`home-dark-high-contrast` captures. They demonstrate actual application states,
+not the full six-layout acceptance: Inspector width/placement at the six
+specified viewport and scale combinations and independent QA remain Milestone
+3/4 work. Python helper tests can be run with:
+
+```sh
+python3 -m py_compile scripts/alpha-workflow-smoke.py
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+The complete Rust checks and Linux artwork workflow must still pass on the
+implementation commit, and the existing hosted Windows/Linux/macOS Actions
+matrix must pass before beginning the next milestone.

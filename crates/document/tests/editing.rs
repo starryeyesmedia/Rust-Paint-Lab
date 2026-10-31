@@ -411,6 +411,7 @@ fn copy_selection_obeys_layer_and_tile_budgets_without_losing_source_art() {
                 opacity: 255,
                 blend: paint_document::Blend::Normal,
                 mask: None,
+                vector_paths: Vec::new(),
                 tiles,
             });
         }

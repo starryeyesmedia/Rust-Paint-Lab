@@ -9,7 +9,10 @@ Preserved: dimensions, layer names/order, straight-alpha PNG pixels, visibility,
 opacity, Normal (`svg:src-over`), Multiply, Screen and Overlay. Native background
 becomes an explicit editable bottom layer. Equal X/Y DPI is supported (fractional
 DPI rounds to integer). Export includes first/stored `mimetype`, `stack.xml`,
-individual RGBA8 layer PNGs, and a flattened `mergedimage.png` preview.
+individual RGBA8 layer PNGs, and a flattened `mergedimage.png` preview. Version
+3 native vector paths are rasterized into their owning layer's PNG; layer masks
+are applied to exported alpha. The application reports both losses, while the
+`.rpl` source retains editable paths and masks.
 
 Not preserved: native brush settings, undo history, layer locks, selections and
 view state. These losses are stated in the UI. Groups, masks, vector layers,

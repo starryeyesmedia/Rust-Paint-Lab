@@ -141,10 +141,22 @@ Future components have distinct responsibilities:
    coordinates to GPU units with explicit range checks at this boundary.
 6. **Document model:** `paint-document` owns sparse raster tiles, editable layers
    and alpha masks, bounded undo/redo, provisional brush transactions, and checked
-   native storage; only Commit finalizes a stroke transaction. It is OS/UI/GPU-
-   independent. Unmasked `.rpl` files retain version 1; documents with masks use
-   version 2 and continue to read version 1. See the alpha format and overdrive
-   progress document for current boundaries.
+   native storage; only Commit finalizes a raster stroke transaction. It is
+   OS/UI/GPU-independent. Unmasked projects retain v1, mask projects use v2,
+   and editable vector path metadata/allocator use v3; filled vector paths use
+   explicit v4 metadata while sharing the existing raster/mask tile sections.
+   All existing v1/v2/v3 projects continue to read. Vector paths share
+   raster-layer ordering and mask compositing, while raster pixels are derived
+   only for display/export. The V tool creates freehand polylines by default,
+   with an optional workspace-only Catmull–Rom-to-cubic mode, edits anchors and
+   handles, and can close paths and apply an even-odd fill. Unfilled paths keep
+   the v3 schema; a fill is a single undoable v4 document edit. See the alpha
+   format and overdrive progress document for limits and current boundaries.
+The SVG exporter writes these editable line/cubic objects in document order and
+preserves path visibility, color/opacity, even-odd fill, and layer opacity. It is
+deliberately vector-only; the document background, raster tiles, and masks are
+reported as omitted, and non-Normal blend modes are not represented. Import, SVG shape elements, text,
+gradients, transforms, and CSS remain future work.
 
 The separate canvas demo now implements a bounded command consumer and renderer
 for synthetic playback and interactive mouse drawing. The physical-pixel winit
@@ -239,6 +251,11 @@ commit/cancel, selection and bounded history lifecycle without modifying source
 raster bytes. Mask tiles share the document's tile-count budget. OpenRaster export
 applies enabled masks to per-layer pixels and reports that mask editability is
 flattened; the native `.rpl` remains editable.
+The application exposes mask operations in the selected layer's expandable
+settings panel: Add, Edit/Stop, Enable/Disable, Invert, Clear, and Remove are
+direct actions rather than nested popovers. This keeps the painting mode and
+metadata controls reachable when the Layers list is scrolled or the window is
+compact, while all edits still enter normal document transactions.
 
 Recovery writes a bounded append-only sequence of complete native snapshot records
 alongside the existing atomic snapshot and verified backup. Replay selects the most
@@ -342,24 +359,31 @@ in the document metadata. This keeps brush presets portable without coupling the
 brush engine to dialogs or platform APIs. Filesystems without hard-link support
 fail safely, and an existing preset must be given a different filename.
 
-The Studio workspace stores theme, brush-panel width/visibility, current inspector
-tab, canvas zoom/pan, and external reference window paths/placement/size/opacity in
-a separate versioned `workspace.json` under the local application state directory.
-The inspector uses Layers, Brush, and Edit tabs; selecting the Brush tool opens its
-settings. The Window menu can restore the inspector or reset its layout and canvas
-view. The canvas has an explicit zoom percentage and Fit control. Reference images
-decode to bounded egui textures; they are neither layers nor part of document
-composition/export. Their panels clamp against the current egui content viewport,
-have independent view reset/position reset controls, and route two-contact
-touchscreen navigation to the image under both contacts. Each contact remains
+The Studio workspace stores theme, Inspector tab/position/size, toolbar position
+and dock, canvas zoom/pan, handedness, reference selection/pinning/PIP position,
+and reference image paths and view settings in a separate versioned
+`workspace.json`. Preferences never enter artwork files. The unified Inspector has
+Layers, Brush, Edit, Color, and References tabs. On roomy windows it docks on the
+right while preserving a 320-point canvas viewport; compact windows use a bounded
+drawer or full sheet. Responsive geometry does not replace the saved roomy panel
+preferences. The Layers tab presents the stack before selected-layer name,
+opacity, blend and mask controls; row actions remain available from accessible
+context menus. The primary toolbar remains independently movable and edge-snapping.
+
+Reference images decode into bounded egui textures. The References Inspector holds
+up to six workspace-only images with a selected preview, thumbnail navigation,
+opacity, zoom, pan, centering and removal. They are not document layers and cannot
+enter artwork composition, recovery records or exports. References are hidden
+outside that board by default. Explicit pinning shows only the selected image in a
+movable canvas picture-in-picture, sized to at most 24% of the unobstructed canvas;
+there are no automatic full-size reference windows. Each touch contact remains
 captured to its starting surface until it ends; a split-surface gesture is
-suppressed rather than affecting either reference or the canvas. Canvas touch uses
-the same navigation processor, and stylus-active touch is ignored. Where a window
-backend emits winit pinch/pan events, these are routed to the reference under the
-cursor or to the canvas; pixel-delta scrolling pans references/canvas and Control
-plus scroll zooms the canvas. Preferences are not artwork data and are safely
-bounded/migrated when loaded. Independent draggable panels, edge snapping/docking,
-and complete accessibility review remain pending.
+suppressed rather than affecting either reference or canvas. Canvas touch uses the
+same navigation processor, and stylus-active touch is ignored. Where a backend
+emits winit pinch/pan events, they route to the reference preview under the cursor
+or canvas; pixel scrolling pans references/canvas, and Control plus scroll zooms
+the canvas. Saved legacy reference-window geometry remains accepted by workspace
+preferences but is not used by the canvas-first presentation.
 
 ## Phase 8 startup and file selection slice
 
@@ -421,3 +445,33 @@ when draft saving fails, close is blocked and the artist can retry, Save As, or
 cancel. Recovery snapshots and journals remain a separate fallback path. This does
 not claim protection from forced termination or sudden power loss beyond existing
 recovery evidence.
+
+## Phase 10 cubic path editing
+
+Vector paths remain editable metadata attached to their owning raster layer;
+raster tiles are derived for compositing and export. The V tool can select,
+move, style, insert and remove supported anchors. For native v3 paths that
+already contain cubic segments, the selected anchor exposes independent
+incoming/outgoing control points. Artists can drag a handle on the canvas or
+select it and enter document-space X/Y coordinates with an explicit Apply
+action. `VectorHandle` identifies the adjacent segment endpoint relationship;
+the document transaction changes only that control point and rejects malformed
+coordinates or locked/hidden owner layers. A provisional handle preview is
+rendered before commit; Escape or input interruption discards it. Undo/Redo
+retains full editable path geometry. The path tool can convert line segments to
+cubics, insert/remove supported anchors, move anchors and handles, edit stroke
+color/width, close paths, apply or remove a fill, and apply uniform
+scale/rotation or duplicate a selected path as undoable document transactions.
+These remain editable vector metadata on their owning raster layer; the
+operations do not bake into authoritative raster tiles. Unfilled paths retain
+the v3 schema, while a filled path opts into v4 so an older application rejects
+the file instead of silently dropping the style. Fill membership uses an
+even-odd rule over deterministic flattened geometry, with a bounded pixel-edge
+work estimate. Fill edges are sampled at pixel centers; advanced vector
+antialiasing and SVG interoperability remain future work. No GPU/windowing
+dependencies are added to `paint-document`.
+
+Native document JSON uses serde_json's `float_roundtrip` feature. This prevents
+repeated load/save cycles from perturbing cubic control coordinates and makes
+save/undo/redo stable for mixed raster/vector documents. It does not alter v1,
+v2, v3, or v4 schemas and improves numeric decoding for earlier supported formats.

@@ -59,6 +59,26 @@ selected layer's visibility/lock and active selection, are rasterized into that
 layer, and form one Ctrl+Z/Ctrl+Y transaction. Saved projects and PNG exports
 include committed shapes; shape geometry is not separately editable after commit.
 
+Use **V** to create an editable vector polyline. Drag on an empty canvas to place
+connected anchor points; the current brush color, opacity, and size set the new
+path's initial stroke. Click a visible path and drag it to move the complete
+object; the contextual **Delete path** action removes it with Undo support.
+**Escape** discards a path still being drawn or a move preview. Paths remain
+separate from raster tiles, share the selected layer's ordering/mask/visibility,
+and render with deterministic antialiasing. `.rpl` version 3 stores and reopens
+their editable line/cubic geometry and stable IDs; PNG and OpenRaster render them
+as pixels, and the OpenRaster export status discloses that flattening. Node
+editing is available from **Edit anchors**: drag an anchor on the canvas or
+choose it from the **Anchor N** menu and enter exact X/Y document coordinates.
+The drag remains provisional until release; Escape cancels it. One anchor move
+is one Undo/Redo transaction and moves adjacent cubic handles along with the
+anchor. The **Anchor N** menu can insert a midpoint without changing the
+following line or cubic segment. It can remove endpoints or an interior point
+between two lines; interior cubic joins stay disabled when exact geometry cannot
+be retained. Each operation is undoable and saved in the editable native file.
+The V tool still creates polylines only; independent Bézier-handle controls,
+fills, scaling, rotation, and path duplication remain future work.
+
 Use **G** to choose the Gradient tool. Select **Linear** or **Radial** in the
 contextual options, then drag across the canvas: linear uses the drag direction;
 radial uses the first point as its center and the drag length as its radius. The
@@ -210,7 +230,8 @@ Keyboard: `[` / `]` reduce/increase brush size by ten percent; Shift+`[` / Shift
 make fine one-percent changes. The size is bounded from 1 to 256 px and the
 shortcut is ignored while a text field is active. Ctrl+Z/Y undo/redo; Ctrl+S save;
 Ctrl+N New Document; Ctrl+O open project
-picker; Ctrl+E export PNG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
+picker; Ctrl+E export PNG; Ctrl+Alt+E exports visible editable vector paths as
+SVG; Ctrl+Shift+B saves a brush preset and Ctrl+Alt+B loads one;
 Ctrl+L opens or closes the floating Layers panel; Ctrl+Shift+N adds a layer;
 Ctrl+Shift+M opens or closes the
 artwork recovery manager; Escape closes an active Brush/Color/Layers panel before
@@ -324,6 +345,12 @@ masks to layer pixels and reports that mask editability is flattened. Import
 rejects external groups, masks, nonzero offsets, and unsupported blend modes.
 Save `.rpl` afterward. See openraster.md for exact capabilities/limits. External
 application interoperability still needs testing.
+
+SVG: **SVG vector paths only** / Ctrl+Alt+E writes the visible editable line and
+cubic paths with supported strokes, fills, path order, and layer opacity. This
+is a vector-only interchange: the document background, raster pixels, and masks are omitted, and
+non-Normal layer blend behavior is not represented. Use PNG for a complete
+flattened image or `.rpl` to preserve all editable content.
 
 Ctrl+Shift+R restores the latest inactive recovery into a new unsaved document.
 If the latest journal entry is incomplete/corrupt, recovery uses the previous

@@ -23,7 +23,9 @@ phase's historical checkpoint and remains available for context.
   mapping, and stroke transaction commands. Depends on `paint-input`, never the
   other way around. No brush algorithms, GPU resources, document storage, or IO.
 - `crates/document`: safe OS/GPU/GUI-independent raster brushes, sparse tiles,
-  editable layers, bounded transactions/history, checked storage, recovery and PNG.
+  editable layers/masks and bounded vector paths, bounded transactions/history,
+  checked storage, recovery and PNG. Native `.rpl` v1/v2 remain readable; vector
+  object metadata uses v3 and rasterized display/export remains derived.
   Do not merge provisional pixels into authoritative artwork before Commit.
 - `apps/canvas-demo`: winit/wgpu/egui painting shell, dirty-tile presentation,
   live input and separate deterministic replay. Native APIs stay in the isolated

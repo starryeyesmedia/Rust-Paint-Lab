@@ -8,6 +8,8 @@ pub mod openraster;
 pub mod recent;
 pub mod stabilization;
 pub mod storage;
+pub mod svg;
+pub mod vector;
 use brush::{Brush, BrushKind};
 use paint_stroke::{StrokeCommand, StrokeId, StrokeSample};
 use serde::{Deserialize, Serialize};
@@ -420,6 +422,10 @@ pub struct Layer {
     pub blend: Blend,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask: Option<LayerMask>,
+    /// Editable vector artwork is composited above this layer's raster tiles.
+    /// Empty in v1/v2 projects; nonempty paths select native format v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vector_paths: Vec<vector::VectorPath>,
     #[serde(skip)]
     pub tiles: TileMap,
 }
@@ -435,6 +441,19 @@ pub struct State {
     pub selected: u64,
     pub background: Option<[u8; 3]>,
     pub brush: Brush,
+    /// Monotonic ID allocator persisted from v3 onward so deleting the final
+    /// vector object and reopening cannot cause a later object-ID collision.
+    #[serde(
+        default = "first_vector_id",
+        skip_serializing_if = "is_first_vector_id"
+    )]
+    pub next_vector_id: u64,
+}
+fn first_vector_id() -> u64 {
+    1
+}
+fn is_first_vector_id(id: &u64) -> bool {
+    *id == 1
 }
 impl State {
     pub fn new(width: u32, height: u32, dpi: u32) -> Result<Self, PaintError> {
@@ -451,11 +470,13 @@ impl State {
                 opacity: 255,
                 blend: Blend::Normal,
                 mask: None,
+                vector_paths: Vec::new(),
                 tiles: BTreeMap::new(),
             }],
             selected: 1,
             background: Some([255; 3]),
             brush: Brush::default(),
+            next_vector_id: 1,
         };
         s.validate()?;
         Ok(s)
@@ -471,6 +492,9 @@ impl State {
         {
             return Err(PaintError::Invalid);
         }
+        if self.next_vector_id == 0 || self.next_vector_id > u64::from(u32::MAX) + 1 {
+            return Err(PaintError::Invalid);
+        }
         if !self.brush.validate() {
             return Err(PaintError::Invalid);
         }
@@ -482,7 +506,10 @@ impl State {
             }
         }
         let mut ids = BTreeSet::new();
+        let mut vector_ids = BTreeSet::new();
         let mut total = 0_usize;
+        let mut vector_segments = 0_usize;
+        let mut vector_work = 0_usize;
         for l in &self.layers {
             if l.name.len() > 256 || l.id == 0 || l.id > u64::from(u32::MAX) || !ids.insert(l.id) {
                 return Err(PaintError::Invalid);
@@ -509,9 +536,33 @@ impl State {
                     total += 1;
                 }
             }
+            for path in &l.vector_paths {
+                path.validate()?;
+                if path.id >= self.next_vector_id || !vector_ids.insert(path.id) {
+                    return Err(PaintError::Invalid);
+                }
+                vector_segments = vector_segments
+                    .checked_add(path.segments.len())
+                    .ok_or(PaintError::Limit)?;
+                if vector_ids.len() > vector::MAX_VECTOR_PATHS
+                    || vector_segments > vector::MAX_VECTOR_SEGMENTS
+                {
+                    return Err(PaintError::Limit);
+                }
+            }
             if total > MAX_TILES {
                 return Err(PaintError::Limit);
             }
+            vector_work = vector_work
+                .checked_add(
+                    vector::estimated_layer_work(&l.vector_paths, [self.width, self.height])
+                        .ok_or(PaintError::Limit)?,
+                )
+                .filter(|work| *work <= vector::MAX_VECTOR_WORK)
+                .ok_or(PaintError::Limit)?;
+        }
+        if vector_work > vector::MAX_VECTOR_WORK {
+            return Err(PaintError::Limit);
         }
         if !ids.contains(&self.selected) {
             return Err(PaintError::Limit);
@@ -537,6 +588,7 @@ impl State {
             && self.selected == other.selected
             && self.background == other.background
             && self.brush == other.brush
+            && self.next_vector_id == other.next_vector_id
             && self.layers.len() == other.layers.len()
             && self.layers.iter().zip(&other.layers).all(|(left, right)| {
                 left.id == right.id
@@ -546,6 +598,7 @@ impl State {
                     && left.opacity == right.opacity
                     && left.blend == right.blend
                     && same_mask_snapshot(left.mask.as_ref(), right.mask.as_ref())
+                    && left.vector_paths == right.vector_paths
                     && left.tiles.len() == right.tiles.len()
                     && left.tiles.iter().all(|(key, tile)| {
                         right
@@ -665,8 +718,10 @@ impl Engine {
     fn queue_bytes(queue: &VecDeque<State>) -> usize {
         // Arc identity counts COW allocations once, not once per snapshot/layer.
         let mut allocations = std::collections::HashMap::new();
+        let mut vector_bytes = 0usize;
         for s in queue {
             for layer in &s.layers {
+                vector_bytes += vector::layer_vectors_bytes(layer);
                 for tile in layer.tiles.values() {
                     allocations.insert(Arc::as_ptr(tile), TILE_BYTES);
                 }
@@ -677,7 +732,7 @@ impl Engine {
                 }
             }
         }
-        allocations.values().sum()
+        allocations.values().sum::<usize>() + vector_bytes
     }
     pub fn history_bytes(&self) -> [usize; 2] {
         [Self::queue_bytes(&self.undo), Self::queue_bytes(&self.redo)]
@@ -753,6 +808,7 @@ impl Engine {
                 opacity: 255,
                 blend: Blend::Normal,
                 mask: None,
+                vector_paths: Vec::new(),
                 tiles: BTreeMap::new(),
             });
             s.selected = id;
@@ -769,6 +825,21 @@ impl Engine {
                 .clone();
             l.id = s.layers.iter().map(|l| l.id).max().unwrap_or(0) + 1;
             l.name = format!("{} copy", l.name).chars().take(256).collect();
+            let mut next_vector_id = s.next_vector_id.saturating_sub(1).max(
+                s.layers
+                    .iter()
+                    .flat_map(|layer| layer.vector_paths.iter().map(|path| path.id))
+                    .max()
+                    .unwrap_or(0),
+            );
+            for path in &mut l.vector_paths {
+                next_vector_id = next_vector_id
+                    .checked_add(1)
+                    .filter(|id| *id <= u64::from(u32::MAX))
+                    .ok_or(PaintError::Limit)?;
+                path.id = next_vector_id;
+            }
+            s.next_vector_id = next_vector_id.checked_add(1).ok_or(PaintError::Limit)?;
             s.selected = l.id;
             s.layers.push(l);
             Ok(())
@@ -798,6 +869,474 @@ impl Engine {
                 return Err(PaintError::Locked);
             }
             l.tiles.clear();
+            l.vector_paths.clear();
+            Ok(())
+        })
+    }
+
+    /// Create one editable polyline above raster pixels in the selected layer.
+    /// The current brush color, opacity and size become the path's initial
+    /// vector stroke style; later raster brush changes do not alter it.
+    pub fn add_vector_path(&mut self, points: &[[f64; 2]]) -> Result<u64, PaintError> {
+        self.add_vector_path_with(points, false)
+    }
+
+    /// Create an editable cubic path using deterministic Catmull–Rom
+    /// interpolation through the supplied drawing samples. Native geometry
+    /// remains cubic and editable; this does not add derived pixels to the
+    /// authoritative raster layer.
+    pub fn add_smoothed_vector_path(&mut self, points: &[[f64; 2]]) -> Result<u64, PaintError> {
+        self.add_vector_path_with(points, true)
+    }
+
+    fn add_vector_path_with(
+        &mut self,
+        points: &[[f64; 2]],
+        smooth: bool,
+    ) -> Result<u64, PaintError> {
+        let layer = self
+            .state
+            .layers
+            .iter()
+            .find(|layer| layer.id == self.state.selected)
+            .ok_or(PaintError::Invalid)?;
+        if layer.locked || !layer.visible {
+            return Err(PaintError::Locked);
+        }
+        let id = self.state.next_vector_id;
+        if id > u64::from(u32::MAX) {
+            return Err(PaintError::Limit);
+        }
+        let mut color = [0; 4];
+        color[..3].copy_from_slice(&self.brush.color);
+        color[3] = (self.brush.opacity * 255.0).round().clamp(0.0, 255.0) as u8;
+        let path = if smooth {
+            vector::VectorPath::from_smoothed_polyline(id, points, color, self.brush.size)?
+        } else {
+            vector::VectorPath::from_polyline(id, points, color, self.brush.size)?
+        };
+        self.edit(|state| {
+            let selected = state.selected;
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == selected)
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            layer.vector_paths.push(path);
+            state.next_vector_id = id.checked_add(1).ok_or(PaintError::Limit)?;
+            Ok(())
+        })?;
+        Ok(id)
+    }
+
+    /// Duplicate an editable path in the same layer with a fresh document-wide
+    /// identity. The offset stays within document bounds when space permits so
+    /// the new object can be selected independently; one copy operation is one
+    /// undoable history transaction.
+    pub fn duplicate_vector_path(&mut self, id: u64) -> Result<u64, PaintError> {
+        let total_paths: usize = self
+            .state
+            .layers
+            .iter()
+            .map(|layer| layer.vector_paths.len())
+            .sum();
+        if total_paths >= vector::MAX_VECTOR_PATHS {
+            return Err(PaintError::Limit);
+        }
+        let source_layer = self
+            .state
+            .layers
+            .iter()
+            .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+            .ok_or(PaintError::Invalid)?;
+        if source_layer.locked || !source_layer.visible {
+            return Err(PaintError::Locked);
+        }
+        let next_id = self.state.next_vector_id;
+        if next_id == 0 || next_id > u64::from(u32::MAX) {
+            return Err(PaintError::Limit);
+        }
+        let mut duplicate = source_layer
+            .vector_paths
+            .iter()
+            .find(|path| path.id == id)
+            .cloned()
+            .ok_or(PaintError::Invalid)?;
+        let bounds = duplicate.bounds();
+        let width = f64::from(self.state.width);
+        let height = f64::from(self.state.height);
+        let half_stroke = duplicate.width * 0.5;
+        let offset = 12.0;
+        let dx = if bounds[2] + half_stroke + offset <= width {
+            offset
+        } else if bounds[0] - half_stroke - offset >= 0.0 {
+            -offset
+        } else {
+            0.0
+        };
+        let dy = if bounds[3] + half_stroke + offset <= height {
+            offset
+        } else if bounds[1] - half_stroke - offset >= 0.0 {
+            -offset
+        } else {
+            0.0
+        };
+        duplicate.id = next_id;
+        duplicate.translate([dx, dy])?;
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            layer.vector_paths.push(duplicate);
+            state.next_vector_id = next_id.checked_add(1).ok_or(PaintError::Limit)?;
+            Ok(())
+        })?;
+        Ok(next_id)
+    }
+
+    /// Select the topmost visible path within tolerance, in document pixels.
+    pub fn hit_test_vector_path(&self, point: [f64; 2], tolerance: f64) -> Option<u64> {
+        if !point.iter().all(|value| value.is_finite()) || !tolerance.is_finite() || tolerance < 0.0
+        {
+            return None;
+        }
+        for layer in self.state.layers.iter().rev().filter(|layer| layer.visible) {
+            for path in layer.vector_paths.iter().rev().filter(|path| path.visible) {
+                let allowed = path.width * 0.5 + tolerance;
+                if vector::contains_fill(path, point)
+                    || vector::path_distance(path, point) <= allowed
+                {
+                    return Some(path.id);
+                }
+            }
+        }
+        None
+    }
+
+    /// Translate an editable path as one undoable operation. The full path
+    /// remains inside document bounds, and hidden/locked owner layers reject it.
+    pub fn translate_vector_path(&mut self, id: u64, delta: [f64; 2]) -> Result<(), PaintError> {
+        if !delta.iter().all(|value| value.is_finite()) {
+            return Err(PaintError::Invalid);
+        }
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            let bounds = path.bounds();
+            if bounds[2] - bounds[0] > f64::from(state.width)
+                || bounds[3] - bounds[1] > f64::from(state.height)
+            {
+                return Err(PaintError::Invalid);
+            }
+            let dx = delta[0].clamp(-bounds[0], f64::from(state.width) - bounds[2]);
+            let dy = delta[1].clamp(-bounds[1], f64::from(state.height) - bounds[3]);
+            path.translate([dx, dy])
+        })
+    }
+
+    /// Scale and rotate a vector path around its rendered-bounds center. The
+    /// full stroke must remain inside the document; rejected transforms leave
+    /// both document state and history unchanged.
+    pub fn transform_vector_path(
+        &mut self,
+        id: u64,
+        scale: f64,
+        rotation_degrees: f64,
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let document_width = f64::from(state.width);
+            let document_height = f64::from(state.height);
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            let mut transformed = path.clone();
+            transformed.transform_uniform(scale, rotation_degrees)?;
+            let bounds = transformed.bounds();
+            let half_stroke = transformed.width * 0.5;
+            if bounds[0] - half_stroke < 0.0
+                || bounds[1] - half_stroke < 0.0
+                || bounds[2] + half_stroke > document_width
+                || bounds[3] + half_stroke > document_height
+            {
+                return Err(PaintError::Invalid);
+            }
+            *path = transformed;
+            Ok(())
+        })
+    }
+
+    /// Change a path's immutable-by-default stroke style as one document
+    /// transaction. This preserves its editable geometry and invalidates the
+    /// owning layer's derived composite and thumbnail data through `edit`.
+    pub fn set_vector_path_style(
+        &mut self,
+        id: u64,
+        stroke: [u8; 4],
+        width: f64,
+    ) -> Result<(), PaintError> {
+        if !width.is_finite() || !(0.25..=512.0).contains(&width) {
+            return Err(PaintError::Invalid);
+        }
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.stroke = stroke;
+            path.width = width;
+            path.validate()
+        })
+    }
+
+    /// Show or hide one editable vector object without changing its owning
+    /// raster layer. Visibility is stored in the existing native vector-path
+    /// metadata and participates in the ordinary document transaction history.
+    pub fn set_vector_path_visible(&mut self, id: u64, visible: bool) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.visible = visible;
+            Ok(())
+        })
+    }
+
+    /// Close or reopen a vector path as one undoable document edit. Reopening
+    /// removes its fill because open paths do not define a filled region.
+    pub fn set_vector_path_closed(&mut self, id: u64, closed: bool) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            if closed { path.close() } else { path.open() }
+        })
+    }
+
+    /// Apply or remove a straight-alpha sRGB fill as an undoable style edit.
+    pub fn set_vector_path_fill(
+        &mut self,
+        id: u64,
+        fill: Option<[u8; 4]>,
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.set_fill(fill)
+        })
+    }
+
+    /// Move one path anchor as a single history transaction. Adjacent cubic
+    /// handles follow the anchor, retaining their tangent offsets.
+    pub fn move_vector_path_anchor(
+        &mut self,
+        id: u64,
+        anchor: usize,
+        point: [f64; 2],
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.move_anchor(anchor, point)
+        })
+    }
+
+    /// Move one Bézier control handle as a single history transaction.
+    pub fn move_vector_path_handle(
+        &mut self,
+        id: u64,
+        anchor: usize,
+        handle: vector::VectorHandle,
+        point: [f64; 2],
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.move_control_handle(anchor, handle, point)
+        })
+    }
+
+    /// Convert a straight path segment to a cubic Bézier without changing its
+    /// rendered line. The resulting handles can then be adjusted separately.
+    pub fn convert_vector_path_segment_to_cubic(
+        &mut self,
+        id: u64,
+        after_anchor: usize,
+    ) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.convert_line_to_cubic(after_anchor)
+        })
+    }
+
+    /// Split the segment after one anchor and return the new anchor index.
+    pub fn insert_vector_path_anchor(
+        &mut self,
+        id: u64,
+        after_anchor: usize,
+    ) -> Result<usize, PaintError> {
+        let selected_index = after_anchor.checked_add(1).ok_or(PaintError::Invalid)?;
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            path.insert_anchor_after(after_anchor)?;
+            Ok(())
+        })?;
+        Ok(selected_index)
+    }
+
+    /// Remove one anchor and return the neighboring anchor selected afterward.
+    pub fn remove_vector_path_anchor(
+        &mut self,
+        id: u64,
+        anchor: usize,
+    ) -> Result<usize, PaintError> {
+        let mut selected_index = 0;
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            let path = layer
+                .vector_paths
+                .iter_mut()
+                .find(|path| path.id == id)
+                .ok_or(PaintError::Invalid)?;
+            selected_index = path.remove_anchor(anchor)?;
+            Ok(())
+        })?;
+        Ok(selected_index)
+    }
+
+    /// Remove one editable path from its visible, unlocked owner layer.
+    pub fn remove_vector_path(&mut self, id: u64) -> Result<(), PaintError> {
+        self.edit(|state| {
+            let layer = state
+                .layers
+                .iter_mut()
+                .find(|layer| layer.vector_paths.iter().any(|path| path.id == id))
+                .ok_or(PaintError::Invalid)?;
+            if layer.locked || !layer.visible {
+                return Err(PaintError::Locked);
+            }
+            layer.vector_paths.retain(|path| path.id != id);
             Ok(())
         })
     }
@@ -1725,6 +2264,7 @@ impl Engine {
                     }
                 }
             }
+            vector::rasterize_layer_tile(l, key, [self.state.width, self.state.height], &mut tile);
             if let Some(mask) = l.mask.as_ref().filter(|mask| mask.enabled) {
                 let provisional = self.active.values().find_map(|transaction| {
                     (transaction.layer == l.id && transaction.mode == StrokeMode::MaskPaint)
@@ -1815,35 +2355,32 @@ impl Engine {
             )
         };
         let mut pixels = vec![0; width as usize * height as usize * 4];
+        // Downsample by source tile row. Compositing each source pixel directly
+        // would visit every editable path and segment once per preview sample;
+        // a bounded row cache instead rasterizes each 64×64 tile once and keeps
+        // at most one document tile row (1 MiB at the maximum width).
+        let tile_columns = self.state.width.div_ceil(TILE) as usize;
+        let mut composite_tile_row = Vec::with_capacity(tile_columns);
+        let mut cached_tile_y = None;
         for y in 0..height {
             let source_y = (((u64::from(y) * 2 + 1) * u64::from(self.state.height))
                 / (u64::from(height) * 2))
                 .min(u64::from(self.state.height - 1)) as u32;
+            let tile_y = source_y / TILE;
+            if cached_tile_y != Some(tile_y) {
+                composite_tile_row.clear();
+                composite_tile_row.extend(
+                    (0..tile_columns).map(|tile_x| self.composite_tile((tile_x as u32, tile_y))),
+                );
+                cached_tile_y = Some(tile_y);
+            }
             for x in 0..width {
                 let source_x = (((u64::from(x) * 2 + 1) * u64::from(self.state.width))
                     / (u64::from(width) * 2))
                     .min(u64::from(self.state.width - 1)) as u32;
-                let key = (source_x / TILE, source_y / TILE);
                 let source = (((source_y % TILE) * TILE + source_x % TILE) * 4) as usize;
-                let mut composite = [0u8; 4];
-                if let Some(background) = self.state.background {
-                    composite.copy_from_slice(&[background[0], background[1], background[2], 255]);
-                }
-                for layer in self.state.layers.iter().filter(|layer| layer.visible) {
-                    let mut pixel = [0; 4];
-                    if let Some(tile) = layer.tiles.get(&key) {
-                        pixel.copy_from_slice(&tile[source..source + 4]);
-                    }
-                    if let Some(mask) = layer.mask.as_ref().filter(|mask| mask.enabled) {
-                        let mask_offset = (source_y % TILE * TILE + source_x % TILE) as usize;
-                        let value = mask.tiles.get(&key).map_or(255, |tile| tile[mask_offset]);
-                        let alpha = if mask.inverted { 255 - value } else { value };
-                        for channel in &mut pixel {
-                            *channel = ((u16::from(*channel) * u16::from(alpha) + 127) / 255) as u8;
-                        }
-                    }
-                    over(&mut composite, &pixel, false, layer.opacity, layer.blend);
-                }
+                let tile = &composite_tile_row[(source_x / TILE) as usize];
+                let composite = &tile[source..source + 4];
                 let dest = ((y * width + x) * 4) as usize;
                 let alpha = u32::from(composite[3]);
                 for channel in 0..3 {

@@ -8,6 +8,7 @@ pub enum Icon {
     ColorMixer,
     Eraser,
     Line,
+    Path,
     QuickShape,
     Gradient,
     Rectangle,
@@ -34,6 +35,7 @@ pub enum Icon {
     EyeOff,
     Lock,
     Unlock,
+    More,
 }
 
 fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::Color32) {
@@ -93,6 +95,12 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
             line((-7.0, 7.0), (7.0, -7.0));
             painter.circle_filled(at(-7.0, 7.0), 1.7 * scale, color);
             painter.circle_filled(at(7.0, -7.0), 1.7 * scale, color);
+        }
+        Icon::Path => {
+            path(&[(-8.0, 5.0), (-3.0, -3.0), (2.0, 3.0), (8.0, -5.0)]);
+            for (x, y) in [(-8.0, 5.0), (-3.0, -3.0), (2.0, 3.0), (8.0, -5.0)] {
+                painter.circle_filled(at(x, y), 2.0 * scale, color);
+            }
         }
         Icon::QuickShape => {
             path(&[
@@ -360,6 +368,11 @@ fn paint(painter: &egui::Painter, bounds: egui::Rect, icon: Icon, color: egui::C
                 line((3.5, -5.0), (5.5, -5.0));
             }
         }
+        Icon::More => {
+            for x in [-5.0, 0.0, 5.0] {
+                painter.circle_filled(at(x, 0.0), 1.5 * scale, color);
+            }
+        }
     }
 }
 
@@ -497,6 +510,7 @@ mod tests {
             Icon::Brush,
             Icon::Eraser,
             Icon::QuickShape,
+            Icon::Path,
             Icon::Rectangle,
             Icon::Ellipse,
             Icon::RectangleSelection,

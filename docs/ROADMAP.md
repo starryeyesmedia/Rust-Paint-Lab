@@ -5,6 +5,66 @@ workspace/accessibility work continues alongside Phase 9's raster painting and
 editing tools; unresolved visual polish does not block useful creative features.
 Artwork preservation and cross-platform validation apply to every track.
 
+## Canvas-first design handoff — active implementation
+
+Layers, Brush, Edit, Color, and References share the existing egui/winit
+Inspector. Layers and masks use real document transactions; references remain
+workspace-only and stay out of artwork exports. The accepted Layers hierarchy
+checkpoint is at `3427604`.
+
+Milestone 2 is implemented locally on top of that checkpoint. The tab order is
+now Layers / Brush / Edit / Color / References in a horizontally scrollable
+strip, with the Canvas/close control fixed outside it. The selected-vector
+anchor, handle, geometry, and style controls are integrated into Edit while
+direct canvas manipulation remains available. A real pointer-only XTest enters
+anchor editing and verifies rendered handles without invoking the `H` shortcut.
+The full Linux Xorg/XTest artwork workflow passed locally with 80 screenshots;
+the compact tab strip scrolled to References and pointer selection succeeded.
+Populated narrow Layers/References and vector-edit captures were inspected.
+Formatting, strict host Clippy, workspace build, Windows GNU check/Clippy, 400
+workspace tests, and required llvmpipe/GL smoke were previously verified for
+this Rust state; Python helper tests pass. The M2 hosted matrix is pending until
+its implementation commit is pushed. The preceding cross-platform baseline run
+[`41102591526`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41102591526)
+is not a substitute for M2's own Actions result.
+
+The next UI slice is Milestone 3: viewport-derived Inspector widths that do not
+overwrite saved preferences during temporary scale/resize changes, plus
+reference-overlay edge snapping and protected canvas controls. Milestone 4
+requires screenshots for all six viewport/scale cases, dark/light/high-contrast
+review, and independent QA. Phase 8.3 remains active.
+
+Phase 10 now includes optional deterministic freehand-to-cubic creation and
+undoable closed-path fills in the existing V tool. Smooth paths preserve all
+input anchors, join curves with shared tangents, capture the authoring setting
+at pointer-down and leave polyline creation as the default. Closed fills use
+the explicit `.rpl` v4 marker; the v1/v2/v3 readers remain intact and unfilled
+paths keep the byte-compatible v3 schema. Fill pixels appear in compositing,
+PNG/OpenRaster exports and hit-testing without becoming raster tiles. Local
+verification passes 391 workspace tests, strict host and Windows GNU Clippy,
+workspace build/check, llvmpipe/GL GPU smoke, and the full Linux Xorg/XTest
+workflow with 77 screenshots. I inspected the `vector-filled-path` capture.
+Actions run [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+passed Windows and macOS, including Windows GUI startup and artifact packaging,
+but failed Ubuntu's alpha artwork workflow at step 11. Its public annotation
+truncated the underlying assertion; the workflow now retains a concise final
+log excerpt in the job summary for diagnosis on the next run. Software GPU
+testing does not validate the owner's Iris Xe, S Pen or native screen-reader
+behavior.
+
+Phase 10's vector-only SVG export supports the existing line/cubic paths and
+closed fills, preserving path visibility, order, supported colors/alpha, and
+layer opacity. A real UI test parses the export, checks native `.rpl` source
+integrity, and discloses unsupported content. SVG import and full
+raster/mask/document round-trip remain unimplemented. Actions run
+[`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+is historical: Windows and macOS passed while Ubuntu failed on the vector anchor
+editing observation. The current local XTest run now passes that real pointer
+interaction; the new M2 commit still needs its own cross-platform Actions result.
+
+Do not treat this checkpoint, screenshots or automated checks as Phase 8.3 or
+Phase 10 completion.
+
 ## Adopted product identity — BitchPixel
 
 - **Product identity:** BitchPixel is the chosen name, not a provisional candidate. Rust Paint Lab continues as the engineering repository, internal package/executable names and format terminology until those identifiers are migrated deliberately, without breaking existing projects or CI.
@@ -79,7 +139,13 @@ painting, configurable pen barrel behavior and transformed image placement.
   integration commit is still required to confirm hosted platform jobs. Next:
   selection transforms and QuickShape, then guides/symmetry and brush expansion.
 - Phase 10 — editable vector paths and text, mixed raster/vector editing,
-  non-destructive effects, and natural-media foundations.
+  non-destructive effects, and natural-media foundations. The first editable
+  path slice now includes bounded line/cubic document geometry, stable IDs,
+  v3 persistence with v1/v2 reads, whole-path move/delete, per-anchor move,
+  exact segment subdivision, supported anchor removal, undo/redo, live preview,
+  and PNG/OpenRaster flattening. The V tool still authors polylines only;
+  independent cubic handle editing, path fills/transforms, SVG interchange, and
+  richer vector object workflows remain open.
 - Phase 11 — frame animation, onion skin, automatic per-action timelapse, and
   interoperability expansion.
 - Phase 12 — broader creative workflows and mobile-core reuse.
@@ -710,3 +776,248 @@ so this checkpoint's full XTest/screenshot run and cross-platform hosted CI are
 pending; no physical stylus result is claimed. Phase 9 remains active. Next is
 versioned, v1-compatible layer-mask storage and compositing design; Phase 10
 vector/text and Phase 11 timelapse/animation remain open work.
+
+### Editable masks — hosted Round 1 verification pending
+
+Actions run [`40762059402`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40762059402)
+failed while the nested Layer Actions mask menu was being used. Mask operations
+moved to direct controls in Selected layer settings in commit `8cfc990`. The
+follow-up run, [`40801195199`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40801195199),
+still failed in the Linux workflow because the real app emitted
+`UI_TEST_LAYER_MASK_EDIT_CLICKED: 4 true` while the Python test expected `4
+True`. Local Xorg reproduced the exact event and confirmed mask mode was entered.
+The harness now uses lowercase Rust bool spellings, dismisses the Brush Library
+that opens contextually in mask mode before sending its canvas dab, and accepts
+that v1 omits the optional mask field.
+
+The full local Linux/Xorg/XTest artwork workflow now passes on display `:102`
+with llvmpipe/OpenGL. It verifies all mask operations, v2 save/reopen, unchanged
+raster tiles, exact Undo/Redo, v1 compatibility after removal, selection-clipped
+compositing, OpenRaster disclosure, and the existing export/recovery scenarios.
+The 2026-10-29 local validation also passed all 336 workspace tests, formatting,
+strict Clippy, workspace build, Windows GNU check/Clippy, test metadata check,
+and llvmpipe GPU smoke; the Xorg workflow generated 59 PNGs. I inspected the
+mask-editing, painted-mask, and populated-recovery screenshots. The hosted
+cross-platform gate passed in Actions run
+[`40805980434`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40805980434).
+Linux completed the full artwork/mask workflow and screenshots, Windows produced
+both the canvas and stylus diagnostic artifacts and passed visible startup, and
+macOS passed its startup smoke/package job. Round 1 is accepted as a validated
+implementation checkpoint; physical Windows mask/S Pen behavior remains a
+separate owner evaluation.
+
+### Phase 10 — initial editable vector path slice, locally validated
+
+The current implementation adds editable line and cubic path objects inside
+raster layers. V selects the canvas path tool: drag on empty artwork creates a
+polyline, clicking a path selects it, dragging moves the whole path, and the
+contextual Delete path action is undoable. Paths remain separate from raster
+tiles but share layer ordering, visibility, opacity, blend modes, masks, history,
+thumbnails and derived canvas/export compositing. PNG and OpenRaster flatten the
+composite; OpenRaster reports path loss while `.rpl` retains path objects.
+
+RPL v3 stores vector metadata and a monotonic document-wide object-ID allocator;
+v1/v2 reading and the prior v1/v2 write choices remain. Resource limits bound
+path count, segment count, coordinate/width ranges, metadata size and estimated
+raster work. Twelve focused document tests cover v1/v2/v3 behavior, mixed masks,
+rendering, save/reopen, monotonic IDs, layer-duplication ID remapping,
+movement/deletion history, corruption rejection, and PNG/OpenRaster output.
+The real Xorg/XTest workflow now creates, saves/reopens, moves and deletes a path,
+checks Undo/Redo, and verifies OpenRaster flattening alongside prior mask,
+painting, export and forced-crash journal-recovery workflows. It passes locally
+with strict Rust checks, the workspace build, Windows GNU target check/Clippy,
+and the llvmpipe GPU smoke; 61 populated screenshots were generated and
+representative workspace and vector states inspected. A one-ULP-scale JSON f64
+round-trip difference is allowed only within `1e-12`; native raster/mask tile
+tables remain byte-identical during recovery. The full hosted Linux workflow
+previously took 596 seconds, four seconds under its former 10-minute cap; CI now
+allows 15 minutes without skipping checks. The dense-path follow-up reuses
+bounded source-tile rows for Home and Layer thumbnails and culls paths by
+conservative bounds before tile rasterization. Two fixtures cover 8,192
+segments; their local debug timings were about 0.6 seconds and 0.5 seconds,
+respectively. The complete Xorg workflow above ran before this thumbnail-only
+follow-up; targeted dense-preview tests pass, and hosted Linux CI will exercise
+the updated UI code. Cross-platform Actions for the latest code remain pending.
+
+Phase 8.3, Phase 10 and Phase 11 remain active. The Phase 9 mask checkpoint is
+accepted by run `40805980434`; new Phase 10 Actions validation is pending. Phase
+10 still needs node editing, Bézier handles, editable style controls, path
+transforms and richer object operations. Phase 11 animation/timelapse and later
+text/effects remain open.
+
+#### Latest vector validation correction
+
+Vector commit `4a5a808` passed all hosted platforms in Actions run
+[`40817631458`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40817631458).
+The following thumbnail optimization commit `d357580` had a Linux XTest failure
+in run `40818285789`; local reproduction traced it to the harness accepting stale
+selection, transform-cancel, and mask-toggle markers. The harness now requires
+fresh event counts and the complete 61-screenshot Xorg/XTest workflow passes
+locally against the optimized code. A new hosted matrix is required for this
+test-only correction; do not treat the earlier green run as validation of
+`d357580` or the harness update.
+
+### Mask workflow correction and vector style slice (2026-10-29)
+
+Run [`40820933426`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40820933426)
+exposed a stale geometry assumption in mask-removal automation: the script
+estimated the Layers scroll viewport from the panel frame even though the
+Remove button was clipped below the actual egui ScrollArea. The test adapter
+now reports the ScrollArea clip bounds and targets controls against those live
+bounds. Local full Xorg/XTest validation passes all six mask actions and the
+existing raster workflows.
+
+Editable paths now have a tested width control and an Apply color action using
+the active brush color. The document API persists stroke RGBA and width through
+native v3 data, retains geometry and raster/mask separation, invalidates layer
+thumbnails, and records a single undo transaction. Automated API coverage
+includes alpha; the UI intentionally exposes no separate path-opacity control
+yet. Rust formatting, strict Clippy, **354 workspace tests**, build, Windows GNU
+check/Clippy, llvmpipe GPU smoke and the complete local Xorg/XTest workflow pass.
+The current cross-platform Actions run is pending. The inspected narrow
+Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
+implement bounded, keyboard-accessible vector node movement and undo, then
+continue curve handles, fill and transforms without claiming Phase 10 complete.
+
+### Canvas-first Inspector corrections — current checkpoint
+
+Milestone 1 (Layers hierarchy) is implemented locally on top of `268b4b4`:
+cached raster/mask thumbnails, explicit raster/mask/vector-child targets,
+undoable vector-path visibility, 44-point primary row controls, independent
+desktop stack scrolling with selected-layer properties, and a single reachable
+compact scroll region for short 640 × 480 panel heights. The complete Linux
+Xorg/XTest artwork workflow passed locally with 79 screenshots; formatting,
+strict host/Windows GNU Clippy, workspace tests/build, Windows GNU check, and
+llvmpipe GPU smoke also passed. The hosted matrix is pending the checkpoint
+commit. Continue with Milestone 2 (ordered horizontal Inspector tabs and
+selected-vector editing in Inspector Edit), then responsive geometry and the
+six-layout visual/QA milestone. Phase 8.3 remains active.
+
+### Phase 10 Linux anchor-editor regression — verified test synchronization (2026-10-30)
+
+Run [`41094100891`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41094100891)
+passed Windows and macOS but failed Linux while entering the reopened cubic
+path's anchor editor. The smoke now holds the visible control through a rendered
+frame and asserts the actual selected-path editor state and fresh rendered
+handle, while preserving the existing editing-event assertion. State-transition
+diagnostics and incremental smoke-log indexing were added. Rust, Python helper,
+Windows-target, and llvmpipe checks pass locally. The updated full Linux
+Xorg/XTest artwork workflow completed with 78 screenshots; the `H` fallback
+entered the actual editor and rendered an anchor handle, while the pointer click
+did not activate in this Xvfb run. Hosted run
+[`41102591526`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41102591526)
+passed Windows, Linux, and macOS on commit `03790ef`. The editor-state timeout
+is resolved in automated validation; direct pointer activation remains a
+separate follow-up to diagnose. Phase 8.3, Phase 9 physical checks, Phase 10,
+and Phase 11 remain active.
+
+### Current local continuation — editable line-to-cubic conversion (2026-10-29)
+
+The Phase 10 node editor can convert an adjacent line segment to an editable
+cubic while retaining its straight appearance, then expose the new handles.
+Native v3 is unchanged and v1/v2 remain readable. Engine tests and the real
+Linux UI workflow verify geometry, saved path data, raster/mask table isolation,
+and undo/redo. Rust formatting, strict host/Windows GNU Clippy, all 366 workspace
+tests, workspace build, Windows GNU target check, and llvmpipe GPU smoke pass
+locally.
+
+The complete Linux Xorg/XTest workflow now passes locally, including the new
+conversion menu, native save/reopen, exact Undo/Redo, and populated cubic-handle
+editing. It re-exercises the Phase 9 mask operations and artwork/save/export/
+recovery flows. An exact Color Mixer redo failure was traced to f64 metadata
+drift during native JSON decoding; enabling serde_json `float_roundtrip` fixed
+the repeated round-trip and the UI regression without changing the format.
+Formatting, strict host/Windows GNU Clippy, all 366 workspace tests, workspace
+build, Windows GNU check, and llvmpipe GPU smoke pass locally. The XTest run
+completed with 64 screenshot captures; populated vector, narrow Layers/Reference,
+and light Home views were inspected. Hosted run
+[`40887124571`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40887124571)
+passed Windows, Linux, and macOS with the 25-minute Linux workflow limit, and
+produced the Windows canvas/diagnostic and supported Linux/macOS alpha artifacts.
+Cubic authoring, object transforms, duplication, fill, and SVG interoperability
+remain open.
+
+### Cubic handle editing and current validation — 2026-10-29
+
+The local Phase 10 continuation adds incoming/outgoing Bézier handle selection,
+canvas dragging, and named keyboard-accessible X/Y controls for existing cubic
+paths. Handle movement is provisional until commit, preserves the other path
+geometry, and is an undoable RPL v3 transaction. serde_json's `float_roundtrip`
+feature was enabled after the full save/undo/redo XTest found least-significant
+coordinate drift across repeated native reads; eight-cycle native-byte tests and
+the UI mixer regression now pass with exact results. This is a parser feature
+change only: v1/v2/v3 schemas and their compatibility behavior are unchanged.
+
+Current local validation: Rust 1.90 formatting, strict workspace and Windows
+GNU-target Clippy, 364 workspace test cases, workspace build, Windows GNU
+workspace check, required llvmpipe GPU smoke, and full Linux Xorg/XTest artwork
+workflow pass. The XTest workflow produced 64 PNGs; the populated cubic-handle,
+mask-editing, Home, narrow Recovery, and narrow Layers/Reference captures were
+visually inspected. These results are local and do not yet validate hosted
+Actions, Windows GUI startup, macOS startup, physical S Pen behavior, or
+Narrator/NVDA. The 640 × 480 multi-panel layout remains crowded. Continue with
+interactive cubic path creation and a complete save/reopen/undo/redo workflow;
+then assess vector transforms and fill. Phase 8.3, Phase 9 hardware validation,
+Phase 10, and Phase 11 remain active.
+
+### Latest Phase 10 continuation — anchor insertion/removal (2026-10-29)
+
+Path anchors can now be split at exact midpoints and safely removed through the
+accessible node menu. The document model preserves cubic shape when subdividing
+with De Casteljau and refuses unsupported approximate interior-curve deletion.
+Native v3 layout and older project reads are unchanged. All 359 local workspace
+tests, strict host/Windows GNU Clippy, Windows GNU check, workspace build, GPU
+smoke, and the full 63-screenshot Linux Xorg/XTest artwork workflow pass on the
+current local source. The new workflow verified real insertion/deletion,
+thumbnail refresh, raster/mask isolation, and exact undo/redo; the midpoint
+editor screenshot was inspected. Parent commit `8a0b5a0` passed cross-platform
+Actions run [`40842835450`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40842835450).
+The anchor-operation follow-up requires its own hosted matrix. Continue next with editable cubic creation and independent
+handles, then path fills/transforms; Phase 8.3, 9 hardware validation, Phase 10,
+and Phase 11 remain active.
+
+### Vector anchor movement — local integration checkpoint (2026-10-29)
+
+The latest local slice adds per-anchor vector editing through both canvas drag
+and a keyboard/accessibility-friendly anchor selector with exact X/Y controls.
+The document API retains adjacent cubic handle offsets, rejects invalid and
+locked-layer edits atomically, and records one undoable transaction. The native
+v3 geometry and monotonic object IDs are unchanged; v1/v2 remain readable.
+Complete Xorg/XTest validation now exercises anchor movement and width styling
+through the application, including preview, save/reopen, thumbnail invalidation,
+unchanged raster/mask storage, and exact Undo/Redo. All 356 workspace tests,
+formatting, strict Clippy, workspace build, Windows GNU check/Clippy, and
+llvmpipe GPU smoke pass locally. Hosted Actions for this code are pending; the
+green run `40831057143` is for the parent commit. OpenRaster export with a 360 px
+path measured 12.444 s in the local UI run and 11.993 s in a debug standalone
+measurement; the earlier 9.669 s UI export was a raster/mask fixture. These are
+not release or hardware performance measurements.
+
+The next vector slice should add and remove anchors from the line paths the UI
+currently creates, with exact single-transaction Undo/Redo and native reopen
+coverage. Cubic path authoring and handle editing, fills, scale/rotation, and
+duplication remain unimplemented. The 640 × 480 workspace still has little
+exposed canvas when both Layers and Reference panels are open. Phase 8.3, Phase
+9 hardware testing, Phase 10 and Phase 11 remain active.
+
+### Mask workflow correction and vector style slice (2026-10-29)
+
+Run [`40820933426`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/40820933426)
+exposed a stale geometry assumption in mask-removal automation: the script
+estimated the Layers scroll viewport from the panel frame even though the
+Remove button was clipped below the actual egui ScrollArea. The test adapter
+now reports the ScrollArea clip bounds and targets controls against those live
+bounds. Local full Xorg/XTest validation passes all six mask actions and the
+existing raster workflows.
+
+Editable paths now have a tested width control and an Apply color action using
+the active brush color. The document API persists stroke RGBA and width through
+native v3 data, retains geometry and raster/mask separation, invalidates layer
+thumbnails, and records a single undo transaction. Automated API coverage
+includes alpha; the UI intentionally exposes no separate path-opacity control
+yet. Rust formatting, strict Clippy, **354 workspace tests**, build, Windows GNU
+check/Clippy, llvmpipe GPU smoke and the complete local Xorg/XTest workflow pass.
+The current cross-platform Actions run is pending. The inspected narrow
+Layers/Reference state still consumes nearly all 640-pixel canvas width. Next:
+implement bounded, keyboard-accessible vector node movement and undo, then
+continue curve handles, fill and transforms without claiming Phase 10 complete.

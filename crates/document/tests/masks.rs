@@ -1,3 +1,4 @@
+use paint_document::editing::{Selection, SelectionKind};
 use paint_document::{Engine, LayerMask, MASK_TILE_BYTES, StrokeMode, TILE_BYTES, storage};
 use paint_input::Tool;
 use paint_stroke::{
@@ -159,6 +160,177 @@ fn mask_controls_are_undoable_and_affect_the_composite_without_touching_raster()
     engine.undo();
     assert!(engine.state().layers[0].mask.is_some());
     assert_eq!(pixel(&engine, 16, 16)[3], 0);
+}
+
+#[test]
+fn mask_paint_obeys_selection_and_composites_without_mutating_raster_tiles() {
+    let mut engine = empty_canvas();
+    engine.brush.size = 20.0;
+    stroke(&mut engine, 1, StrokeMode::Paint);
+    let raster_tiles = engine.state().layers[0].tiles.clone();
+    engine.add_layer_mask(1).unwrap();
+    engine
+        .set_selection(Some(
+            Selection::new(SelectionKind::Rectangle, vec![[12.0, 12.0], [20.0, 20.0]]).unwrap(),
+        ))
+        .unwrap();
+    engine.brush.color = [0, 0, 0];
+    engine.brush.size = 8.0;
+    engine
+        .apply_with_mode(
+            &StrokeCommand::BeginStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(16.0, 16.0, 4),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::CommitStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(16.0, 16.0, 5),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+
+    let mask = engine.state().layers[0].mask.as_ref().unwrap();
+    assert_eq!(mask.tiles[&(0, 0)][16 * 64 + 16], 0);
+    assert_eq!(mask.tiles[&(0, 0)][16 * 64 + 10], 255);
+    assert_eq!(pixel(&engine, 16, 16), [0, 0, 0, 0]);
+    assert_eq!(pixel(&engine, 10, 16), [240, 20, 10, 255]);
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
+}
+
+#[test]
+fn mask_paint_clips_a_crossing_stroke_to_selection_and_rejects_outside_strokes() {
+    let mut engine = empty_canvas();
+    stroke(&mut engine, 1, StrokeMode::Paint);
+    let raster_tiles = engine.state().layers[0].tiles.clone();
+    engine.add_layer_mask(1).unwrap();
+    engine
+        .set_selection(Some(
+            Selection::new(SelectionKind::Rectangle, vec![[12.0, 12.0], [20.0, 20.0]]).unwrap(),
+        ))
+        .unwrap();
+    engine.brush.color = [0, 0, 0];
+    engine.brush.size = 8.0;
+
+    // The real transaction starts beyond the left edge and crosses through
+    // the selected region. Per-pixel selection clipping must prevent the
+    // brush radius and interpolated dabs from changing the surrounding mask.
+    engine
+        .apply_with_mode(
+            &StrokeCommand::BeginStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(4.0, 16.0, 4),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::UpdateStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(16.0, 16.0, 5),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::CommitStroke {
+                stroke_id: StrokeId(2),
+                sample: sample(28.0, 16.0, 6),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+
+    let crossing_tiles = engine.state().layers[0]
+        .mask
+        .as_ref()
+        .unwrap()
+        .tiles
+        .clone();
+    let crossing = crossing_tiles
+        .get(&(0, 0))
+        .expect("selected pixels changed");
+    let mut changed_pixels = 0;
+    for y in 0..32 {
+        for x in 0..32 {
+            let value = crossing[(y * 64 + x) as usize];
+            if value < 255 {
+                changed_pixels += 1;
+                assert!(
+                    (12..20).contains(&x) && (12..20).contains(&y),
+                    "mask changed outside selected pixel centers at ({x}, {y}): {value}"
+                );
+            }
+        }
+    }
+    assert!(
+        changed_pixels > 0,
+        "the crossing stroke must paint its selected portion"
+    );
+    assert_eq!(crossing[(16 * 64 + 8) as usize], 255);
+    assert_eq!(crossing[(16 * 64 + 12) as usize], 0);
+    assert_eq!(crossing[(16 * 64 + 19) as usize], 0);
+    assert_eq!(crossing[(16 * 64 + 20) as usize], 255);
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
+
+    assert!(engine.undo());
+    assert!(
+        engine.state().layers[0]
+            .mask
+            .as_ref()
+            .unwrap()
+            .tiles
+            .is_empty()
+    );
+    assert!(engine.redo());
+    assert_eq!(
+        engine.state().layers[0].mask.as_ref().unwrap().tiles,
+        crossing_tiles
+    );
+
+    // A separate stroke entirely outside the selection is a committed no-op:
+    // it creates neither mask tiles nor an undo entry.
+    let history_before_outside = engine.undo_count();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::BeginStroke {
+                stroke_id: StrokeId(3),
+                sample: sample(4.0, 4.0, 7),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::UpdateStroke {
+                stroke_id: StrokeId(3),
+                sample: sample(16.0, 4.0, 8),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    engine
+        .apply_with_mode(
+            &StrokeCommand::CommitStroke {
+                stroke_id: StrokeId(3),
+                sample: sample(28.0, 4.0, 9),
+            },
+            StrokeMode::MaskPaint,
+        )
+        .unwrap();
+    assert_eq!(engine.undo_count(), history_before_outside);
+    assert_eq!(
+        engine.state().layers[0].mask.as_ref().unwrap().tiles,
+        crossing_tiles
+    );
+    assert_eq!(engine.state().layers[0].tiles, raster_tiles);
 }
 
 #[test]
