@@ -25,12 +25,21 @@ and recovery workflows, but exhausted the shared `/tmp` volume while writing
 its final recovery checkpoint. A second run used workspace-backed temporary
 storage and again passed the compact layout and later application interactions;
 it was intentionally interrupted at the vector save/reopen sequence while
-opening the requested draft PR. Thus the complete Linux artwork workflow and
-hosted Windows/Linux/macOS CI for the correction remain pending. The inspected
-640×480 populated Layers capture is in
-`/tmp/bitchpixel-inspector-checkpoint-fixed2/layers-panel-populated-light-narrow.png`.
-The working-tree correction has not yet been pushed; no Windows artifact for it
-is available yet.
+opening the requested draft PR. A third workspace-backed run reached the
+vector-document reset workflow, but its long-running execution session
+disconnected before it returned an exit status; this is not counted as a pass.
+The correction is committed and pushed as
+`59215fa48a75d1c3921d564b0328db1254f6e821`; draft PR #7 targets `main`.
+Run `41212726653` tested the pre-fix head and failed; runs
+[`41212731366`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41212731366)
+and
+[`41212736549`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41212736549)
+were still in progress when checked. Thus the complete Linux artwork workflow
+and hosted Windows/Linux/macOS CI for the correction remain pending, as does a
+new Windows artifact. The inspected 640×480 populated Layers capture is in
+`/tmp/bitchpixel-inspector-checkpoint-fixed2/layers-panel-populated-light-narrow.png`
+from an earlier attempt; the temporary directory was later cleared when the
+execution environment restarted.
 
 ## Approved UI implementation — Inspector responsiveness and reference safety (2026-10-31, local validation)
 
