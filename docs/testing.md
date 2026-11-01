@@ -332,6 +332,9 @@ diagnostic logger truncates `canvas-demo.log` at startup, the harness assigns a
 distinct `RPL_LOG_DIR` to each launch; it waits on first-frame, page, and control
 markers from that process only. Pointer activation of Next and each resulting
 page transition are asserted, rather than inferred from stale markers or delays.
+Home bounds the Recent artwork and Continue safely columns to the available
+width; the test rejects horizontally clipped pager/Open controls before using
+them, and scrolls only when their vertical position requires it.
 If a filesystem or document-storage error prevents automatic close-save, the
 application remains open and offers Retry, Save As, or Cancel. Named-document
 external-change conflicts use the existing `Store` content-hash guard and also

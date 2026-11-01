@@ -26,9 +26,10 @@ messages are covered by Rust tests. Existing non-directory storage, Cancel, and
 Save As paths remain covered.
 
 Local verification for the current implementation: Rust 1.90 formatting and
-strict Clippy, all **416 workspace test cases**, workspace build, Windows GNU
-check and strict Clippy, required llvmpipe GPU smoke, Python syntax, and all 8
-Python helper tests passed. The exact-head Actions runs at `c0cae60`
+strict Clippy, workspace tests, workspace build, Windows GNU check and strict
+Clippy, all **417 workspace test cases**, required llvmpipe GPU smoke, Python
+syntax, and all 8 Python helper tests passed. The exact-head Actions runs at
+`c0cae60`
 ([PR run 41269343591](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41269343591),
 [push run 41269339160](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41269339160))
 passed Windows and macOS; Linux passed the artwork workflow but failed the
@@ -39,8 +40,15 @@ launches. The new process wrote the expected first-page marker, but truncation
 reset the count baseline, so the test reported a false timeout. Each launch now
 gets a unique log directory; first-page and control geometry are read from that
 fresh log, and real Next-pointer activation plus every page transition remain
-asserted. The corrected Linux XTest still awaits hosted CI. This shell has no
-Xvfb/Xorg runner, so that real-window workflow cannot be run locally.
+asserted. Run `41271639290` passed Windows, macOS, and the long Linux artwork
+workflow, then failed the close-save browser because the Recent artwork
+column's viewport-wide empty state pushed the adjacent Continue safely column
+off-screen. The current fix constrains both Home columns and adds explicit
+horizontal visibility checking to the XTest, in addition to its real pointer
+and page-transition assertions. Local focused geometry and all available Rust
+checks pass; the corrected full Linux XTest awaits another hosted run. This
+shell has no Xvfb/Xorg runner, so that real-window workflow cannot be run
+locally.
 
 The earlier corrective slice on this branch surfaced close-save errors, added
 recovery checkpoint diagnostics, and validated a draft containing raster pixels,

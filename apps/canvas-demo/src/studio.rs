@@ -1179,6 +1179,13 @@ fn home_sections_stacked(screen_width: f32) -> bool {
     !(1050.0..1700.0).contains(&screen_width)
 }
 
+fn home_horizontal_section_widths(available_width: f32) -> (f32, f32) {
+    const GAP: f32 = 24.0;
+    let available = available_width.max(1.0);
+    let support = (available * 0.29).clamp(320.0, 420.0).min(available * 0.48);
+    ((available - GAP - support).max(1.0), support)
+}
+
 fn home_hero_height(screen_width: f32) -> f32 {
     if screen_width < 760.0 { 280.0 } else { 340.0 }
 }
@@ -15014,15 +15021,24 @@ impl Studio {
                                     });
                                 }
                                 ui.add_space(if screen.height() < 620.0 { 16.0 } else { 24.0 });
+                                let stack_home_sections = home_sections_stacked(screen.width());
                                 ui.with_layout(
-                                    if home_sections_stacked(screen.width()) {
+                                    if stack_home_sections {
                                         egui::Layout::top_down(egui::Align::Min)
                                     } else {
                                         egui::Layout::left_to_right(egui::Align::Min)
                                     },
                                     |ui| {
                                     ui.add_space(side_pad);
+                                    let available_section_width = ui.available_width();
+                                    let (recent_section_width, support_section_width) =
+                                        if stack_home_sections {
+                                            (available_section_width, available_section_width)
+                                        } else {
+                                            home_horizontal_section_widths(available_section_width)
+                                        };
                                     ui.vertical(|ui| {
+                                        ui.set_width(recent_section_width);
                                         crate::ui_tokens::section_heading(
                                             ui,
                                             "Recent artwork",
@@ -15031,7 +15047,7 @@ impl Studio {
                                         ui.add_space(8.0);
                                         if self.recent.paths.is_empty() {
                                             crate::ui_tokens::card_frame(ui.visuals(), false).inner_margin(egui::Margin::same(22)).show(ui, |ui| {
-                                                ui.set_min_width((screen.width() - 100.0).max(300.0));
+                                                ui.set_min_width(ui.available_width().max(1.0));
                                                 ui.label(crate::ui_tokens::type_text(
                                                     "Nothing recent yet",
                                                     crate::ui_tokens::TypeRole::CardTitle,
@@ -15199,6 +15215,7 @@ impl Studio {
                                     });
                                     ui.add_space(24.0);
                                     ui.vertical(|ui| {
+                                        ui.set_width(support_section_width);
                                         crate::ui_tokens::section_heading(
                                             ui,
                                             "Continue safely",
@@ -18339,13 +18356,13 @@ mod tests {
         CanvasMapping, FormatIllustration, LassoAppend, LayerMenuTarget, Selection,
         SelectionTransformKind, ShapeKind, activate_brush_preset, append_lasso_point,
         brush_size_after_shortcut, document_format_card_height, document_format_grid,
-        fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
-        home_sections_stacked, layer_actions_menu, native_project_path, quick_document_card_layout,
-        recent_artwork_preview_height, recent_gallery_layout, recent_project_matches,
-        recognize_quick_shape, recovery_checkpoint_label, recovery_source_label,
-        selected_layer_settings, selection_move_offset, selection_transform_handle_at,
-        selection_transform_handles, selection_transform_matrix, symmetry_origin_from_client,
-        transform_selection_outline,
+        fit_paper_to_box, format_illustration, home_hero_height, home_horizontal_section_widths,
+        home_open_card_needed, home_sections_stacked, layer_actions_menu, native_project_path,
+        quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
+        recent_project_matches, recognize_quick_shape, recovery_checkpoint_label,
+        recovery_source_label, selected_layer_settings, selection_move_offset,
+        selection_transform_handle_at, selection_transform_handles, selection_transform_matrix,
+        symmetry_origin_from_client, transform_selection_outline,
     };
     use paint_document::Engine;
     use paint_document::brush::{Brush, BrushKind};
@@ -18942,6 +18959,16 @@ mod tests {
         assert!(home_sections_stacked(640.0));
         assert!(!home_sections_stacked(1280.0));
         assert!(home_sections_stacked(1920.0));
+    }
+
+    #[test]
+    fn medium_home_columns_reserve_space_for_recovery_and_draft_controls() {
+        for available in [1018.0, 1248.0, 1568.0] {
+            let (recent, support) = home_horizontal_section_widths(available);
+            assert!(recent >= 600.0, "recent gallery too narrow at {available}");
+            assert!((320.0..=420.0).contains(&support));
+            assert!(recent + support + 24.0 <= available + f32::EPSILON);
+        }
     }
 
     #[test]

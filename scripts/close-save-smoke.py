@@ -217,11 +217,17 @@ def stable_rect(name):
     return tuple(map(float, entries[-1].split()))
 
 
-def scroll_rect_into_view(name, height=800):
+def scroll_rect_into_view(name, width=1280, height=800):
     for _ in range(40):
         rect = wait(lambda: stable_rect(name), f"stable {name} geometry")
-        _, y, _, rect_height, scale = rect
+        x, y, rect_width, rect_height, scale = rect
         viewport_height = height / scale
+        viewport_width = width / scale
+        if x < 0 or x + rect_width > viewport_width - 8:
+            raise AssertionError(
+                f"{name} is horizontally clipped: rect={rect}, "
+                f"window={width}x{height} at scale={scale}"
+            )
         if y >= 0 and y + rect_height <= viewport_height - 8:
             return rect
         scroll_wheel(down=y + rect_height > viewport_height, steps=1)
