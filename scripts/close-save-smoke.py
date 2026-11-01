@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from gui_smoke_helpers import QuietValue
 
 X11 = c.CDLL("libX11.so.6")
 XTEST = c.CDLL("libXtst.so.6")
@@ -143,7 +144,7 @@ def wait(predicate, description, timeout=15):
         "UI_TEST_MOUSE_STROKE_", "UI_TEST_OPEN_PROJECT_FAILED:",
         "UI_TEST_CLOSE_SAVE_", "UI_TEST_RECOVERY_",
         "UI_TEST_SAVED_DRAFTS_PAGE:", "UI_TEST_SAVED_DRAFTS_NEXT_RECT:",
-        "UI_TEST_SAVED_DRAFTS_NEXT_HOVERED:", "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:",
+        "UI_TEST_SAVED_DRAFTS_NEXT_HOVER:", "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:",
     )
     recent_log = "\n".join(line for line in lines()
                             if line.startswith(diagnostic_prefixes))
@@ -217,6 +218,15 @@ def stable_rect(name):
     return tuple(map(float, entries[-1].split()))
 
 
+def settled_rect(name, quiet_seconds=0.25):
+    observer = QuietValue(quiet_seconds)
+
+    def observe():
+        return observer.observe(stable_rect(name), time.monotonic())
+
+    return wait(observe, f"{name} geometry settling", timeout=15)
+
+
 def scroll_rect_into_view(name, width=1280, height=800):
     for _ in range(40):
         rect = wait(lambda: stable_rect(name), f"stable {name} geometry")
@@ -229,8 +239,20 @@ def scroll_rect_into_view(name, width=1280, height=800):
                 f"window={width}x{height} at scale={scale}"
             )
         if y >= 0 and y + rect_height <= viewport_height - 8:
-            return rect
+            rect = settled_rect(name)
+            x, y, rect_width, rect_height, scale = rect
+            viewport_height = height / scale
+            if x < 0 or x + rect_width > width / scale - 8:
+                raise AssertionError(
+                    f"{name} became horizontally clipped while scrolling: "
+                    f"rect={rect}, window={width}x{height} at scale={scale}"
+                )
+            if y >= 0 and y + rect_height <= viewport_height - 8:
+                return rect
+            # Smooth scrolling can carry the target past the viewport after it
+            # first appears inside it. Re-evaluate the settled rectangle.
         scroll_wheel(down=y + rect_height > viewport_height, steps=1)
+        settled_rect(name)
     raise AssertionError(f"could not scroll {name} into view; last rect={rect}")
 
 
@@ -459,7 +481,7 @@ try:
 
         page_marker_prefix = "UI_TEST_SAVED_DRAFTS_PAGE:"
         next_rect_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_RECT:"
-        next_hover_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_HOVERED:"
+        next_hover_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_HOVER:"
         next_click_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:"
         launch(many_state, "reopen many drafts")
         wait(lambda: "page=1 pages=13" in (marker(page_marker_prefix) or ""),
@@ -477,11 +499,15 @@ try:
                 break
             next_button = scroll_rect_into_view("UI_TEST_SAVED_DRAFTS_NEXT_RECT")
             page_markers_before_click = count(page_marker_prefix)
-            next_hovers_before = count(next_hover_prefix)
             next_clicks_before = count(next_click_prefix)
+            hover_out = f"page={page + 1} hovered=false"
+            hover_in = f"page={page + 1} hovered=true"
+            move(8, 8)
+            wait(lambda: marker(next_hover_prefix) == hover_out,
+                 "the real pointer leaving the saved-draft Next button")
             move((next_button[0] + next_button[2] / 2) * next_button[4],
                  (next_button[1] + next_button[3] / 2) * next_button[4])
-            wait(lambda: count(next_hover_prefix) > next_hovers_before,
+            wait(lambda: marker(next_hover_prefix) == hover_in,
                  "the real pointer hovering the saved-draft Next button")
             assert button(display, 1, 1, 0)
             send()

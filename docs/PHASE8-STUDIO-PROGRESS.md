@@ -25,11 +25,11 @@ and reopenable; it does not fill a physical disk. Permission and storage-full
 messages are covered by Rust tests. Existing non-directory storage, Cancel, and
 Save As paths remain covered.
 
-Local verification for the current implementation: Rust 1.90 formatting and
-strict Clippy, workspace tests, workspace build, Windows GNU check and strict
+Local verification for the quiet-geometry follow-up atop `9ab1953`: Rust 1.90
+formatting and strict Clippy, workspace build, Windows GNU check and strict
 Clippy, all **417 workspace test cases**, required llvmpipe GPU smoke, Python
-syntax, and all 8 Python helper tests passed. The exact-head Actions runs at
-`c0cae60`
+syntax, and all **12 Python helper tests** passed. The earlier exact-head runs
+at `c0cae60`
 ([PR run 41269343591](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41269343591),
 [push run 41269339160](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41269339160))
 passed Windows and macOS; Linux passed the artwork workflow but failed the
@@ -47,10 +47,16 @@ off-screen. Commit `980b1b2` constrained both Home columns, and the XTest
 confirmed Next's new rectangle is within the 1280-point viewport; the pointer
 click still did not activate it (push run `41273062739`, PR run `41273065627`).
 The follow-up adds an explicit egui hover observation before the press/release
-so the next hosted run can distinguish pointer mapping from click delivery.
-The complete Linux XTest remains unverified. This
-shell has no Xvfb/Xorg runner, so that real-window workflow cannot be run
-locally.
+and the hover marker proved the pointer reaches Next, but click activation still
+failed in both runs at `9ab1953` (`41274708932`, `41274711380`). The trace shows
+the button moving from y=672 to y=646 after the harness decided it was visible.
+Its rectangle marker is emitted twice in one frame, so `stable_rect` could
+mistake same-frame duplicate lines for a settled scroll position. The current
+follow-up requires a quiet-period geometry observation after every wheel event,
+then verifies a pointer-out/pointer-in transition before press/release. Local
+Rust, GPU, and Python checks pass; the corrected full Linux XTest awaits hosted
+CI. This shell has no X11 display or Xvfb server, so that workflow cannot be
+run locally.
 
 The earlier corrective slice on this branch surfaced close-save errors, added
 recovery checkpoint diagnostics, and validated a draft containing raster pixels,

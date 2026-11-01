@@ -5876,7 +5876,7 @@ pub struct Studio {
     test_home_preset_rect_logged: Option<[i32; 5]>,
     test_drafts_page_logged: Option<usize>,
     test_drafts_next_rect_logged: Option<[i32; 5]>,
-    test_drafts_next_hover_logged: Option<usize>,
+    test_drafts_next_hover_logged: Option<(usize, bool)>,
     test_hidden_reference_wheel_logged: bool,
     test_strong_text_contrast_logged: bool,
     confirm: Option<Action>,
@@ -15310,18 +15310,20 @@ impl Studio {
                                                                 self.test_drafts_next_rect_logged = Some(marker);
                                                             }
                                                         }
-                                                        if self.test_path_dialog
-                                                            && next.hovered()
-                                                            && self.test_drafts_next_hover_logged
-                                                                != Some(self.drafts_page)
-                                                        {
-                                                            crate::studio_log!(
-                                                                "UI_TEST_SAVED_DRAFTS_NEXT_HOVERED: page={} total={}",
-                                                                self.drafts_page + 1,
-                                                                self.drafts.len()
-                                                            );
-                                                            self.test_drafts_next_hover_logged =
-                                                                Some(self.drafts_page);
+                                                        if self.test_path_dialog {
+                                                            let hover_state =
+                                                                (self.drafts_page, next.hovered());
+                                                            if self.test_drafts_next_hover_logged
+                                                                != Some(hover_state)
+                                                            {
+                                                                crate::studio_log!(
+                                                                    "UI_TEST_SAVED_DRAFTS_NEXT_HOVER: page={} hovered={}",
+                                                                    self.drafts_page + 1,
+                                                                    hover_state.1
+                                                                );
+                                                                self.test_drafts_next_hover_logged =
+                                                                    Some(hover_state);
+                                                            }
                                                         }
                                                         if next.clicked() {
                                                             if self.test_path_dialog {
