@@ -1,0 +1,6 @@
+fixture_id,filename,extension,format_version,sha256,width,height,dpi,layer_count,provenance,status
+project-v1,,.rpl,V1,,,,,,,NOT_STAGED
+project-v2,,.rpl,V2,,,,,,,NOT_STAGED
+project-v3,,.rpl,V3,,,,,,,NOT_STAGED
+project-v4,,.rpl,V4,,,,,,,NOT_STAGED
+brush-legacy,,.rplbrush,,,,,,,,NOT_STAGED
