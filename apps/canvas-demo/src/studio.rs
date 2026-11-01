@@ -1181,7 +1181,8 @@ fn home_sections_stacked(screen_width: f32) -> bool {
 
 fn home_horizontal_section_widths(available_width: f32) -> (f32, f32) {
     const GAP: f32 = 24.0;
-    let available = available_width.max(1.0);
+    const RIGHT_SAFE_GUTTER: f32 = 32.0;
+    let available = (available_width - RIGHT_SAFE_GUTTER).max(1.0);
     let support = (available * 0.29).clamp(320.0, 420.0).min(available * 0.48);
     ((available - GAP - support).max(1.0), support)
 }
@@ -18984,7 +18985,7 @@ mod tests {
             let (recent, support) = home_horizontal_section_widths(available);
             assert!(recent >= 600.0, "recent gallery too narrow at {available}");
             assert!((320.0..=420.0).contains(&support));
-            assert!(recent + support + 24.0 <= available + f32::EPSILON);
+            assert!(recent + support + 24.0 <= available - 32.0 + f32::EPSILON);
         }
     }
 

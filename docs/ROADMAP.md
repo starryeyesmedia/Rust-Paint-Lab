@@ -22,9 +22,11 @@ tests real permission-denied recovery/retry. ENOSPC fault injection verifies an
 interrupted temporary write preserves the previous valid project. PR #9 remains
 draft until the owner accepts the portable Windows artifact on the Galaxy Book.
 Local Rust 1.90 formatting/strict Clippy, all 417 workspace tests, workspace
-build, Windows GNU check/Clippy, GPU smoke, and all 12 Python helper tests pass.
-The current shell has no Xvfb, so the expanded real-window workflow requires
-hosted Linux CI. At
+build, Windows GNU check/Clippy, GPU smoke, and all 15 Python helper tests pass.
+The complete close-save XTest now passes locally on the private Xorg dummy
+display using GL, including all 13 pages, opening the saved artwork, permission
+Retry, Cancel, and Save As. The Xorg dummy does not provide a Vulkan window
+surface, so the hosted Linux Vulkan run remains required. At
 `1076da1`, Windows and macOS passed and the Linux artwork workflow passed. The
 close-save XTest then exposed Home's Recent artwork column pushing the saved-
 draft pager outside the viewport. Home columns are now width-bounded and the
@@ -33,7 +35,13 @@ clicks. Commit `980b1b2` moved the control inside the viewport. Runs
 `41273062739`/`41273065627` still failed after hover was observed; the trace
 showed its rectangle moving during smooth-scroll settling. The current
 follow-up waits for a quiet geometry interval and explicit pointer-out/in state
-before click delivery. Exact-head Linux verification is pending.
+before click delivery. Run `41277038484` passed Windows, macOS, and Linux artwork
+but failed in close-save. Local XTest then exposed leading whitespace in marker
+values, an expected-page assertion that still checked page 1 after clicking to
+page 2, and a page-2 Home edge-margin defect; each was corrected without
+weakening the pointer or clipping checks. It also stopped expecting a save
+transaction when closing an unchanged reopened draft. A fresh hosted matrix is
+pending.
 No physical Windows result is claimed. The .bp extension and BitchPixel
 directory migration are a separate follow-up assignment; this branch continues
 to preserve the current .rpl behavior.

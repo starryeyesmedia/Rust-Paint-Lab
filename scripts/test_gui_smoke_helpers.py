@@ -1,6 +1,25 @@
 import unittest
 
-from gui_smoke_helpers import QuietValue
+from gui_smoke_helpers import QuietValue, marker_value
+
+
+class MarkerValueTests(unittest.TestCase):
+    def test_marker_value_strips_separator_whitespace(self):
+        self.assertEqual(
+            marker_value(["UI_TEST_NEXT_HOVER: page=1 hovered=false"],
+                         "UI_TEST_NEXT_HOVER:"),
+            "page=1 hovered=false",
+        )
+
+    def test_marker_value_uses_the_latest_matching_line(self):
+        self.assertEqual(
+            marker_value(["UI_TEST_PAGE: page=1", "other", "UI_TEST_PAGE: page=2"],
+                         "UI_TEST_PAGE:"),
+            "page=2",
+        )
+
+    def test_marker_value_returns_none_when_prefix_is_absent(self):
+        self.assertIsNone(marker_value(["other: value"], "UI_TEST_PAGE:"))
 
 
 class QuietValueTests(unittest.TestCase):

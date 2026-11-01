@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from gui_smoke_helpers import QuietValue
+from gui_smoke_helpers import QuietValue, marker_value
 
 X11 = c.CDLL("libX11.so.6")
 XTEST = c.CDLL("libXtst.so.6")
@@ -69,8 +69,7 @@ def count(prefix):
 
 
 def marker(prefix):
-    return next((line[len(prefix):] for line in reversed(lines())
-                 if line.startswith(prefix)), None)
+    return marker_value(lines(), prefix)
 
 
 def window_title(candidate):
@@ -354,11 +353,12 @@ def request_close():
     press("Escape")
 
 
-def finish_successfully(saved_as=False):
+def finish_successfully(saved_as=False, expect_close_save=True):
     assert process.wait(timeout=20) == 0, "application did not close cleanly after a successful save"
-    expected_marker = "UI_TEST_PROJECT_SAVE: complete" if saved_as else "CLOSE_SAVE_COMPLETE:"
-    assert expected_marker in "\n".join(lines()), \
-        f"successful close path did not record {expected_marker}"
+    if expect_close_save:
+        expected_marker = "UI_TEST_PROJECT_SAVE: complete" if saved_as else "CLOSE_SAVE_COMPLETE:"
+        assert expected_marker in "\n".join(lines()), \
+            f"successful close path did not record {expected_marker}"
 
 
 def inject_non_directory_drafts_path(state_home):
@@ -515,9 +515,10 @@ try:
             send()
             wait(lambda: count(next_click_prefix) > next_clicks_before,
                  "the real pointer click activating saved-draft Next")
+            next_marker_text = f"page={page + 2} pages=13"
             wait(lambda: count(page_marker_prefix) > page_markers_before_click
-                 and marker_text in (marker(page_marker_prefix) or ""),
-                 f"saved-draft browser advancing to page={page + 2} pages=13")
+                 and next_marker_text in (marker(page_marker_prefix) or ""),
+                 f"saved-draft browser advancing to {next_marker_text}")
             page += 1
 
         open_clicked_before = count("UI_TEST_HOME_OPEN_PROJECT_CLICKED")
@@ -541,7 +542,9 @@ try:
             "reopened draft with many prior files lost the saved artwork"
         print("DRAFT_BROWSER_100: PASSED (13 bounded pages expose all 101 drafts; new artwork reopens)", flush=True)
         request_close()
-        finish_successfully()
+        # Browsing and inspecting a reopened draft does not modify it; the app
+        # should close cleanly without inventing a save transaction.
+        finish_successfully(expect_close_save=False)
 
         if hasattr(os, "geteuid") and os.geteuid() != 0:
             permission_state = root_dir / "permission-state"

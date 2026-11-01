@@ -338,9 +338,13 @@ them, and scrolls only when their vertical position requires it.
 For saved-draft pagination the harness waits for the Next rectangle to remain
 unchanged over a quiet interval after smooth scrolling, moves the pointer off
 and back onto the control, then sends a separate press/release and asserts the
-page transition. This avoids stale coordinates while the scroll animation is
-still moving the control. Python unit tests cover the quiet-period observer's
-change, reset, and stability behavior without relying on wall-clock sleeps.
+page transition. Marker parsing trims separator whitespace, and the expected
+page is advanced with each real click. The Home layout reserves the same
+32-point right inset as its left inset so showing Previous cannot push Next
+outside its safe viewport. This avoids stale coordinates while the scroll
+animation is still moving the control. Python unit tests cover marker parsing
+and the quiet-period observer's change, reset, and stability behavior without
+relying on wall-clock sleeps.
 If a filesystem or document-storage error prevents automatic close-save, the
 application remains open and offers Retry, Save As, or Cancel. Named-document
 external-change conflicts use the existing `Store` content-hash guard and also

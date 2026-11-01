@@ -25,10 +25,10 @@ and reopenable; it does not fill a physical disk. Permission and storage-full
 messages are covered by Rust tests. Existing non-directory storage, Cancel, and
 Save As paths remain covered.
 
-Local verification for the quiet-geometry follow-up atop `9ab1953`: Rust 1.90
+Local verification for the current follow-up atop `9ab1953`: Rust 1.90
 formatting and strict Clippy, workspace build, Windows GNU check and strict
 Clippy, all **417 workspace test cases**, required llvmpipe GPU smoke, Python
-syntax, and all **12 Python helper tests** passed. The earlier exact-head runs
+syntax, and all **15 Python helper tests** passed. The earlier exact-head runs
 at `c0cae60`
 ([PR run 41269343591](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41269343591),
 [push run 41269339160](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41269339160))
@@ -52,11 +52,26 @@ failed in both runs at `9ab1953` (`41274708932`, `41274711380`). The trace shows
 the button moving from y=672 to y=646 after the harness decided it was visible.
 Its rectangle marker is emitted twice in one frame, so `stable_rect` could
 mistake same-frame duplicate lines for a settled scroll position. The current
-follow-up requires a quiet-period geometry observation after every wheel event,
-then verifies a pointer-out/pointer-in transition before press/release. Local
-Rust, GPU, and Python checks pass; the corrected full Linux XTest awaits hosted
-CI. This shell has no X11 display or Xvfb server, so that workflow cannot be
-run locally.
+follow-up waits for quiet geometry after scrolling. At `95c27ea`, hosted run
+`41277038484` passed Windows, macOS, and the Linux artwork smoke, then failed
+the close-save test. A local Xorg/XTest reproduction identified two harness
+assertion bugs: marker values retained separator whitespace, and after a real
+Next click advanced to page 2 the test still expected the page-1 label. Both
+are corrected while the real hover, click, and every page transition remain
+asserted. The same local run exposed a 3-point Home edge gutter on page 2 when
+Previous appeared; the medium-width Home columns now reserve a right margin
+matching the 32-point left inset, with the existing clipping assertion intact.
+The smoke also incorrectly required a close-save marker after opening and
+inspecting an unchanged project; it now checks clean process exit without
+claiming a save transaction for that case.
+
+The complete close-save XTest now passes locally on the private dummy-Xorg
+display using the GL backend: painted close/reopen, 100 prior drafts preserved,
+all 13 pages, reopening the new artwork, real permission-denied Retry, Cancel,
+and Save As. The 15 Python helper tests and focused Home-layout regression pass.
+The local dummy-Xorg server cannot create a Vulkan window surface; the workflow's
+Vulkan path still requires hosted Linux CI. The new exact-head Actions run is
+needed to verify the correction across Windows, Linux, and macOS.
 
 The earlier corrective slice on this branch surfaced close-save errors, added
 recovery checkpoint diagnostics, and validated a draft containing raster pixels,

@@ -1,6 +1,12 @@
 """Small deterministic helpers shared by Linux GUI smoke workflows."""
 
 
+def marker_value(log_lines, prefix):
+    """Return a marker's value without the separator whitespace."""
+    return next((line[len(prefix):].strip() for line in reversed(log_lines)
+                 if line.startswith(prefix)), None)
+
+
 class QuietValue:
     """Return observations only after their value stays unchanged for a span."""
 
