@@ -42,17 +42,23 @@ later named save, periodic checkpoint pixels, retry after freeing one of eight
 draft slots, Cancel while leaving the artwork editable, and Save As after an
 injected storage-directory failure. Native project raster pixels were checked.
 The draft-cap and unavailable-directory cases reproduce useful failure paths;
-they do not establish the Galaxy Book's original failure cause. The user's
-Windows runtime result and the new hosted matrix remain pending. No Windows
-runtime or physical-device result is claimed. Findings 1–12 remain in scope in
-the owner's specified priority order; Phase 8.3 is active.
+they do not establish the Galaxy Book's original failure cause. Hosted Actions
+run
+[`41260666567`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41260666567)
+passed Windows, Linux, and macOS on commit `f061ac4`. Linux close-save/recovery
+and artwork workflows passed; Windows packaging and visible-window startup
+passed. The portable Windows artifact is
+[`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41260666567/artifacts/13064723541).
+The Windows device result remains pending; no physical-device result is
+claimed. Findings 1–12 remain in scope in the owner's specified priority
+order; Phase 8.3 is active.
 
-The follow-up code, script, and documentation are being committed together so
-the next required cross-platform Actions run tests this exact state. Keep PR #9
-draft and do not merge: first provide the resulting portable Windows artifact
-for owner evaluation, and request the close-save diagnostic if the device
-failure persists. The next reliability step depends on that evidence; do not
-claim the Windows close-time failure is fixed based only on Linux tests.
+The follow-up code, script, and documentation were committed together as
+`f061ac4`. Keep PR #9 draft and do not merge: provide the portable Windows
+artifact for owner evaluation, and request the close-save diagnostic if the
+device failure persists. The next reliability step depends on that evidence;
+do not claim the Windows close-time failure is fixed based only on synthetic
+and Linux tests.
 
 ## Milestone 3 compact-Inspector correction (2026-10-31; local verification)
 

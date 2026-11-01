@@ -31,12 +31,15 @@ limitations, and continuation steps.
 
 The first hosted Linux close-save smoke exposed synchronization defects in the
 test harness (pre-first-frame resize, stale control geometry, fixed drawing
-coordinates, path typing, and expected log markers). These are corrected, and
-the full close/recovery flow now passes locally on Xorg/llvmpipe with real
-project pixel checks. A fresh cross-platform Actions run is still required.
-The owner's original Windows cause remains unconfirmed; keep PR #9 draft and
-deliver its Windows artifact for owner evaluation before merging or treating
-the save issue as resolved.
+coordinates, path typing, and expected log markers). These are corrected. The
+full close/recovery flow passed locally on Xorg/llvmpipe with real project
+pixel checks and in hosted Linux CI. Actions run
+[`41260666567`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41260666567)
+passed Windows, Linux, and macOS. Windows packaging and visible startup passed;
+artifact [`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41260666567/artifacts/13064723541)
+is available. The owner's original Windows cause remains unconfirmed; keep PR
+#9 draft and request owner evaluation before merging or treating the save issue
+as resolved.
 
 ## Canvas-first design handoff — active implementation
 
