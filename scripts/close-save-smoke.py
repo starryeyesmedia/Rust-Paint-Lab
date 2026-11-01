@@ -200,23 +200,30 @@ def launch(root_dir, name):
     send()
 
 
+def draw_stroke(points):
+    before = count("UI_TEST_MOUSE_STROKE_COMMITTED:")
+    move(*points[0])
+    assert button(display, 1, 1, 0)
+    for x, y in points[1:]:
+        move(x, y)
+    assert button(display, 1, 0, 0)
+    send()
+    wait(lambda: count("UI_TEST_MOUSE_STROKE_COMMITTED:") > before,
+         "actual routed and committed mouse stroke")
+
+
 def create_and_paint():
     chord("Control_L", "n")
     wait(lambda: "TEST NEW DOCUMENT" in window_title(window), "New Artwork dialog")
     create = wait(lambda: last_rect("UI_TEST_NEW_DOCUMENT_CREATE_RECT"),
-                  "stable Create document button")
+                  "Create document button")
     click((create[0] + create[2] / 2) * create[4],
           (create[1] + create[3] / 2) * create[4])
     wait(lambda: any(line.startswith("UI_TEST_DOCUMENT_CREATED:") for line in lines()),
          "document creation")
     # These are established on-canvas coordinates from the full alpha XTest
-    # workflow at 1280x800; file pixel checks below verify they painted.
-    move(520, 540)
-    assert button(display, 1, 1, 0)
-    for x, y in ((550, 550), (580, 565), (610, 575)):
-        move(x, y)
-    assert button(display, 1, 0, 0)
-    send()
+    # workflow at 1280x800; native pixel checks below verify the saved art.
+    draw_stroke(((520, 540), (550, 550), (580, 565), (610, 575)))
 
 
 def request_close():
@@ -289,12 +296,7 @@ try:
         wait(lambda: any(line.startswith("UI_TEST_PROJECT_OPENED: " + str(drafts[0]))
                          for line in lines()), "application reopening the saved untitled draft")
         complete_before = count("RECOVERY_CHECKPOINT_COMPLETE:")
-        move(570, 520)
-        assert button(display, 1, 1, 0)
-        for x, y in ((590, 520), (615, 530), (640, 540)):
-            move(x, y)
-        assert button(display, 1, 0, 0)
-        send()
+        draw_stroke(((570, 520), (590, 520), (615, 530), (640, 540)))
         wait(lambda: count("RECOVERY_CHECKPOINT_COMPLETE:") > complete_before,
              "periodic recovery checkpoint after editing the reopened draft", timeout=20)
         request_close()
@@ -349,12 +351,7 @@ try:
         wait(lambda: count("UI_TEST_CLOSE_SAVE_CANCELLED:") > 0,
              "Cancel leaves the failed close dialog and artwork open")
         assert process.poll() is None, "Cancel closed the application after a failed save"
-        move(540, 610)
-        assert button(display, 1, 1, 0)
-        move(565, 620)
-        move(590, 630)
-        assert button(display, 1, 0, 0)
-        send()
+        draw_stroke(((540, 610), (565, 620), (590, 630)))
         recover_drafts_path(cancel_bad_path)
         request_close()
         finish_successfully()
