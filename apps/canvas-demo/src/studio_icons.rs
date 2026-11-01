@@ -481,8 +481,8 @@ pub fn layer_drag_handle(ui: &mut egui::Ui, name: &str, size: [f32; 2]) -> egui:
     ))
 }
 
-/// Add a vector mark to a normal text button. The text remains the accessible
-/// button label and the complete row remains clickable.
+/// Add a Material Symbols icon and optional accelerator to an egui button.
+/// The row stays a single accessible button with its full area clickable.
 pub fn menu_button(ui: &mut egui::Ui, icon: Icon, label: &str) -> egui::Response {
     menu_button_enabled(ui, icon, label, true)
 }
@@ -493,18 +493,48 @@ pub fn menu_button_enabled(
     label: &str,
     enabled: bool,
 ) -> egui::Response {
-    let response = ui.add_enabled(enabled, egui::Button::new(format!("    {label}")));
-    let icon_rect = egui::Rect::from_center_size(
-        egui::pos2(response.rect.left() + 14.0, response.rect.center().y),
-        egui::vec2(17.0, 17.0),
+    let (button_label, shortcut) = split_menu_label_shortcut(label);
+    let icon_texture = texture(ui.ctx(), icon);
+    let icon = egui::Image::from_texture(&icon_texture).fit_to_exact_size(egui::vec2(17.0, 17.0));
+    let mut button =
+        egui::Button::image_and_text(icon, button_label).image_tint_follows_text_color(true);
+    if let Some(shortcut) = shortcut {
+        button = button.shortcut_text(shortcut);
+    }
+    let response = ui.add_enabled(enabled, button);
+    let accessible_label = shortcut.map_or_else(
+        || button_label.to_owned(),
+        |shortcut| format!("{button_label} ({shortcut})"),
     );
-    let color = if response.hovered() {
-        ui.visuals().widgets.hovered.fg_stroke.color
-    } else {
-        ui.visuals().text_color()
-    };
-    paint(ui.painter(), icon_rect, icon, color);
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, accessible_label.clone())
+    });
     response
+}
+
+fn split_menu_label_shortcut(label: &str) -> (&str, Option<&str>) {
+    let Some((button_label, candidate)) = label.rsplit_once(char::is_whitespace) else {
+        return (label, None);
+    };
+    if is_keyboard_shortcut(candidate) {
+        (button_label.trim_end(), Some(candidate))
+    } else {
+        (label, None)
+    }
+}
+
+fn is_keyboard_shortcut(candidate: &str) -> bool {
+    let Some((modifiers, key)) = candidate.rsplit_once('+') else {
+        return false;
+    };
+    !modifiers.is_empty()
+        && !key.is_empty()
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+        && modifiers
+            .split('+')
+            .all(|modifier| matches!(modifier, "Alt" | "Ctrl" | "Meta" | "Shift" | "Super"))
 }
 
 pub fn color_swatch(ui: &mut egui::Ui, color: egui::Color32, label: &str) -> egui::Response {
@@ -540,6 +570,214 @@ pub fn label(ui: &mut egui::Ui, icon: Icon, name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_shortcuts_are_parsed_from_accelerator_syntax() {
+        assert_eq!(
+            split_menu_label_shortcut("Open project…     Ctrl+Shift+O"),
+            ("Open project…", Some("Ctrl+Shift+O"))
+        );
+        assert_eq!(
+            split_menu_label_shortcut("Load brush preset…     Ctrl+Alt+B"),
+            ("Load brush preset…", Some("Ctrl+Alt+B"))
+        );
+        assert_eq!(split_menu_label_shortcut("Save As…"), ("Save As…", None));
+        assert_eq!(
+            split_menu_label_shortcut("A+B artwork"),
+            ("A+B artwork", None)
+        );
+        assert_eq!(split_menu_label_shortcut("Tool +G"), ("Tool +G", None));
+    }
+
+    #[test]
+    fn menu_icon_label_and_shortcut_regions_do_not_overlap_at_target_viewports() {
+        let themes = [
+            ("light", egui::Visuals::light()),
+            ("dark", egui::Visuals::dark()),
+            (
+                "light high contrast",
+                crate::appearance::high_contrast(egui::Visuals::light(), false),
+            ),
+            (
+                "dark high contrast",
+                crate::appearance::high_contrast(egui::Visuals::dark(), true),
+            ),
+        ];
+        let viewports = [(640.0, 480.0), (1280.0, 800.0), (1920.0, 1080.0)];
+
+        for (theme_name, visuals) in themes {
+            for (width_px, height_px) in viewports {
+                for pixels_per_point in [1.0, 1.5] {
+                    let context = egui::Context::default();
+                    context.set_visuals(visuals.clone());
+                    context.set_pixels_per_point(pixels_per_point);
+                    let screen_rect = egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width_px / pixels_per_point, height_px / pixels_per_point),
+                    );
+                    let icon_texture = texture(&context, Icon::Open);
+                    let mut button_rect = egui::Rect::NOTHING;
+                    let output = context.run(
+                        egui::RawInput {
+                            screen_rect: Some(screen_rect),
+                            ..Default::default()
+                        },
+                        |context| {
+                            egui::CentralPanel::default().show(context, |ui| {
+                                button_rect =
+                                    menu_button(ui, Icon::Open, "Open project…     Ctrl+Shift+O")
+                                        .rect;
+                            });
+                        },
+                    );
+
+                    let (icon_rect, icon_tint) = output
+                        .shapes
+                        .iter()
+                        .find_map(|clipped| match &clipped.shape {
+                            egui::epaint::Shape::Rect(rect)
+                                if rect.fill_texture_id() == icon_texture.id() =>
+                            {
+                                Some((rect.rect, rect.fill))
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| {
+                            panic!("{theme_name} {width_px}x{height_px} @{pixels_per_point}x: missing icon")
+                        });
+                    let mut text_rects: Vec<_> = output
+                        .shapes
+                        .iter()
+                        .filter(|clipped| matches!(clipped.shape, egui::epaint::Shape::Text(_)))
+                        .map(|clipped| clipped.shape.visual_bounding_rect())
+                        .collect();
+                    text_rects.sort_by(|left, right| left.min.x.total_cmp(&right.min.x));
+                    assert_eq!(
+                        text_rects.len(),
+                        2,
+                        "{theme_name} {width_px}x{height_px} @{pixels_per_point}x: expected separate label and shortcut text"
+                    );
+                    let [label_rect, shortcut_rect] = text_rects.as_slice() else {
+                        unreachable!()
+                    };
+
+                    assert!(
+                        button_rect.contains(icon_rect.min) && button_rect.contains(icon_rect.max),
+                        "{theme_name} {width_px}x{height_px} @{pixels_per_point}x: icon left its button"
+                    );
+                    assert!(
+                        button_rect.contains(label_rect.min)
+                            && button_rect.contains(label_rect.max),
+                        "{theme_name} {width_px}x{height_px} @{pixels_per_point}x: label left its button"
+                    );
+                    assert!(
+                        button_rect.contains(shortcut_rect.min)
+                            && button_rect.contains(shortcut_rect.max),
+                        "{theme_name} {width_px}x{height_px} @{pixels_per_point}x: shortcut left its button"
+                    );
+                    assert_eq!(
+                        icon_tint, visuals.widgets.inactive.fg_stroke.color,
+                        "{theme_name} {width_px}x{height_px} @{pixels_per_point}x: icon must use the button's accessible text color"
+                    );
+                    assert!(
+                        icon_rect.max.x < label_rect.min.x,
+                        "{theme_name} {width_px}x{height_px} @{pixels_per_point}x: icon overlaps label ({icon_rect:?}, {label_rect:?})"
+                    );
+                    assert!(
+                        label_rect.max.x < shortcut_rect.min.x,
+                        "{theme_name} {width_px}x{height_px} @{pixels_per_point}x: label overlaps shortcut ({label_rect:?}, {shortcut_rect:?})"
+                    );
+                    assert!(
+                        button_rect.max.x <= screen_rect.max.x,
+                        "{theme_name} {width_px}x{height_px} @{pixels_per_point}x: menu row exceeds viewport"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn menu_icon_area_is_a_named_keyboard_and_pointer_button() {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 480.0));
+        let input = |events| egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events,
+            ..Default::default()
+        };
+        let mut button_rect = egui::Rect::NOTHING;
+        let output = context.run(input(Vec::new()), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                let response = menu_button(ui, Icon::Open, "Open project…     Ctrl+O");
+                button_rect = response.rect;
+                response.request_focus();
+            });
+        });
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("AccessKit-enabled menu must produce a tree update");
+        let button_node = update
+            .nodes
+            .iter()
+            .map(|(_, node)| node)
+            .find(|node| node.label() == Some("Open project… (Ctrl+O)"))
+            .expect("menu label and shortcut must remain accessible");
+        assert_eq!(button_node.role(), egui::accesskit::Role::Button);
+        assert!(button_rect.width() > 0.0 && button_rect.height() > 0.0);
+
+        let icon_point = button_rect.left_center() + egui::vec2(10.0, 0.0);
+        let pointer_down = vec![
+            egui::Event::PointerMoved(icon_point),
+            egui::Event::PointerButton {
+                pos: icon_point,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ];
+        let mut pointer_clicked = false;
+        let _ = context.run(input(pointer_down), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                pointer_clicked = menu_button(ui, Icon::Open, "Open project…     Ctrl+O").clicked();
+            });
+        });
+        let pointer_up = vec![egui::Event::PointerButton {
+            pos: icon_point,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }];
+        let _ = context.run(input(pointer_up), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                pointer_clicked = menu_button(ui, Icon::Open, "Open project…     Ctrl+O").clicked();
+            });
+        });
+        assert!(
+            pointer_clicked,
+            "the icon remains inside the row click target"
+        );
+
+        let keyboard_input = vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: Some(egui::Key::Enter),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }];
+        let mut keyboard_clicked = false;
+        let _ = context.run(input(keyboard_input), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                keyboard_clicked =
+                    menu_button(ui, Icon::Open, "Open project…     Ctrl+O").clicked();
+            });
+        });
+        assert!(
+            keyboard_clicked,
+            "the menu row remains keyboard-activatable"
+        );
+    }
 
     #[test]
     fn every_approved_material_symbol_asset_decodes_and_renders() {
