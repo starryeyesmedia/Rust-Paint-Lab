@@ -739,9 +739,10 @@ This is the active continuation record. Phase 7 work remains documented in
 - Closing an unnamed project writes a normal editable `.rpl` under a separate
   local `drafts/` directory. Generated filenames include a readable project stem;
   drafts appear on the next welcome screen and reopen through the existing native
-  project reader. The list is capped at eight and a failed/full draft save blocks
-  close until Save As succeeds or the user cancels. No old draft is deleted
-  automatically.
+  project reader. The original implementation capped discovery at eight; the
+  current corrective campaign at the top of this document removes that cap and
+  pages the Home list instead. A failed draft save blocks close until Retry or
+  Save As succeeds or the user cancels. No old draft is deleted automatically.
 - The welcome screen now offers an explicit confirmation before removing a draft.
   The removal routine accepts only a regular `draft-*.rpl` child of the drafts
   directory and removes its matching storage backup; it rejects symlinks, ordinary
@@ -784,9 +785,11 @@ This is the active continuation record. Phase 7 work remains documented in
   Windows GNU target check/Clippy. License generation passes for both Windows MSVC
   and macOS ARM64 target graphs (152 and 164 packages respectively). The real alpha
   Xvfb workflow remains unavailable locally.
-- A third slice adds safe, user-confirmed cleanup of persistent drafts so a full
-  draft quota can be managed without weakening the bounded storage policy. Its
-  regression tests cover backup cleanup and reject unrelated/outside paths. Local
+- A third slice added safe, user-confirmed cleanup of persistent drafts while the
+  list still had an eight-item cap. That cap is superseded by the current
+  corrective campaign at the top of this document; explicit cleanup remains
+  available. Regression tests cover backup cleanup and reject unrelated/outside
+  paths. Local
   fmt, strict Clippy, workspace tests/build, and the required llvmpipe GPU smoke
   all pass for this slice.
 - Workspace preferences now retain the last successfully created document's size,

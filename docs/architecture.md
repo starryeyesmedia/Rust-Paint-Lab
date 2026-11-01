@@ -440,10 +440,12 @@ Normal-close persistence stores a dirty named project through its existing
 `Store`, preserving the content-hash conflict check, atomic replacement, and `.bak`
 behavior. An unnamed project is encoded as a regular editable `.rpl` in a separate
 local `drafts/` directory and is listed on the next welcome screen. The draft
-manager bounds retained drafts to eight and uses generated, human-readable names;
-when draft saving fails, close is blocked and the artist can retry, Save As, or
-cancel. Recovery snapshots and journals remain a separate fallback path. This does
-not claim protection from forced termination or sudden power loss beyond existing
+manager uses generated, human-readable names and has no fixed draft-count limit.
+Discovery retains every regular draft file, while Home presents eight entries at a
+time with paging to bound the rendered list without hiding older work. When draft
+saving fails, close is blocked and the artist can retry, Save As, or cancel.
+Recovery snapshots and journals remain a separate fallback path. This does not
+claim protection from forced termination or sudden power loss beyond existing
 recovery evidence.
 
 ## Phase 10 cubic path editing
