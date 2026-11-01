@@ -189,9 +189,12 @@ snapshot and verified `.bak` fallback. Do not describe it as comprehensive
 crash/power-loss protection without process-kill and platform durability evidence.
 Normal close must durably save a named project to its conflict-checked path or an
 untitled document as an editable native draft. Keep draft persistence separate from
-recovery snapshots, bound draft count/storage, and never silently close after a save
-failure. Offer retry, Save As, and cancel. Do not discard old drafts automatically.
-See docs/overdrive-user-guide.md for actual supported controls.
+recovery snapshots. Do not impose a draft-count quota or automatically prune,
+overwrite, or discard older drafts. Continue enforcing per-document and allocation
+safety limits, and surface disk-full or permission failures through Retry, Save As,
+or Cancel. Paginate long draft lists so every safe recognized draft remains
+discoverable. Never silently close after a save failure. See
+docs/overdrive-user-guide.md for actual supported controls.
 
 Optional SourceCounter is exact adapter-clock metadata with a nonzero frequency;
 preserve it through lifecycle and stroke routing. Do not compare unrelated clock

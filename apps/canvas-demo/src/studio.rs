@@ -15292,6 +15292,15 @@ impl Studio {
                                                             }
                                                         }
                                                         if next.clicked() {
+                                                            if self.test_path_dialog {
+                                                                crate::studio_log!(
+                                                                    "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED: from={} to={} pages={} total={}",
+                                                                    self.drafts_page + 1,
+                                                                    self.drafts_page + 2,
+                                                                    page_count,
+                                                                    self.drafts.len()
+                                                                );
+                                                            }
                                                             self.drafts_page += 1;
                                                         }
                                                     }

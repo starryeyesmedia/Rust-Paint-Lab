@@ -141,6 +141,8 @@ def wait(predicate, description, timeout=15):
         "UI_TEST_DOCUMENT_", "UI_TEST_HOME_OPEN_PROJECT_CLICKED",
         "UI_TEST_MOUSE_STROKE_", "UI_TEST_OPEN_PROJECT_FAILED:",
         "UI_TEST_CLOSE_SAVE_", "UI_TEST_RECOVERY_",
+        "UI_TEST_SAVED_DRAFTS_PAGE:", "UI_TEST_SAVED_DRAFTS_NEXT_RECT:",
+        "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:",
     )
     recent_log = "\n".join(line for line in lines()
                             if line.startswith(diagnostic_prefixes))
@@ -440,19 +442,37 @@ try:
             "close-time save with 100 existing drafts did not preserve the newly painted artwork"
         print("CLOSE_SAVE_MANY_DRAFTS: PASSED (100 existing files preserved; new artwork saved)", flush=True)
 
+        page_marker_prefix = "UI_TEST_SAVED_DRAFTS_PAGE:"
+        next_rect_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_RECT:"
+        next_click_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:"
+        page_markers_before_launch = count(page_marker_prefix)
+        next_rects_before_launch = count(next_rect_prefix)
         launch(many_state, "reopen many drafts")
+        wait(lambda: count(page_marker_prefix) > page_markers_before_launch
+             and "page=1 pages=13" in marker(page_marker_prefix),
+             "new application rendering the first saved-draft page")
+        wait(lambda: count(next_rect_prefix) >= next_rects_before_launch + 2
+             and stable_rect("UI_TEST_SAVED_DRAFTS_NEXT_RECT"),
+             "new application rendering the saved-draft Next control")
         page = 0
         while page < 13:
             marker_text = f"page={page + 1} pages=13"
-            wait(lambda: marker_text in "\n".join(lines()),
+            wait(lambda: marker_text in marker(page_marker_prefix),
                  f"saved-draft browser reaching {marker_text}")
             if page == 12:
                 assert "range=96..101 total=101" in "\n".join(lines()), \
                     "the final bounded batch did not expose the oldest drafts"
                 break
             next_button = scroll_rect_into_view("UI_TEST_SAVED_DRAFTS_NEXT_RECT")
+            page_markers_before_click = count(page_marker_prefix)
+            next_clicks_before = count(next_click_prefix)
             click((next_button[0] + next_button[2] / 2) * next_button[4],
                   (next_button[1] + next_button[3] / 2) * next_button[4])
+            wait(lambda: count(next_click_prefix) > next_clicks_before,
+                 "the real pointer click activating saved-draft Next")
+            wait(lambda: count(page_marker_prefix) > page_markers_before_click
+                 and marker_text in marker(page_marker_prefix),
+                 f"saved-draft browser advancing to page={page + 2} pages=13")
             page += 1
 
         open_clicked_before = count("UI_TEST_HOME_OPEN_PROJECT_CLICKED")
