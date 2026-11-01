@@ -30,12 +30,17 @@ open_display = api(X11, "XOpenDisplay", D, c.c_char_p)
 root_window = api(X11, "XDefaultRootWindow", W, D)
 query_tree = api(X11, "XQueryTree", I, D, W, c.POINTER(W), c.POINTER(W),
                  c.POINTER(c.POINTER(W)), c.POINTER(U))
+get_geometry = api(X11, "XGetGeometry", I, D, W, c.POINTER(W), c.POINTER(I),
+                   c.POINTER(I), c.POINTER(U), c.POINTER(U), c.POINTER(U),
+                   c.POINTER(U))
 fetch_name = api(X11, "XFetchName", I, D, W, c.POINTER(c.c_void_p))
 free = api(X11, "XFree", I, c.c_void_p)
 translate = api(X11, "XTranslateCoordinates", I, D, W, W, I, I,
                 c.POINTER(I), c.POINTER(I), c.POINTER(W))
 set_focus = api(X11, "XSetInputFocus", I, D, W, I, W)
+raise_window = api(X11, "XRaiseWindow", I, D, W)
 resize = api(X11, "XResizeWindow", I, D, W, U, U)
+move_resize = api(X11, "XMoveResizeWindow", I, D, W, I, I, U, U)
 sync = api(X11, "XSync", I, D, I)
 keysym = api(X11, "XStringToKeysym", W, c.c_char_p)
 keycode = api(X11, "XKeysymToKeycode", U, D, W)
@@ -89,6 +94,35 @@ def find_window(token):
             free(children)
 
 
+def resize_window(width, height):
+    """Wait for the visible X11 client to accept the requested test size."""
+    def actual_size():
+        root_return, x_return, y_return = W(), I(), I()
+        actual_width, actual_height, border, depth = U(), U(), U(), U()
+        if not get_geometry(display, window, c.byref(root_return),
+                            c.byref(x_return), c.byref(y_return),
+                            c.byref(actual_width), c.byref(actual_height),
+                            c.byref(border), c.byref(depth)):
+            return None
+        return actual_width.value, actual_height.value
+
+    for attempt in range(4):
+        if attempt == 0:
+            resize(display, window, width, height)
+        else:
+            # A resize sent before winit's first visible frame can be replaced
+            # by its initial size. Reissue after visibility and verify X11's
+            # actual geometry instead of assuming the request took effect.
+            move_resize(display, window, 24, 24, width, height)
+        sync(display, 0)
+        time.sleep(0.12)
+        if actual_size() == (width, height):
+            return
+    raise AssertionError(
+        f"X11 refused requested window size {width}x{height}; actual size is {actual_size()}"
+    )
+
+
 def wait(predicate, description, timeout=15):
     deadline = time.monotonic() + timeout
     last = None
@@ -102,7 +136,18 @@ def wait(predicate, description, timeout=15):
         if last:
             return last
         time.sleep(0.04)
-    raise AssertionError(f"timeout waiting for {description}; last value={last!r}")
+    diagnostic_prefixes = (
+        "CLOSE_SAVE_", "RECOVERY_CHECKPOINT_", "TEST_PATH_DIALOG:",
+        "UI_TEST_DOCUMENT_", "UI_TEST_HOME_OPEN_PROJECT_CLICKED",
+        "UI_TEST_MOUSE_STROKE_", "UI_TEST_OPEN_PROJECT_FAILED:",
+        "UI_TEST_CLOSE_SAVE_", "UI_TEST_RECOVERY_",
+    )
+    recent_log = "\n".join(line for line in lines()
+                            if line.startswith(diagnostic_prefixes))
+    raise AssertionError(
+        f"timeout waiting for {description}; last value={last!r}\n"
+        f"recent application log:\n{recent_log}"
+    )
 
 
 def send():
@@ -141,7 +186,7 @@ def type_text(value):
     for character in value:
         shifted = character in "_+:<>?"
         key_name = {
-            "/": "slash", "-": "minus", ".": "period", "_": "minus",
+            " ": "space", "/": "slash", "-": "minus", ".": "period", "_": "minus",
             ":": "semicolon", "+": "equal", "<": "comma", ">": "period", "?": "slash",
         }.get(character, character)
         code = keycode(display, keysym(key_name.encode("ascii")))
@@ -154,10 +199,21 @@ def type_text(value):
         send()
 
 
-def last_rect(name):
+def stable_rect(name):
     prefix = name + ": "
     entries = [line[len(prefix):] for line in lines() if line.startswith(prefix)]
-    return tuple(map(float, entries[-1].split())) if entries else None
+    if len(entries) < 2 or entries[-1] != entries[-2]:
+        return None
+    return tuple(map(float, entries[-1].split()))
+
+
+def canvas_bounds():
+    prefix = "UI_TEST_SYMMETRY_CANVAS: "
+    entries = [line.partition(": ")[2] for line in lines()
+               if line.startswith(prefix)]
+    if len(entries) < 2 or entries[-1] != entries[-2]:
+        return None
+    return tuple(map(float, entries[-1].split()))
 
 
 def document_pixels(path):
@@ -195,8 +251,15 @@ def launch(root_dir, name):
     process = subprocess.Popen([str(executable)], cwd=root_dir, env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     window = wait(lambda: find_window(token), "visible application window")
+    wait(lambda: any(line.startswith("UI_TEST_HOME_HEADLINE_CONTRAST:")
+                     for line in lines()), "first visible Home frame")
+    raise_window(display, window)
+    home_rects_before_resize = count("UI_TEST_HOME_OPEN_PROJECT_BUTTON_RECT:")
+    resize_window(1280, 800)
     set_focus(display, window, 2, 0)
-    resize(display, window, 1280, 800)
+    wait(lambda: count("UI_TEST_HOME_OPEN_PROJECT_BUTTON_RECT:") > home_rects_before_resize
+         and stable_rect("UI_TEST_HOME_OPEN_PROJECT_BUTTON_RECT"),
+         "stable Home action geometry after resize")
     send()
 
 
@@ -213,26 +276,32 @@ def draw_stroke(points):
 
 
 def create_and_paint():
+    create_rects_before = count("UI_TEST_NEW_DOCUMENT_CREATE_RECT:")
     chord("Control_L", "n")
     wait(lambda: "TEST NEW DOCUMENT" in window_title(window), "New Artwork dialog")
-    create = wait(lambda: last_rect("UI_TEST_NEW_DOCUMENT_CREATE_RECT"),
+    create = wait(lambda: count("UI_TEST_NEW_DOCUMENT_CREATE_RECT:") > create_rects_before
+                  and stable_rect("UI_TEST_NEW_DOCUMENT_CREATE_RECT"),
                   "Create document button")
     click((create[0] + create[2] / 2) * create[4],
           (create[1] + create[3] / 2) * create[4])
     wait(lambda: any(line.startswith("UI_TEST_DOCUMENT_CREATED:") for line in lines()),
          "document creation")
-    # These are established on-canvas coordinates from the full alpha XTest
-    # workflow at 1280x800; native pixel checks below verify the saved art.
-    draw_stroke(((520, 540), (550, 550), (580, 565), (610, 575)))
+    left, top, right, bottom, _, _ = wait(
+        canvas_bounds, "stable visible document bounds after creation")
+    start = (left + 0.36 * (right - left), top + 0.48 * (bottom - top))
+    end = (left + 0.43 * (right - left), top + 0.56 * (bottom - top))
+    draw_stroke((start, ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2), end))
 
 
 def request_close():
     press("Escape")
 
 
-def finish_successfully():
+def finish_successfully(saved_as=False):
     assert process.wait(timeout=20) == 0, "application did not close cleanly after a successful save"
-    assert "CLOSE_SAVE_COMPLETE:" in "\n".join(lines()), "close save completion was not recorded"
+    expected_marker = "UI_TEST_PROJECT_SAVE: complete" if saved_as else "CLOSE_SAVE_COMPLETE:"
+    assert expected_marker in "\n".join(lines()), \
+        f"successful close path did not record {expected_marker}"
 
 
 def inject_non_directory_drafts_path(state_home):
@@ -284,8 +353,14 @@ try:
 
         launch(state_home, "reopened draft")
         picker_before = count("UI_TEST_FILE_PICKER_PATH_RECT:")
-        chord("Control_L", "o")
-        path_rect = wait(lambda: last_rect("UI_TEST_FILE_PICKER_PATH_RECT")
+        open_clicked_before = count("UI_TEST_HOME_OPEN_PROJECT_CLICKED")
+        open_button = wait(lambda: stable_rect("UI_TEST_HOME_OPEN_PROJECT_BUTTON_RECT"),
+                           "Home's Open project action")
+        click((open_button[0] + open_button[2] / 2) * open_button[4],
+              (open_button[1] + open_button[3] / 2) * open_button[4])
+        wait(lambda: count("UI_TEST_HOME_OPEN_PROJECT_CLICKED") > open_clicked_before,
+             "Home Open project pointer action")
+        path_rect = wait(lambda: stable_rect("UI_TEST_FILE_PICKER_PATH_RECT")
                          if count("UI_TEST_FILE_PICKER_PATH_RECT:") > picker_before else None,
                          "real Open project path field")
         click((path_rect[0] + path_rect[2] / 2) * path_rect[4],
@@ -296,7 +371,11 @@ try:
         wait(lambda: any(line.startswith("UI_TEST_PROJECT_OPENED: " + str(drafts[0]))
                          for line in lines()), "application reopening the saved untitled draft")
         complete_before = count("RECOVERY_CHECKPOINT_COMPLETE:")
-        draw_stroke(((570, 520), (590, 520), (615, 530), (640, 540)))
+        left, top, right, bottom, _, _ = wait(
+            canvas_bounds, "stable document bounds after reopening the draft")
+        start = (left + 0.44 * (right - left), top + 0.50 * (bottom - top))
+        end = (left + 0.52 * (right - left), top + 0.58 * (bottom - top))
+        draw_stroke((start, ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2), end))
         wait(lambda: count("RECOVERY_CHECKPOINT_COMPLETE:") > complete_before,
              "periodic recovery checkpoint after editing the reopened draft", timeout=20)
         request_close()
@@ -319,13 +398,14 @@ try:
         retry_drafts_dir.mkdir(parents=True)
         for index in range(8):
             (retry_drafts_dir / f"draft-seed-{index}.rpl").write_bytes(initial_bytes)
-        launch(retry_state, "retry draft")
+        launch(retry_state, "retry-draft")
         create_and_paint()
         request_close()
         error = wait_close_error()
         assert "maximum of 8 drafts" in error and "drafts" in error, error
         assert process.poll() is None, "failed close discarded the artwork instead of keeping the app open"
-        retry = wait(lambda: last_rect("UI_TEST_CLOSE_SAVE_RETRY_RECT"), "Retry save target")
+        retry = wait(lambda: stable_rect("UI_TEST_CLOSE_SAVE_RETRY_RECT"),
+                     "Retry save target")
         (retry_drafts_dir / "draft-seed-0.rpl").unlink()
         click((retry[0] + retry[2] / 2) * retry[4],
               (retry[1] + retry[3] / 2) * retry[4])
@@ -345,10 +425,12 @@ try:
         create_and_paint()
         request_close()
         wait_close_error()
-        cancel = wait(lambda: last_rect("UI_TEST_CLOSE_SAVE_CANCEL_RECT"), "Cancel close target")
+        cancel = wait(lambda: stable_rect("UI_TEST_CLOSE_SAVE_CANCEL_RECT"),
+                      "Cancel close target")
+        cancelled_before = count("UI_TEST_CLOSE_SAVE_CANCELLED")
         click((cancel[0] + cancel[2] / 2) * cancel[4],
               (cancel[1] + cancel[3] / 2) * cancel[4])
-        wait(lambda: count("UI_TEST_CLOSE_SAVE_CANCELLED:") > 0,
+        wait(lambda: count("UI_TEST_CLOSE_SAVE_CANCELLED") > cancelled_before,
              "Cancel leaves the failed close dialog and artwork open")
         assert process.poll() is None, "Cancel closed the application after a failed save"
         draw_stroke(((540, 610), (565, 620), (590, 630)))
@@ -367,10 +449,11 @@ try:
         create_and_paint()
         request_close()
         wait_close_error()
-        save_as = wait(lambda: last_rect("UI_TEST_CLOSE_SAVE_AS_RECT"), "Save As close target")
+        save_as = wait(lambda: stable_rect("UI_TEST_CLOSE_SAVE_AS_RECT"),
+                       "Save As close target")
         click((save_as[0] + save_as[2] / 2) * save_as[4],
               (save_as[1] + save_as[3] / 2) * save_as[4])
-        path_rect = wait(lambda: last_rect("UI_TEST_FILE_PICKER_PATH_RECT"),
+        path_rect = wait(lambda: stable_rect("UI_TEST_FILE_PICKER_PATH_RECT"),
                          "Save As project path field")
         save_path = save_as_state / "artist-selected-location.rpl"
         click((path_rect[0] + path_rect[2] / 2) * path_rect[4],
@@ -378,7 +461,7 @@ try:
         chord("Control_L", "a")
         type_text(str(save_path))
         press("Return")
-        finish_successfully()
+        finish_successfully(saved_as=True)
         saved_state, saved_tiles, saved_opaque = document_pixels(save_path)
         assert saved_state["width"] > 0 and saved_tiles and saved_opaque, \
             "Save As did not preserve painted artwork after draft storage failed"

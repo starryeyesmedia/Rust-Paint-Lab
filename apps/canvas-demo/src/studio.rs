@@ -14857,6 +14857,9 @@ impl Studio {
                                                             );
                                                         }
                                                         if open_project.clicked() {
+                                                            if self.test_path_dialog {
+                                                                crate::studio_log!("UI_TEST_HOME_OPEN_PROJECT_CLICKED");
+                                                            }
                                                             self.picker_from_welcome = true;
                                                             self.picker = Some(FileRequest::OpenProject);
                                                             self.welcome = false;
@@ -16156,7 +16159,10 @@ impl Studio {
             self.manual_file_submit = false;
             self.manual_file_dialog = false;
             if let Some(action) = self.manual_file_action.take() {
-                crate::studio_log!("TEST_PATH_DIALOG: queued action for deterministic submission");
+                crate::studio_log!(
+                    "TEST_PATH_DIALOG: queued action for deterministic submission path={:?}",
+                    self.path
+                );
                 actions.push(action);
             }
         }
@@ -16362,6 +16368,12 @@ impl Studio {
             session.mouse(MouseEvent::Interrupted, 0);
             let result = self.execute(a, session);
             if let Err(error) = result {
+                if self.test_path_dialog && opening_from_welcome {
+                    crate::studio_log!(
+                        "UI_TEST_OPEN_PROJECT_FAILED: path={:?} error={error}",
+                        self.path
+                    );
+                }
                 self.status = error.to_string();
                 if opening_from_welcome {
                     self.welcome = true;

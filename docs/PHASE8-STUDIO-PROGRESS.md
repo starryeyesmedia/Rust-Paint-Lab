@@ -29,13 +29,30 @@ log now include the underlying filesystem/document error.
 Local validation on this slice: Rust 1.90 formatting, strict workspace Clippy,
 the complete workspace suite and build, `scripts/check-tests.py`, 8 Python
 helper tests, Windows GNU workspace check/Clippy, and llvmpipe GPU smoke passed.
-The new Linux XTest script compiles as Python but could not run locally because
-this environment has no Xvfb/XTest display. Hosted Actions for this branch and
-the new XTest workflow are pending. No Windows runtime or physical-device
-result is claimed. Immediate next step: open the draft PR, inspect the actual
-Linux run and Windows package/startup checks, then continue only after
-close-save/recovery coverage is green. Findings 1–12 remain in scope in the
-owner's specified priority order; Phase 8.3 is active.
+The initial hosted Linux XTest failure was traced to the harness: it resized the
+winit window before its first visible frame, read one-frame-old control bounds,
+used fixed canvas coordinates, omitted spaces while typing paths, and expected
+markers that the app does not emit. The test now waits for first-frame and
+confirmed resize geometry, derives painting coordinates from the live document
+bounds, opens the project through Home's real pointer action, and checks the
+actual Retry/Cancel/Save As completion markers. Test-only diagnostics also log
+the selected project path and open error. The close/recovery XTest workflow
+then passed locally on Xorg `:99` with llvmpipe: untitled draft round-trip and
+later named save, periodic checkpoint pixels, retry after freeing one of eight
+draft slots, Cancel while leaving the artwork editable, and Save As after an
+injected storage-directory failure. Native project raster pixels were checked.
+The draft-cap and unavailable-directory cases reproduce useful failure paths;
+they do not establish the Galaxy Book's original failure cause. The user's
+Windows runtime result and the new hosted matrix remain pending. No Windows
+runtime or physical-device result is claimed. Findings 1–12 remain in scope in
+the owner's specified priority order; Phase 8.3 is active.
+
+The follow-up code, script, and documentation are being committed together so
+the next required cross-platform Actions run tests this exact state. Keep PR #9
+draft and do not merge: first provide the resulting portable Windows artifact
+for owner evaluation, and request the close-save diagnostic if the device
+failure persists. The next reliability step depends on that evidence; do not
+claim the Windows close-time failure is fixed based only on Linux tests.
 
 ## Milestone 3 compact-Inspector correction (2026-10-31; local verification)
 

@@ -1367,6 +1367,13 @@ open; that flow exercises Cancel and Save As. A document-level test round-trips
 a draft containing raster pixels, an editable layer mask, and vector geometry.
 The document storage tests separately inject interrupted writes and verify the
 previous valid project remains recoverable. The XTest test uses temporary state
-directories and requires Xvfb, XTest, a working software GPU, and the normal
-Linux GUI libraries; a local run without those services is not a pass. None of
+directories and requires an X11 display, XTest, a working software GPU, and the
+normal Linux GUI libraries. CI provides Xvfb; a local Xorg display works too.
+The script waits for the first visible frame and confirmed resize, uses stable
+post-resize control geometry, and derives paint strokes from the live document
+bounds. Its assertions inspect native project bytes and raster pixels. None of
 these checks reproduces or validates the owner's Windows filesystem behavior.
+
+This workflow passed locally on the managed Xorg display `:99` with llvmpipe.
+The shell had no `xvfb-run` executable, so the hosted Xvfb job remains the
+required CI check for the same script.

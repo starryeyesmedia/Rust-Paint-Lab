@@ -29,6 +29,15 @@ acceptance is required before merging artist-facing corrections. See the
 current top section of `docs/PHASE8-STUDIO-PROGRESS.md` for tested commands,
 limitations, and continuation steps.
 
+The first hosted Linux close-save smoke exposed synchronization defects in the
+test harness (pre-first-frame resize, stale control geometry, fixed drawing
+coordinates, path typing, and expected log markers). These are corrected, and
+the full close/recovery flow now passes locally on Xorg/llvmpipe with real
+project pixel checks. A fresh cross-platform Actions run is still required.
+The owner's original Windows cause remains unconfirmed; keep PR #9 draft and
+deliver its Windows artifact for owner evaluation before merging or treating
+the save issue as resolved.
+
 ## Canvas-first design handoff — active implementation
 
 The first approved implementation slice is in progress on
