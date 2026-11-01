@@ -1179,6 +1179,14 @@ fn home_sections_stacked(screen_width: f32) -> bool {
     !(1050.0..1700.0).contains(&screen_width)
 }
 
+fn home_horizontal_section_widths(available_width: f32) -> (f32, f32) {
+    const GAP: f32 = 24.0;
+    const RIGHT_SAFE_GUTTER: f32 = 32.0;
+    let available = (available_width - RIGHT_SAFE_GUTTER).max(1.0);
+    let support = (available * 0.29).clamp(320.0, 420.0).min(available * 0.48);
+    ((available - GAP - support).max(1.0), support)
+}
+
 fn home_hero_height(screen_width: f32) -> f32 {
     if screen_width < 760.0 { 280.0 } else { 340.0 }
 }
@@ -5867,17 +5875,22 @@ pub struct Studio {
     test_home_light_contrast_logged: bool,
     test_home_content_bounds_logged: bool,
     test_home_preset_rect_logged: Option<[i32; 5]>,
+    test_drafts_page_logged: Option<usize>,
+    test_drafts_next_rect_logged: Option<[i32; 5]>,
+    test_drafts_next_hover_logged: Option<(usize, bool)>,
     test_hidden_reference_wheel_logged: bool,
     test_strong_text_contrast_logged: bool,
     confirm: Option<Action>,
     pub close_requested: bool,
     pub close_ready: bool,
+    close_save_error: Option<String>,
     recovery: Option<Recovery>,
     recovery_files: Vec<PathBuf>,
     recovery_preview: Option<(PathBuf, Option<egui::TextureHandle>)>,
     recovery_manager: bool,
     recovery_manager_from_home: bool,
     drafts: Vec<PathBuf>,
+    drafts_page: usize,
     recent: paint_document::recent::Recent,
     recent_cards: Vec<RecentProjectCard>,
     recent_search: String,
@@ -6020,7 +6033,19 @@ impl Studio {
             .as_ref()
             .map(|p| paint_document::recovery::available(p))
             .unwrap_or_default();
-        let recovery = dir.as_ref().ok().and_then(|p| Recovery::start(p).ok());
+        let (recovery, recovery_unavailable_reason) = match dir.as_ref() {
+            Ok(path) => match Recovery::start(path) {
+                Ok(recovery) => (Some(recovery), None),
+                Err(error) => {
+                    crate::studio_log!("RECOVERY_INITIALIZATION_FAILED: {error}");
+                    (None, Some(error.to_string()))
+                }
+            },
+            Err(error) => {
+                crate::studio_log!("RECOVERY_DIRECTORY_FAILED: {error}");
+                (None, Some(error.to_string()))
+            }
+        };
         let recent_path = dir
             .as_ref()
             .ok()
@@ -6083,7 +6108,12 @@ impl Studio {
         let status = if recovery.is_some() {
             "Ready — local recovery enabled".into()
         } else {
-            "Recovery unavailable: choose a writable project path and save frequently".into()
+            format!(
+                "Recovery unavailable: {}; choose a writable project path and save frequently",
+                recovery_unavailable_reason
+                    .as_deref()
+                    .unwrap_or("could not initialize local recovery")
+            )
         };
         Self {
             context,
@@ -6165,17 +6195,22 @@ impl Studio {
             test_home_light_contrast_logged: false,
             test_home_content_bounds_logged: false,
             test_home_preset_rect_logged: None,
+            test_drafts_page_logged: None,
+            test_drafts_next_rect_logged: None,
+            test_drafts_next_hover_logged: None,
             test_hidden_reference_wheel_logged: false,
             test_strong_text_contrast_logged: false,
             confirm: None,
             close_requested: false,
             close_ready: false,
+            close_save_error: None,
             recovery,
             recovery_files: files,
             recovery_preview: None,
             recovery_manager: false,
             recovery_manager_from_home: false,
             drafts: crate::drafts::list(),
+            drafts_page: 0,
             recent,
             recent_cards,
             recent_search: String::new(),
@@ -9147,14 +9182,27 @@ impl Studio {
     /// Persist artwork before normal close. A conflict/failure leaves the window
     /// open so the user can retry, choose Save As, or cancel.
     pub fn save_for_close(&mut self, session: &mut CanvasSession) -> Result<(), Failure> {
+        let revision = session.live().project().revision;
+        let kind = if self.store.is_some() {
+            "named-project"
+        } else {
+            "untitled-draft"
+        };
+        crate::studio_log!("CLOSE_SAVE_STARTED: kind={kind} revision={revision}");
         if self.store.is_some() {
             self.execute(Action::Save, session)?;
         } else {
+            let directory = crate::drafts::directory().map_err(|error| {
+                std::io::Error::other(format!("Could not locate local draft storage: {error}"))
+            })?;
             let (store, path) = {
                 let project = session.live_mut().project_mut();
                 project.sync_brush_settings();
                 let state = project.state().clone();
-                let (store, path) = crate::drafts::create(&state, &self.new_name)?;
+                let (store, path) = crate::drafts::create_in(&state, &self.new_name, &directory)
+                    .map_err(|error| {
+                        std::io::Error::other(crate::drafts::close_save_error(&directory, &error))
+                    })?;
                 project.saved_revision = project.revision;
                 (store, path)
             };
@@ -9165,13 +9213,19 @@ impl Studio {
             );
             self.store = Some(store);
             self.drafts = crate::drafts::list();
+            self.drafts_page = 0;
         }
         self.close_ready = true;
         self.close_requested = false;
+        self.close_save_error = None;
+        crate::studio_log!("CLOSE_SAVE_COMPLETE: kind={kind} revision={revision}");
         Ok(())
     }
     pub fn mark_close_save_failed(&mut self, error: impl std::fmt::Display) {
+        let error = error.to_string();
+        crate::studio_log!("CLOSE_SAVE_FAILED: {error}");
         self.status = format!("Automatic save failed: {error}");
+        self.close_save_error = Some(error);
         self.close_requested = true;
     }
     pub fn needs_autosave(&self, session: &CanvasSession) -> bool {
@@ -14820,6 +14874,9 @@ impl Studio {
                                                             );
                                                         }
                                                         if open_project.clicked() {
+                                                            if self.test_path_dialog {
+                                                                crate::studio_log!("UI_TEST_HOME_OPEN_PROJECT_CLICKED");
+                                                            }
                                                             self.picker_from_welcome = true;
                                                             self.picker = Some(FileRequest::OpenProject);
                                                             self.welcome = false;
@@ -14967,15 +15024,24 @@ impl Studio {
                                     });
                                 }
                                 ui.add_space(if screen.height() < 620.0 { 16.0 } else { 24.0 });
+                                let stack_home_sections = home_sections_stacked(screen.width());
                                 ui.with_layout(
-                                    if home_sections_stacked(screen.width()) {
+                                    if stack_home_sections {
                                         egui::Layout::top_down(egui::Align::Min)
                                     } else {
                                         egui::Layout::left_to_right(egui::Align::Min)
                                     },
                                     |ui| {
                                     ui.add_space(side_pad);
+                                    let available_section_width = ui.available_width();
+                                    let (recent_section_width, support_section_width) =
+                                        if stack_home_sections {
+                                            (available_section_width, available_section_width)
+                                        } else {
+                                            home_horizontal_section_widths(available_section_width)
+                                        };
                                     ui.vertical(|ui| {
+                                        ui.set_width(recent_section_width);
                                         crate::ui_tokens::section_heading(
                                             ui,
                                             "Recent artwork",
@@ -14984,7 +15050,7 @@ impl Studio {
                                         ui.add_space(8.0);
                                         if self.recent.paths.is_empty() {
                                             crate::ui_tokens::card_frame(ui.visuals(), false).inner_margin(egui::Margin::same(22)).show(ui, |ui| {
-                                                ui.set_min_width((screen.width() - 100.0).max(300.0));
+                                                ui.set_min_width(ui.available_width().max(1.0));
                                                 ui.label(crate::ui_tokens::type_text(
                                                     "Nothing recent yet",
                                                     crate::ui_tokens::TypeRole::CardTitle,
@@ -15152,6 +15218,7 @@ impl Studio {
                                     });
                                     ui.add_space(24.0);
                                     ui.vertical(|ui| {
+                                        ui.set_width(support_section_width);
                                         crate::ui_tokens::section_heading(
                                             ui,
                                             "Continue safely",
@@ -15189,14 +15256,90 @@ impl Studio {
                                         }
                                         if !self.drafts.is_empty() {
                                             ui.add_space(10.0);
+                                            let page_count = self.drafts.len().div_ceil(crate::drafts::DISPLAY_BATCH_SIZE);
+                                            self.drafts_page = self.drafts_page.min(page_count.saturating_sub(1));
+                                            let visible_range = crate::drafts::display_range(self.drafts.len(), self.drafts_page);
+                                            if self.test_path_dialog && self.test_drafts_page_logged != Some(self.drafts_page) {
+                                                crate::studio_log!(
+                                                    "UI_TEST_SAVED_DRAFTS_PAGE: page={} pages={} range={}..{} total={}",
+                                                    self.drafts_page + 1,
+                                                    page_count,
+                                                    visible_range.start,
+                                                    visible_range.end,
+                                                    self.drafts.len()
+                                                );
+                                                self.test_drafts_page_logged = Some(self.drafts_page);
+                                            }
                                             egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(10.0).inner_margin(12.0).show(ui, |ui| {
                                                 ui.label(egui::RichText::new("Saved drafts").strong());
-                                                for path in self.drafts.iter().take(crate::drafts::MAX_DRAFTS) {
+                                                for path in self.drafts[visible_range.clone()].iter() {
                                                     ui.horizontal(|ui| {
                                                         if ui.button(crate::drafts::display_name(path)).clicked() { self.picker_from_welcome = true; actions.push(Action::Recent(path.clone())); self.welcome = false; }
                                                         if ui.small_button("Remove…").clicked() { remove_draft = Some(path.clone()); }
                                                     });
                                                 }
+                                                ui.horizontal(|ui| {
+                                                    let first = visible_range.start + 1;
+                                                    let last = visible_range.end;
+                                                    ui.label(format!("Showing {first}–{last} of {} drafts", self.drafts.len()));
+                                                    if page_count > 1 {
+                                                        if ui.add_enabled(self.drafts_page > 0, egui::Button::new("Previous")).clicked() {
+                                                            self.drafts_page -= 1;
+                                                        }
+                                                        let next = ui.add_enabled(self.drafts_page + 1 < page_count, egui::Button::new("Next"));
+                                                        if self.test_path_dialog {
+                                                            let rect = next.rect;
+                                                            let scale = ui.ctx().pixels_per_point();
+                                                            let marker = [
+                                                                (rect.left() * 10.0).round() as i32,
+                                                                (rect.top() * 10.0).round() as i32,
+                                                                (rect.width() * 10.0).round() as i32,
+                                                                (rect.height() * 10.0).round() as i32,
+                                                                (scale * 100.0).round() as i32,
+                                                            ];
+                                                            if self.test_drafts_next_rect_logged != Some(marker) {
+                                                                for _ in 0..2 {
+                                                                    crate::studio_log!(
+                                                                        "UI_TEST_SAVED_DRAFTS_NEXT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                                        rect.left(),
+                                                                        rect.top(),
+                                                                        rect.width(),
+                                                                        rect.height(),
+                                                                        scale
+                                                                    );
+                                                                }
+                                                                self.test_drafts_next_rect_logged = Some(marker);
+                                                            }
+                                                        }
+                                                        if self.test_path_dialog {
+                                                            let hover_state =
+                                                                (self.drafts_page, next.hovered());
+                                                            if self.test_drafts_next_hover_logged
+                                                                != Some(hover_state)
+                                                            {
+                                                                crate::studio_log!(
+                                                                    "UI_TEST_SAVED_DRAFTS_NEXT_HOVER: page={} hovered={}",
+                                                                    self.drafts_page + 1,
+                                                                    hover_state.1
+                                                                );
+                                                                self.test_drafts_next_hover_logged =
+                                                                    Some(hover_state);
+                                                            }
+                                                        }
+                                                        if next.clicked() {
+                                                            if self.test_path_dialog {
+                                                                crate::studio_log!(
+                                                                    "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED: from={} to={} pages={} total={}",
+                                                                    self.drafts_page + 1,
+                                                                    self.drafts_page + 2,
+                                                                    page_count,
+                                                                    self.drafts.len()
+                                                                );
+                                                            }
+                                                            self.drafts_page += 1;
+                                                        }
+                                                    }
+                                                });
                                             });
                                         }
                                     });
@@ -15786,7 +15929,17 @@ impl Studio {
                 // by this focused text field. Read it before the TextEdit handles
                 // the event so the headless workflow can reliably submit the path.
                 let submit = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
+                let path = ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_FILE_PICKER_PATH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        path.rect.left(),
+                        path.rect.top(),
+                        path.rect.width(),
+                        path.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
                 ui.horizontal(|ui| {
                     if ui.button("Continue").clicked() || submit {
                         if let Some(action) = self.manual_file_action.take() {
@@ -15840,16 +15993,62 @@ impl Studio {
             });
         } else if self.close_requested {
             egui::Modal::new(egui::Id::new("close artwork")).show(ctx, |ui| {
+                ui.set_max_width(460.0);
                 ui.heading("Automatic save did not complete");
                 ui.label("Your artwork is still open. Retry the save, choose another project location, or cancel closing.");
-                if ui.button("Retry save").clicked() {
+                if let Some(error) = &self.close_save_error {
+                    ui.add_space(4.0);
+                    ui.label("Save details:");
+                    ui.add(egui::Label::new(error).wrap());
+                    if self.test_path_dialog {
+                        crate::studio_log!("UI_TEST_CLOSE_SAVE_ERROR_VISIBLE: {error}");
+                    }
+                }
+                let retry = ui.button("Retry save");
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_CLOSE_SAVE_RETRY_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        retry.rect.left(),
+                        retry.rect.top(),
+                        retry.rect.width(),
+                        retry.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+                if retry.clicked() {
                     actions.push(Action::RetryClose);
                 }
-                if ui.button("Save As…").clicked() {
+                let save_as = ui.button("Save As…");
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_CLOSE_SAVE_AS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        save_as.rect.left(),
+                        save_as.rect.top(),
+                        save_as.rect.width(),
+                        save_as.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+                if save_as.clicked() {
                     self.picker = Some(FileRequest::SaveProjectAs);
                 }
-                if ui.button("Cancel").clicked() {
+                let cancel = ui.button("Cancel");
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_CLOSE_SAVE_CANCEL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        cancel.rect.left(),
+                        cancel.rect.top(),
+                        cancel.rect.width(),
+                        cancel.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+                if cancel.clicked() {
+                    if self.test_path_dialog {
+                        crate::studio_log!("UI_TEST_CLOSE_SAVE_CANCELLED");
+                    }
                     self.close_requested = false;
+                    self.close_save_error = None;
                 }
             });
         }
@@ -16063,7 +16262,10 @@ impl Studio {
             self.manual_file_submit = false;
             self.manual_file_dialog = false;
             if let Some(action) = self.manual_file_action.take() {
-                crate::studio_log!("TEST_PATH_DIALOG: queued action for deterministic submission");
+                crate::studio_log!(
+                    "TEST_PATH_DIALOG: queued action for deterministic submission path={:?}",
+                    self.path
+                );
                 actions.push(action);
             }
         }
@@ -16269,6 +16471,12 @@ impl Studio {
             session.mouse(MouseEvent::Interrupted, 0);
             let result = self.execute(a, session);
             if let Err(error) = result {
+                if self.test_path_dialog && opening_from_welcome {
+                    crate::studio_log!(
+                        "UI_TEST_OPEN_PROJECT_FAILED: path={:?} error={error}",
+                        self.path
+                    );
+                }
                 self.status = error.to_string();
                 if opening_from_welcome {
                     self.welcome = true;
@@ -16898,6 +17106,10 @@ impl Studio {
                 self.recovery_saving = false;
                 match result {
                     Ok(()) => {
+                        crate::studio_log!(
+                            "RECOVERY_CHECKPOINT_COMPLETE: revision={}",
+                            self.last_submitted
+                        );
                         if self.test_path_dialog {
                             crate::studio_log!(
                                 "UI_TEST_RECOVERY_COMPLETE: {}",
@@ -16907,6 +17119,10 @@ impl Studio {
                         self.status = "Recovery checkpoint complete".into();
                     }
                     Err(e) => {
+                        crate::studio_log!(
+                            "RECOVERY_CHECKPOINT_FAILED: revision={} {e}",
+                            self.last_submitted
+                        );
                         if self.test_path_dialog {
                             crate::studio_log!(
                                 "UI_TEST_RECOVERY_FAILED: {} {e}",
@@ -17307,6 +17523,11 @@ impl Studio {
             Action::RemoveDraft(path) => {
                 crate::drafts::remove(&path)?;
                 self.drafts = crate::drafts::list();
+                let page_count = self
+                    .drafts
+                    .len()
+                    .div_ceil(crate::drafts::DISPLAY_BATCH_SIZE);
+                self.drafts_page = self.drafts_page.min(page_count.saturating_sub(1));
                 self.status = "Selected draft and backup removed".into();
             }
             Action::AddReference(_) => {
@@ -17994,6 +18215,7 @@ impl Studio {
                     self.store.as_mut().unwrap().save(project.state())?;
                 }
                 project.saved_revision = project.revision;
+                self.close_save_error = None;
                 if self.close_requested {
                     self.close_ready = true;
                 }
@@ -18152,13 +18374,13 @@ mod tests {
         CanvasMapping, FormatIllustration, LassoAppend, LayerMenuTarget, Selection,
         SelectionTransformKind, ShapeKind, activate_brush_preset, append_lasso_point,
         brush_size_after_shortcut, document_format_card_height, document_format_grid,
-        fit_paper_to_box, format_illustration, home_hero_height, home_open_card_needed,
-        home_sections_stacked, layer_actions_menu, native_project_path, quick_document_card_layout,
-        recent_artwork_preview_height, recent_gallery_layout, recent_project_matches,
-        recognize_quick_shape, recovery_checkpoint_label, recovery_source_label,
-        selected_layer_settings, selection_move_offset, selection_transform_handle_at,
-        selection_transform_handles, selection_transform_matrix, symmetry_origin_from_client,
-        transform_selection_outline,
+        fit_paper_to_box, format_illustration, home_hero_height, home_horizontal_section_widths,
+        home_open_card_needed, home_sections_stacked, layer_actions_menu, native_project_path,
+        quick_document_card_layout, recent_artwork_preview_height, recent_gallery_layout,
+        recent_project_matches, recognize_quick_shape, recovery_checkpoint_label,
+        recovery_source_label, selected_layer_settings, selection_move_offset,
+        selection_transform_handle_at, selection_transform_handles, selection_transform_matrix,
+        symmetry_origin_from_client, transform_selection_outline,
     };
     use paint_document::Engine;
     use paint_document::brush::{Brush, BrushKind};
@@ -18755,6 +18977,16 @@ mod tests {
         assert!(home_sections_stacked(640.0));
         assert!(!home_sections_stacked(1280.0));
         assert!(home_sections_stacked(1920.0));
+    }
+
+    #[test]
+    fn medium_home_columns_reserve_space_for_recovery_and_draft_controls() {
+        for available in [1018.0, 1248.0, 1568.0] {
+            let (recent, support) = home_horizontal_section_widths(available);
+            assert!(recent >= 600.0, "recent gallery too narrow at {available}");
+            assert!((320.0..=420.0).contains(&support));
+            assert!(recent + support + 24.0 <= available - 32.0 + f32::EPSILON);
+        }
     }
 
     #[test]

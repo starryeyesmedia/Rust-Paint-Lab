@@ -321,11 +321,34 @@ painting or document path. Physical Windows/macOS picker behavior still requires
 manual checking.
 
 The local draft manager tests verify that an unnamed document is stored as a normal
-`.rpl`, can be reopened with matching dimensions, is discoverable after a restart,
-and refuses to exceed the eight-draft bound. It ignores unrelated files. If the
-bound or a write error prevents automatic close-save, the application remains open
-and offers retry, Save As, or Cancel. Named-document external-change conflicts use
-the existing `Store` content-hash guard and also keep the window open.
+`.rpl`, can be reopened with matching dimensions, and remains discoverable after a
+restart. Saving with 8, 9, 32, and 100 existing drafts preserves every prior file
+and backup and successfully reopens the additional draft. Discovery retains every
+regular `draft-*.rpl` file; the Home screen presents eight entries per page with
+Previous/Next navigation so the visible widget tree stays bounded without hiding
+older work. Unrelated files, symlinks, and unsafe removal paths remain excluded.
+The close-save XTest launches several application processes. Because the normal
+diagnostic logger truncates `canvas-demo.log` at startup, the harness assigns a
+distinct `RPL_LOG_DIR` to each launch; it waits on first-frame, page, and control
+markers from that process only. Pointer activation of Next and each resulting
+page transition are asserted, rather than inferred from stale markers or delays.
+Home bounds the Recent artwork and Continue safely columns to the available
+width; the test rejects horizontally clipped pager/Open controls before using
+them, and scrolls only when their vertical position requires it.
+For saved-draft pagination the harness waits for the Next rectangle to remain
+unchanged over a quiet interval after smooth scrolling, moves the pointer off
+and back onto the control, then sends a separate press/release and asserts the
+page transition. Marker parsing trims separator whitespace, and the expected
+page is advanced with each real click. The Home layout reserves the same
+32-point right inset as its left inset so showing Previous cannot push Next
+outside its safe viewport. This avoids stale coordinates while the scroll
+animation is still moving the control. Python unit tests cover marker parsing
+and the quiet-period observer's change, reset, and stability behavior without
+relying on wall-clock sleeps.
+If a filesystem or document-storage error prevents automatic close-save, the
+application remains open and offers Retry, Save As, or Cancel. Named-document
+external-change conflicts use the existing `Store` content-hash guard and also
+keep the window open.
 
 ## Phase 8.3 accessibility foundation
 
@@ -1346,3 +1369,46 @@ python3 -m unittest discover -s scripts -p 'test_*.py' -v
 The complete Rust checks and Linux artwork workflow must still pass on the
 implementation commit, and the existing hosted Windows/Linux/macOS Actions
 matrix must pass before beginning the next milestone.
+
+### Close-time project drafts and recovery checkpoints
+
+The focused Linux XTest workflow exercises the real close path and local storage:
+
+```sh
+cargo build --locked -p canvas-demo
+xvfb-run -a -s "-screen 0 1600x1000x24" python3 scripts/close-save-smoke.py
+```
+
+It paints through the live window, verifies a periodic recovery checkpoint
+contains raster pixels, closes an untitled document into an editable `.rpl`
+draft, reopens that draft through the application, paints again, and closes the
+named project. It then seeds 100 valid existing drafts, saves a new painted draft
+through the real close path, verifies every seed remains byte-for-byte unchanged,
+browses all 13 Home-screen pages, and reopens the new artwork through the app.
+On non-root Linux runners it also removes write permission from the draft folder,
+verifies the actual permission-denied error is shown without closing the app, then
+restores permissions and confirms Retry saves the painted artwork. A separate
+unavailable draft directory exercises Cancel and Save As. A document-level test
+round-trips a draft containing raster pixels, an editable layer mask, and vector
+geometry. Storage fault injection simulates ENOSPC during a temporary write and
+verifies that the previous valid project remains byte-for-byte intact and opens;
+the environment does not fill a real disk to exhaustion. The XTest test uses
+temporary state directories and requires an X11 display, XTest, a working
+software GPU, and the normal Linux GUI libraries. CI provides Xvfb; a local Xorg
+display works too.
+The script waits for the first visible frame and confirmed resize, uses stable
+post-resize control geometry, and derives paint strokes from the live document
+bounds. Its assertions inspect native project bytes and raster pixels. None of
+these checks reproduces or validates the owner's Windows filesystem behavior.
+
+This workflow passed locally on the managed Xorg display `:99` with llvmpipe.
+The shell had no `xvfb-run` executable, so the hosted Xvfb job remains the
+required CI check for the same script.
+
+The alpha smoke's New Artwork assertion pairs the document-name, Portrait-card,
+and Create bounds from the same rendered frame. After each modal open or window
+resize, it waits for two matching complete frames and confirms the requested
+window size before checking that the name precedes the cards and the controls
+remain inside the viewport. This avoids comparing a fresh text-field rectangle
+with a still-stable card rectangle from the previous size; it preserves the
+ordering and clipping assertions.

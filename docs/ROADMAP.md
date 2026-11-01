@@ -1,9 +1,55 @@
-# Rust Paint Lab engineering roadmap
+# BitchPixel (BP) engineering roadmap
 
 This is a working engineering sequence, not a release promise. Phase 8.3
 workspace/accessibility work continues alongside Phase 9's raster painting and
 editing tools; unresolved visual polish does not block useful creative features.
 Artwork preservation and cross-platform validation apply to every track.
+
+## First physical alpha QA corrective sequence — active
+
+The owner confirmed the close-time save failure occurred because
+%LOCALAPPDATA%\RustPaintLab\drafts already contained more than eight drafts;
+clearing the folder allowed close-time saving. PR #9 removes the fixed eight-file
+creation limit, returns every regular draft from discovery, and pages the Home
+list eight entries at a time. It does not delete, overwrite, migrate, or prune
+existing files. Native .rpl storage, atomic saves, backups, and path safety
+remain unchanged.
+
+Focused tests add and reopen projects with 8, 9, 32, and 100 prior drafts while
+checking existing file bytes and a prior backup. The Linux XTest workflow saves
+and reopens new artwork with 100 existing drafts, navigates all 13 pages, and
+tests real permission-denied recovery/retry. ENOSPC fault injection verifies an
+interrupted temporary write preserves the previous valid project. PR #9 remains
+draft until the owner accepts the portable Windows artifact on the Galaxy Book.
+Local Rust 1.90 formatting/strict Clippy, all 417 workspace tests, workspace
+build, Windows GNU check/Clippy, GPU smoke, and all 15 Python helper tests pass.
+The complete close-save XTest now passes locally on the private Xorg dummy
+display using GL, including all 13 pages, opening the saved artwork, permission
+Retry, Cancel, and Save As. The Xorg dummy does not provide a Vulkan window
+surface, so the hosted Linux Vulkan run remains required. At
+`1076da1`, Windows and macOS passed and the Linux artwork workflow passed. The
+close-save XTest then exposed Home's Recent artwork column pushing the saved-
+draft pager outside the viewport. Home columns are now width-bounded and the
+XTest rejects horizontally clipped controls before attempting its real pointer
+clicks. Commit `980b1b2` moved the control inside the viewport. Runs
+`41273062739`/`41273065627` still failed after hover was observed; the trace
+showed its rectangle moving during smooth-scroll settling. The current
+follow-up waits for a quiet geometry interval and explicit pointer-out/in state
+before click delivery. Run `41277038484` passed Windows, macOS, and Linux artwork
+but failed in close-save. Local XTest then exposed leading whitespace in marker
+values, an expected-page assertion that still checked page 1 after clicking to
+page 2, and a page-2 Home edge-margin defect; each was corrected without
+weakening the pointer or clipping checks. It also stopped expecting a save
+transaction when closing an unchanged reopened draft. A fresh hosted matrix is
+pending.
+No physical Windows result is claimed. The .bp extension and BitchPixel
+directory migration are a separate follow-up assignment; this branch continues
+to preserve the current .rpl behavior.
+
+Continue with the owner's remaining findings in the approved priority order;
+do not modify the separate GPLv3 draft PRs. See the current top of
+docs/PHASE8-STUDIO-PROGRESS.md and the close-save section in docs/testing.md
+for validation and limits.
 
 ## Canvas-first design handoff — active implementation
 

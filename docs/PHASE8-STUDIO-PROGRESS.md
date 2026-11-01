@@ -1,5 +1,96 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## First physical alpha QA corrective campaign (2026-10-31; active)
+
+The owner confirmed the close-time failure's cause: the historical
+`%LOCALAPPDATA%\RustPaintLab\drafts` folder contained more than eight drafts,
+and clearing it allowed close-time saving to succeed. The eight-file rejection
+is removed on the existing PR #9 branch. Draft discovery no longer truncates at
+eight; Home displays eight drafts per page with Previous/Next navigation, so all
+older drafts remain reachable while each rendered batch stays bounded. No files
+are pruned, replaced, migrated, or deleted by this change. Native `.rpl` bytes,
+atomic `Store` writes, backups, and filesystem path checks are unchanged.
+
+The targeted Rust test saves an additional draft with 8, 9, 32, and 100 valid
+drafts already present, checks every previous file byte-for-byte, preserves and
+checks an existing backup, and reopens all projects including the new one. A
+separate paging test covers empty, full, partial, and out-of-range pages. The
+Linux XTest workflow now also creates and paints an additional draft with 100
+existing files, verifies none changed, visits all 13 Home pages, and reopens the
+new artwork. On non-root Linux runners it tests a real permission-denied folder,
+checks the app remains open with the OS error visible, restores write permission,
+and retries successfully. A storage-level ENOSPC fault injection verifies a
+partial temporary write leaves the previous native project byte-for-byte intact
+and reopenable; it does not fill a physical disk. Permission and storage-full
+messages are covered by Rust tests. Existing non-directory storage, Cancel, and
+Save As paths remain covered.
+
+Local verification for the current follow-up atop `9ab1953`: Rust 1.90
+formatting and strict Clippy, workspace build, Windows GNU check and strict
+Clippy, all **417 workspace test cases**, required llvmpipe GPU smoke, Python
+syntax, and all **15 Python helper tests** passed. The earlier exact-head runs
+at `c0cae60`
+([PR run 41269343591](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41269343591),
+[push run 41269339160](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41269339160))
+passed Windows and macOS; Linux passed the artwork workflow but failed the
+close-save browser's first-page wait. The owner-provided log confirms that
+`diagnostics::initialize` truncates `canvas-demo.log` on every process startup,
+while the smoke reused one `RPL_LOG_DIR` and compared marker counts across
+launches. The new process wrote the expected first-page marker, but truncation
+reset the count baseline, so the test reported a false timeout. Each launch now
+gets a unique log directory; first-page and control geometry are read from that
+fresh log, and real Next-pointer activation plus every page transition remain
+asserted. Run `41271639290` passed Windows, macOS, and the long Linux artwork
+workflow, then failed the close-save browser because the Recent artwork
+column's viewport-wide empty state pushed the adjacent Continue safely column
+off-screen. Commit `980b1b2` constrained both Home columns, and the XTest
+confirmed Next's new rectangle is within the 1280-point viewport; the pointer
+click still did not activate it (push run `41273062739`, PR run `41273065627`).
+The follow-up adds an explicit egui hover observation before the press/release
+and the hover marker proved the pointer reaches Next, but click activation still
+failed in both runs at `9ab1953` (`41274708932`, `41274711380`). The trace shows
+the button moving from y=672 to y=646 after the harness decided it was visible.
+Its rectangle marker is emitted twice in one frame, so `stable_rect` could
+mistake same-frame duplicate lines for a settled scroll position. The current
+follow-up waits for quiet geometry after scrolling. At `95c27ea`, hosted run
+`41277038484` passed Windows, macOS, and the Linux artwork smoke, then failed
+the close-save test. A local Xorg/XTest reproduction identified two harness
+assertion bugs: marker values retained separator whitespace, and after a real
+Next click advanced to page 2 the test still expected the page-1 label. Both
+are corrected while the real hover, click, and every page transition remain
+asserted. The same local run exposed a 3-point Home edge gutter on page 2 when
+Previous appeared; the medium-width Home columns now reserve a right margin
+matching the 32-point left inset, with the existing clipping assertion intact.
+The smoke also incorrectly required a close-save marker after opening and
+inspecting an unchanged project; it now checks clean process exit without
+claiming a save transaction for that case.
+
+The complete close-save XTest now passes locally on the private dummy-Xorg
+display using the GL backend: painted close/reopen, 100 prior drafts preserved,
+all 13 pages, reopening the new artwork, real permission-denied Retry, Cancel,
+and Save As. The 15 Python helper tests and focused Home-layout regression pass.
+The local dummy-Xorg server cannot create a Vulkan window surface; the workflow's
+Vulkan path still requires hosted Linux CI. The new exact-head Actions run is
+needed to verify the correction across Windows, Linux, and macOS.
+
+The earlier corrective slice on this branch surfaced close-save errors, added
+recovery checkpoint diagnostics, and validated a draft containing raster pixels,
+a mask, and vector content. Its first hosted Linux smoke failures were traced to
+test synchronization, stale geometry, keyboard path typing, and expected log
+markers; the harness now waits for the first frame and stable resize, derives
+drawing coordinates from the live artboard, and exercises Home's real Open
+action. The underlying owner-reported condition is now known, rather than the
+previously documented hypothesis.
+
+PR #9 remains a draft on `main` and must not be merged until the owner accepts a
+fresh portable Windows build on the Galaxy Book2 Pro 360. Record the exact
+implementation SHA and Windows/Linux/macOS Actions result here after the new
+commit is pushed and its checks finish. Physical Windows filesystem behavior is
+not claimed as tested. The `.bp` default
+extension and BitchPixel directory migration are explicitly separate follow-up
+work; this PR continues to write compatible `.rpl` drafts. Findings 1–12 remain
+in the owner's specified priority order; Phase 8.3 is active.
+
 ## Milestone 3 compact-Inspector correction (2026-10-31; local verification)
 
 The pushed branch head before this correction is `52d7e2d`. Actions run
@@ -690,9 +781,10 @@ This is the active continuation record. Phase 7 work remains documented in
 - Closing an unnamed project writes a normal editable `.rpl` under a separate
   local `drafts/` directory. Generated filenames include a readable project stem;
   drafts appear on the next welcome screen and reopen through the existing native
-  project reader. The list is capped at eight and a failed/full draft save blocks
-  close until Save As succeeds or the user cancels. No old draft is deleted
-  automatically.
+  project reader. The original implementation capped discovery at eight; the
+  current corrective campaign at the top of this document removes that cap and
+  pages the Home list instead. A failed draft save blocks close until Retry or
+  Save As succeeds or the user cancels. No old draft is deleted automatically.
 - The welcome screen now offers an explicit confirmation before removing a draft.
   The removal routine accepts only a regular `draft-*.rpl` child of the drafts
   directory and removes its matching storage backup; it rejects symlinks, ordinary
@@ -735,9 +827,11 @@ This is the active continuation record. Phase 7 work remains documented in
   Windows GNU target check/Clippy. License generation passes for both Windows MSVC
   and macOS ARM64 target graphs (152 and 164 packages respectively). The real alpha
   Xvfb workflow remains unavailable locally.
-- A third slice adds safe, user-confirmed cleanup of persistent drafts so a full
-  draft quota can be managed without weakening the bounded storage policy. Its
-  regression tests cover backup cleanup and reject unrelated/outside paths. Local
+- A third slice added safe, user-confirmed cleanup of persistent drafts while the
+  list still had an eight-item cap. That cap is superseded by the current
+  corrective campaign at the top of this document; explicit cleanup remains
+  available. Regression tests cover backup cleanup and reject unrelated/outside
+  paths. Local
   fmt, strict Clippy, workspace tests/build, and the required llvmpipe GPU smoke
   all pass for this slice.
 - Workspace preferences now retain the last successfully created document's size,
@@ -3659,3 +3753,35 @@ input adapter, or stylus behavior changed. Continue only after the milestone's
 Windows/Linux/macOS matrix is green; next is the approved scrollable Inspector
 tab strip and vector editing integration, including the direct-pointer anchor
 editor regression without the `H` fallback.
+
+### PR #9 close-save continuation — alpha smoke geometry synchronization (2026-11-01)
+
+PR #9 remains an open draft on `fix/close-time-draft-preservation`; do not merge
+before Product Owner acceptance of the fresh Windows build. At `e42e013`, PR
+Actions run
+[`41279252362`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41279252362)
+passed Windows, Ubuntu, and macOS, including the 100-draft close-save workflow.
+The duplicate push-triggered run
+[`41279247271`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41279247271)
+failed only the Linux alpha New Artwork ordering check. Its field and Portrait
+card rectangles came from different render frames after a resize; the source
+UI lays out the name field before the format cards, and the same code passed in
+the PR-triggered run. This was a test-observation race, not a demonstrated UI
+ordering defect.
+
+The alpha harness now snapshots the New Artwork name-marker count after each
+open/resize and accepts geometry only when two complete consecutive frames
+agree on name-field, Portrait-card, and Create-button bounds. It verifies the
+actual X11 window size before evaluating the same ordering and viewport
+assertions. Five pure Python tests cover fresh-frame selection, same-frame
+pairing, stable repeated geometry, partially written current frames, and
+malformed markers. The full local Xorg/llvmpipe alpha artwork workflow passed
+with same-frame pairing enabled; the additional partial-frame guard is covered
+by its focused test, and the exact hosted workflow remains pending. It
+generated populated Home, New Artwork, Inspector, reference, recovery, layer,
+mask, vector, gradient, and tool captures. I inspected the normal New Artwork
+screenshot; its document name is visibly above the format cards. The complete
+Rust test/Clippy/build, Windows GNU check, and GPU smoke results at the parent
+source checkpoint remain recorded above. Hosted Actions must still pass at the
+new commit before the PR description is updated. Physical Windows filesystem
+behavior and owner acceptance remain outstanding.

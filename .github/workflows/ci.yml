@@ -100,6 +100,30 @@ jobs:
           PYTHON
           fi
           exit "$outcome"
+      - name: Linux close-save and recovery workflow smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          WGPU_BACKEND: vulkan
+        run: |
+          set +e
+          xvfb-run -a -s "-screen 0 1600x1000x24" python3 scripts/close-save-smoke.py > /tmp/close-save-smoke.log 2>&1
+          outcome=$?
+          set -e
+          cat /tmp/close-save-smoke.log
+          if [ "$outcome" -ne 0 ]; then
+            python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          detail=Path('/tmp/close-save-smoke.log').read_text(errors='replace')[-6000:]
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as summary:
+              summary.write('### Linux close-save and recovery workflow failure\n\n```text\n')
+              summary.write(detail)
+              summary.write('\n```\n')
+          print('::error title=Close-save workflow::'+detail.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+          PYTHON
+          fi
+          exit "$outcome"
       - name: Linux placed-image workflow smoke
         if: runner.os == 'Linux'
         timeout-minutes: 2
@@ -133,7 +157,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rust-paint-lab-linux-ui-diagnostics
-          path: /tmp/alpha-workflow.log
+          path: |
+            /tmp/alpha-workflow.log
+            /tmp/close-save-smoke.log
           if-no-files-found: warn
           retention-days: 7
       - name: Build portable Windows diagnostic

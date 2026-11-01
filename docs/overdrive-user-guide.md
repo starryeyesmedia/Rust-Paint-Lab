@@ -239,8 +239,9 @@ the application close workflow. Format and Brush preset cards accept Enter or
 Space when focused. F11 fullscreen. L returns to live artwork; P/1/2/3 choose preserved
 replays; Tab switches modes; R restarts; Space pauses. Replay never replaces live
 artwork. Normal close saves named projects to their existing path, or writes an
-unnamed document as a bounded local editable draft. If saving fails, the app stays
-open and offers retry, Save As, or cancel.
+unnamed document as a local editable draft. Saved drafts remain discoverable in
+the Home screen in pages of eight. If saving fails, the app stays open and offers
+retry, Save As, or cancel.
 `--compat-mouse` runs the original session-only Phase 5 diagnostic canvas.
 
 ## Saving and recovery
