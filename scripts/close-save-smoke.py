@@ -54,6 +54,7 @@ root = root_window(display)
 window = 0
 process = None
 log_path = None
+launch_number = 0
 
 
 def lines():
@@ -256,15 +257,23 @@ def document_pixels(path):
 
 
 def launch(root_dir, name):
-    global process, log_path, window
-    log_path = root_dir / "logs" / "canvas-demo.log"
+    global process, log_path, window, launch_number
+    launch_number += 1
+    log_name = "".join(character.lower() if character.isalnum() else "-"
+                       for character in name).strip("-")
+    # diagnostics.rs truncates canvas-demo.log on every process startup. Give
+    # each app launch its own directory so marker observations cannot reset or
+    # leak across the close/reopen boundaries this workflow exercises.
+    log_directory = root_dir / "logs" / f"{launch_number:02d}-{log_name}"
+    log_directory.mkdir(parents=True, exist_ok=False)
+    log_path = log_directory / "canvas-demo.log"
     token = f"RPL_CLOSE_SAVE_{name}_{os.getpid()}"
     env = {
         **os.environ,
         "RPL_TEST_PATH_DIALOG": "1",
         "RPL_TEST_DOCUMENT_NAME": name,
         "RPL_UI_TEST_WINDOW_TOKEN": token,
-        "RPL_LOG_DIR": str(log_path.parent),
+        "RPL_LOG_DIR": str(log_directory),
         "XDG_STATE_HOME": str(root_dir / "state"),
     }
     executable = Path(sys.argv[1] if len(sys.argv) > 1 else "target/debug/canvas-demo").resolve()
@@ -445,19 +454,15 @@ try:
         page_marker_prefix = "UI_TEST_SAVED_DRAFTS_PAGE:"
         next_rect_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_RECT:"
         next_click_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:"
-        page_markers_before_launch = count(page_marker_prefix)
-        next_rects_before_launch = count(next_rect_prefix)
         launch(many_state, "reopen many drafts")
-        wait(lambda: count(page_marker_prefix) > page_markers_before_launch
-             and "page=1 pages=13" in marker(page_marker_prefix),
+        wait(lambda: "page=1 pages=13" in (marker(page_marker_prefix) or ""),
              "new application rendering the first saved-draft page")
-        wait(lambda: count(next_rect_prefix) >= next_rects_before_launch + 2
-             and stable_rect("UI_TEST_SAVED_DRAFTS_NEXT_RECT"),
+        wait(lambda: stable_rect("UI_TEST_SAVED_DRAFTS_NEXT_RECT"),
              "new application rendering the saved-draft Next control")
         page = 0
         while page < 13:
             marker_text = f"page={page + 1} pages=13"
-            wait(lambda: marker_text in marker(page_marker_prefix),
+            wait(lambda: marker_text in (marker(page_marker_prefix) or ""),
                  f"saved-draft browser reaching {marker_text}")
             if page == 12:
                 assert "range=96..101 total=101" in "\n".join(lines()), \
@@ -471,7 +476,7 @@ try:
             wait(lambda: count(next_click_prefix) > next_clicks_before,
                  "the real pointer click activating saved-draft Next")
             wait(lambda: count(page_marker_prefix) > page_markers_before_click
-                 and marker_text in marker(page_marker_prefix),
+                 and marker_text in (marker(page_marker_prefix) or ""),
                  f"saved-draft browser advancing to page={page + 2} pages=13")
             page += 1
 

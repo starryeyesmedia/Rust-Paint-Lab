@@ -24,6 +24,11 @@ draft until the owner accepts the portable Windows artifact on the Galaxy Book.
 Local Rust 1.90 formatting/Clippy, all 416 workspace tests, workspace build,
 Windows GNU check/Clippy, GPU smoke, and Python helper tests pass. The current
 shell has no Xvfb, so the expanded real-window workflow awaits hosted Linux CI.
+At `c0cae60`, Windows and macOS passed; Linux's close-save test falsely timed out
+because the shared test log is truncated on every app launch while marker counts
+were compared across launches. The harness now gives each launch a unique log
+directory and retains real Next-pointer/page-transition assertions; exact-head
+Linux verification is pending.
 No physical Windows result is claimed. The .bp extension and BitchPixel
 directory migration are a separate follow-up assignment; this branch continues
 to preserve the current .rpl behavior.

@@ -327,6 +327,11 @@ and backup and successfully reopens the additional draft. Discovery retains ever
 regular `draft-*.rpl` file; the Home screen presents eight entries per page with
 Previous/Next navigation so the visible widget tree stays bounded without hiding
 older work. Unrelated files, symlinks, and unsafe removal paths remain excluded.
+The close-save XTest launches several application processes. Because the normal
+diagnostic logger truncates `canvas-demo.log` at startup, the harness assigns a
+distinct `RPL_LOG_DIR` to each launch; it waits on first-frame, page, and control
+markers from that process only. Pointer activation of Next and each resulting
+page transition are asserted, rather than inferred from stale markers or delays.
 If a filesystem or document-storage error prevents automatic close-save, the
 application remains open and offers Retry, Save As, or Cancel. Named-document
 external-change conflicts use the existing `Store` content-hash guard and also
