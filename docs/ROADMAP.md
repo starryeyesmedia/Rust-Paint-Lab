@@ -5,6 +5,30 @@ workspace/accessibility work continues alongside Phase 9's raster painting and
 editing tools; unresolved visual polish does not block useful creative features.
 Artwork preservation and cross-platform validation apply to every track.
 
+## First physical alpha QA corrective sequence — active
+
+Product-owner testing of the Windows build from PR #8 found 13 concrete issues.
+The approved sequence is to secure close-time saves and periodic recovery first,
+then fix Smudge/Color Mixer, menu layout, direct Brush Library access, and
+Eyedropper feedback. Only after those reliability and painting issues are
+addressed should the toolbar lose grouped tools and the visual refinements
+proceed. The approved correction gives every implemented tool a direct button,
+restores direct References access, and removes the unfinished Create Path tool
+from the primary rail while preserving editable vector documents. Brush
+Library expansion is limited to meaningful behavior already supported by the
+engine. A separate vector freehand-brush specification follows these fixes;
+implementation awaits owner approval. Do not alter or merge the separate GPLv3
+draft PRs.
+
+Current starting baseline: `main` at
+`1559122943e8b6e9123b653a555f72e7a894d3e6`. The first active corrective PR is
+`fix/close-time-draft-preservation`. Its initial slice exposes the exact close
+save error and adds application-level Linux close/recovery coverage; it does
+not yet identify the owner's Windows filesystem failure. Product-owner
+acceptance is required before merging artist-facing corrections. See the
+current top section of `docs/PHASE8-STUDIO-PROGRESS.md` for tested commands,
+limitations, and continuation steps.
+
 ## Canvas-first design handoff — active implementation
 
 The first approved implementation slice is in progress on

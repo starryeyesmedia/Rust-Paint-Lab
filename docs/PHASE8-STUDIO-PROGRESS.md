@@ -1,5 +1,39 @@
 # Phase 8 — Creative Studio Overdrive progress
 
+## First physical alpha QA corrective campaign (2026-10-31; active)
+
+The new owner report starts from merged `main` commit
+`1559122943e8b6e9123b653a555f72e7a894d3e6`. The owner confirmed a close-time
+save dialog, then successfully used Save As and reopened the resulting project
+with its artwork intact. This is evidence for that manual-save scenario only;
+the underlying failure condition, background-checkpoint behavior on Windows,
+and the modal's Retry/Cancel behavior were not demonstrated by that report.
+
+The first corrective slice is on `fix/close-time-draft-preservation`. Close
+failures now retain their underlying error in the dialog and local diagnostic
+log. Draft-capacity failures identify the eight-draft limit and offer useful
+next actions. Recovery-directory initialization failures and periodic
+checkpoint completion/failure are no longer silently omitted from diagnostics.
+Native draft round-trip coverage now includes raster pixels, a mask, and a
+vector path. A focused Linux XTest workflow covers untitled draft close, opening
+that draft in the app, saving later edits, periodic checkpoint pixels, injected
+storage failure, Retry after repair, Cancel without closing, and Save As. The
+actual owner-reported Windows storage failure has **not** been reproduced; the
+exact root cause remains unknown. The script will make the filesystem cause
+visible in a testable failure case, and the owner-provided next Windows build
+will capture the actual device error if it persists.
+
+Local validation on this slice: Rust 1.90 formatting, strict workspace Clippy,
+the complete workspace suite and build, `scripts/check-tests.py`, 8 Python
+helper tests, Windows GNU workspace check/Clippy, and llvmpipe GPU smoke passed.
+The new Linux XTest script compiles as Python but could not run locally because
+this environment has no Xvfb/XTest display. Hosted Actions for this branch and
+the new XTest workflow are pending. No Windows runtime or physical-device
+result is claimed. Immediate next step: open the draft PR, inspect the actual
+Linux run and Windows package/startup checks, then continue only after
+close-save/recovery coverage is green. Findings 1–12 remain in scope in the
+owner's specified priority order; Phase 8.3 is active.
+
 ## Milestone 3 compact-Inspector correction (2026-10-31; local verification)
 
 The pushed branch head before this correction is `52d7e2d`. Actions run

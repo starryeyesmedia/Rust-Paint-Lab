@@ -119,6 +119,25 @@ pub fn create_in(
     Err(PaintError::Busy)
 }
 
+/// Give close-time draft failures enough context to recover without hiding the
+/// underlying filesystem or document error behind a generic close dialog.
+pub fn close_save_error(directory: &Path, error: &PaintError) -> String {
+    match error {
+        PaintError::Limit => format!(
+            "The local draft folder ({}) already contains the maximum of {MAX_DRAFTS} drafts. Remove an older draft or use Save As.",
+            directory.display()
+        ),
+        PaintError::Io(error) => format!(
+            "Could not write an untitled project draft in {}: {error}",
+            directory.display()
+        ),
+        error => format!(
+            "Could not save an untitled project draft in {}: {error}",
+            directory.display()
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,6 +191,52 @@ mod tests {
             create_in(&state, "another", &dir),
             Err(PaintError::Limit)
         ));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn untitled_draft_round_trip_preserves_raster_mask_and_vector_artwork() {
+        let dir = temp_dir();
+        let mut state = State::new(64, 48, 300).unwrap();
+        state.layers[0].tiles.insert(
+            (0, 0),
+            std::sync::Arc::new({
+                let mut tile = vec![0; 64 * 64 * 4];
+                tile[0..4].copy_from_slice(&[12, 34, 56, 255]);
+                tile
+            }),
+        );
+        state.layers[0].mask = Some(paint_document::LayerMask {
+            enabled: true,
+            inverted: false,
+            tiles: std::collections::BTreeMap::from([(
+                (0, 0),
+                std::sync::Arc::new(vec![127; 64 * 64]),
+            )]),
+        });
+        state.layers[0].vector_paths.push(
+            paint_document::vector::VectorPath::from_polyline(
+                1,
+                &[[2.0, 3.0], [21.0, 17.0]],
+                [190, 32, 210, 255],
+                3.5,
+            )
+            .unwrap(),
+        );
+        state.next_vector_id = 2;
+        state.validate().unwrap();
+
+        let (store, path) = create_in(&state, "layer mask vector draft", &dir).unwrap();
+        drop(store);
+        let (_store, reopened) = Store::open(path.clone()).unwrap();
+        assert_eq!(reopened.width, 64);
+        assert_eq!(reopened.layers[0].tiles[&(0, 0)][0..4], [12, 34, 56, 255]);
+        let mask = reopened.layers[0].mask.as_ref().unwrap();
+        assert!(mask.enabled);
+        assert_eq!(mask.tiles[&(0, 0)][..3], [127, 127, 127]);
+        assert_eq!(reopened.layers[0].vector_paths.len(), 1);
+        assert_eq!(reopened.layers[0].vector_paths[0].segments.len(), 1);
+        assert_eq!(reopened.layers[0].vector_paths[0].width, 3.5);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -235,5 +300,22 @@ mod tests {
         assert!(outside.exists());
         fs::remove_file(outside).unwrap();
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn close_save_errors_identify_full_draft_storage_and_io_failures() {
+        let dir = Path::new("/local/state/bitchpixel/drafts");
+        let limit = close_save_error(dir, &PaintError::Limit);
+        assert!(limit.contains("maximum of 8 drafts"));
+        assert!(limit.contains("Remove an older draft or use Save As"));
+        assert!(limit.contains(&dir.display().to_string()));
+
+        let io = PaintError::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "access denied",
+        ));
+        let message = close_save_error(dir, &io);
+        assert!(message.contains("Could not write an untitled project draft"));
+        assert!(message.contains("access denied"));
     }
 }

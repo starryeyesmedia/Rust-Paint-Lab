@@ -1346,3 +1346,25 @@ python3 -m unittest discover -s scripts -p 'test_*.py' -v
 The complete Rust checks and Linux artwork workflow must still pass on the
 implementation commit, and the existing hosted Windows/Linux/macOS Actions
 matrix must pass before beginning the next milestone.
+
+### Close-time project drafts and recovery checkpoints
+
+The focused Linux XTest workflow exercises the real close path and local storage:
+
+```sh
+cargo build --locked -p canvas-demo
+xvfb-run -a -s "-screen 0 1600x1000x24" python3 scripts/close-save-smoke.py
+```
+
+It paints through the live window, verifies a periodic recovery checkpoint
+contains raster pixels, closes an untitled document into an editable `.rpl`
+draft, reopens that draft through the application, paints again, and closes the
+named project. It also injects an unavailable draft directory and verifies that
+the application reports the filesystem cause, keeps artwork open, and permits
+Retry, Cancel, and Save As recovery paths. A document-level test round-trips a
+draft containing raster pixels, an editable layer mask, and vector geometry.
+The document storage tests separately inject interrupted writes and verify the
+previous valid project remains recoverable. The XTest test uses temporary state
+directories and requires Xvfb, XTest, a working software GPU, and the normal
+Linux GUI libraries; a local run without those services is not a pass. None of
+these checks reproduces or validates the owner's Windows filesystem behavior.

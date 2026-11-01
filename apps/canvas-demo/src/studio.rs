@@ -5872,6 +5872,7 @@ pub struct Studio {
     confirm: Option<Action>,
     pub close_requested: bool,
     pub close_ready: bool,
+    close_save_error: Option<String>,
     recovery: Option<Recovery>,
     recovery_files: Vec<PathBuf>,
     recovery_preview: Option<(PathBuf, Option<egui::TextureHandle>)>,
@@ -6020,7 +6021,19 @@ impl Studio {
             .as_ref()
             .map(|p| paint_document::recovery::available(p))
             .unwrap_or_default();
-        let recovery = dir.as_ref().ok().and_then(|p| Recovery::start(p).ok());
+        let (recovery, recovery_unavailable_reason) = match dir.as_ref() {
+            Ok(path) => match Recovery::start(path) {
+                Ok(recovery) => (Some(recovery), None),
+                Err(error) => {
+                    crate::studio_log!("RECOVERY_INITIALIZATION_FAILED: {error}");
+                    (None, Some(error.to_string()))
+                }
+            },
+            Err(error) => {
+                crate::studio_log!("RECOVERY_DIRECTORY_FAILED: {error}");
+                (None, Some(error.to_string()))
+            }
+        };
         let recent_path = dir
             .as_ref()
             .ok()
@@ -6083,7 +6096,12 @@ impl Studio {
         let status = if recovery.is_some() {
             "Ready — local recovery enabled".into()
         } else {
-            "Recovery unavailable: choose a writable project path and save frequently".into()
+            format!(
+                "Recovery unavailable: {}; choose a writable project path and save frequently",
+                recovery_unavailable_reason
+                    .as_deref()
+                    .unwrap_or("could not initialize local recovery")
+            )
         };
         Self {
             context,
@@ -6170,6 +6188,7 @@ impl Studio {
             confirm: None,
             close_requested: false,
             close_ready: false,
+            close_save_error: None,
             recovery,
             recovery_files: files,
             recovery_preview: None,
@@ -9147,14 +9166,27 @@ impl Studio {
     /// Persist artwork before normal close. A conflict/failure leaves the window
     /// open so the user can retry, choose Save As, or cancel.
     pub fn save_for_close(&mut self, session: &mut CanvasSession) -> Result<(), Failure> {
+        let revision = session.live().project().revision;
+        let kind = if self.store.is_some() {
+            "named-project"
+        } else {
+            "untitled-draft"
+        };
+        crate::studio_log!("CLOSE_SAVE_STARTED: kind={kind} revision={revision}");
         if self.store.is_some() {
             self.execute(Action::Save, session)?;
         } else {
+            let directory = crate::drafts::directory().map_err(|error| {
+                std::io::Error::other(format!("Could not locate local draft storage: {error}"))
+            })?;
             let (store, path) = {
                 let project = session.live_mut().project_mut();
                 project.sync_brush_settings();
                 let state = project.state().clone();
-                let (store, path) = crate::drafts::create(&state, &self.new_name)?;
+                let (store, path) = crate::drafts::create_in(&state, &self.new_name, &directory)
+                    .map_err(|error| {
+                        std::io::Error::other(crate::drafts::close_save_error(&directory, &error))
+                    })?;
                 project.saved_revision = project.revision;
                 (store, path)
             };
@@ -9168,10 +9200,15 @@ impl Studio {
         }
         self.close_ready = true;
         self.close_requested = false;
+        self.close_save_error = None;
+        crate::studio_log!("CLOSE_SAVE_COMPLETE: kind={kind} revision={revision}");
         Ok(())
     }
     pub fn mark_close_save_failed(&mut self, error: impl std::fmt::Display) {
+        let error = error.to_string();
+        crate::studio_log!("CLOSE_SAVE_FAILED: {error}");
         self.status = format!("Automatic save failed: {error}");
+        self.close_save_error = Some(error);
         self.close_requested = true;
     }
     pub fn needs_autosave(&self, session: &CanvasSession) -> bool {
@@ -15786,7 +15823,17 @@ impl Studio {
                 // by this focused text field. Read it before the TextEdit handles
                 // the event so the headless workflow can reliably submit the path.
                 let submit = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
+                let path = ui.add(egui::TextEdit::singleline(&mut self.path).char_limit(4096));
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_FILE_PICKER_PATH_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        path.rect.left(),
+                        path.rect.top(),
+                        path.rect.width(),
+                        path.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
                 ui.horizontal(|ui| {
                     if ui.button("Continue").clicked() || submit {
                         if let Some(action) = self.manual_file_action.take() {
@@ -15840,16 +15887,62 @@ impl Studio {
             });
         } else if self.close_requested {
             egui::Modal::new(egui::Id::new("close artwork")).show(ctx, |ui| {
+                ui.set_max_width(460.0);
                 ui.heading("Automatic save did not complete");
                 ui.label("Your artwork is still open. Retry the save, choose another project location, or cancel closing.");
-                if ui.button("Retry save").clicked() {
+                if let Some(error) = &self.close_save_error {
+                    ui.add_space(4.0);
+                    ui.label("Save details:");
+                    ui.add(egui::Label::new(error).wrap());
+                    if self.test_path_dialog {
+                        crate::studio_log!("UI_TEST_CLOSE_SAVE_ERROR_VISIBLE: {error}");
+                    }
+                }
+                let retry = ui.button("Retry save");
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_CLOSE_SAVE_RETRY_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        retry.rect.left(),
+                        retry.rect.top(),
+                        retry.rect.width(),
+                        retry.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+                if retry.clicked() {
                     actions.push(Action::RetryClose);
                 }
-                if ui.button("Save As…").clicked() {
+                let save_as = ui.button("Save As…");
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_CLOSE_SAVE_AS_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        save_as.rect.left(),
+                        save_as.rect.top(),
+                        save_as.rect.width(),
+                        save_as.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+                if save_as.clicked() {
                     self.picker = Some(FileRequest::SaveProjectAs);
                 }
-                if ui.button("Cancel").clicked() {
+                let cancel = ui.button("Cancel");
+                if self.test_path_dialog {
+                    crate::studio_log!(
+                        "UI_TEST_CLOSE_SAVE_CANCEL_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                        cancel.rect.left(),
+                        cancel.rect.top(),
+                        cancel.rect.width(),
+                        cancel.rect.height(),
+                        ui.ctx().pixels_per_point()
+                    );
+                }
+                if cancel.clicked() {
+                    if self.test_path_dialog {
+                        crate::studio_log!("UI_TEST_CLOSE_SAVE_CANCELLED");
+                    }
                     self.close_requested = false;
+                    self.close_save_error = None;
                 }
             });
         }
@@ -16898,6 +16991,10 @@ impl Studio {
                 self.recovery_saving = false;
                 match result {
                     Ok(()) => {
+                        crate::studio_log!(
+                            "RECOVERY_CHECKPOINT_COMPLETE: revision={}",
+                            self.last_submitted
+                        );
                         if self.test_path_dialog {
                             crate::studio_log!(
                                 "UI_TEST_RECOVERY_COMPLETE: {}",
@@ -16907,6 +17004,10 @@ impl Studio {
                         self.status = "Recovery checkpoint complete".into();
                     }
                     Err(e) => {
+                        crate::studio_log!(
+                            "RECOVERY_CHECKPOINT_FAILED: revision={} {e}",
+                            self.last_submitted
+                        );
                         if self.test_path_dialog {
                             crate::studio_log!(
                                 "UI_TEST_RECOVERY_FAILED: {} {e}",
@@ -17994,6 +18095,7 @@ impl Studio {
                     self.store.as_mut().unwrap().save(project.state())?;
                 }
                 project.saved_revision = project.revision;
+                self.close_save_error = None;
                 if self.close_requested {
                     self.close_ready = true;
                 }
