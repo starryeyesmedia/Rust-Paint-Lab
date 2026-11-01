@@ -9,9 +9,15 @@ BitchPixel is the adopted product identity for this free, accessibility-first cr
 
 BitchPixel is an original cross-platform digital painting application in active alpha development. The current desktop alpha has pressure-responsive raster brushes, editable raster layers, bounded undo/redo, selections and basic transforms, local project saving/recovery, PNG and restricted OpenRaster interchange, and a wgpu canvas. Native Windows WM_POINTER input is wired to the same shared input and stroke pipeline as mouse input.
 
-This is not yet a production replacement for established painting software. Native pen delivery, capture behavior, storage durability, and performance still require testing on the target Windows hardware. Keep independent copies of important artwork. The application is unsigned development software; the project has no selected distribution license.
+This is not yet a production replacement for established painting software. Native pen delivery, capture behavior, storage durability, and performance still require testing on the target Windows hardware. Keep independent copies of important artwork. The application is unsigned development software. Original BitchPixel project code is licensed under GPL-3.0-only; separately licensed dependencies and fonts retain their own terms.
 
 Start with the [alpha user guide](docs/overdrive-user-guide.md), [Phase 8 implementation status](docs/PHASE8-STUDIO-PROGRESS.md), [native project format](docs/RPL-ALPHA-FORMAT.md), and [known interchange limits](docs/openraster.md).
+
+## License and copyright
+
+The original BitchPixel project code is licensed under the [GNU General Public License version 3.0 only](LICENSE) (`GPL-3.0-only`). Copyright © 2026 **Cecelia Thompson** for original material she owns.
+
+See [copyright and ownership](COPYRIGHT.md), [contribution guidelines](CONTRIBUTING.md), and [third-party notices](THIRD-PARTY.md). Third-party fonts and Rust dependencies retain their separate license terms.
 
 ## Workspace
 
