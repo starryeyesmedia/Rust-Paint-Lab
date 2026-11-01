@@ -6,6 +6,11 @@ third-party notices, and SHA-256 entries against the package's own manifest.
 Those checks establish integrity relative to that manifest; they do not
 authenticate the publisher or establish that a package is signed.
 
+The report also lists payload files omitted from the checksum manifest. Such
+gaps are warnings by default for compatibility with current alpha packages;
+--strict-completeness rejects packages that omit any payload file. The manifest
+itself is reported separately because it cannot verify its own digest.
+
 Supported inputs are package directories, ZIP files, and tar archives (including
 the .tar.gz format emitted by the current Linux/macOS workflow). Current
 canvas-demo and future BitchPixel executable names are recognized.
@@ -189,6 +194,7 @@ class Verification:
             "limitations": [
                 "SHA-256 checks compare package bytes with the supplied manifest; they do not authenticate a publisher.",
                 "This utility does not verify digital signatures or establish that a package is trusted.",
+                "Payload files absent from the manifest are not protected by manifest comparison; --strict-completeness can reject that coverage gap.",
             "Notice presence and bundled-font markers are checked; complete dependency-license coverage requires a separate dependency-graph review.",
             ],
         }
@@ -284,6 +290,7 @@ def verify_package(
     expected_commit: str | None = None,
     source_head: str | None = None,
     merge_commit: str | None = None,
+    strict_completeness: bool = False,
 ) -> dict[str, Any]:
     """Return a JSON-serializable verification report."""
     package_path = Path(path)
@@ -474,39 +481,100 @@ def verify_package(
 
     manifest_name = "SHA256SUMS.txt"
     manifest_entries: list[tuple[str, str]] = []
+    manifest_readable = False
+    manifest_sha256: str | None = None
     if manifest_name not in package.members:
         report.add("checksum_manifest", "fail", "Required SHA256SUMS.txt is missing")
     else:
         try:
             manifest_text = package.read_text(manifest_name)
+            manifest_readable = True
             manifest_entries, manifest_errors = _parse_sha256_manifest(manifest_text)
             for error in manifest_errors:
                 report.add("checksum_manifest", "fail", error)
             if not manifest_errors:
                 report.add("checksum_manifest", "pass", "Parsed SHA256SUMS.txt")
-        except (OSError, UnicodeError, ValueError) as exc:
+        except PACKAGE_IO_ERRORS as exc:
             report.add("checksum_manifest", "fail", f"Cannot read SHA256SUMS.txt: {exc}")
+        try:
+            manifest_sha256, _ = package.sha256(manifest_name)
+        except PACKAGE_IO_ERRORS as exc:
+            report.add("checksum_manifest_hash", "fail", f"Cannot calculate the manifest's observed SHA-256: {exc}")
 
     manifest_names = {name for _, name in manifest_entries}
     if executable and executable not in manifest_names:
         report.add("executable_checksum_entry", "fail", "SHA256SUMS.txt does not list the package executable", expected=executable)
     elif executable:
         report.add("executable_checksum_entry", "pass", "SHA256SUMS.txt lists the package executable", actual=executable)
+
+    listed_and_hashed: list[dict[str, str]] = []
+    listed_with_failed_hashes: list[dict[str, str | None]] = []
+    manifest_self_entry: str | None = None
     for expected_hash, name in manifest_entries:
+        if name == manifest_name:
+            manifest_self_entry = expected_hash
+            report.add("checksum_manifest_self_reference", "fail", "Checksum manifest cannot independently verify its own digest", expected=expected_hash, actual=manifest_sha256)
+            continue
         if name not in package.members:
+            listed_with_failed_hashes.append({"path": name, "expected_sha256": expected_hash, "actual_sha256": None, "reason": "listed file is absent from package"})
             report.add("checksum_file", "fail", "Checksum manifest references a missing file", actual=name)
             continue
         try:
             actual_hash, size = package.sha256(name)
         except PACKAGE_IO_ERRORS as exc:
+            listed_with_failed_hashes.append({"path": name, "expected_sha256": expected_hash, "actual_sha256": None, "reason": f"cannot hash file: {exc}"})
             report.add("checksum_file", "fail", f"Cannot hash manifest file: {exc}", actual=name)
             continue
         if name == executable and size == 0:
             report.add("executable_size", "fail", "Package executable is empty", actual=name)
         if actual_hash == expected_hash:
+            listed_and_hashed.append({"path": name, "sha256": actual_hash})
             report.add("checksum_file", "pass", "SHA-256 matches the supplied manifest", actual=name)
         else:
+            listed_with_failed_hashes.append({"path": name, "expected_sha256": expected_hash, "actual_sha256": actual_hash, "reason": "SHA-256 mismatch"})
             report.add("checksum_file", "fail", "SHA-256 does not match the supplied manifest", expected=expected_hash, actual={"path": name, "sha256": actual_hash})
+
+    listed_names = {name for name in manifest_names if name != manifest_name}
+    payload_files = sorted(name for name in package.members if name != manifest_name)
+    successfully_hashed_names = {entry["path"] for entry in listed_and_hashed}
+    unlisted_files = sorted(set(payload_files) - listed_names)
+    coverage_count = len(successfully_hashed_names & set(payload_files))
+    coverage_total = len(payload_files)
+    coverage_percent = round(100.0 * coverage_count / coverage_total, 2) if coverage_total else None
+    manifest_is_self_listed = manifest_name in manifest_names
+    manifest_report = {
+        "path": manifest_name,
+        "present": manifest_name in package.members,
+        "listed_in_manifest": manifest_is_self_listed,
+        "verification": "self_reference" if manifest_is_self_listed else ("self_excluded" if manifest_readable else "missing_or_unreadable"),
+        "sha256_observed": manifest_sha256,
+        "self_entry_expected_sha256": manifest_self_entry,
+        "note": "The manifest's observed digest is reported for external comparison; a manifest cannot authenticate itself.",
+    }
+    coverage = {
+        "strict_completeness": strict_completeness,
+        "listed_and_successfully_hashed": sorted(listed_and_hashed, key=lambda entry: entry["path"]),
+        "listed_with_failed_hashes": sorted(listed_with_failed_hashes, key=lambda entry: (entry["path"], entry["reason"] or "")),
+        "packaged_files_absent_from_manifest": unlisted_files,
+        "checksum_manifest": manifest_report,
+        "payload_files_total": coverage_total,
+        "payload_files_successfully_covered": coverage_count,
+        "payload_coverage_percent": coverage_percent,
+    }
+    report.result["integrity_coverage"] = coverage
+    has_coverage_gap = bool(unlisted_files or listed_with_failed_hashes or not manifest_readable or manifest_is_self_listed)
+    if strict_completeness and has_coverage_gap:
+        report.add("integrity_coverage", "fail", "Strict completeness requires every packaged payload file to be listed and successfully hashed", actual=coverage)
+    elif unlisted_files:
+        report.add("integrity_coverage", "warning", "Some packaged files are absent from SHA256SUMS.txt; current packages may checksum only the executable", actual=coverage)
+    elif listed_with_failed_hashes:
+        report.add("integrity_coverage", "fail", "One or more manifest entries did not verify", actual=coverage)
+    elif manifest_is_self_listed:
+        report.add("integrity_coverage", "fail", "SHA256SUMS.txt is self-listed and cannot establish its own digest", actual=coverage)
+    elif not manifest_readable:
+        report.add("integrity_coverage", "fail", "Integrity coverage cannot be determined without a readable checksum manifest", actual=coverage)
+    else:
+        report.add("integrity_coverage", "pass", "Every packaged payload file is listed and successfully hashed; SHA256SUMS.txt is reported separately", actual=coverage)
 
     def require_file(name: str, check_id: str, *, nonempty: bool = True) -> str | None:
         if name not in package.members:
@@ -564,6 +632,18 @@ def _render_text(result: dict[str, Any]) -> str:
         status = check["status"].upper()
         suffix = f" (actual: {check['actual']})" if "actual" in check else ""
         lines.append(f"{status} {check['id']}: {check['message']}{suffix}")
+    coverage = result.get("integrity_coverage")
+    if coverage:
+        passed = coverage["listed_and_successfully_hashed"]
+        failed = coverage["listed_with_failed_hashes"]
+        unlisted = coverage["packaged_files_absent_from_manifest"]
+        lines.append("Integrity coverage:")
+        lines.append("  Listed and successfully hashed: " + (", ".join(item["path"] for item in passed) or "none"))
+        lines.append("  Listed with failed hashes: " + (", ".join(item["path"] for item in failed) or "none"))
+        lines.append("  Packaged files absent from manifest: " + (", ".join(unlisted) or "none"))
+        manifest = coverage["checksum_manifest"]
+        digest = manifest["sha256_observed"] or "unavailable"
+        lines.append(f"  Checksum manifest itself: {manifest['path']} ({manifest['verification']}; observed SHA-256: {digest})")
     failures = sum(item["status"] == "fail" for item in result["checks"])
     warnings = sum(item["status"] == "warning" for item in result["checks"])
     lines.append(f"Result: {result['status'].upper()} ({failures} failure(s), {warnings} warning(s))")
@@ -578,6 +658,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-commit", help="expected full build commit SHA")
     parser.add_argument("--source-head", help="source branch HEAD SHA for provenance classification")
     parser.add_argument("--merge-commit", help="GitHub synthetic PR merge commit SHA for provenance classification")
+    parser.add_argument("--strict-completeness", action="store_true", help="fail unless every packaged file other than SHA256SUMS.txt is listed and hashes successfully")
     parser.add_argument("--format", choices=("text", "json"), default="text", help="output format (default: text)")
     args = parser.parse_args(argv)
     result = verify_package(
@@ -586,6 +667,7 @@ def main(argv: list[str] | None = None) -> int:
         expected_commit=args.expected_commit,
         source_head=args.source_head,
         merge_commit=args.merge_commit,
+        strict_completeness=args.strict_completeness,
     )
     if args.format == "json":
         print(json.dumps(result, indent=2, sort_keys=True))

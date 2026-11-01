@@ -82,6 +82,14 @@ def package_fixture(
     return root
 
 
+def write_manifest_for_all_payload_files(root: Path) -> None:
+    entries = []
+    for file in sorted(path for path in root.rglob("*") if path.is_file() and path.name != "SHA256SUMS.txt"):
+        digest = hashlib.sha256(file.read_bytes()).hexdigest()
+        entries.append(f"{digest}  {file.relative_to(root).as_posix()}")
+    (root / "SHA256SUMS.txt").write_text("\n".join(entries) + "\n", encoding="ascii")
+
+
 def checks_by_id(result: dict[str, object], check_id: str) -> list[dict[str, object]]:
     return [check for check in result["checks"] if check["id"] == check_id]  # type: ignore[index]
 
@@ -98,6 +106,12 @@ class PackageVerifierTests(unittest.TestCase):
         provenance = result["commit_provenance"]
         self.assertEqual(provenance["build_commit_role"], "unclassified")
         self.assertEqual(checks_by_id(result, "commit_provenance")[0]["status"], "warning")
+        coverage = result["integrity_coverage"]
+        self.assertEqual(coverage["listed_and_successfully_hashed"][0]["path"], "canvas-demo.exe")
+        self.assertIn("README.txt", coverage["packaged_files_absent_from_manifest"])
+        self.assertEqual(coverage["checksum_manifest"]["verification"], "self_excluded")
+        self.assertEqual(len(coverage["checksum_manifest"]["sha256_observed"]), 64)
+        self.assertEqual(checks_by_id(result, "integrity_coverage")[0]["status"], "warning")
 
     def test_future_bitchpixel_windows_zip_classifies_synthetic_merge_commit(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -171,6 +185,74 @@ class PackageVerifierTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertTrue(any(c["id"] == "checksum_file" and c["status"] == "fail" for c in result["checks"]))
+        coverage = result["integrity_coverage"]
+        self.assertEqual(coverage["listed_with_failed_hashes"][0]["path"], "canvas-demo.exe")
+        self.assertEqual(coverage["listed_and_successfully_hashed"], [])
+
+    def test_unlisted_document_and_notice_changes_are_not_seen_by_manifest_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = package_fixture(Path(temp) / "windows")
+            before = verifier.verify_package(root, platform="windows")
+            original_manifest_digest = before["integrity_coverage"]["checksum_manifest"]["sha256_observed"]
+
+            (root / "README.txt").write_text("Changed package instructions.\n", encoding="utf-8")
+            notices = (root / "THIRD-PARTY-NOTICES.txt").read_text(encoding="utf-8")
+            (root / "THIRD-PARTY-NOTICES.txt").write_text(
+                notices.replace("Dependency notices include", "Updated dependency notices include"),
+                encoding="utf-8",
+            )
+            after = verifier.verify_package(root, platform="windows")
+
+        self.assertEqual(before["status"], "passed")
+        self.assertEqual(after["status"], "passed")
+        self.assertEqual(
+            [check["actual"] for check in checks_by_id(before, "checksum_file")],
+            [check["actual"] for check in checks_by_id(after, "checksum_file")],
+        )
+        self.assertEqual(
+            after["integrity_coverage"]["checksum_manifest"]["sha256_observed"],
+            original_manifest_digest,
+        )
+        self.assertIn("README.txt", after["integrity_coverage"]["packaged_files_absent_from_manifest"])
+        self.assertIn("THIRD-PARTY-NOTICES.txt", after["integrity_coverage"]["packaged_files_absent_from_manifest"])
+
+    def test_strict_completeness_rejects_current_executable_only_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = package_fixture(Path(temp) / "windows")
+            default_result = verifier.verify_package(root, platform="windows")
+            strict_result = verifier.verify_package(root, platform="windows", strict_completeness=True)
+
+        self.assertEqual(default_result["status"], "passed")
+        self.assertEqual(checks_by_id(default_result, "integrity_coverage")[0]["status"], "warning")
+        self.assertEqual(strict_result["status"], "failed")
+        self.assertEqual(checks_by_id(strict_result, "integrity_coverage")[0]["status"], "fail")
+
+    def test_strict_completeness_passes_when_all_payload_files_are_listed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = package_fixture(Path(temp) / "windows")
+            write_manifest_for_all_payload_files(root)
+            result = verifier.verify_package(root, platform="windows", strict_completeness=True)
+
+        self.assertEqual(result["status"], "passed")
+        coverage = result["integrity_coverage"]
+        self.assertEqual(coverage["packaged_files_absent_from_manifest"], [])
+        self.assertEqual(coverage["checksum_manifest"]["verification"], "self_excluded")
+        self.assertEqual(coverage["payload_coverage_percent"], 100.0)
+
+    def test_checksum_manifest_is_reported_separately_when_self_listed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = package_fixture(Path(temp) / "windows")
+            with (root / "SHA256SUMS.txt").open("a", encoding="ascii") as manifest:
+                manifest.write(f"{'0' * 64}  SHA256SUMS.txt\n")
+            result = verifier.verify_package(root, platform="windows")
+
+        coverage = result["integrity_coverage"]
+        self.assertEqual(coverage["checksum_manifest"]["verification"], "self_reference")
+        self.assertEqual(coverage["checksum_manifest"]["self_entry_expected_sha256"], "0" * 64)
+        self.assertNotIn("SHA256SUMS.txt", [
+            entry["path"] for entry in coverage["listed_with_failed_hashes"]
+        ])
+        self.assertEqual(checks_by_id(result, "checksum_manifest_self_reference")[0]["status"], "fail")
 
     def test_missing_required_notice_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -219,6 +301,49 @@ class PackageVerifierTests(unittest.TestCase):
         self.assertEqual(parsed["schema_version"], 1)
         self.assertIn("limitations", parsed)
         self.assertIn("publisher", " ".join(parsed["limitations"]))
+        self.assertIn("integrity_coverage", parsed)
+        self.assertIn("packaged_files_absent_from_manifest", parsed["integrity_coverage"])
+
+    def test_cli_strict_completeness_returns_failure_for_unlisted_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = package_fixture(Path(temp) / "windows")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(root),
+                    "--platform",
+                    "windows",
+                    "--strict-completeness",
+                    "--format",
+                    "json",
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        parsed = json.loads(completed.stdout)
+        self.assertEqual(completed.returncode, 1)
+        self.assertEqual(parsed["integrity_coverage"]["strict_completeness"], True)
+        self.assertEqual(checks_by_id(parsed, "integrity_coverage")[0]["status"], "fail")
+
+    def test_human_output_enumerates_integrity_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = package_fixture(Path(temp) / "windows")
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), str(root), "--platform", "windows"],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("Listed and successfully hashed: canvas-demo.exe", completed.stdout)
+        self.assertIn("Packaged files absent from manifest:", completed.stdout)
+        self.assertIn("Checksum manifest itself: SHA256SUMS.txt (self_excluded; observed SHA-256:", completed.stdout)
 
     def test_archive_path_traversal_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
