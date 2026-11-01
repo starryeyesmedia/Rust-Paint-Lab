@@ -157,8 +157,14 @@ fn failure_categories_are_fixed_and_counted_without_raw_pointer_data() {
     assert_eq!(failures.count(NativeHistoryFailure::HistoryCountQuery), 1);
     assert_eq!(failures.count(NativeHistoryFailure::InvalidHistoryCount), 1);
     assert_eq!(failures.count(NativeHistoryFailure::HistoryRead), 2);
-    assert_eq!(failures.count(NativeHistoryFailure::CoordinateConversion), 1);
-    assert_eq!(failures.count(NativeHistoryFailure::PenEventQueueOverflow), 1);
+    assert_eq!(
+        failures.count(NativeHistoryFailure::CoordinateConversion),
+        1
+    );
+    assert_eq!(
+        failures.count(NativeHistoryFailure::PenEventQueueOverflow),
+        1
+    );
 }
 
 #[test]
@@ -240,5 +246,9 @@ fn diagnostics_leave_successful_event_order_pressure_and_tilt_unchanged() {
     assert_eq!(actual[0].pressure, Some(0.3));
     assert_eq!(actual[1].pressure, Some(0.4));
     assert_eq!(actual[2].pressure, Some(0.5));
-    assert!(actual.iter().all(|event| event.tilt_degrees == [Some(-25.0), Some(30.0)]));
+    assert!(
+        actual
+            .iter()
+            .all(|event| event.tilt_degrees == [Some(-25.0), Some(30.0)])
+    );
 }

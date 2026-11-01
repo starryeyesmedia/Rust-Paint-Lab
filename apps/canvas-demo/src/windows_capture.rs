@@ -39,9 +39,8 @@ pub struct PenEvent {
     pub performance_count: u64,
 }
 use canvas_demo::native_history::{
-    HistoryDeduplicator, NativeHistoryFailure, NativeHistoryFailures, NativePenQueue,
-    NativeStamp, validate_coordinate_conversion, validate_history_count_query,
-    validate_history_read,
+    HistoryDeduplicator, NativeHistoryFailure, NativeHistoryFailures, NativePenQueue, NativeStamp,
+    validate_coordinate_conversion, validate_history_count_query, validate_history_read,
 };
 const SUBCLASS_ID: usize = 0x52504c35;
 const DIAGNOSTIC_COALESCE: Duration = Duration::from_millis(250);

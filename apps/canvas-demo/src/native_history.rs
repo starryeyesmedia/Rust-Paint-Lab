@@ -93,9 +93,7 @@ pub fn validate_history_read(
     Ok(count as usize)
 }
 
-pub fn validate_coordinate_conversion(
-    succeeded: bool,
-) -> Result<(), NativeHistoryFailure> {
+pub fn validate_coordinate_conversion(succeeded: bool) -> Result<(), NativeHistoryFailure> {
     succeeded
         .then_some(())
         .ok_or(NativeHistoryFailure::CoordinateConversion)
