@@ -306,27 +306,35 @@ try:
         assert final_state["width"] == draft_state["width"]
         print("CLOSE_SAVE_ROUND_TRIP: PASSED (paint, periodic checkpoint, untitled close draft, app reopen, edit and named close)", flush=True)
 
-        # A file where the draft directory should live reproduces an actual
-        # local storage failure deterministically. Keep the application open,
-        # confirm the reason is visible, then repair the directory and retry.
+        # Exercise the bounded draft policy as a realistic close-time failure:
+        # all eight existing drafts are kept, and Retry succeeds after the user
+        # frees one slot. This is a plausible explanation for the owner's
+        # report, but the owner's Windows draft count has not been inspected.
         retry_state = root_dir / "retry-state"
         retry_state.mkdir()
-        bad_path = inject_non_directory_drafts_path(retry_state / "state")
+        retry_state_dir = retry_state / "state" / "rust-paint-lab"
+        retry_drafts_dir = retry_state_dir / "drafts"
+        retry_drafts_dir.mkdir(parents=True)
+        for index in range(8):
+            (retry_drafts_dir / f"draft-seed-{index}.rpl").write_bytes(initial_bytes)
         launch(retry_state, "retry draft")
         create_and_paint()
         request_close()
         error = wait_close_error()
-        assert "drafts" in error and ("File exists" in error or "Not a directory" in error), error
+        assert "maximum of 8 drafts" in error and "drafts" in error, error
         assert process.poll() is None, "failed close discarded the artwork instead of keeping the app open"
         retry = wait(lambda: last_rect("UI_TEST_CLOSE_SAVE_RETRY_RECT"), "Retry save target")
-        recover_drafts_path(bad_path)
+        (retry_drafts_dir / "draft-seed-0.rpl").unlink()
         click((retry[0] + retry[2] / 2) * retry[4],
               (retry[1] + retry[3] / 2) * retry[4])
         finish_successfully()
-        retry_drafts = list(bad_path.glob("draft-*.rpl"))
+        retry_drafts = [path for path in retry_drafts_dir.glob("draft-*.rpl")
+                        if "retry-draft" in path.name]
         assert len(retry_drafts) == 1 and document_pixels(retry_drafts[0])[2], \
             "Retry save after storage recovery did not preserve painted artwork"
-        print("CLOSE_SAVE_RETRY: PASSED (filesystem failure surfaced; artwork retained; Retry saved after storage repair)", flush=True)
+        assert len(list(retry_drafts_dir.glob("draft-*.rpl"))) == 8, \
+            "Retry should reuse the freed draft slot and keep the bounded draft count"
+        print("CLOSE_SAVE_RETRY: PASSED (eight-draft limit explained; existing drafts retained; Retry saved after one was removed)", flush=True)
 
         cancel_state = root_dir / "cancel-state"
         cancel_state.mkdir()

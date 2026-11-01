@@ -186,11 +186,13 @@ mod tests {
         for _ in 1..MAX_DRAFTS {
             create_in(&state, "another", &dir).unwrap();
         }
-        assert_eq!(list_in(&dir).len(), MAX_DRAFTS);
+        let preserved_drafts = list_in(&dir);
+        assert_eq!(preserved_drafts.len(), MAX_DRAFTS);
         assert!(matches!(
             create_in(&state, "another", &dir),
             Err(PaintError::Limit)
         ));
+        assert_eq!(list_in(&dir), preserved_drafts);
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -16,12 +16,15 @@ next actions. Recovery-directory initialization failures and periodic
 checkpoint completion/failure are no longer silently omitted from diagnostics.
 Native draft round-trip coverage now includes raster pixels, a mask, and a
 vector path. A focused Linux XTest workflow covers untitled draft close, opening
-that draft in the app, saving later edits, periodic checkpoint pixels, injected
-storage failure, Retry after repair, Cancel without closing, and Save As. The
-actual owner-reported Windows storage failure has **not** been reproduced; the
-exact root cause remains unknown. The script will make the filesystem cause
-visible in a testable failure case, and the owner-provided next Windows build
-will capture the actual device error if it persists.
+that draft in the app, saving later edits, periodic checkpoint pixels,
+eight-draft saturation, retry after freeing a slot, an injected storage
+failure, Cancel without closing, and Save As. Draft saturation is a concrete
+and plausible failure mode because drafts are intentionally capped at eight and
+old drafts are never removed automatically. The Windows report did not include
+the device's draft count or diagnostic log, so this remains a hypothesis rather
+than the confirmed owner-device root cause. The new build will expose that
+condition immediately; if it persists on Windows, the modal and bounded local
+log now include the underlying filesystem/document error.
 
 Local validation on this slice: Rust 1.90 formatting, strict workspace Clippy,
 the complete workspace suite and build, `scripts/check-tests.py`, 8 Python

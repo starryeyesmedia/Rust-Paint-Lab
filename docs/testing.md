@@ -1359,10 +1359,12 @@ xvfb-run -a -s "-screen 0 1600x1000x24" python3 scripts/close-save-smoke.py
 It paints through the live window, verifies a periodic recovery checkpoint
 contains raster pixels, closes an untitled document into an editable `.rpl`
 draft, reopens that draft through the application, paints again, and closes the
-named project. It also injects an unavailable draft directory and verifies that
-the application reports the filesystem cause, keeps artwork open, and permits
-Retry, Cancel, and Save As recovery paths. A document-level test round-trips a
-draft containing raster pixels, an editable layer mask, and vector geometry.
+named project. It also fills all eight retained draft slots, verifies that the
+app explains the limit without deleting existing drafts, then frees one slot
+and confirms Retry saves the current artwork. A separate unavailable draft
+directory verifies that the filesystem cause is shown and artwork remains
+open; that flow exercises Cancel and Save As. A document-level test round-trips
+a draft containing raster pixels, an editable layer mask, and vector geometry.
 The document storage tests separately inject interrupted writes and verify the
 previous valid project remains recoverable. The XTest test uses temporary state
 directories and requires Xvfb, XTest, a working software GPU, and the normal
