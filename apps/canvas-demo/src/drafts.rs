@@ -1,4 +1,4 @@
-//! Local, bounded persistent project drafts for unnamed documents.
+//! Local persistent project drafts for unnamed documents.
 
 use paint_document::{PaintError, State, storage::Store};
 use std::{
@@ -8,7 +8,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub const MAX_DRAFTS: usize = 8;
+/// Number of drafts shown in each Home-screen browsing page.
+pub const DISPLAY_BATCH_SIZE: usize = 8;
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
 pub fn directory() -> Result<PathBuf, PaintError> {
@@ -55,8 +56,14 @@ pub fn list_in(directory: &Path) -> Vec<PathBuf> {
         })
         .collect::<Vec<_>>();
     drafts.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
-    drafts.truncate(MAX_DRAFTS);
     drafts
+}
+
+/// Return a bounded Home-screen slice while keeping every discovered draft
+/// reachable through previous/next page controls.
+pub fn display_range(total: usize, page: usize) -> std::ops::Range<usize> {
+    let start = page.saturating_mul(DISPLAY_BATCH_SIZE).min(total);
+    start..start.saturating_add(DISPLAY_BATCH_SIZE).min(total)
 }
 
 /// Remove one explicitly selected draft and its storage backup. The candidate
@@ -95,9 +102,6 @@ pub fn create_in(
     directory: &Path,
 ) -> Result<(Store, PathBuf), PaintError> {
     fs::create_dir_all(directory)?;
-    if list_in(directory).len() >= MAX_DRAFTS {
-        return Err(PaintError::Limit);
-    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| PaintError::Invalid)?
@@ -123,10 +127,6 @@ pub fn create_in(
 /// underlying filesystem or document error behind a generic close dialog.
 pub fn close_save_error(directory: &Path, error: &PaintError) -> String {
     match error {
-        PaintError::Limit => format!(
-            "The local draft folder ({}) already contains the maximum of {MAX_DRAFTS} drafts. Remove an older draft or use Save As.",
-            directory.display()
-        ),
         PaintError::Io(error) => format!(
             "Could not write an untitled project draft in {}: {error}",
             directory.display()
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn drafts_are_native_projects_discoverable_after_restart_and_bounded() {
+    fn drafts_are_native_projects_discoverable_after_restart() {
         let dir = temp_dir();
         let state = State::new(64, 48, 300).unwrap();
         let (store, path) = create_in(&state, "first sketch", &dir).unwrap();
@@ -183,17 +183,74 @@ mod tests {
             [64, 48, 300]
         );
 
-        for _ in 1..MAX_DRAFTS {
-            create_in(&state, "another", &dir).unwrap();
-        }
-        let preserved_drafts = list_in(&dir);
-        assert_eq!(preserved_drafts.len(), MAX_DRAFTS);
-        assert!(matches!(
-            create_in(&state, "another", &dir),
-            Err(PaintError::Limit)
-        ));
-        assert_eq!(list_in(&dir), preserved_drafts);
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn saving_and_reopening_with_8_9_32_and_100_existing_drafts_preserves_all_files_and_backups() {
+        fn state_with_pixel(pixel: [u8; 4]) -> State {
+            let mut state = State::new(8, 8, 96).unwrap();
+            state.layers[0].tiles.insert(
+                (0, 0),
+                std::sync::Arc::new({
+                    let mut tile = vec![0; 64 * 64 * 4];
+                    tile[0..4].copy_from_slice(&pixel);
+                    tile
+                }),
+            );
+            state
+        }
+
+        for existing_count in [8, 9, 32, 100] {
+            let dir = temp_dir();
+            let initial = state_with_pixel([17, 31, 47, 255]);
+            let (mut first_store, first_path) =
+                create_in(&initial, "existing with backup", &dir).unwrap();
+            let updated_first = state_with_pixel([29, 43, 61, 255]);
+            first_store.save(&updated_first).unwrap();
+            let first_backup_path = first_path.with_extension("rpl.bak");
+            let first_backup = fs::read(&first_backup_path).unwrap();
+
+            let mut existing_paths = vec![first_path];
+            for index in 1..existing_count {
+                let (_, path) = create_in(&initial, &format!("existing {index}"), &dir).unwrap();
+                existing_paths.push(path);
+            }
+            let original_files = existing_paths
+                .iter()
+                .map(|path| (path.clone(), fs::read(path).unwrap()))
+                .collect::<Vec<_>>();
+
+            let new_artwork = state_with_pixel([211, 157, 83, 255]);
+            let (_new_store, new_path) = create_in(&new_artwork, "new after many", &dir).unwrap();
+
+            let discovered = list_in(&dir);
+            assert_eq!(discovered.len(), existing_count + 1);
+            assert!(discovered.contains(&new_path));
+            for (path, original_bytes) in original_files {
+                assert_eq!(fs::read(&path).unwrap(), original_bytes, "changed {path:?}");
+                let (_store, reopened) = Store::open(path).unwrap();
+                assert_eq!(reopened.width, 8);
+            }
+            assert_eq!(fs::read(&first_backup_path).unwrap(), first_backup);
+            let (_store, reopened_new) = Store::open(new_path).unwrap();
+            assert_eq!(
+                &reopened_new.layers[0].tiles[&(0, 0)][0..4],
+                &[211, 157, 83, 255]
+            );
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn draft_browser_exposes_all_entries_in_bounded_pages() {
+        assert_eq!(display_range(0, 0), 0..0);
+        assert_eq!(display_range(8, 0), 0..8);
+        assert_eq!(display_range(9, 1), 8..9);
+        assert_eq!(display_range(100, 0), 0..8);
+        assert_eq!(display_range(100, 11), 88..96);
+        assert_eq!(display_range(100, 12), 96..100);
+        assert_eq!(display_range(100, usize::MAX), 100..100);
     }
 
     #[test]
@@ -305,11 +362,10 @@ mod tests {
     }
 
     #[test]
-    fn close_save_errors_identify_full_draft_storage_and_io_failures() {
+    fn close_save_errors_report_document_limits_and_io_failures() {
         let dir = Path::new("/local/state/bitchpixel/drafts");
         let limit = close_save_error(dir, &PaintError::Limit);
-        assert!(limit.contains("maximum of 8 drafts"));
-        assert!(limit.contains("Remove an older draft or use Save As"));
+        assert!(limit.contains("exceeds the alpha's document"));
         assert!(limit.contains(&dir.display().to_string()));
 
         let io = PaintError::Io(std::io::Error::new(
@@ -319,5 +375,20 @@ mod tests {
         let message = close_save_error(dir, &io);
         assert!(message.contains("Could not write an untitled project draft"));
         assert!(message.contains("access denied"));
+    }
+
+    #[test]
+    fn close_save_errors_keep_permission_and_disk_full_diagnostics() {
+        let dir = Path::new("/local/state/bitchpixel/drafts");
+        for (kind, detail) in [
+            (std::io::ErrorKind::PermissionDenied, "permission denied"),
+            (std::io::ErrorKind::StorageFull, "disk full"),
+        ] {
+            let error = PaintError::Io(std::io::Error::new(kind, detail));
+            let message = close_save_error(dir, &error);
+            assert!(message.contains(&dir.display().to_string()));
+            assert!(message.contains(detail));
+            assert!(message.contains("Could not write an untitled project draft"));
+        }
     }
 }

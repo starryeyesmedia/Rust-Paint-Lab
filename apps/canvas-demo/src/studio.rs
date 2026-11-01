@@ -5867,6 +5867,8 @@ pub struct Studio {
     test_home_light_contrast_logged: bool,
     test_home_content_bounds_logged: bool,
     test_home_preset_rect_logged: Option<[i32; 5]>,
+    test_drafts_page_logged: Option<usize>,
+    test_drafts_next_rect_logged: Option<[i32; 5]>,
     test_hidden_reference_wheel_logged: bool,
     test_strong_text_contrast_logged: bool,
     confirm: Option<Action>,
@@ -5879,6 +5881,7 @@ pub struct Studio {
     recovery_manager: bool,
     recovery_manager_from_home: bool,
     drafts: Vec<PathBuf>,
+    drafts_page: usize,
     recent: paint_document::recent::Recent,
     recent_cards: Vec<RecentProjectCard>,
     recent_search: String,
@@ -6183,6 +6186,8 @@ impl Studio {
             test_home_light_contrast_logged: false,
             test_home_content_bounds_logged: false,
             test_home_preset_rect_logged: None,
+            test_drafts_page_logged: None,
+            test_drafts_next_rect_logged: None,
             test_hidden_reference_wheel_logged: false,
             test_strong_text_contrast_logged: false,
             confirm: None,
@@ -6195,6 +6200,7 @@ impl Studio {
             recovery_manager: false,
             recovery_manager_from_home: false,
             drafts: crate::drafts::list(),
+            drafts_page: 0,
             recent,
             recent_cards,
             recent_search: String::new(),
@@ -9197,6 +9203,7 @@ impl Studio {
             );
             self.store = Some(store);
             self.drafts = crate::drafts::list();
+            self.drafts_page = 0;
         }
         self.close_ready = true;
         self.close_requested = false;
@@ -15229,14 +15236,66 @@ impl Studio {
                                         }
                                         if !self.drafts.is_empty() {
                                             ui.add_space(10.0);
+                                            let page_count = self.drafts.len().div_ceil(crate::drafts::DISPLAY_BATCH_SIZE);
+                                            self.drafts_page = self.drafts_page.min(page_count.saturating_sub(1));
+                                            let visible_range = crate::drafts::display_range(self.drafts.len(), self.drafts_page);
+                                            if self.test_path_dialog && self.test_drafts_page_logged != Some(self.drafts_page) {
+                                                crate::studio_log!(
+                                                    "UI_TEST_SAVED_DRAFTS_PAGE: page={} pages={} range={}..{} total={}",
+                                                    self.drafts_page + 1,
+                                                    page_count,
+                                                    visible_range.start,
+                                                    visible_range.end,
+                                                    self.drafts.len()
+                                                );
+                                                self.test_drafts_page_logged = Some(self.drafts_page);
+                                            }
                                             egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(10.0).inner_margin(12.0).show(ui, |ui| {
                                                 ui.label(egui::RichText::new("Saved drafts").strong());
-                                                for path in self.drafts.iter().take(crate::drafts::MAX_DRAFTS) {
+                                                for path in self.drafts[visible_range.clone()].iter() {
                                                     ui.horizontal(|ui| {
                                                         if ui.button(crate::drafts::display_name(path)).clicked() { self.picker_from_welcome = true; actions.push(Action::Recent(path.clone())); self.welcome = false; }
                                                         if ui.small_button("Remove…").clicked() { remove_draft = Some(path.clone()); }
                                                     });
                                                 }
+                                                ui.horizontal(|ui| {
+                                                    let first = visible_range.start + 1;
+                                                    let last = visible_range.end;
+                                                    ui.label(format!("Showing {first}–{last} of {} drafts", self.drafts.len()));
+                                                    if page_count > 1 {
+                                                        if ui.add_enabled(self.drafts_page > 0, egui::Button::new("Previous")).clicked() {
+                                                            self.drafts_page -= 1;
+                                                        }
+                                                        let next = ui.add_enabled(self.drafts_page + 1 < page_count, egui::Button::new("Next"));
+                                                        if self.test_path_dialog {
+                                                            let rect = next.rect;
+                                                            let scale = ui.ctx().pixels_per_point();
+                                                            let marker = [
+                                                                (rect.left() * 10.0).round() as i32,
+                                                                (rect.top() * 10.0).round() as i32,
+                                                                (rect.width() * 10.0).round() as i32,
+                                                                (rect.height() * 10.0).round() as i32,
+                                                                (scale * 100.0).round() as i32,
+                                                            ];
+                                                            if self.test_drafts_next_rect_logged != Some(marker) {
+                                                                for _ in 0..2 {
+                                                                    crate::studio_log!(
+                                                                        "UI_TEST_SAVED_DRAFTS_NEXT_RECT: {:.1} {:.1} {:.1} {:.1} {:.2}",
+                                                                        rect.left(),
+                                                                        rect.top(),
+                                                                        rect.width(),
+                                                                        rect.height(),
+                                                                        scale
+                                                                    );
+                                                                }
+                                                                self.test_drafts_next_rect_logged = Some(marker);
+                                                            }
+                                                        }
+                                                        if next.clicked() {
+                                                            self.drafts_page += 1;
+                                                        }
+                                                    }
+                                                });
                                             });
                                         }
                                     });
@@ -17420,6 +17479,11 @@ impl Studio {
             Action::RemoveDraft(path) => {
                 crate::drafts::remove(&path)?;
                 self.drafts = crate::drafts::list();
+                let page_count = self
+                    .drafts
+                    .len()
+                    .div_ceil(crate::drafts::DISPLAY_BATCH_SIZE);
+                self.drafts_page = self.drafts_page.min(page_count.saturating_sub(1));
                 self.status = "Selected draft and backup removed".into();
             }
             Action::AddReference(_) => {

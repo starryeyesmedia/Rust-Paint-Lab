@@ -168,6 +168,13 @@ def click(x, y):
     send()
 
 
+def scroll_wheel(down, steps=1):
+    code = 5 if down else 4
+    for _ in range(steps):
+        assert button(display, code, 1, 0) and button(display, code, 0, 0)
+    send()
+
+
 def press(name):
     code = keycode(display, keysym(name.encode("ascii")))
     assert code and key_event(display, code, 1, 0) and key_event(display, code, 0, 0)
@@ -205,6 +212,17 @@ def stable_rect(name):
     if len(entries) < 2 or entries[-1] != entries[-2]:
         return None
     return tuple(map(float, entries[-1].split()))
+
+
+def scroll_rect_into_view(name, height=800):
+    for _ in range(40):
+        rect = wait(lambda: stable_rect(name), f"stable {name} geometry")
+        _, y, _, rect_height, scale = rect
+        viewport_height = height / scale
+        if y >= 0 and y + rect_height <= viewport_height - 8:
+            return rect
+        scroll_wheel(down=y + rect_height > viewport_height, steps=1)
+    raise AssertionError(f"could not scroll {name} into view; last rect={rect}")
 
 
 def canvas_bounds():
@@ -312,6 +330,15 @@ def inject_non_directory_drafts_path(state_home):
     return bad_path
 
 
+def inject_permission_denied_drafts_path(state_home):
+    state_root = state_home / "rust-paint-lab"
+    state_root.mkdir(parents=True, exist_ok=True)
+    drafts_path = state_root / "drafts"
+    drafts_path.mkdir()
+    drafts_path.chmod(0o555)
+    return drafts_path
+
+
 def wait_close_error():
     return wait(lambda: marker("UI_TEST_CLOSE_SAVE_ERROR_VISIBLE"),
                 "diagnostic close-save error in the open application")
@@ -387,36 +414,95 @@ try:
         assert final_state["width"] == draft_state["width"]
         print("CLOSE_SAVE_ROUND_TRIP: PASSED (paint, periodic checkpoint, untitled close draft, app reopen, edit and named close)", flush=True)
 
-        # Exercise the bounded draft policy as a realistic close-time failure:
-        # all eight existing drafts are kept, and Retry succeeds after the user
-        # frees one slot. This is a plausible explanation for the owner's
-        # report, but the owner's Windows draft count has not been inspected.
-        retry_state = root_dir / "retry-state"
-        retry_state.mkdir()
-        retry_state_dir = retry_state / "state" / "rust-paint-lab"
-        retry_drafts_dir = retry_state_dir / "drafts"
-        retry_drafts_dir.mkdir(parents=True)
-        for index in range(8):
-            (retry_drafts_dir / f"draft-seed-{index}.rpl").write_bytes(initial_bytes)
-        launch(retry_state, "retry-draft")
+        # More than eight existing drafts must neither block close-time saving
+        # nor hide older drafts from the paged Home browser.
+        many_state = root_dir / "many-drafts-state"
+        many_state.mkdir()
+        many_drafts_dir = many_state / "state" / "rust-paint-lab" / "drafts"
+        many_drafts_dir.mkdir(parents=True)
+        seeded_drafts = {}
+        for index in range(100):
+            path = many_drafts_dir / f"draft-{index:019d}-1234-{index}-seed-{index}.rpl"
+            path.write_bytes(initial_bytes)
+            seeded_drafts[path] = initial_bytes
+
+        launch(many_state, "many drafts")
         create_and_paint()
         request_close()
-        error = wait_close_error()
-        assert "maximum of 8 drafts" in error and "drafts" in error, error
-        assert process.poll() is None, "failed close discarded the artwork instead of keeping the app open"
-        retry = wait(lambda: stable_rect("UI_TEST_CLOSE_SAVE_RETRY_RECT"),
-                     "Retry save target")
-        (retry_drafts_dir / "draft-seed-0.rpl").unlink()
-        click((retry[0] + retry[2] / 2) * retry[4],
-              (retry[1] + retry[3] / 2) * retry[4])
         finish_successfully()
-        retry_drafts = [path for path in retry_drafts_dir.glob("draft-*.rpl")
-                        if "retry-draft" in path.name]
-        assert len(retry_drafts) == 1 and document_pixels(retry_drafts[0])[2], \
-            "Retry save after storage recovery did not preserve painted artwork"
-        assert len(list(retry_drafts_dir.glob("draft-*.rpl"))) == 8, \
-            "Retry should reuse the freed draft slot and keep the bounded draft count"
-        print("CLOSE_SAVE_RETRY: PASSED (eight-draft limit explained; existing drafts retained; Retry saved after one was removed)", flush=True)
+        many_drafts = list(many_drafts_dir.glob("draft-*.rpl"))
+        assert len(many_drafts) == 101, \
+            f"close with 100 prior drafts should create one additional draft: {len(many_drafts)}"
+        for path, original in seeded_drafts.items():
+            assert path.read_bytes() == original, f"existing draft was modified: {path}"
+        created_drafts = [path for path in many_drafts if path not in seeded_drafts]
+        assert len(created_drafts) == 1 and document_pixels(created_drafts[0])[2], \
+            "close-time save with 100 existing drafts did not preserve the newly painted artwork"
+        print("CLOSE_SAVE_MANY_DRAFTS: PASSED (100 existing files preserved; new artwork saved)", flush=True)
+
+        launch(many_state, "reopen many drafts")
+        page = 0
+        while page < 13:
+            marker_text = f"page={page + 1} pages=13"
+            wait(lambda: marker_text in "\n".join(lines()),
+                 f"saved-draft browser reaching {marker_text}")
+            if page == 12:
+                assert "range=96..101 total=101" in "\n".join(lines()), \
+                    "the final bounded batch did not expose the oldest drafts"
+                break
+            next_button = scroll_rect_into_view("UI_TEST_SAVED_DRAFTS_NEXT_RECT")
+            click((next_button[0] + next_button[2] / 2) * next_button[4],
+                  (next_button[1] + next_button[3] / 2) * next_button[4])
+            page += 1
+
+        open_clicked_before = count("UI_TEST_HOME_OPEN_PROJECT_CLICKED")
+        open_button = scroll_rect_into_view("UI_TEST_HOME_OPEN_PROJECT_BUTTON_RECT")
+        click((open_button[0] + open_button[2] / 2) * open_button[4],
+              (open_button[1] + open_button[3] / 2) * open_button[4])
+        wait(lambda: count("UI_TEST_HOME_OPEN_PROJECT_CLICKED") > open_clicked_before,
+             "Home Open project action after browsing all saved-draft pages")
+        path_rect = wait(lambda: stable_rect("UI_TEST_FILE_PICKER_PATH_RECT"),
+                         "Open project path field for the new draft")
+        click((path_rect[0] + path_rect[2] / 2) * path_rect[4],
+              (path_rect[1] + path_rect[3] / 2) * path_rect[4])
+        chord("Control_L", "a")
+        type_text(str(created_drafts[0]))
+        press("Return")
+        wait(lambda: any(line.startswith("UI_TEST_PROJECT_OPENED: " + str(created_drafts[0]))
+                         for line in lines()),
+             "application reopening the new draft with 100 prior drafts")
+        reopened_state, reopened_tiles, reopened_opaque = document_pixels(created_drafts[0])
+        assert reopened_state["width"] > 0 and reopened_tiles and reopened_opaque, \
+            "reopened draft with many prior files lost the saved artwork"
+        print("DRAFT_BROWSER_100: PASSED (13 bounded pages expose all 101 drafts; new artwork reopens)", flush=True)
+        request_close()
+        finish_successfully()
+
+        if hasattr(os, "geteuid") and os.geteuid() != 0:
+            permission_state = root_dir / "permission-state"
+            permission_state.mkdir()
+            permission_drafts_dir = inject_permission_denied_drafts_path(
+                permission_state / "state")
+            launch(permission_state, "permission recovery")
+            create_and_paint()
+            request_close()
+            permission_error = wait_close_error()
+            assert "permission denied" in permission_error.lower(), \
+                f"close-time save should expose the real permission error: {permission_error}"
+            assert process.poll() is None, \
+                "permission failure closed the app and risked discarding the artwork"
+            permission_drafts_dir.chmod(0o755)
+            retry = wait(lambda: stable_rect("UI_TEST_CLOSE_SAVE_RETRY_RECT"),
+                         "Retry save after restoring draft-directory permissions")
+            click((retry[0] + retry[2] / 2) * retry[4],
+                  (retry[1] + retry[3] / 2) * retry[4])
+            finish_successfully()
+            permission_saved = list(permission_drafts_dir.glob("draft-*.rpl"))
+            assert len(permission_saved) == 1 and document_pixels(permission_saved[0])[2], \
+                "Retry after a genuine permission failure did not preserve painted artwork"
+            print("CLOSE_SAVE_PERMISSION: PASSED (real permission error shown; Retry preserved artwork)", flush=True)
+        else:
+            print("CLOSE_SAVE_PERMISSION: SKIPPED (root bypasses directory permissions)", flush=True)
 
         cancel_state = root_dir / "cancel-state"
         cancel_state.mkdir()

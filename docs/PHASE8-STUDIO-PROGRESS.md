@@ -2,63 +2,52 @@
 
 ## First physical alpha QA corrective campaign (2026-10-31; active)
 
-The new owner report starts from merged `main` commit
-`1559122943e8b6e9123b653a555f72e7a894d3e6`. The owner confirmed a close-time
-save dialog, then successfully used Save As and reopened the resulting project
-with its artwork intact. This is evidence for that manual-save scenario only;
-the underlying failure condition, background-checkpoint behavior on Windows,
-and the modal's Retry/Cancel behavior were not demonstrated by that report.
+The owner confirmed the close-time failure's cause: the historical
+`%LOCALAPPDATA%\RustPaintLab\drafts` folder contained more than eight drafts,
+and clearing it allowed close-time saving to succeed. The eight-file rejection
+is removed on the existing PR #9 branch. Draft discovery no longer truncates at
+eight; Home displays eight drafts per page with Previous/Next navigation, so all
+older drafts remain reachable while each rendered batch stays bounded. No files
+are pruned, replaced, migrated, or deleted by this change. Native `.rpl` bytes,
+atomic `Store` writes, backups, and filesystem path checks are unchanged.
 
-The first corrective slice is on `fix/close-time-draft-preservation`. Close
-failures now retain their underlying error in the dialog and local diagnostic
-log. Draft-capacity failures identify the eight-draft limit and offer useful
-next actions. Recovery-directory initialization failures and periodic
-checkpoint completion/failure are no longer silently omitted from diagnostics.
-Native draft round-trip coverage now includes raster pixels, a mask, and a
-vector path. A focused Linux XTest workflow covers untitled draft close, opening
-that draft in the app, saving later edits, periodic checkpoint pixels,
-eight-draft saturation, retry after freeing a slot, an injected storage
-failure, Cancel without closing, and Save As. Draft saturation is a concrete
-and plausible failure mode because drafts are intentionally capped at eight and
-old drafts are never removed automatically. The Windows report did not include
-the device's draft count or diagnostic log, so this remains a hypothesis rather
-than the confirmed owner-device root cause. The new build will expose that
-condition immediately; if it persists on Windows, the modal and bounded local
-log now include the underlying filesystem/document error.
+The targeted Rust test saves an additional draft with 8, 9, 32, and 100 valid
+drafts already present, checks every previous file byte-for-byte, preserves and
+checks an existing backup, and reopens all projects including the new one. A
+separate paging test covers empty, full, partial, and out-of-range pages. The
+Linux XTest workflow now also creates and paints an additional draft with 100
+existing files, verifies none changed, visits all 13 Home pages, and reopens the
+new artwork. On non-root Linux runners it tests a real permission-denied folder,
+checks the app remains open with the OS error visible, restores write permission,
+and retries successfully. A storage-level ENOSPC fault injection verifies a
+partial temporary write leaves the previous native project byte-for-byte intact
+and reopenable; it does not fill a physical disk. Permission and storage-full
+messages are covered by Rust tests. Existing non-directory storage, Cancel, and
+Save As paths remain covered.
 
-Local validation on this slice: Rust 1.90 formatting, strict workspace Clippy,
-the complete workspace suite and build, `scripts/check-tests.py`, 8 Python
-helper tests, Windows GNU workspace check/Clippy, and llvmpipe GPU smoke passed.
-The initial hosted Linux XTest failure was traced to the harness: it resized the
-winit window before its first visible frame, read one-frame-old control bounds,
-used fixed canvas coordinates, omitted spaces while typing paths, and expected
-markers that the app does not emit. The test now waits for first-frame and
-confirmed resize geometry, derives painting coordinates from the live document
-bounds, opens the project through Home's real pointer action, and checks the
-actual Retry/Cancel/Save As completion markers. Test-only diagnostics also log
-the selected project path and open error. The close/recovery XTest workflow
-then passed locally on Xorg `:99` with llvmpipe: untitled draft round-trip and
-later named save, periodic checkpoint pixels, retry after freeing one of eight
-draft slots, Cancel while leaving the artwork editable, and Save As after an
-injected storage-directory failure. Native project raster pixels were checked.
-The draft-cap and unavailable-directory cases reproduce useful failure paths;
-they do not establish the Galaxy Book's original failure cause. Hosted Actions
-run
-[`41260666567`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41260666567)
-passed Windows, Linux, and macOS on commit `f061ac4`. Linux close-save/recovery
-and artwork workflows passed; Windows packaging and visible-window startup
-passed. The portable Windows artifact is
-[`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41260666567/artifacts/13064723541).
-The Windows device result remains pending; no physical-device result is
-claimed. Findings 1–12 remain in scope in the owner's specified priority
-order; Phase 8.3 is active.
+Local verification for the current implementation: Rust 1.90 formatting and
+strict Clippy, all **416 workspace test cases**, workspace build, Windows GNU
+check and strict Clippy, required llvmpipe GPU smoke, Python syntax, and all 8
+Python helper tests passed. This shell has no Xvfb/Xorg runner, so the expanded
+real-window close-save and paging workflow is pending hosted Linux CI.
 
-The follow-up code, script, and documentation were committed together as
-`f061ac4`. Keep PR #9 draft and do not merge: provide the portable Windows
-artifact for owner evaluation, and request the close-save diagnostic if the
-device failure persists. The next reliability step depends on that evidence;
-do not claim the Windows close-time failure is fixed based only on synthetic
-and Linux tests.
+The earlier corrective slice on this branch surfaced close-save errors, added
+recovery checkpoint diagnostics, and validated a draft containing raster pixels,
+a mask, and vector content. Its first hosted Linux smoke failures were traced to
+test synchronization, stale geometry, keyboard path typing, and expected log
+markers; the harness now waits for the first frame and stable resize, derives
+drawing coordinates from the live artboard, and exercises Home's real Open
+action. The underlying owner-reported condition is now known, rather than the
+previously documented hypothesis.
+
+PR #9 remains a draft on `main` and must not be merged until the owner accepts a
+fresh portable Windows build on the Galaxy Book2 Pro 360. Record the exact
+implementation SHA and Windows/Linux/macOS Actions result here after the new
+commit is pushed and its checks finish. Physical Windows filesystem behavior is
+not claimed as tested. The `.bp` default
+extension and BitchPixel directory migration are explicitly separate follow-up
+work; this PR continues to write compatible `.rpl` drafts. Findings 1–12 remain
+in the owner's specified priority order; Phase 8.3 is active.
 
 ## Milestone 3 compact-Inspector correction (2026-10-31; local verification)
 

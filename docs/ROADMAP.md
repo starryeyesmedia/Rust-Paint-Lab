@@ -1,4 +1,4 @@
-# Rust Paint Lab engineering roadmap
+# BitchPixel (BP) engineering roadmap
 
 This is a working engineering sequence, not a release promise. Phase 8.3
 workspace/accessibility work continues alongside Phase 9's raster painting and
@@ -7,39 +7,31 @@ Artwork preservation and cross-platform validation apply to every track.
 
 ## First physical alpha QA corrective sequence — active
 
-Product-owner testing of the Windows build from PR #8 found 13 concrete issues.
-The approved sequence is to secure close-time saves and periodic recovery first,
-then fix Smudge/Color Mixer, menu layout, direct Brush Library access, and
-Eyedropper feedback. Only after those reliability and painting issues are
-addressed should the toolbar lose grouped tools and the visual refinements
-proceed. The approved correction gives every implemented tool a direct button,
-restores direct References access, and removes the unfinished Create Path tool
-from the primary rail while preserving editable vector documents. Brush
-Library expansion is limited to meaningful behavior already supported by the
-engine. A separate vector freehand-brush specification follows these fixes;
-implementation awaits owner approval. Do not alter or merge the separate GPLv3
-draft PRs.
+The owner confirmed the close-time save failure occurred because
+%LOCALAPPDATA%\RustPaintLab\drafts already contained more than eight drafts;
+clearing the folder allowed close-time saving. PR #9 removes the fixed eight-file
+creation limit, returns every regular draft from discovery, and pages the Home
+list eight entries at a time. It does not delete, overwrite, migrate, or prune
+existing files. Native .rpl storage, atomic saves, backups, and path safety
+remain unchanged.
 
-Current starting baseline: `main` at
-`1559122943e8b6e9123b653a555f72e7a894d3e6`. The first active corrective PR is
-`fix/close-time-draft-preservation`. Its initial slice exposes the exact close
-save error and adds application-level Linux close/recovery coverage; it does
-not yet identify the owner's Windows filesystem failure. Product-owner
-acceptance is required before merging artist-facing corrections. See the
-current top section of `docs/PHASE8-STUDIO-PROGRESS.md` for tested commands,
-limitations, and continuation steps.
+Focused tests add and reopen projects with 8, 9, 32, and 100 prior drafts while
+checking existing file bytes and a prior backup. The Linux XTest workflow saves
+and reopens new artwork with 100 existing drafts, navigates all 13 pages, and
+tests real permission-denied recovery/retry. ENOSPC fault injection verifies an
+interrupted temporary write preserves the previous valid project. PR #9 remains
+draft until the owner accepts the portable Windows artifact on the Galaxy Book.
+Local Rust 1.90 formatting/Clippy, all 416 workspace tests, workspace build,
+Windows GNU check/Clippy, GPU smoke, and Python helper tests pass. The current
+shell has no Xvfb, so the expanded real-window workflow awaits hosted Linux CI.
+No physical Windows result is claimed. The .bp extension and BitchPixel
+directory migration are a separate follow-up assignment; this branch continues
+to preserve the current .rpl behavior.
 
-The first hosted Linux close-save smoke exposed synchronization defects in the
-test harness (pre-first-frame resize, stale control geometry, fixed drawing
-coordinates, path typing, and expected log markers). These are corrected. The
-full close/recovery flow passed locally on Xorg/llvmpipe with real project
-pixel checks and in hosted Linux CI. Actions run
-[`41260666567`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41260666567)
-passed Windows, Linux, and macOS. Windows packaging and visible startup passed;
-artifact [`rust-paint-lab-canvas-demo`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41260666567/artifacts/13064723541)
-is available. The owner's original Windows cause remains unconfirmed; keep PR
-#9 draft and request owner evaluation before merging or treating the save issue
-as resolved.
+Continue with the owner's remaining findings in the approved priority order;
+do not modify the separate GPLv3 draft PRs. See the current top of
+docs/PHASE8-STUDIO-PROGRESS.md and the close-save section in docs/testing.md
+for validation and limits.
 
 ## Canvas-first design handoff — active implementation
 

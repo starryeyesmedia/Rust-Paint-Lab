@@ -22,6 +22,7 @@ pub enum Fault {
     None,
     AfterWrite,
     BeforeReplace,
+    StorageFullDuringTempWrite,
 }
 fn hash(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
@@ -341,6 +342,12 @@ impl Store {
         let tmp = temporary(&self.path);
         let result = (|| {
             let mut out = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+            if fault == Fault::StorageFullDuringTempWrite {
+                out.write_all(&bytes[..bytes.len() / 2])?;
+                return Err(PaintError::Io(std::io::Error::from(
+                    std::io::ErrorKind::StorageFull,
+                )));
+            }
             out.write_all(&bytes)?;
             out.sync_all()?;
             if fault == Fault::AfterWrite {
@@ -382,6 +389,39 @@ impl Store {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod atomic_save_tests {
+    use super::*;
+
+    #[test]
+    fn simulated_disk_full_during_temporary_write_preserves_existing_artwork() {
+        let path = std::env::temp_dir().join(format!(
+            "bp-storage-full-{}-{}.rpl",
+            std::process::id(),
+            NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let original = State::new(32, 24, 96).unwrap();
+        let mut store = Store::new(path.clone());
+        store.save(&original).unwrap();
+        let original_bytes = fs::read(&path).unwrap();
+
+        let mut changed = original.clone();
+        changed.layers[0].name = "Unsaved after full disk".into();
+        let error = store
+            .save_fault(&changed, Fault::StorageFullDuringTempWrite)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            PaintError::Io(ref error) if error.kind() == std::io::ErrorKind::StorageFull
+        ));
+        assert_eq!(fs::read(&path).unwrap(), original_bytes);
+        let (_store, reopened) = Store::open(path.clone()).unwrap();
+        assert_eq!(reopened.layers[0].name, original.layers[0].name);
+        fs::remove_file(path).unwrap();
+    }
+}
+
 pub fn export_png(path: &Path, engine: &crate::Engine) -> Result<(), PaintError> {
     if engine.active_count() > 0 {
         return Err(PaintError::Busy);

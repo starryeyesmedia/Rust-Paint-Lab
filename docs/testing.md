@@ -321,11 +321,16 @@ painting or document path. Physical Windows/macOS picker behavior still requires
 manual checking.
 
 The local draft manager tests verify that an unnamed document is stored as a normal
-`.rpl`, can be reopened with matching dimensions, is discoverable after a restart,
-and refuses to exceed the eight-draft bound. It ignores unrelated files. If the
-bound or a write error prevents automatic close-save, the application remains open
-and offers retry, Save As, or Cancel. Named-document external-change conflicts use
-the existing `Store` content-hash guard and also keep the window open.
+`.rpl`, can be reopened with matching dimensions, and remains discoverable after a
+restart. Saving with 8, 9, 32, and 100 existing drafts preserves every prior file
+and backup and successfully reopens the additional draft. Discovery retains every
+regular `draft-*.rpl` file; the Home screen presents eight entries per page with
+Previous/Next navigation so the visible widget tree stays bounded without hiding
+older work. Unrelated files, symlinks, and unsafe removal paths remain excluded.
+If a filesystem or document-storage error prevents automatic close-save, the
+application remains open and offers Retry, Save As, or Cancel. Named-document
+external-change conflicts use the existing `Store` content-hash guard and also
+keep the window open.
 
 ## Phase 8.3 accessibility foundation
 
@@ -1359,16 +1364,20 @@ xvfb-run -a -s "-screen 0 1600x1000x24" python3 scripts/close-save-smoke.py
 It paints through the live window, verifies a periodic recovery checkpoint
 contains raster pixels, closes an untitled document into an editable `.rpl`
 draft, reopens that draft through the application, paints again, and closes the
-named project. It also fills all eight retained draft slots, verifies that the
-app explains the limit without deleting existing drafts, then frees one slot
-and confirms Retry saves the current artwork. A separate unavailable draft
-directory verifies that the filesystem cause is shown and artwork remains
-open; that flow exercises Cancel and Save As. A document-level test round-trips
-a draft containing raster pixels, an editable layer mask, and vector geometry.
-The document storage tests separately inject interrupted writes and verify the
-previous valid project remains recoverable. The XTest test uses temporary state
-directories and requires an X11 display, XTest, a working software GPU, and the
-normal Linux GUI libraries. CI provides Xvfb; a local Xorg display works too.
+named project. It then seeds 100 valid existing drafts, saves a new painted draft
+through the real close path, verifies every seed remains byte-for-byte unchanged,
+browses all 13 Home-screen pages, and reopens the new artwork through the app.
+On non-root Linux runners it also removes write permission from the draft folder,
+verifies the actual permission-denied error is shown without closing the app, then
+restores permissions and confirms Retry saves the painted artwork. A separate
+unavailable draft directory exercises Cancel and Save As. A document-level test
+round-trips a draft containing raster pixels, an editable layer mask, and vector
+geometry. Storage fault injection simulates ENOSPC during a temporary write and
+verifies that the previous valid project remains byte-for-byte intact and opens;
+the environment does not fill a real disk to exhaustion. The XTest test uses
+temporary state directories and requires an X11 display, XTest, a working
+software GPU, and the normal Linux GUI libraries. CI provides Xvfb; a local Xorg
+display works too.
 The script waits for the first visible frame and confirmed resize, uses stable
 post-resize control geometry, and derives paint strokes from the live document
 bounds. Its assertions inspect native project bytes and raster pixels. None of
