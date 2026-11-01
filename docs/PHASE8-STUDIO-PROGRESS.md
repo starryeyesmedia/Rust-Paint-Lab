@@ -3753,3 +3753,35 @@ input adapter, or stylus behavior changed. Continue only after the milestone's
 Windows/Linux/macOS matrix is green; next is the approved scrollable Inspector
 tab strip and vector editing integration, including the direct-pointer anchor
 editor regression without the `H` fallback.
+
+### PR #9 close-save continuation — alpha smoke geometry synchronization (2026-11-01)
+
+PR #9 remains an open draft on `fix/close-time-draft-preservation`; do not merge
+before Product Owner acceptance of the fresh Windows build. At `e42e013`, PR
+Actions run
+[`41279252362`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41279252362)
+passed Windows, Ubuntu, and macOS, including the 100-draft close-save workflow.
+The duplicate push-triggered run
+[`41279247271`](https://github.com/starryeyesmedia/Rust-Paint-Lab/actions/runs/41279247271)
+failed only the Linux alpha New Artwork ordering check. Its field and Portrait
+card rectangles came from different render frames after a resize; the source
+UI lays out the name field before the format cards, and the same code passed in
+the PR-triggered run. This was a test-observation race, not a demonstrated UI
+ordering defect.
+
+The alpha harness now snapshots the New Artwork name-marker count after each
+open/resize and accepts geometry only when two complete consecutive frames
+agree on name-field, Portrait-card, and Create-button bounds. It verifies the
+actual X11 window size before evaluating the same ordering and viewport
+assertions. Five pure Python tests cover fresh-frame selection, same-frame
+pairing, stable repeated geometry, partially written current frames, and
+malformed markers. The full local Xorg/llvmpipe alpha artwork workflow passed
+with same-frame pairing enabled; the additional partial-frame guard is covered
+by its focused test, and the exact hosted workflow remains pending. It
+generated populated Home, New Artwork, Inspector, reference, recovery, layer,
+mask, vector, gradient, and tool captures. I inspected the normal New Artwork
+screenshot; its document name is visibly above the format cards. The complete
+Rust test/Clippy/build, Windows GNU check, and GPU smoke results at the parent
+source checkpoint remain recorded above. Hosted Actions must still pass at the
+new commit before the PR description is updated. Physical Windows filesystem
+behavior and owner acceptance remain outstanding.

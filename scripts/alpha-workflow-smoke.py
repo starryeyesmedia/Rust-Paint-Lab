@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 import subprocess
 import time
 from app_log_index import ApplicationLogIndex
+from new_document_layout import stable_new_document_geometry
 from scale_slider import (
     SCALE_MAX,
     SCALE_MIN,
@@ -752,12 +753,13 @@ def settled_home_preset_card_rect(name='Portrait'):
     return first if first==home_preset_card_rect(name) else None
 
 def assert_new_document_name_and_create_visible(width, height):
-    name=wait(lambda: window_rect_marker('UI_TEST_NEW_DOCUMENT_NAME_RECT'),
-              'New Artwork has a visible, top-positioned document-name field')
-    create=wait(lambda: window_rect_marker('UI_TEST_NEW_DOCUMENT_CREATE_RECT'),
-                'New Artwork exposes its primary Create action')
-    first_card=wait(lambda: stable_format_card_rect('Portrait'),
-                    'New Artwork has a visually illustrated Portrait preset')
+    baseline_name_count=application_log_count('UI_TEST_NEW_DOCUMENT_NAME_RECT')
+    name,first_card,create=wait(
+        lambda: stable_new_document_geometry(
+            application_log_lines(),baseline_name_count
+        ) if window_size(window)==(width,height) else None,
+        'New Artwork emits two stable, same-frame name, Portrait, and Create bounds '
+        f'after reaching {width}x{height}')
     name_x,name_y,name_w,name_h,scale=name
     create_x,create_y,create_w,create_h,create_scale=create
     assert name_y < first_card[1], \

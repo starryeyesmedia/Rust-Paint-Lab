@@ -1404,3 +1404,11 @@ these checks reproduces or validates the owner's Windows filesystem behavior.
 This workflow passed locally on the managed Xorg display `:99` with llvmpipe.
 The shell had no `xvfb-run` executable, so the hosted Xvfb job remains the
 required CI check for the same script.
+
+The alpha smoke's New Artwork assertion pairs the document-name, Portrait-card,
+and Create bounds from the same rendered frame. After each modal open or window
+resize, it waits for two matching complete frames and confirms the requested
+window size before checking that the name precedes the cards and the controls
+remain inside the viewport. This avoids comparing a fresh text-field rectangle
+with a still-stable card rectangle from the previous size; it preserves the
+ordering and clipping assertions.
