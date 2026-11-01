@@ -335,6 +335,9 @@ page transition are asserted, rather than inferred from stale markers or delays.
 Home bounds the Recent artwork and Continue safely columns to the available
 width; the test rejects horizontally clipped pager/Open controls before using
 them, and scrolls only when their vertical position requires it.
+For saved-draft pagination the harness first waits for egui to report pointer
+hover over Next, then sends a separate press and release and asserts the page
+transition; this distinguishes an input-coordinate problem from click handling.
 If a filesystem or document-storage error prevents automatic close-save, the
 application remains open and offers Retry, Save As, or Cancel. Named-document
 external-change conflicts use the existing `Store` content-hash guard and also

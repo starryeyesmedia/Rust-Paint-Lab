@@ -143,7 +143,7 @@ def wait(predicate, description, timeout=15):
         "UI_TEST_MOUSE_STROKE_", "UI_TEST_OPEN_PROJECT_FAILED:",
         "UI_TEST_CLOSE_SAVE_", "UI_TEST_RECOVERY_",
         "UI_TEST_SAVED_DRAFTS_PAGE:", "UI_TEST_SAVED_DRAFTS_NEXT_RECT:",
-        "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:",
+        "UI_TEST_SAVED_DRAFTS_NEXT_HOVERED:", "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:",
     )
     recent_log = "\n".join(line for line in lines()
                             if line.startswith(diagnostic_prefixes))
@@ -459,6 +459,7 @@ try:
 
         page_marker_prefix = "UI_TEST_SAVED_DRAFTS_PAGE:"
         next_rect_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_RECT:"
+        next_hover_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_HOVERED:"
         next_click_prefix = "UI_TEST_SAVED_DRAFTS_NEXT_CLICKED:"
         launch(many_state, "reopen many drafts")
         wait(lambda: "page=1 pages=13" in (marker(page_marker_prefix) or ""),
@@ -476,9 +477,16 @@ try:
                 break
             next_button = scroll_rect_into_view("UI_TEST_SAVED_DRAFTS_NEXT_RECT")
             page_markers_before_click = count(page_marker_prefix)
+            next_hovers_before = count(next_hover_prefix)
             next_clicks_before = count(next_click_prefix)
-            click((next_button[0] + next_button[2] / 2) * next_button[4],
-                  (next_button[1] + next_button[3] / 2) * next_button[4])
+            move((next_button[0] + next_button[2] / 2) * next_button[4],
+                 (next_button[1] + next_button[3] / 2) * next_button[4])
+            wait(lambda: count(next_hover_prefix) > next_hovers_before,
+                 "the real pointer hovering the saved-draft Next button")
+            assert button(display, 1, 1, 0)
+            send()
+            assert button(display, 1, 0, 0)
+            send()
             wait(lambda: count(next_click_prefix) > next_clicks_before,
                  "the real pointer click activating saved-draft Next")
             wait(lambda: count(page_marker_prefix) > page_markers_before_click

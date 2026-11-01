@@ -5876,6 +5876,7 @@ pub struct Studio {
     test_home_preset_rect_logged: Option<[i32; 5]>,
     test_drafts_page_logged: Option<usize>,
     test_drafts_next_rect_logged: Option<[i32; 5]>,
+    test_drafts_next_hover_logged: Option<usize>,
     test_hidden_reference_wheel_logged: bool,
     test_strong_text_contrast_logged: bool,
     confirm: Option<Action>,
@@ -6195,6 +6196,7 @@ impl Studio {
             test_home_preset_rect_logged: None,
             test_drafts_page_logged: None,
             test_drafts_next_rect_logged: None,
+            test_drafts_next_hover_logged: None,
             test_hidden_reference_wheel_logged: false,
             test_strong_text_contrast_logged: false,
             confirm: None,
@@ -15307,6 +15309,19 @@ impl Studio {
                                                                 }
                                                                 self.test_drafts_next_rect_logged = Some(marker);
                                                             }
+                                                        }
+                                                        if self.test_path_dialog
+                                                            && next.hovered()
+                                                            && self.test_drafts_next_hover_logged
+                                                                != Some(self.drafts_page)
+                                                        {
+                                                            crate::studio_log!(
+                                                                "UI_TEST_SAVED_DRAFTS_NEXT_HOVERED: page={} total={}",
+                                                                self.drafts_page + 1,
+                                                                self.drafts.len()
+                                                            );
+                                                            self.test_drafts_next_hover_logged =
+                                                                Some(self.drafts_page);
                                                         }
                                                         if next.clicked() {
                                                             if self.test_path_dialog {

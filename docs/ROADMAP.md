@@ -29,7 +29,9 @@ hosted Linux CI. At
 close-save XTest then exposed Home's Recent artwork column pushing the saved-
 draft pager outside the viewport. Home columns are now width-bounded and the
 XTest rejects horizontally clipped controls before attempting its real pointer
-clicks; exact-head Linux verification is pending.
+clicks. Commit `980b1b2` moved the control inside the viewport, but the real click
+still failed; the current follow-up waits for egui to confirm pointer hover
+before sending press/release. Exact-head Linux verification is pending.
 No physical Windows result is claimed. The .bp extension and BitchPixel
 directory migration are a separate follow-up assignment; this branch continues
 to preserve the current .rpl behavior.

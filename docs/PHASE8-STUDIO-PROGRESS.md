@@ -43,10 +43,12 @@ fresh log, and real Next-pointer activation plus every page transition remain
 asserted. Run `41271639290` passed Windows, macOS, and the long Linux artwork
 workflow, then failed the close-save browser because the Recent artwork
 column's viewport-wide empty state pushed the adjacent Continue safely column
-off-screen. The current fix constrains both Home columns and adds explicit
-horizontal visibility checking to the XTest, in addition to its real pointer
-and page-transition assertions. Local focused geometry and all available Rust
-checks pass; the corrected full Linux XTest awaits another hosted run. This
+off-screen. Commit `980b1b2` constrained both Home columns, and the XTest
+confirmed Next's new rectangle is within the 1280-point viewport; the pointer
+click still did not activate it (push run `41273062739`, PR run `41273065627`).
+The follow-up adds an explicit egui hover observation before the press/release
+so the next hosted run can distinguish pointer mapping from click delivery.
+The complete Linux XTest remains unverified. This
 shell has no Xvfb/Xorg runner, so that real-window workflow cannot be run
 locally.
 
