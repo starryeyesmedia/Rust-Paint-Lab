@@ -1,6 +1,14 @@
-fixture_id,filename,extension,format_version,sha256,width,height,dpi,layer_count,provenance,status
-project-v1,,.rpl,V1,,,,,,,NOT_STAGED
-project-v2,,.rpl,V2,,,,,,,NOT_STAGED
-project-v3,,.rpl,V3,,,,,,,NOT_STAGED
-project-v4,,.rpl,V4,,,,,,,NOT_STAGED
-brush-legacy,,.rplbrush,,,,,,,,NOT_STAGED
+fixture_id,filename,extension,format_version,sha256,size_bytes,width,height,dpi,layer_count,features,serializer_commit,serializer,expected_reopen,provenance_class,status
+synthetic-project-v1,historical-serializer-generated/project-v1.rpl,.rpl,V1,c6f22b7e149953cf68f112d7eb95ad184f886a266c6b427125bb5ba01a85a3de,33309,64,64,300,2,"red-blue; half-alpha magenta; transparency; second raster layer",d322c55619b50278e3a2ced50cd9fc27cbe1ff49,paint_document::storage::encode,"Exact raster tiles and metadata after decode; in-place .rpl save; byte-identical .bak restore",SYNTHETIC_HISTORICAL_SERIALIZER,STAGED_TEST_ONLY
+synthetic-project-v2,historical-serializer-generated/project-v2.rpl,.rpl,V2,c7d5aac9582a38d713478162acfa903a66cb51dc37202c3b02e82944b2339053,37466,64,64,300,2,"V1 raster coverage; editable layer mask with 128 and 0 samples",4b4e6c4bacc813148d1b35cccb64ae888f7cfe88,paint_document::storage::encode,"Exact raster and mask tiles after decode; in-place .rpl save; byte-identical .bak restore",SYNTHETIC_HISTORICAL_SERIALIZER,STAGED_TEST_ONLY
+synthetic-project-v3,historical-serializer-generated/project-v3.rpl,.rpl,V3,c5e34f45c1df2dc9945e33c95b282de374cce588ed336cfaf225340379ce28ff,37636,64,64,300,2,"V2 coverage; editable open vector path; monotonic vector ID",4a5a808bc1f20bd7432a22d3f2cac17885888d89,paint_document::storage::encode,"Exact raster, mask and vector metadata after decode; in-place .rpl save; byte-identical .bak restore",SYNTHETIC_HISTORICAL_SERIALIZER,STAGED_TEST_ONLY
+synthetic-project-v4,historical-serializer-generated/project-v4.rpl,.rpl,V4,bf1abaa5f02a468acb22a017e1c92f9ed399000005d058510317be479ae03ecd,37716,64,64,300,2,"V3 coverage; closed vector path with even-odd fill",0d26bd60b14fd42ac11a6d77dadcbcb97b2474e0,paint_document::storage::encode,"Exact raster, mask and filled-vector metadata after decode; in-place .rpl save; byte-identical .bak restore",SYNTHETIC_HISTORICAL_SERIALIZER,STAGED_TEST_ONLY
+synthetic-brush-v1,historical-serializer-generated/brush-preset-v1.rplbrush,.rplbrush,brush-v1,83f3e4f23e8d8dfd99cc3671c1566a3af1db929274f944d6087ba7b798860bd2,320,,,,,"Ink, size 9, opacity .65, flow .4, color [9,101,233]",173bf1c92113f6ecc90f3246dfc24bb2cc8b7223,paint_document::brush::Brush::encode,"Current loader returns the same validated brush; source bytes remain unchanged",SYNTHETIC_HISTORICAL_SERIALIZER,STAGED_TEST_ONLY
+authentic-project-v1,,.rpl,V1,,,,,,,,,,,AUTHENTIC_ARTIST_DOCUMENT,NOT_ACQUIRED
+authentic-project-v2,,.rpl,V2,,,,,,,,,,,AUTHENTIC_ARTIST_DOCUMENT,NOT_ACQUIRED
+authentic-project-v3,,.rpl,V3,,,,,,,,,,,AUTHENTIC_ARTIST_DOCUMENT,NOT_ACQUIRED
+authentic-project-v4,,.rpl,V4,,,,,,,,,,,AUTHENTIC_ARTIST_DOCUMENT,NOT_ACQUIRED
+authentic-existing-brush,,.rplbrush,unknown,,,,,,,,,,,AUTHENTIC_USER_PRESET,NOT_ACQUIRED
+authentic-backup,,.rpl.bak,unknown,,,,,,,,,,,AUTHENTIC_BACKUP,NOT_ACQUIRED
+authentic-journal,,.rpl.journal,RPLJRN01,,,,,,,,,,,AUTHENTIC_JOURNAL,NOT_ACQUIRED
+authentic-recovery-snapshot,,.rpl,unknown,,,,,,,,,,,AUTHENTIC_RECOVERY_SNAPSHOT,NOT_ACQUIRED

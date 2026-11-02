@@ -1,82 +1,80 @@
 # BP `.bp` Compatibility Regression Plan
 
-**Status: planning and fixture staging only.** The `.bp` backend migration must
-wait for PR #9 to be accepted and merged, followed by an Engineering Lead release
-of the storage-file lease. This plan adds no format handling, app-data resolver,
-or production behavior.
+**Status: fixture and test planning only.** No `.bp` storage implementation is
+started here. The approved product decision is `.bp` for new artwork and
+continued read/edit support for historical `.rpl` files and `.rplbrush` presets.
+The current binary identifiers `RPLALP01`–`RPLALP04` remain in scope; `.bpbrush`
+is not approved as a preset format.
 
-The owner-approved contract is: new artwork defaults to `.bp`; old `.rpl` V1–V4
-documents remain readable and editable; opening and saving an `.rpl` in place
-keeps its `.rpl` path; Save As `.bp` creates a separate file and preserves the
-source; legacy `.rplbrush` presets remain supported. Preserve the existing
-`RPLALP01`–`RPLALP04` binary magic initially. `.bpbrush` remains proposed only.
+## Acceptance matrix
 
-## Regression matrix
+Every passing persistence case compares a normalized document manifest and
+actual raw-layer and composite RGBA samples. It records SHA-256 for all source,
+backup, and journal bytes that must remain unchanged. A successful `open`, changed
+file size, tile count, extension, or nonempty alpha is not sufficient.
 
-| ID | Setup and operation | Required assertions |
+| ID | Fixture and operation | Required pass criteria |
 |---|---|---|
-| BP-FMT-01 | Open authentic `.rpl` V1 fixture | Dimensions/DPI, layer metadata, exact decoded RGBA, checksum, successful edit. |
-| BP-FMT-02 | Repeat for authentic `.rpl` V2 fixture | Raster, masks, layer metadata and exact RGBA. |
-| BP-FMT-03 | Repeat for authentic `.rpl` V3 fixture | V2 assertions plus vector IDs, geometry, style, ordering and next-ID state. |
-| BP-FMT-04 | Repeat for authentic `.rpl` V4 fixture | V3 assertions plus fill settings and exact rendered pixels. |
-| BP-FMT-05 | Edit each `.rpl` version and save to its original path | Path and `.rpl` extension remain unchanged; reopened state matches expected edit; previous valid bytes remain in `.rpl.bak`; relevant journal remains readable. |
-| BP-FMT-06 | Save As `.bp` from each `.rpl` version | New `.bp` reopens to the same normalized artwork; original `.rpl` and existing `.bak`/journal bytes remain unchanged. |
-| BP-FMT-07 | Open `.bp`, edit, save, close, reopen | Exact pixels and supported layer/mask/vector/fill data survive; subsequent save stays `.bp` and does not redirect to a legacy path. |
-| BP-FMT-08 | Recovery with legacy `.rpl` and new `.bp` projects | Latest complete snapshot, journal record, corrupt-tail fallback, `.bak` fallback and cleanup preserve both source and recovery data. Assert exact decoded pixels/state after each restore. |
-| BP-FMT-09 | Seed old and new application-data roots together | Legacy recovery, drafts, recent paths and presets remain discoverable and byte-identical; new writes use the approved BitchPixel root; collisions never overwrite files. Define duplicate-display precedence before implementation. |
-| BP-FMT-10 | Open, use, save-copy and reopen an existing `.rplbrush` preset | Existing preset bytes stay unchanged; brush parameters round-trip; it remains selectable. Do not require or write `.bpbrush`. |
+| BP-FMT-01 | Authentic V1 `.rpl`; open, edit, close, reopen | Verify `RPLALP01`, dimensions/DPI, two or more raster layers, layer metadata, exact opaque/partial-alpha/transparent raw and composite RGBA samples; edit remains undoable before save; reopened state equals approved expected manifest. |
+| BP-FMT-02 | Authentic V2 `.rpl`; open, edit mask, save, reopen | V1 assertions plus exact mask enabled/inverted flags and mask tile samples; raster and mask data remain independently editable. |
+| BP-FMT-03 | Authentic V3 `.rpl`; open, edit vector, save, reopen | V2 assertions plus vector IDs, next-ID state, geometry, stroke/style, ordering, visibility, exact rendered samples, and proof vector pixels were not rasterized into source tiles. |
+| BP-FMT-04 | Authentic V4 `.rpl`; open, edit fill, save, reopen | V3 assertions plus closed geometry and fill color/rule; exact filled, edge, and outside composite pixels; source raster tiles remain unchanged. |
+| BP-FMT-05 | Each `.rpl` version; save in place | The file path and `.rpl` extension remain unchanged. After edit/save/reopen, exact expected state and pixels persist. The generated `.rpl.bak` equals the prior source bytes exactly and independently reopens to the prior state. |
+| BP-FMT-06 | Each `.rpl` version; Save As `.bp` | New `.bp` reopens to the same normalized artwork and edit. Original `.rpl`, preexisting `.rpl.bak`, and `.rpl.journal` bytes and hashes remain unchanged. No source file is renamed, deleted, or redirected. |
+| BP-FMT-07 | New artwork; create, save `.bp`, close, reopen, edit, save again | Default new-project path/extension is `.bp`; the exact document manifest and RGBA samples survive two close/reopen cycles. Later saves remain at `.bp`; no unexpected `.rpl` sibling or migration copy appears. |
+| BP-FMT-08 | Legacy and new files; backup/journal/recovery failure paths | Checkpoint each project, verify snapshot and complete journal restore exact state, truncate/corrupt a journal tail and recover the previous complete record, then disable/remove the journal, corrupt the primary snapshot, and recover only from the verified `.bak`. Assert source artwork and recovery bytes are unchanged by restore. Exercise both `.rpl` and `.bp` path derivation. |
+| BP-FMT-09 | Seed old and new application-data roots together | Use disposable roots for legacy `%LOCALAPPDATA%/RustPaintLab` and approved BitchPixel data paths plus their XDG/macOS equivalents. Discover old drafts, recovery snapshots, recent paths and presets without moving or rewriting them; direct all new writes to the approved root; test same-name collisions and document deterministic display precedence. |
+| BP-FMT-10 | Existing `.rplbrush`; open, select, save-copy, reopen | Historical preset bytes remain unchanged; the preset loads with exact brush kind, size, opacity, flow, hardness, spacing, color, pressure flags and tilt settings; save-copy and reload preserve supported settings. Do not require or write `.bpbrush`. |
 
-Every persistence assertion should compare a normalized document manifest and
-actual selected RGBA pixels. Record exact original-file hashes, backup/journal
-hashes and post-operation hashes where preservation is required. A successful
-`Store::open`, changed file size, tile count, or extension alone does not pass.
+For Save As, hash the original file, backup, and journal before and after the
+operation. For recovery tests, state explicitly which source won (latest journal,
+previous complete journal record, primary snapshot, or verified backup). Verify
+that restoring does not modify the source project. Run corrupt-tail and failed
+restore cases on disposable copies.
 
-## Fixture inventory and preparation
+## Fixture status and provenance
 
-The current checkout contains generated version-coverage tests but no committed
-`.rpl` or `.rplbrush` binary fixtures. Generated bytes from the current encoder
-are useful for unit construction, but are not substitutes for authentic historical
-files. Stage one owner-approved sample of each V1–V4 generation and one real
-`.rplbrush` preset before implementing the migration tests.
+The current repository history and tracked tree contain no authentic artist
+`.rpl` files, no owner-provided `.rplbrush`, and no committed historical backup,
+journal, or recovery snapshot artifacts. Existing tests generate temporary files
+at runtime.
 
-For each project fixture, preserve the source bytes and record:
+The fixture intake directory contains synthetic files produced by the historical
+source serializers. They are useful parser and save-compatibility regressions but
+are **not authentic artist artwork or evidence of an actual historical desktop
+save**. Exact commit, serializer function, SHA-256, dimensions, layer count, and
+expected reopen assertions are in
+[`manifest.csv`](../crates/document/tests/fixtures/bp_compat/manifest.csv). The
+reproducer is
+[`generate_historical.py`](../crates/document/tests/fixtures/bp_compat/generate_historical.py):
 
-```text
-fixture_name,extension,format_version,sha256,width,height,dpi,layer_count,
-expected_pixels_manifest,expected_metadata_manifest,provenance
-```
+| Version/artifact | Serializer source commit | Serializer | Feature coverage |
+|---|---|---|---|
+| Synthetic V1 project | `d322c55619b50278e3a2ced50cd9fc27cbe1ff49` | `paint_document::storage::encode` | Layered raster, opaque red/blue, partial alpha, transparency. |
+| Synthetic V2 project | `4b4e6c4bacc813148d1b35cccb64ae888f7cfe88` | `paint_document::storage::encode` | V1 raster plus editable mask bytes. |
+| Synthetic V3 project | `4a5a808bc1f20bd7432a22d3f2cac17885888d89` | `paint_document::storage::encode` | V2 coverage plus editable open vector geometry. |
+| Synthetic V4 project | `0d26bd60b14fd42ac11a6d77dadcbcb97b2474e0` | `paint_document::storage::encode` | V3 coverage plus closed vector fill. |
+| Synthetic brush preset v1 | `173bf1c92113f6ecc90f3246dfc24bb2cc8b7223` | `paint_document::brush::Brush::encode` | Validated version-1 `.rplbrush` JSON. |
 
-Use varied and known pixels in each historical file: opaque colors, partial
-alpha, transparent pixels, more than one layer, and any version-specific mask,
-vector, or fill feature. Keep a separate expected-state manifest generated by an
-independent decoder or owner-reviewed reference, not by the `.bp` migration code
-under test. Retain unmodified source copies to check Save As preservation.
+The added integration tests decode these files, assert manifest raster and feature
+bytes, exercise in-place `.rpl` saves, check that `.bak` preserves the exact old
+bytes, and test backup fallback plus current journal/recovery handling. Backup,
+journal, and recovery artifacts are generated in temporary directories by those
+tests; they are not labeled as historic. The tests do not implement `.bp` Save As
+or `.bp` persistence.
 
-Create disposable test copies for in-place saves. Keep the source fixture
-read-only and hash it before and after each test. Use unique temporary app-data
-roots, never the current user's real directories. Test old and new roots together
-to catch discovery collisions and accidental movement.
+Authentic historical samples are still required before final compatibility
+acceptance. Obtain owner-approved project and preset bytes from actual historical
+application builds or safe legacy-profile copies. Record source application/build,
+creation process and provenance; preserve read-only originals; independently
+derive exact pixel and metadata manifests; and test only disposable copies. Do not
+add private artwork or identifying user data.
 
-| Needed fixture | Current status | Preparation action |
-|---|---|---|
-| Authentic `.rpl` V1 | Not staged | Obtain historical file and owner-approved pixel/metadata manifest. |
-| Authentic `.rpl` V2 | Not staged | Obtain historical file with mask/layer coverage and manifest. |
-| Authentic `.rpl` V3 | Not staged | Obtain historical file with vector coverage and manifest. |
-| Authentic `.rpl` V4 | Not staged | Obtain historical file with fill/version-specific coverage and manifest. |
-| Existing `.rplbrush` preset | Not staged | Obtain real preset bytes and owner-approved decoded brush settings. |
-| Old/new data-directory seeds | Not staged | Construct disposable directory trees only after resolver behavior is assigned. |
+## Migration gate and ownership
 
-## Current source facts and gate
-
-At `main` `1559122943e8b6e9123b653a555f72e7a894d3e6`, storage decodes the four
-historical native versions and restricts `Store::save` to `.rpl`; `.bp` app
-filters and new-root discovery are not implemented. Existing tests generate
-versions in code but do not provide the historical fixture bytes required by
-this matrix. The current application-data discovery paths are legacy-named.
-
-PR #9 is still draft at observed HEAD `c0cae609f293f233973bbeeaadb4098f9e771676`
-and leases `crates/document/src/storage.rs`, `apps/canvas-demo/src/studio.rs`,
-and related save files. Do not start `.bp` test-coupled backend work until the
-PR is accepted, merged, and the Engineering Lead explicitly releases those
-leases. The matrix and fixture staging notes can be refined while that gate is
-pending.
+At the latest checked repository state, `main` is
+`1559122943e8b6e9123b653a555f72e7a894d3e6`. PR #9 remains a draft and owns the
+storage, close-save, CI, and smoke paths it changed. Do not start `.bp` backend
+implementation or storage-coupled tests until PR #9 is accepted and merged and
+the Engineering Lead explicitly releases the storage lease. File-dialog and
+application-data-root changes also require an explicit UI/backend handoff.
