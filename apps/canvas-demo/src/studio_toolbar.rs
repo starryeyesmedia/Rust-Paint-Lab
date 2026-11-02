@@ -553,9 +553,7 @@ mod tests {
         for tool in implemented_tools {
             let direct_controls = TOOL_CATALOG
                 .iter()
-                .filter(|entry| {
-                    entry.tool == tool && entry.activation != ToolActivation::Eraser
-                })
+                .filter(|entry| entry.tool == tool && entry.activation != ToolActivation::Eraser)
                 .count();
             assert_eq!(
                 direct_controls, 1,
