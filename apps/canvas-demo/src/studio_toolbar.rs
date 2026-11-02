@@ -557,7 +557,10 @@ mod tests {
                     entry.tool == tool && entry.activation != ToolActivation::SelectEraser
                 })
                 .count();
-            assert_eq!(direct_controls, 1, "{tool:?} needs one direct catalog control");
+            assert_eq!(
+                direct_controls, 1,
+                "{tool:?} needs one direct catalog control"
+            );
         }
     }
 
@@ -660,10 +663,7 @@ mod tests {
             );
         }
         assert_eq!(adjacent_focus(usize::MAX, count, true), Some(count - 1));
-        assert_eq!(
-            adjacent_focus(usize::MAX, count, false),
-            Some(count - 2)
-        );
+        assert_eq!(adjacent_focus(usize::MAX, count, false), Some(count - 2));
         assert_eq!(adjacent_focus(0, 0, true), None);
     }
 
