@@ -138,105 +138,105 @@ const fn catalog_entry(
 pub(crate) const TOOL_CATALOG: [ToolCatalogEntry; 15] = [
     catalog_entry(
         EditTool::Brush,
-        ToolActivation::SelectBrush,
+        ToolActivation::Brush,
         Icon::Brush,
         "Brush",
         Some("B"),
     ),
     catalog_entry(
         EditTool::Brush,
-        ToolActivation::SelectEraser,
+        ToolActivation::Eraser,
         Icon::Eraser,
         "Eraser",
         None,
     ),
     catalog_entry(
         EditTool::Eyedropper,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Eyedropper,
         "Eyedropper",
         Some("I"),
     ),
     catalog_entry(
         EditTool::Smudge,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Smudge,
         "Smudge",
         Some("S"),
     ),
     catalog_entry(
         EditTool::ColorMix,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::ColorMixer,
         "Color Mixer",
         Some("X"),
     ),
     catalog_entry(
         EditTool::Fill,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Fill,
         "Fill",
         Some("F"),
     ),
     catalog_entry(
         EditTool::Gradient,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Gradient,
         "Gradient",
         Some("G"),
     ),
     catalog_entry(
         EditTool::QuickShape,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::QuickShape,
         "QuickShape",
         Some("Q"),
     ),
     catalog_entry(
         EditTool::ShapeLine,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Line,
         "Line",
         Some("L"),
     ),
     catalog_entry(
         EditTool::ShapeRectangle,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Rectangle,
         "Rectangle",
         Some("R"),
     ),
     catalog_entry(
         EditTool::ShapeEllipse,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Ellipse,
         "Ellipse",
         Some("O"),
     ),
     catalog_entry(
         EditTool::Rectangle,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::RectangleSelection,
         "Rectangle selection",
         Some("M"),
     ),
     catalog_entry(
         EditTool::Ellipse,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::EllipseSelection,
         "Ellipse selection",
         Some("Shift+E"),
     ),
     catalog_entry(
         EditTool::Lasso,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Lasso,
         "Lasso selection",
         Some("K"),
     ),
     catalog_entry(
         EditTool::VectorPath,
-        ToolActivation::SelectTool,
+        ToolActivation::Tool,
         Icon::Path,
         "Create path",
         Some("V"),
@@ -554,7 +554,7 @@ mod tests {
             let direct_controls = TOOL_CATALOG
                 .iter()
                 .filter(|entry| {
-                    entry.tool == tool && entry.activation != ToolActivation::SelectEraser
+                    entry.tool == tool && entry.activation != ToolActivation::Eraser
                 })
                 .count();
             assert_eq!(
@@ -610,13 +610,12 @@ mod tests {
 
     #[test]
     fn brush_and_eraser_are_distinct_controls_over_the_brush_tool() {
-        let [brush, eraser, ..] = TOOL_CATALOG else {
-            unreachable!()
-        };
+        let brush = TOOL_CATALOG[0];
+        let eraser = TOOL_CATALOG[1];
         assert_eq!(brush.tool, EditTool::Brush);
         assert_eq!(eraser.tool, EditTool::Brush);
-        assert_eq!(brush.activation, ToolActivation::SelectBrush);
-        assert_eq!(eraser.activation, ToolActivation::SelectEraser);
+        assert_eq!(brush.activation, ToolActivation::Brush);
+        assert_eq!(eraser.activation, ToolActivation::Eraser);
         assert_eq!(brush.label, "Brush");
         assert_eq!(eraser.label, "Eraser");
         assert_eq!(brush.icon, Icon::Brush);
