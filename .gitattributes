@@ -1,0 +1,2 @@
+# Keep the JSON-shaped preset fixture byte-identical across Windows checkouts.
+/crates/document/tests/fixtures/bp_compat/historical-serializer-generated/*.rplbrush -text
