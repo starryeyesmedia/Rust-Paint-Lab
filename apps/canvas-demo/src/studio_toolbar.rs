@@ -80,11 +80,11 @@ pub(crate) struct ToolEntry {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToolActivation {
     /// Select the ordinary editing tool recorded in the catalog entry.
-    SelectTool,
+    Tool,
     /// Select `EditTool::Brush` and return from Eraser to the last brush preset.
-    SelectBrush,
+    Brush,
     /// Select `EditTool::Brush` with the existing Eraser preset.
-    SelectEraser,
+    Eraser,
 }
 
 /// Metadata for one individually accessible toolbar action.
