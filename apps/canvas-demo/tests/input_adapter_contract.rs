@@ -130,12 +130,16 @@ fn touch_and_unknown_are_not_painted_and_mouse_does_not_inherit_pen_capabilities
         matches!(commands.as_slice(), [StrokeCommand::BeginStroke { sample, .. }] if sample.tool == Tool::Mouse && sample.pressure.is_none() && sample.tilt_degrees == [None, None])
     );
 
-    for (id, tool) in [(2, Tool::Touch), (3, Tool::Unknown)] {
-        let down = sample(id, 2, tool, Phase::Down, [50.0, 60.0]);
+    for (index, (id, tool)) in [(2, Tool::Touch), (3, Tool::Unknown)]
+        .into_iter()
+        .enumerate()
+    {
+        let start = 2 + (index as u64 * 3);
+        let down = sample(id, start, tool, Phase::Down, [50.0, 60.0]);
         assert!(feed(&mut processor, &mut router, down).is_empty());
-        let moved = sample(id, 3, tool, Phase::Move, [55.0, 65.0]);
+        let moved = sample(id, start + 1, tool, Phase::Move, [55.0, 65.0]);
         assert!(feed(&mut processor, &mut router, moved).is_empty());
-        let up = sample(id, 4, tool, Phase::Up, [55.0, 65.0]);
+        let up = sample(id, start + 2, tool, Phase::Up, [55.0, 65.0]);
         assert!(feed(&mut processor, &mut router, up).is_empty());
     }
     assert_eq!(
@@ -147,7 +151,7 @@ fn touch_and_unknown_are_not_painted_and_mouse_does_not_inherit_pen_capabilities
         feed(
             &mut processor,
             &mut router,
-            sample(1, 5, Tool::Mouse, Phase::Up, [30.0, 40.0])
+            sample(1, 8, Tool::Mouse, Phase::Up, [30.0, 40.0])
         )
         .as_slice(),
         [StrokeCommand::CommitStroke { .. }]
@@ -171,6 +175,15 @@ fn unavailable_pen_capabilities_remain_unavailable_per_axis() {
     assert!(
         matches!(commands.as_slice(), [StrokeCommand::UpdateStroke { sample, .. }] if sample.pressure.is_none() && sample.tilt_degrees == [None, None])
     );
+    let commands = feed(
+        &mut processor,
+        &mut router,
+        sample(6, 3, Tool::Pen, Phase::Up, [5.0, 6.0]),
+    );
+    assert!(matches!(
+        commands.as_slice(),
+        [StrokeCommand::CommitStroke { .. }]
+    ));
 }
 
 #[test]
