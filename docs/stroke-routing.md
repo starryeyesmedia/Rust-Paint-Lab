@@ -82,8 +82,10 @@ paper never starts a painting transaction.
 
 - Pen Started begins a stroke, Moved updates it, Ended commits it. Barrel, eraser,
   and inversion flags are preserved as data; no brush/tool selection is implied.
-- Hover never starts painting. Touch and unknown tools are reserved, regardless of
-  primary flags. A future navigation consumer may observe the same lifecycle stream.
+- Hover never starts painting. Touch is reserved by default, and unknown tools are
+  always reserved. A host that owns touch-versus-navigation arbitration can opt in
+  to distinct `Tool::Touch` painting; the sample tool remains intact in every
+  routed command. Other hosts may observe touch for navigation without painting.
 - Mouse requires primary=true on Started and Moved. Secondary-only contact cannot
   start painting. Losing primary during Moved cancels; a later primary Move cannot
   invent a new stroke without a fresh Started. Ended may release primary and commit.

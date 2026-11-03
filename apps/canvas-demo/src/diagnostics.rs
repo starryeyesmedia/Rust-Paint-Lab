@@ -36,6 +36,12 @@ pub fn initialize() {
 }
 
 fn default_log_directory() -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        return crate::platform_paths::state_directory()
+            .ok()
+            .map(|path| path.join("logs"));
+    }
     #[cfg(target_os = "windows")]
     {
         return std::env::var_os("LOCALAPPDATA")

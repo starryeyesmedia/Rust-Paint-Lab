@@ -35,3 +35,27 @@ OS palm rejection or pen settings; distinguish absence from a confirmed app bug.
 The inspector reads only the current sample, not coalesced history. It does not
 measure end-to-end latency, render strokes, implement gestures, calibrate pressure,
 or establish Android S Pen compatibility. Android tests need a separate adapter.
+
+## Android / Samsung Galaxy S23 Ultra
+
+The Android debug host is an early ARM64 NativeActivity using the shared Rust
+document, stroke router, and wgpu renderer. This target has not yet been built or
+run on physical Android hardware. Use `android.md` for the reproducible APK build.
+
+| Test | Expected evidence | Result |
+| --- | --- | --- |
+| Install and launch ARM64 debug APK | Package installs, reaches BitchPixel Home, and reports selected GPU/backend | Not run |
+| New document and finger stroke | One finger paints only on paper through `paint-input` → `paint-stroke` → `paint-document` | Not run |
+| Undo and Redo | Both visible controls restore the prior committed pixels | Not run |
+| Background then resume | Recovery snapshot flush completes and the open session resumes without lost committed pixels | Not run |
+| Activity recreation | Android-private `.rpl` recovery appears in Home and restores with pixels intact | Not run |
+| Rotate portrait/landscape during idle and contact | Surface reconfigures; active contacts cancel before coordinate mapping changes | Not run |
+| Two-finger contact | No marks are produced; navigation gesture behavior is not part of this first slice | Not run |
+| Galaxy S23 Ultra S Pen pressure/tilt/hover/buttons/history | Report each hardware capability separately; do not infer it from touch events | Not run |
+| Non-Samsung Android touch device | Launch, draw, Undo/Redo, and private recovery remain usable | Not run |
+
+The first adapter uses winit contact events and preserves pressure, tilt, buttons,
+and source-clock metadata as unavailable. It does not claim S Pen integration,
+coalesced/historical samples, palm rejection, or two-finger navigation. Record the
+Android version, app commit, GPU/backend log, orientation, and observed steps; do
+not record hardware serial numbers.
