@@ -14,6 +14,8 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+#[cfg(target_os = "android")]
+use winit::platform::android::{EventLoopBuilderExtAndroid, activity::AndroidApp};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, StartCause, WindowEvent},
@@ -21,9 +23,6 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
-#[cfg(target_os = "android")]
-use winit::platform::android::{EventLoopBuilderExtAndroid, activity::AndroidApp};
-
 enum AppEvent {
     #[cfg(windows)]
     Wake,
@@ -516,10 +515,7 @@ impl App {
                         Phase::Cancel
                     };
                     self.session.touch(canvas_demo::android_input::touch_sample(
-                        id,
-                        now,
-                        phase,
-                        position,
+                        id, now, phase, position,
                     ));
                     self.android_paint_contact = None;
                     self.android_paint_position = None;
@@ -1250,9 +1246,10 @@ pub fn run_android(android_app: AndroidApp) -> Result<(), Failure> {
 }
 
 fn run_event_loop(event_loop: EventLoop<AppEvent>, args: Vec<String>) -> Result<(), Failure> {
-    if args.iter().any(|a| {
-        !["--exit-after-demo", "--compat-mouse", "--alpha-smoke"].contains(&a.as_str())
-    }) {
+    if args
+        .iter()
+        .any(|a| !["--exit-after-demo", "--compat-mouse", "--alpha-smoke"].contains(&a.as_str()))
+    {
         return Err("usage: canvas-demo [--exit-after-demo]".into());
     }
     let mut session = CanvasSession::new([1000, 700]);
