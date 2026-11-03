@@ -13,14 +13,14 @@ mod android_entry;
 #[cfg(target_os = "android")]
 mod android_file_dialog;
 
-pub mod platform_paths;
-pub mod appearance;
 pub mod android_input;
+pub mod appearance;
 pub mod autosave;
 pub mod barrel;
 pub mod brush_preview;
 pub mod color_controls;
 pub mod diagnostics;
+pub mod platform_paths;
 #[cfg(target_os = "android")]
 pub use android_file_dialog::FileDialog;
 pub mod document_setup;
