@@ -225,7 +225,7 @@ pub(crate) const TOOL_CATALOG: [ToolCatalogEntry; 15] = [
         ToolActivation::Tool,
         Icon::EllipseSelection,
         "Ellipse selection",
-        Some("Shift+E"),
+        Some("E"),
     ),
     catalog_entry(
         EditTool::Lasso,
@@ -334,7 +334,7 @@ const SELECTION: [ToolEntry; 3] = [
         tool: EditTool::Ellipse,
         icon: Icon::EllipseSelection,
         label: "Ellipse selection",
-        shortcut: "Shift+E",
+        shortcut: "E",
     },
     ToolEntry {
         tool: EditTool::Lasso,
@@ -579,7 +579,7 @@ mod tests {
                 Some("R"),
                 Some("O"),
                 Some("M"),
-                Some("Shift+E"),
+                Some("E"),
                 Some("K"),
                 Some("V"),
             ]
@@ -623,6 +623,22 @@ mod tests {
     }
 
     #[test]
+    fn ellipse_selection_hint_matches_the_existing_e_tool_shortcut() {
+        let catalog_entry = TOOL_CATALOG
+            .iter()
+            .find(|entry| entry.tool == EditTool::Ellipse)
+            .unwrap();
+        let compatibility_entry = SELECTION
+            .iter()
+            .find(|entry| entry.tool == EditTool::Ellipse)
+            .unwrap();
+
+        assert_eq!(catalog_entry.shortcut, Some("E"));
+        assert_eq!(catalog_entry.accessible_name(), "Ellipse selection (E)");
+        assert_eq!(compatibility_entry.shortcut, "E");
+    }
+
+    #[test]
     fn accessible_names_include_only_assigned_shortcuts() {
         let expected = [
             "Brush (B)",
@@ -637,7 +653,7 @@ mod tests {
             "Rectangle (R)",
             "Ellipse (O)",
             "Rectangle selection (M)",
-            "Ellipse selection (Shift+E)",
+            "Ellipse selection (E)",
             "Lasso selection (K)",
             "Create path (V)",
         ];
