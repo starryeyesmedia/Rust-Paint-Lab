@@ -149,3 +149,28 @@ state, OS, app commit, and device class. Use QPC/ETW or presentation tracing on
 Windows and Perfetto/frame timelines on Android; use monotonic timestamps in
 the same clock domain. Avoid per-sample diagnostic logging during measurement.
 No latency target or performance claim is established by this assignment.
+
+## Manual hardware acceptance worksheet
+
+Status: not run. Record the app commit, diagnostic commit, OS version, display
+mode, scaling/density, refresh rate, brush preset/settings, and Pass/Fail/Blocked
+for each case. Do not record serial numbers, device IDs, account names, or
+personal files. Capture only bounded diagnostics and screenshots of test marks
+when useful.
+
+| Device/build | Action | Expected result | Evidence and failure symptoms |
+| --- | --- | --- | --- |
+| Galaxy Book2 Pro 360 + Samsung S Pen, Windows; Canvas Demo and `stylus-diagnostic` built from the same exact commit | At 256 px brush size, draw slow and fast lines from light to firm pressure. | Pressure responds according to the selected preset; hover remains nonpainting; separate strokes start immediately after lift. | Pass/Fail; diagnostic phase/capability/error categories and timestamp deltas. Fail on flat/missing pressure, hover marks, lost samples, or delayed restart. |
+| Same | With a tilt-aware preset, draw at several pen angles and rotate the pen in both axes. | Available tilt axes change smoothly with stable sign convention; unsupported axes remain unavailable. | Pass/Fail; capability availability and bounded adapter errors. Fail on swapped/sign-flipped axes, jumps, or fabricated values. |
+| Same, Windows display scaling set to 100%, then 150% | Repeat a short stroke near canvas edges; move the app between displays at different scale factors if available. | Pointer and visible stroke stay aligned without a scale jump. A scale transition during contact cancels safely. | Record scale, display refresh, and app commit. Fail on offset, double scaling, clipping, or a committed partial stroke after transition. |
+| Same | Rest a hand on the display while drawing with the S Pen; then perform two-finger pan/zoom without the pen. | Pen stroke remains usable; touch never paints; two-finger input navigates only. | Pass/Fail; bounded modality/cancel diagnostics. Fail on palm marks, suppressed independent pen contact, or touch paint. |
+| Same | Interrupt a stroke with Alt+Tab, window focus loss, capture change, and app close/reopen; lift and immediately draw again. | Interrupted provisional work cancels without commit; next valid Down starts a clean stroke. | Pass/Fail; cancellation reason category and post-interruption fresh stroke. Fail on stuck pointer, ghost segment, partial commit, or failure to restart. |
+| Same | Tap/drag from Undo, Redo, menus, toolbar, window chrome, and floating-panel hit regions; then start on canvas and cross a floating panel. | UI-started contacts never paint. A canvas-owned stroke remains one canvas transaction across an overlay and does not invoke UI actions. | Pass/Fail; before/after undo state and canvas image. Fail on paint-through, duplicate stroke, unintended Undo/Redo, or lost owner. |
+| Galaxy S23 Ultra + Samsung S Pen, Android; Android Engineer's Canvas Demo and diagnostic APK from the same exact adapter commit | Repeat pressure, tilt, hover, lift/restart, and interrupted-stroke cases. | Same shared contract as above, using the adapter's documented Android axis mapping and capability availability. | Record app/diagnostic commit and APK hashes, Android version, display size/density/orientation, and bounded diagnostic categories. Fail on dropped/reordered history, capability fabrication, stale contact, or restart failure. |
+| Same | Rotate portrait/landscape; repeat strokes near all four canvas edges at each orientation. | Points align with the visible canvas after one view-to-canvas conversion; any transform change during contact cancels safely. | Pass/Fail with orientation and density only. Fail on rotated axes, offset, double density scaling, or an un-cancelled jump. |
+| Same | Rest a hand while drawing; then use two-finger navigation and test toolbar, Undo/Redo, menus, and floating panels. | Palm contacts do not paint or suppress an independent pen stroke; touch navigation remains nonpainting; UI-owned contacts never reach the canvas. | Pass/Fail; bounded adapter events/cancel reasons and before/after undo state. Fail on palm marks, accidental paint, UI-through paint, or stuck contacts. |
+
+The current repository contains no Android application, Gradle project, or
+MotionEvent adapter. The Galaxy S23 Ultra rows therefore require the Android
+Engineer to supply an Android app/diagnostic build and document its axis and
+capability mapping before execution. BP-PLAT-005 does not provide that build.
