@@ -3,7 +3,10 @@ use crate::{PaintError, State, storage::Store};
 use std::{
     fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
-    sync::{OnceLock, mpsc::{self, Receiver, SyncSender}},
+    sync::{
+        OnceLock,
+        mpsc::{self, Receiver, SyncSender},
+    },
     thread::{self, JoinHandle},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -17,10 +20,7 @@ pub fn set_directory(directory: PathBuf) -> Result<(), PaintError> {
     set_directory_once(&DIRECTORY_OVERRIDE, directory)
 }
 
-fn set_directory_once(
-    slot: &OnceLock<PathBuf>,
-    directory: PathBuf,
-) -> Result<(), PaintError> {
+fn set_directory_once(slot: &OnceLock<PathBuf>, directory: PathBuf) -> Result<(), PaintError> {
     if let Some(existing) = slot.get() {
         return (existing == &directory)
             .then_some(())
