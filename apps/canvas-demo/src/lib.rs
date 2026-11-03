@@ -1,11 +1,28 @@
 //! Replay canvas demo. Shared input/routing crates remain graphics-independent.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+extern crate self as canvas_demo;
+#[cfg(target_os = "android")]
+extern crate self as rfd;
+
+// The Android NativeActivity entry point is the only exception to this crate's
+// safe-Rust boundary. It exports the symbol Android requires and delegates to
+// the existing winit application loop; no unsafe operations are performed.
+#[cfg(target_os = "android")]
+#[allow(unsafe_code)]
+mod android_entry;
+#[cfg(target_os = "android")]
+mod android_file_dialog;
+
+pub mod platform_paths;
 pub mod appearance;
+pub mod android_input;
 pub mod autosave;
 pub mod barrel;
 pub mod brush_preview;
 pub mod color_controls;
 pub mod diagnostics;
+#[cfg(target_os = "android")]
+pub use android_file_dialog::FileDialog;
 pub mod document_setup;
 pub mod drafts;
 pub mod gpu;

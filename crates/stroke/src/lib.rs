@@ -80,8 +80,9 @@ struct ActiveStroke {
 }
 
 /// One router per ordered Processor stream. At most MAX_CONTACTS active strokes,
-/// no retained stroke history. Touch/unknown tools are reserved, never painted.
-/// A viewport is captured at Begin and stays fixed for that transaction.
+/// no retained stroke history. Touch painting is disabled unless the host opts
+/// in explicitly; unknown tools are always reserved. A viewport is captured at
+/// Begin and stays fixed for that transaction.
 #[derive(Debug, Default)]
 pub struct Router {
     viewport: Viewport,
@@ -89,6 +90,7 @@ pub struct Router {
     break_next: std::collections::BTreeSet<u64>,
     next_id: u64,
     time_ms: u64,
+    touch_painting_enabled: bool,
 }
 
 impl Router {
@@ -101,6 +103,11 @@ impl Router {
     /// Affects future strokes only. Active strokes keep their original mapping.
     pub fn set_viewport(&mut self, viewport: Viewport) {
         self.viewport = viewport;
+    }
+    /// Enable touch contacts as a distinct painting tool for a host that owns
+    /// touch-vs-navigation arbitration. Pen and mouse routing are unaffected.
+    pub fn set_touch_painting_enabled(&mut self, enabled: bool) {
+        self.touch_painting_enabled = enabled;
     }
     pub fn active_count(&self) -> usize {
         self.active.len()
@@ -170,7 +177,10 @@ impl Router {
             if self.active.contains_key(&sample.id) || self.active.len() == MAX_CONTACTS {
                 return None;
             }
-            if sample.tool != Tool::Pen && !(sample.tool == Tool::Mouse && sample.buttons.primary) {
+            if sample.tool != Tool::Pen
+                && !(sample.tool == Tool::Touch && self.touch_painting_enabled)
+                && !(sample.tool == Tool::Mouse && sample.buttons.primary)
+            {
                 return None;
             }
             let next = self.next_id.checked_add(1)?; // Never wrap transaction identity.

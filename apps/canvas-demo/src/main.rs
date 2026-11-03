@@ -21,6 +21,8 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
+#[cfg(target_os = "android")]
+use winit::platform::android::{EventLoopBuilderExtAndroid, activity::AndroidApp};
 
 enum AppEvent {
     #[cfg(windows)]
@@ -385,6 +387,16 @@ struct App {
     alpha: bool,
     modifiers: winit::keyboard::ModifiersState,
     recovery_poll_deadline: Option<Instant>,
+    #[cfg(target_os = "android")]
+    android_touch_contacts: std::collections::BTreeSet<u64>,
+    #[cfg(target_os = "android")]
+    android_owned_touches: std::collections::BTreeSet<u64>,
+    #[cfg(target_os = "android")]
+    android_paint_contact: Option<u64>,
+    #[cfg(target_os = "android")]
+    android_paint_position: Option<[f64; 2]>,
+    #[cfg(target_os = "android")]
+    android_touch_suppressed: bool,
 }
 impl App {
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: impl std::fmt::Display) {
@@ -395,6 +407,163 @@ impl App {
     fn time_ms(&self) -> u64 {
         self.clock.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
+
+    #[cfg(target_os = "android")]
+    fn android_touch_event(&mut self, touch: &winit::event::Touch) -> bool {
+        use paint_input::Phase;
+        use winit::event::TouchPhase;
+
+        let id = touch.id;
+        let position = [touch.location.x, touch.location.y];
+        let now = self.time_ms();
+        match touch.phase {
+            TouchPhase::Started => {
+                if self.android_touch_contacts.len() >= paint_input::lifecycle::MAX_CONTACTS
+                    && !self.android_touch_contacts.contains(&id)
+                {
+                    return false;
+                }
+                self.android_touch_contacts.insert(id);
+                if self.android_touch_suppressed {
+                    self.android_owned_touches.insert(id);
+                    return true;
+                }
+                if self.android_touch_contacts.len() > 1 {
+                    if let Some(paint_id) = self.android_paint_contact.take() {
+                        let last = self.android_paint_position.unwrap_or(position);
+                        self.session.touch(canvas_demo::android_input::touch_sample(
+                            paint_id,
+                            now,
+                            Phase::Cancel,
+                            last,
+                        ));
+                        self.android_owned_touches.insert(paint_id);
+                        self.android_paint_position = None;
+                        self.android_touch_suppressed = true;
+                        self.android_owned_touches.insert(id);
+                        self.request_android_touch_redraw();
+                        return true;
+                    }
+                    return false;
+                }
+
+                let can_paint = self
+                    .graphics
+                    .as_ref()
+                    .and_then(|graphics| graphics.studio.as_ref())
+                    .is_some_and(|studio| {
+                        android_canvas_touch_target(studio, &self.session, position)
+                    });
+                if can_paint {
+                    self.android_owned_touches.insert(id);
+                    self.android_paint_contact = Some(id);
+                    self.android_paint_position = Some(position);
+                    self.session.touch(canvas_demo::android_input::touch_sample(
+                        id,
+                        now,
+                        Phase::Down,
+                        position,
+                    ));
+                    self.request_android_touch_redraw();
+                    true
+                } else {
+                    false
+                }
+            }
+            TouchPhase::Moved => {
+                if self.android_touch_suppressed {
+                    return self.android_owned_touches.contains(&id);
+                }
+                if self.android_paint_contact == Some(id) {
+                    let over_ui = self
+                        .graphics
+                        .as_ref()
+                        .and_then(|graphics| graphics.studio.as_ref())
+                        .is_some_and(|studio| android_touch_hits_ui(studio, position));
+                    if over_ui {
+                        let last = self.android_paint_position.unwrap_or(position);
+                        self.session.touch(canvas_demo::android_input::touch_sample(
+                            id,
+                            now,
+                            Phase::Cancel,
+                            last,
+                        ));
+                        self.android_paint_contact = None;
+                        self.android_paint_position = None;
+                        self.android_touch_suppressed = true;
+                        self.request_android_touch_redraw();
+                        return true;
+                    }
+                    self.android_paint_position = Some(position);
+                    self.session.touch(canvas_demo::android_input::touch_sample(
+                        id,
+                        now,
+                        Phase::Move,
+                        position,
+                    ));
+                    self.request_android_touch_redraw();
+                    true
+                } else {
+                    false
+                }
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                let owned = self.android_owned_touches.remove(&id);
+                if self.android_paint_contact == Some(id) {
+                    let phase = if touch.phase == TouchPhase::Ended {
+                        Phase::Up
+                    } else {
+                        Phase::Cancel
+                    };
+                    self.session.touch(canvas_demo::android_input::touch_sample(
+                        id,
+                        now,
+                        phase,
+                        position,
+                    ));
+                    self.android_paint_contact = None;
+                    self.android_paint_position = None;
+                    self.request_android_touch_redraw();
+                }
+                self.android_touch_contacts.remove(&id);
+                if self.android_touch_contacts.is_empty() {
+                    self.android_touch_suppressed = false;
+                    self.android_owned_touches.clear();
+                }
+                owned
+            }
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn request_android_touch_redraw(&mut self) {
+        self.needs_redraw = true;
+        if let Some(graphics) = &self.graphics {
+            graphics.window.request_redraw();
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn reset_android_touches(&mut self) {
+        self.android_touch_contacts.clear();
+        self.android_owned_touches.clear();
+        self.android_paint_contact = None;
+        self.android_paint_position = None;
+        self.android_touch_suppressed = false;
+    }
+
+    fn preserve_for_background(&mut self) {
+        #[cfg(target_os = "android")]
+        if let Some(studio) = self
+            .graphics
+            .as_ref()
+            .and_then(|graphics| graphics.studio.as_ref())
+            && let Err(error) = studio.preserve(&self.session)
+        {
+            canvas_demo::studio_log!("Android background recovery flush failed: {error}");
+        }
+    }
+
     fn mouse(&mut self, event: MouseEvent) {
         let live = self.session.live();
         let active = live.active();
@@ -491,6 +660,8 @@ impl App {
     }
     fn resize(&mut self, size: [u32; 2]) -> Result<(), Failure> {
         self.mouse(MouseEvent::Resized(if self.alpha { [0, 0] } else { size }));
+        #[cfg(target_os = "android")]
+        self.reset_android_touches();
         if let Some(g) = &mut self.graphics {
             g.resize(size)?;
             g.window.request_redraw();
@@ -564,6 +735,9 @@ impl ApplicationHandler<AppEvent> for App {
     }
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.mouse(MouseEvent::Interrupted);
+        self.preserve_for_background();
+        #[cfg(target_os = "android")]
+        self.reset_android_touches();
         self.graphics = None;
         self.tick = Instant::now();
     }
@@ -575,7 +749,16 @@ impl ApplicationHandler<AppEvent> for App {
             canvas_demo::studio_log!("UI_TEST_APP_KEY_S: received");
         }
         self.check_capture();
-        if let Some(g) = &mut self.graphics
+        #[cfg(target_os = "android")]
+        let android_touch_owned = if let WindowEvent::Touch(touch) = &event {
+            self.android_touch_event(touch)
+        } else {
+            false
+        };
+        #[cfg(not(target_os = "android"))]
+        let android_touch_owned = false;
+        if !android_touch_owned
+            && let Some(g) = &mut self.graphics
             && let Some(studio) = &mut g.studio
         {
             let (blocked, repaint) = studio.window_event(&g.window, &event, &mut self.session);
@@ -596,11 +779,19 @@ impl ApplicationHandler<AppEvent> for App {
                 }
                 WindowEvent::Destroyed => {
                     self.mouse(MouseEvent::Interrupted);
+                    self.preserve_for_background();
+                    #[cfg(target_os = "android")]
+                    self.reset_android_touches();
                     event_loop.exit();
                 }
                 WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
                 WindowEvent::Focused(focused) => {
                     self.mouse(MouseEvent::Focus(focused));
+                    #[cfg(target_os = "android")]
+                    if !focused {
+                        self.preserve_for_background();
+                        self.reset_android_touches();
+                    }
                     if !focused
                         && let Some(studio) = self
                             .graphics
@@ -630,6 +821,9 @@ impl ApplicationHandler<AppEvent> for App {
                 WindowEvent::Occluded(value) => {
                     if value {
                         self.mouse(MouseEvent::Interrupted);
+                        self.preserve_for_background();
+                        #[cfg(target_os = "android")]
+                        self.reset_android_touches();
                     }
                     self.occluded = value;
                     self.tick = Instant::now();
@@ -837,6 +1031,8 @@ impl ApplicationHandler<AppEvent> for App {
                         g.window.request_redraw();
                     }
                 }
+                #[cfg(target_os = "android")]
+                WindowEvent::Touch(_) => {}
                 WindowEvent::RedrawRequested => {
                     let now = Instant::now();
                     if self.session.mode() == Mode::Replay && !self.paused && !self.occluded {
@@ -942,7 +1138,7 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                     }
                 }
-                _ => {} // No native pen, touch painting, or navigation gestures.
+                _ => {} // Platform-specific contacts are handled before this match.
             }
             Ok(())
         })();
@@ -1041,14 +1237,24 @@ fn main() {
 }
 
 fn run() -> Result<(), Failure> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    if args
-        .iter()
-        .any(|a| !["--exit-after-demo", "--compat-mouse", "--alpha-smoke"].contains(&a.as_str()))
-    {
+    let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
+    run_event_loop(event_loop, std::env::args().skip(1).collect())
+}
+
+#[cfg(target_os = "android")]
+pub fn run_android(android_app: AndroidApp) -> Result<(), Failure> {
+    let mut builder = EventLoop::<AppEvent>::with_user_event();
+    builder.with_android_app(android_app);
+    let event_loop = builder.build()?;
+    run_event_loop(event_loop, Vec::new())
+}
+
+fn run_event_loop(event_loop: EventLoop<AppEvent>, args: Vec<String>) -> Result<(), Failure> {
+    if args.iter().any(|a| {
+        !["--exit-after-demo", "--compat-mouse", "--alpha-smoke"].contains(&a.as_str())
+    }) {
         return Err("usage: canvas-demo [--exit-after-demo]".into());
     }
-    let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     let mut session = CanvasSession::new([1000, 700]);
     let alpha = !args
         .iter()
@@ -1077,12 +1283,57 @@ fn run() -> Result<(), Failure> {
         alpha,
         modifiers: winit::keyboard::ModifiersState::empty(),
         recovery_poll_deadline: None,
+        #[cfg(target_os = "android")]
+        android_touch_contacts: Default::default(),
+        #[cfg(target_os = "android")]
+        android_owned_touches: Default::default(),
+        #[cfg(target_os = "android")]
+        android_paint_contact: None,
+        #[cfg(target_os = "android")]
+        android_paint_position: None,
+        #[cfg(target_os = "android")]
+        android_touch_suppressed: false,
     };
     event_loop.run_app(&mut app)?;
     if let Some(error) = app.failure {
         return Err(error.into());
     }
     Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn android_canvas_touch_target(
+    studio: &canvas_demo::studio::Studio,
+    session: &CanvasSession,
+    client_px: [f64; 2],
+) -> bool {
+    if studio.blocks_canvas()
+        || session.mode() != Mode::Live
+        || !studio
+            .mapping
+            .is_some_and(|mapping| mapping.contains_client(client_px))
+        || android_touch_hits_ui(studio, client_px)
+    {
+        return false;
+    }
+
+    true
+}
+
+#[cfg(target_os = "android")]
+fn android_touch_hits_ui(studio: &canvas_demo::studio::Studio, client_px: [f64; 2]) -> bool {
+    if egui::Popup::is_any_open(&studio.context) {
+        return true;
+    }
+    let pixels_per_point = f64::from(studio.context.pixels_per_point());
+    let point = egui::pos2(
+        (client_px[0] / pixels_per_point) as f32,
+        (client_px[1] / pixels_per_point) as f32,
+    );
+    studio
+        .context
+        .layer_id_at(point)
+        .is_some_and(|layer| layer.order != egui::Order::Background)
 }
 
 fn text_editor_owns_key(

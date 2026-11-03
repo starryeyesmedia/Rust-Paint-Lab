@@ -416,7 +416,7 @@ fn router_teardown_is_cancel_only_idempotent_and_monotonic() {
 }
 
 #[test]
-fn touch_unknown_hover_and_ignored_are_not_painting() {
+fn touch_is_reserved_by_default_while_unknown_hover_and_ignored_are_not_painting() {
     let mut r = Router::default();
     for tool in [Tool::Touch, Tool::Unknown] {
         assert!(r.route(&output(raw(1, 0, Phase::Down, tool))).is_none());
@@ -436,6 +436,38 @@ fn touch_unknown_hover_and_ignored_are_not_painting() {
             }
         })
         .is_none()
+    );
+    assert_eq!(r.active_count(), 0);
+}
+
+#[test]
+fn explicitly_enabled_touch_painting_preserves_tool_and_transaction_order() {
+    let mut r = Router::default();
+    r.set_touch_painting_enabled(true);
+    let down = raw(9, 1, Phase::Down, Tool::Touch);
+    let moved = raw(9, 2, Phase::Move, Tool::Touch);
+    let up = raw(9, 3, Phase::Up, Tool::Touch);
+
+    assert_eq!(
+        r.route(&output(down)),
+        Some(C::BeginStroke {
+            stroke_id: StrokeId(0),
+            sample: point(down),
+        })
+    );
+    assert_eq!(
+        r.route(&output(moved)),
+        Some(C::UpdateStroke {
+            stroke_id: StrokeId(0),
+            sample: point(moved),
+        })
+    );
+    assert_eq!(
+        r.route(&output(up)),
+        Some(C::CommitStroke {
+            stroke_id: StrokeId(0),
+            sample: point(up),
+        })
     );
     assert_eq!(r.active_count(), 0);
 }

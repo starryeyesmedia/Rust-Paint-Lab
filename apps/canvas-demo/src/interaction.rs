@@ -163,18 +163,35 @@ impl LiveMouse {
         Some(clipped.end_client)
     }
 
-    pub fn pen(&mut self, mut sample: PointerSample) {
-        self.last_pen = if self.focused && paint_input::lifecycle::valid_sample(&sample) {
+    pub fn pen(&mut self, sample: PointerSample) {
+        self.native_pointer(sample, Tool::Pen);
+    }
+
+    pub fn touch(&mut self, sample: PointerSample) {
+        self.router.set_touch_painting_enabled(true);
+        self.native_pointer(sample, Tool::Touch);
+    }
+
+    fn native_pointer(&mut self, mut sample: PointerSample, paint_tool: Tool) {
+        self.last_pen = if paint_tool == Tool::Pen
+            && self.focused
+            && paint_input::lifecycle::valid_sample(&sample)
+        {
             Some(sample)
         } else {
             None
         };
-        let native_id = sample.id;
-        sample.id |= 1 << 63; // Disjoint from the logical mouse stream.
+        let namespace = match paint_tool {
+            Tool::Pen => 1 << 63,
+            Tool::Touch => 1 << 62,
+            _ => unreachable!("native pointer paint tool is pen or touch"),
+        };
+        sample.id |= namespace; // Disjoint from mouse and other native tools.
+        let track_id = sample.id;
         self.time_ms = self.time_ms.max(sample.timestamp_ms);
         sample.timestamp_ms = self.time_ms;
         if sample.phase == Phase::Cancel {
-            self.pen_tracks.remove(&native_id);
+            self.pen_tracks.remove(&track_id);
             self.consume(sample);
             return;
         }
@@ -182,7 +199,7 @@ impl LiveMouse {
             return;
         };
         if !self.focused || !mapping.contains_window_client(sample.position_px) {
-            self.pen_tracks.remove(&native_id);
+            self.pen_tracks.remove(&track_id);
             for output in self.processor.process(PointerSample {
                 phase: Phase::Cancel,
                 in_contact: false,
@@ -196,9 +213,9 @@ impl LiveMouse {
             return;
         }
 
-        if sample.tool != Tool::Pen {
+        if sample.tool != paint_tool {
             if matches!(sample.phase, Phase::Up | Phase::Cancel) {
-                self.pen_tracks.remove(&native_id);
+                self.pen_tracks.remove(&track_id);
             }
             self.consume(sample);
             return;
@@ -211,7 +228,7 @@ impl LiveMouse {
                     return;
                 }
                 if !mapping.contains_client(sample.position_px) {
-                    self.pen_tracks.remove(&native_id);
+                    self.pen_tracks.remove(&track_id);
                     self.consume(PointerSample {
                         phase: Phase::Cancel,
                         in_contact: false,
@@ -226,7 +243,7 @@ impl LiveMouse {
                 }
                 self.router.set_viewport(mapping.routing_viewport());
                 self.pen_tracks.insert(
-                    native_id,
+                    track_id,
                     PenTrack {
                         raw_client: sample.position_px,
                         last_paper_client: sample.position_px,
@@ -236,7 +253,7 @@ impl LiveMouse {
                 self.consume(sample);
             }
             Phase::Move => {
-                let Some(track) = self.pen_tracks.get(&native_id).copied() else {
+                let Some(track) = self.pen_tracks.get(&track_id).copied() else {
                     self.consume(sample);
                     return;
                 };
@@ -248,20 +265,20 @@ impl LiveMouse {
                     sample,
                 ) {
                     self.pen_tracks.insert(
-                        native_id,
+                        track_id,
                         PenTrack {
                             raw_client: sample.position_px,
                             last_paper_client: last,
                             raw_sample: sample,
                         },
                     );
-                } else if let Some(track) = self.pen_tracks.get_mut(&native_id) {
+                } else if let Some(track) = self.pen_tracks.get_mut(&track_id) {
                     track.raw_client = sample.position_px;
                     track.raw_sample = sample;
                 }
             }
             Phase::Up => {
-                let Some(track) = self.pen_tracks.get(&native_id).copied() else {
+                let Some(track) = self.pen_tracks.get(&track_id).copied() else {
                     self.consume(sample);
                     return;
                 };
@@ -279,7 +296,7 @@ impl LiveMouse {
                 } else {
                     last_paper
                 };
-                self.pen_tracks.remove(&native_id);
+                self.pen_tracks.remove(&track_id);
                 self.consume(sample);
             }
             Phase::Cancel => unreachable!("handled above"),
@@ -670,6 +687,13 @@ impl CanvasSession {
             self.live.pen(sample);
         }
     }
+    /// Paint a host-arbitrated touch contact while preserving Tool::Touch all
+    /// the way through Processor, Router, stroke commands, and the document.
+    pub fn touch(&mut self, sample: PointerSample) {
+        if self.mode == Mode::Live {
+            self.live.touch(sample);
+        }
+    }
     /// Apply a platform-normalized pen sample and its configured barrel action.
     /// Transient actions split the current contact at the exact sample where
     /// the side button changes; the brush engine still receives ordinary,
@@ -820,5 +844,38 @@ impl CanvasSession {
             self.playback.advance_to(elapsed)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod touch_tests {
+    use super::*;
+
+    #[test]
+    fn opted_in_touch_sample_commits_to_the_shared_document_engine() {
+        let mut session = CanvasSession::new([800, 500]);
+        session.live_mut().enable_document();
+
+        session.touch(crate::android_input::touch_sample(
+            4,
+            1,
+            Phase::Down,
+            [180.0, 150.0],
+        ));
+        session.touch(crate::android_input::touch_sample(
+            4,
+            2,
+            Phase::Move,
+            [240.0, 190.0],
+        ));
+        session.touch(crate::android_input::touch_sample(
+            4,
+            3,
+            Phase::Up,
+            [300.0, 230.0],
+        ));
+
+        assert_eq!(session.live().project().undo_count(), 1);
+        assert!(session.live().project().undo());
     }
 }

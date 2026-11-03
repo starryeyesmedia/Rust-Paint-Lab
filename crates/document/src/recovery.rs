@@ -3,10 +3,37 @@ use crate::{PaintError, State, storage::Store};
 use std::{
     fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, SyncSender},
+    sync::{OnceLock, mpsc::{self, Receiver, SyncSender}},
     thread::{self, JoinHandle},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static DIRECTORY_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Set the app-private recovery directory before opening documents or starting
+/// the recovery writer. Reinstalling the same path during host recreation is
+/// harmless; changing it within one process is rejected.
+pub fn set_directory(directory: PathBuf) -> Result<(), PaintError> {
+    set_directory_once(&DIRECTORY_OVERRIDE, directory)
+}
+
+fn set_directory_once(
+    slot: &OnceLock<PathBuf>,
+    directory: PathBuf,
+) -> Result<(), PaintError> {
+    if let Some(existing) = slot.get() {
+        return (existing == &directory)
+            .then_some(())
+            .ok_or(PaintError::Busy);
+    }
+    match slot.set(directory) {
+        Ok(()) => Ok(()),
+        Err(directory) => (slot.get() == Some(&directory))
+            .then_some(())
+            .ok_or(PaintError::Busy),
+    }
+}
+
 struct Request {
     state: State,
     reply: Option<SyncSender<Result<(), String>>>,
@@ -92,6 +119,9 @@ impl Drop for Recovery {
     }
 }
 pub fn directory() -> Result<PathBuf, PaintError> {
+    if let Some(directory) = DIRECTORY_OVERRIDE.get() {
+        return Ok(directory.clone());
+    }
     if let Some(p) = std::env::var_os("LOCALAPPDATA") {
         return Ok(PathBuf::from(p).join("RustPaintLab/recovery"));
     }
@@ -223,6 +253,18 @@ mod journal_tests {
     use super::*;
     use crate::{Engine, LayerMask, MASK_TILE_BYTES};
     use std::sync::Arc;
+
+    #[test]
+    fn private_directory_override_is_idempotent_and_immutable() {
+        let slot = OnceLock::new();
+        let directory = std::env::temp_dir().join("rpl-private-recovery");
+        set_directory_once(&slot, directory.clone()).unwrap();
+        set_directory_once(&slot, directory).unwrap();
+        assert!(matches!(
+            set_directory_once(&slot, std::env::temp_dir().join("other-recovery")),
+            Err(PaintError::Busy)
+        ));
+    }
 
     #[test]
     fn journal_checkpoint_is_discoverable_if_snapshot_replace_was_interrupted() {
