@@ -1716,77 +1716,116 @@ impl Engine {
                 0.0
             };
         let (sin, cos) = angle.sin_cos();
-        for yy in miny..maxy {
-            for xx in minx..maxx {
-                if self
-                    .state
-                    .selection
-                    .as_ref()
-                    .is_some_and(|s| !s.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5]))
+        let kind = t.brush.kind;
+        let hardness = t.brush.hardness;
+        let color = t.brush.color;
+        let mut tile_budget_used = self.tile_budget_used(t);
+        for tile_y in miny / TILE..maxy.div_ceil(TILE) {
+            let tile_top = tile_y * TILE;
+            let y_start = miny.max(tile_top);
+            let y_end = maxy.min(tile_top + TILE);
+            for tile_x in minx / TILE..maxx.div_ceil(TILE) {
+                let tile_left = tile_x * TILE;
+                let x_start = minx.max(tile_left);
+                let x_end = maxx.min(tile_left + TILE);
+                let key = (tile_x, tile_y);
+                let mut working = t.tiles.remove(&key);
+                let mut tile_changed = false;
                 {
-                    continue;
+                    // Keep one mutable tile slice for the whole dab. The old
+                    // inner pixel loop performed two BTreeMap lookups and an
+                    // Arc copy-on-write check for every covered pixel.
+                    let mut tile_pixels: Option<&mut [u8]> = None;
+                    for yy in y_start..y_end {
+                        for xx in x_start..x_end {
+                            if self.state.selection.as_ref().is_some_and(|s| {
+                                !s.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                            }) {
+                                continue;
+                            }
+                            let dx = f64::from(xx) + 0.5 - x;
+                            let dy = f64::from(yy) + 0.5 - y;
+                            let shape = if kind == BrushKind::Calligraphy {
+                                0.28
+                            } else {
+                                1.0
+                            };
+                            let d = ((dx * cos + dy * sin).powi(2)
+                                + ((-dx * sin + dy * cos) / shape).powi(2))
+                            .sqrt()
+                                / radius;
+                            if d >= 1.0 {
+                                continue;
+                            }
+                            let mut weight = ((1.0 - d) * radius).clamp(0.0, 1.0)
+                                * if d <= hardness {
+                                    1.0
+                                } else {
+                                    ((1.0 - d) / (1.0 - hardness).max(0.001)).clamp(0.0, 1.0)
+                                };
+                            if matches!(kind, BrushKind::Pencil | BrushKind::Textured) {
+                                let h = xx.wrapping_mul(73856093) ^ yy.wrapping_mul(19349663);
+                                weight *= 0.2 + 0.8 * f64::from(h % 101) / 100.0;
+                            }
+                            if kind == BrushKind::Wash {
+                                weight *= 0.35 + 0.65 * d.powi(2);
+                            }
+                            let a = (alpha * weight * 255.0).round().clamp(0.0, 255.0) as u8;
+                            if a == 0 {
+                                continue;
+                            }
+                            if tile_pixels.is_none() {
+                                if working.is_none() {
+                                    if tile_budget_used >= MAX_TILES {
+                                        return Err(PaintError::Limit);
+                                    }
+                                    tile_budget_used += 1;
+                                    working = Some(Arc::new(vec![0; TILE_BYTES]));
+                                }
+                                tile_pixels = Some(
+                                    Arc::make_mut(working.as_mut().expect("tile allocated"))
+                                        .as_mut_slice(),
+                                );
+                            }
+                            let i = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
+                            let src = [
+                                ((u16::from(color[0]) * u16::from(a) + 127) / 255) as u8,
+                                ((u16::from(color[1]) * u16::from(a) + 127) / 255) as u8,
+                                ((u16::from(color[2]) * u16::from(a) + 127) / 255) as u8,
+                                a,
+                            ];
+                            over(
+                                &mut tile_pixels.as_deref_mut().expect("tile slice initialized")
+                                    [i..i + 4],
+                                &src,
+                                false,
+                                255,
+                                Blend::Normal,
+                            );
+                            tile_changed = true;
+                        }
+                    }
                 }
-                let dx = f64::from(xx) + 0.5 - x;
-                let dy = f64::from(yy) + 0.5 - y;
-                let shape = if t.brush.kind == BrushKind::Calligraphy {
-                    0.28
-                } else {
-                    1.0
-                };
-                let d = ((dx * cos + dy * sin).powi(2) + ((-dx * sin + dy * cos) / shape).powi(2))
-                    .sqrt()
-                    / radius;
-                if d >= 1.0 {
-                    continue;
+                if let Some(tile) = working {
+                    t.tiles.insert(key, tile);
                 }
-                let mut weight = ((1.0 - d) * radius).clamp(0.0, 1.0)
-                    * if d <= t.brush.hardness {
-                        1.0
-                    } else {
-                        ((1.0 - d) / (1.0 - t.brush.hardness).max(0.001)).clamp(0.0, 1.0)
-                    };
-                if matches!(t.brush.kind, BrushKind::Pencil | BrushKind::Textured) {
-                    let h = xx.wrapping_mul(73856093) ^ yy.wrapping_mul(19349663);
-                    weight *= 0.2 + 0.8 * f64::from(h % 101) / 100.0;
+                if tile_changed {
+                    self.damage.insert(key);
                 }
-                if t.brush.kind == BrushKind::Wash {
-                    weight *= 0.35 + 0.65 * d.powi(2);
-                }
-                let a = (alpha * weight * 255.0).round().clamp(0.0, 255.0) as u8;
-                if a == 0 {
-                    continue;
-                }
-                let key = (xx / TILE, yy / TILE);
-                if !t.tiles.contains_key(&key)
-                    && self.state.tile_count()
-                        + self
-                            .active
-                            .values()
-                            .map(|active| active.tiles.len() + active.mask_tiles.len())
-                            .sum::<usize>()
-                        + t.tiles.len()
-                        + t.mask_tiles.len()
-                        >= MAX_TILES
-                {
-                    return Err(PaintError::Limit);
-                }
-                let tile = t
-                    .tiles
-                    .entry(key)
-                    .or_insert_with(|| Arc::new(vec![0; TILE_BYTES]));
-                let tile = Arc::make_mut(tile);
-                let i = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
-                let src = [
-                    ((u16::from(t.brush.color[0]) * u16::from(a) + 127) / 255) as u8,
-                    ((u16::from(t.brush.color[1]) * u16::from(a) + 127) / 255) as u8,
-                    ((u16::from(t.brush.color[2]) * u16::from(a) + 127) / 255) as u8,
-                    a,
-                ];
-                over(&mut tile[i..i + 4], &src, false, 255, Blend::Normal);
-                self.damage.insert(key);
             }
         }
         Ok(())
+    }
+
+    fn tile_budget_used(&self, transaction: &Transaction) -> usize {
+        self.state.tile_count()
+            + self
+                .active
+                .values()
+                .map(|active| active.tiles.len() + active.mask_tiles.len())
+                .sum::<usize>()
+            + transaction.tiles.len()
+            + transaction.mask_tiles.len()
     }
 
     fn mask_dab(&mut self, t: &mut Transaction, s: StrokeSample) -> Result<(), PaintError> {
@@ -1835,6 +1874,8 @@ impl Engine {
                 0.0
             };
         let (sin, cos) = angle.sin_cos();
+        let kind = t.brush.kind;
+        let hardness = t.brush.hardness;
         let target = if t.brush.kind == BrushKind::Eraser {
             255
         } else {
@@ -1842,77 +1883,102 @@ impl Engine {
             ((u32::from(red) * 54 + u32::from(green) * 183 + u32::from(blue) * 19 + 128) / 256)
                 as u8
         };
-        for yy in miny..maxy {
-            for xx in minx..maxx {
-                if self.state.selection.as_ref().is_some_and(|selection| {
-                    !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
-                }) {
-                    continue;
-                }
-                let dx = f64::from(xx) + 0.5 - x;
-                let dy = f64::from(yy) + 0.5 - y;
-                let shape = if t.brush.kind == BrushKind::Calligraphy {
-                    0.28
-                } else {
-                    1.0
-                };
-                let distance = ((dx * cos + dy * sin).powi(2)
-                    + ((-dx * sin + dy * cos) / shape).powi(2))
-                .sqrt()
-                    / radius;
-                if distance >= 1.0 {
-                    continue;
-                }
-                let mut weight = ((1.0 - distance) * radius).clamp(0.0, 1.0)
-                    * if distance <= t.brush.hardness {
-                        1.0
-                    } else {
-                        ((1.0 - distance) / (1.0 - t.brush.hardness).max(0.001)).clamp(0.0, 1.0)
-                    };
-                if matches!(t.brush.kind, BrushKind::Pencil | BrushKind::Textured) {
-                    let hash = xx.wrapping_mul(73856093) ^ yy.wrapping_mul(19349663);
-                    weight *= 0.2 + 0.8 * f64::from(hash % 101) / 100.0;
-                }
-                if t.brush.kind == BrushKind::Wash {
-                    weight *= 0.35 + 0.65 * distance.powi(2);
-                }
-                let coverage = (opacity * weight * 255.0).round().clamp(0.0, 255.0) as u32;
-                if coverage == 0 {
-                    continue;
-                }
-                let key = (xx / TILE, yy / TILE);
-                if !t.mask_tiles.contains_key(&key)
-                    && self.state.tile_count()
-                        + self
-                            .active
-                            .values()
-                            .map(|active| active.tiles.len() + active.mask_tiles.len())
-                            .sum::<usize>()
-                        + t.tiles.len()
-                        + t.mask_tiles.len()
-                        >= MAX_TILES
+        let layer = self
+            .state
+            .layers
+            .iter()
+            .find(|layer| layer.id == t.layer)
+            .ok_or(PaintError::Invalid)?;
+        let mask = layer.mask.as_ref().ok_or(PaintError::Invalid)?;
+        let mut tile_budget_used = self.tile_budget_used(t);
+        for tile_y in miny / TILE..maxy.div_ceil(TILE) {
+            let tile_top = tile_y * TILE;
+            let y_start = miny.max(tile_top);
+            let y_end = maxy.min(tile_top + TILE);
+            for tile_x in minx / TILE..maxx.div_ceil(TILE) {
+                let tile_left = tile_x * TILE;
+                let x_start = minx.max(tile_left);
+                let x_end = maxx.min(tile_left + TILE);
+                let key = (tile_x, tile_y);
+                let source = mask.tiles.get(&key).map(Arc::as_ref);
+                let mut working = t.mask_tiles.remove(&key);
+                let mut tile_changed = false;
                 {
-                    return Err(PaintError::Limit);
+                    let mut tile_pixels: Option<&mut [u8]> = None;
+                    for yy in y_start..y_end {
+                        for xx in x_start..x_end {
+                            if self.state.selection.as_ref().is_some_and(|selection| {
+                                !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                            }) {
+                                continue;
+                            }
+                            let dx = f64::from(xx) + 0.5 - x;
+                            let dy = f64::from(yy) + 0.5 - y;
+                            let shape = if kind == BrushKind::Calligraphy {
+                                0.28
+                            } else {
+                                1.0
+                            };
+                            let distance = ((dx * cos + dy * sin).powi(2)
+                                + ((-dx * sin + dy * cos) / shape).powi(2))
+                            .sqrt()
+                                / radius;
+                            if distance >= 1.0 {
+                                continue;
+                            }
+                            let mut weight = ((1.0 - distance) * radius).clamp(0.0, 1.0)
+                                * if distance <= hardness {
+                                    1.0
+                                } else {
+                                    ((1.0 - distance) / (1.0 - hardness).max(0.001)).clamp(0.0, 1.0)
+                                };
+                            if matches!(kind, BrushKind::Pencil | BrushKind::Textured) {
+                                let hash = xx.wrapping_mul(73856093) ^ yy.wrapping_mul(19349663);
+                                weight *= 0.2 + 0.8 * f64::from(hash % 101) / 100.0;
+                            }
+                            if kind == BrushKind::Wash {
+                                weight *= 0.35 + 0.65 * distance.powi(2);
+                            }
+                            let coverage =
+                                (opacity * weight * 255.0).round().clamp(0.0, 255.0) as u32;
+                            if coverage == 0 {
+                                continue;
+                            }
+                            let offset = (yy % TILE * TILE + xx % TILE) as usize;
+                            if tile_pixels.is_none() {
+                                if working.is_none() {
+                                    if tile_budget_used >= MAX_TILES {
+                                        return Err(PaintError::Limit);
+                                    }
+                                    tile_budget_used += 1;
+                                    working = Some(source.map_or_else(
+                                        || Arc::new(vec![255; MASK_TILE_BYTES]),
+                                        |source| Arc::new(source.to_vec()),
+                                    ));
+                                }
+                                tile_pixels = Some(
+                                    Arc::make_mut(working.as_mut().expect("tile allocated"))
+                                        .as_mut_slice(),
+                                );
+                            }
+                            let previous = u32::from(
+                                tile_pixels.as_deref().expect("tile slice initialized")[offset],
+                            );
+                            let next =
+                                (previous * (255 - coverage) + u32::from(target) * coverage + 127)
+                                    / 255;
+                            tile_pixels.as_deref_mut().expect("tile slice initialized")[offset] =
+                                next as u8;
+                            tile_changed = true;
+                        }
+                    }
                 }
-                let layer = self
-                    .state
-                    .layers
-                    .iter()
-                    .find(|layer| layer.id == t.layer)
-                    .ok_or(PaintError::Invalid)?;
-                let mask = layer.mask.as_ref().ok_or(PaintError::Invalid)?;
-                let tile = t.mask_tiles.entry(key).or_insert_with(|| {
-                    mask.tiles
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or_else(|| Arc::new(vec![255; MASK_TILE_BYTES]))
-                });
-                let tile = Arc::make_mut(tile);
-                let offset = (yy % TILE * TILE + xx % TILE) as usize;
-                let previous = u32::from(tile[offset]);
-                let next = (previous * (255 - coverage) + u32::from(target) * coverage + 127) / 255;
-                tile[offset] = next as u8;
-                self.damage.insert(key);
+                if let Some(tile) = working {
+                    t.mask_tiles.insert(key, tile);
+                }
+                if tile_changed {
+                    self.damage.insert(key);
+                }
             }
         }
         Ok(())
@@ -1975,99 +2041,119 @@ impl Engine {
             .iter()
             .find(|layer| layer.id == t.layer)
             .ok_or(PaintError::Invalid)?;
-
-        for yy in miny..maxy {
-            for xx in minx..maxx {
-                if self.state.selection.as_ref().is_some_and(|selection| {
-                    !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
-                }) {
-                    continue;
-                }
-                let dx = f64::from(xx) + 0.5 - x;
-                let dy = f64::from(yy) + 0.5 - y;
-                let shape = if t.brush.kind == BrushKind::Calligraphy {
-                    0.28
-                } else {
-                    1.0
-                };
-                let distance = ((dx * cos + dy * sin).powi(2)
-                    + ((-dx * sin + dy * cos) / shape).powi(2))
-                .sqrt()
-                    / radius;
-                let edge = smudge_edge_weight(distance, radius, t.brush.hardness);
-                if edge <= 0.0 {
-                    continue;
-                }
-                let mut coverage = edge;
-                if matches!(t.brush.kind, BrushKind::Pencil | BrushKind::Textured) {
-                    let hash = xx.wrapping_mul(73856093) ^ yy.wrapping_mul(19349663);
-                    coverage *= 0.2 + 0.8 * f64::from(hash % 101) / 100.0;
-                }
-                if t.brush.kind == BrushKind::Wash {
-                    coverage *= 0.35 + 0.65 * distance.powi(2);
-                }
-                let alpha = (load * coverage * 255.0).round().clamp(0.0, 255.0) as u8;
-                if alpha == 0 {
-                    continue;
-                }
-                let key = (xx / TILE, yy / TILE);
-                let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
-                let previous =
-                    t.tiles
-                        .get(&key)
-                        .or_else(|| layer.tiles.get(&key))
-                        .map_or([0; 4], |tile| {
-                            tile[offset..offset + 4]
-                                .try_into()
-                                .expect("RGBA pixel has four bytes")
-                        });
-                let current = if previous[3] == 0 {
-                    t.brush.color
-                } else {
-                    std::array::from_fn(|channel| {
-                        ((u16::from(previous[channel]) * 255 + u16::from(previous[3]) / 2)
-                            / u16::from(previous[3]))
-                        .min(255) as u8
-                    })
-                };
-                let pigment = [
-                    mix_byte(current[0], t.brush.color[0], strength),
-                    mix_byte(current[1], t.brush.color[1], strength),
-                    mix_byte(current[2], t.brush.color[2], strength),
-                ];
-                let mut next = previous;
-                let source = [
-                    ((u16::from(pigment[0]) * u16::from(alpha) + 127) / 255) as u8,
-                    ((u16::from(pigment[1]) * u16::from(alpha) + 127) / 255) as u8,
-                    ((u16::from(pigment[2]) * u16::from(alpha) + 127) / 255) as u8,
-                    alpha,
-                ];
-                over(&mut next, &source, false, 255, Blend::Normal);
-                if next == previous {
-                    continue;
-                }
-                if !t.tiles.contains_key(&key)
-                    && self.state.tile_count()
-                        + self
-                            .active
-                            .values()
-                            .map(|active| active.tiles.len() + active.mask_tiles.len())
-                            .sum::<usize>()
-                        + t.tiles.len()
-                        + t.mask_tiles.len()
-                        >= MAX_TILES
-                {
-                    return Err(PaintError::Limit);
-                }
-                let tile = t.tiles.entry(key).or_insert_with(|| {
-                    layer
-                        .tiles
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or_else(|| Arc::new(vec![0; TILE_BYTES]))
+        let kind = t.brush.kind;
+        let hardness = t.brush.hardness;
+        let color = t.brush.color;
+        let mut tile_budget_used = self.tile_budget_used(t);
+        for tile_y in miny / TILE..maxy.div_ceil(TILE) {
+            let tile_top = tile_y * TILE;
+            let y_start = miny.max(tile_top);
+            let y_end = maxy.min(tile_top + TILE);
+            for tile_x in minx / TILE..maxx.div_ceil(TILE) {
+                let tile_left = tile_x * TILE;
+                let x_start = minx.max(tile_left);
+                let x_end = maxx.min(tile_left + TILE);
+                let key = (tile_x, tile_y);
+                let base_tile = layer.tiles.get(&key);
+                let mut working = t.tiles.remove(&key).map(|tile| {
+                    Arc::try_unwrap(tile).unwrap_or_else(|shared| shared.as_ref().clone())
                 });
-                Arc::make_mut(tile)[offset..offset + 4].copy_from_slice(&next);
-                self.damage.insert(key);
+                let mut tile_changed = false;
+                {
+                    for yy in y_start..y_end {
+                        for xx in x_start..x_end {
+                            if self.state.selection.as_ref().is_some_and(|selection| {
+                                !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                            }) {
+                                continue;
+                            }
+                            let dx = f64::from(xx) + 0.5 - x;
+                            let dy = f64::from(yy) + 0.5 - y;
+                            let shape = if kind == BrushKind::Calligraphy {
+                                0.28
+                            } else {
+                                1.0
+                            };
+                            let distance = ((dx * cos + dy * sin).powi(2)
+                                + ((-dx * sin + dy * cos) / shape).powi(2))
+                            .sqrt()
+                                / radius;
+                            let edge = smudge_edge_weight(distance, radius, hardness);
+                            if edge <= 0.0 {
+                                continue;
+                            }
+                            let mut coverage = edge;
+                            if matches!(kind, BrushKind::Pencil | BrushKind::Textured) {
+                                let hash = xx.wrapping_mul(73856093) ^ yy.wrapping_mul(19349663);
+                                coverage *= 0.2 + 0.8 * f64::from(hash % 101) / 100.0;
+                            }
+                            if kind == BrushKind::Wash {
+                                coverage *= 0.35 + 0.65 * distance.powi(2);
+                            }
+                            let alpha = (load * coverage * 255.0).round().clamp(0.0, 255.0) as u8;
+                            if alpha == 0 {
+                                continue;
+                            }
+                            let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
+                            let previous = if let Some(tile) = working.as_deref() {
+                                tile[offset..offset + 4]
+                                    .try_into()
+                                    .expect("RGBA pixel has four bytes")
+                            } else if let Some(tile) = base_tile {
+                                tile[offset..offset + 4]
+                                    .try_into()
+                                    .expect("RGBA pixel has four bytes")
+                            } else {
+                                [0; 4]
+                            };
+                            let current = if previous[3] == 0 {
+                                t.brush.color
+                            } else {
+                                std::array::from_fn(|channel| {
+                                    ((u16::from(previous[channel]) * 255
+                                        + u16::from(previous[3]) / 2)
+                                        / u16::from(previous[3]))
+                                    .min(255) as u8
+                                })
+                            };
+                            let pigment = [
+                                mix_byte(current[0], color[0], strength),
+                                mix_byte(current[1], color[1], strength),
+                                mix_byte(current[2], color[2], strength),
+                            ];
+                            let mut next = previous;
+                            let source = [
+                                ((u16::from(pigment[0]) * u16::from(alpha) + 127) / 255) as u8,
+                                ((u16::from(pigment[1]) * u16::from(alpha) + 127) / 255) as u8,
+                                ((u16::from(pigment[2]) * u16::from(alpha) + 127) / 255) as u8,
+                                alpha,
+                            ];
+                            over(&mut next, &source, false, 255, Blend::Normal);
+                            if next == previous {
+                                continue;
+                            }
+                            if working.is_none() {
+                                if tile_budget_used >= MAX_TILES {
+                                    return Err(PaintError::Limit);
+                                }
+                                tile_budget_used += 1;
+                                working = Some(base_tile.map_or_else(
+                                    || vec![0; TILE_BYTES],
+                                    |tile| tile.as_ref().clone(),
+                                ));
+                            }
+                            working.as_mut().expect("tile allocated")[offset..offset + 4]
+                                .copy_from_slice(&next);
+                            tile_changed = true;
+                        }
+                    }
+                }
+                if let Some(tile) = working {
+                    t.tiles.insert(key, Arc::new(tile));
+                }
+                if tile_changed {
+                    self.damage.insert(key);
+                }
             }
         }
         Ok(())
@@ -2116,35 +2202,42 @@ impl Engine {
         // keeps alpha edges valid while pigment is carried across transparency.
         let mut sum = [0.0; 4];
         let mut total_weight = 0.0;
-        for yy in miny..maxy {
-            for xx in minx..maxx {
-                if self.state.selection.as_ref().is_some_and(|selection| {
-                    !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
-                }) {
-                    continue;
-                }
-                let dx = f64::from(xx) + 0.5 - x;
-                let dy = f64::from(yy) + 0.5 - y;
-                let distance = dx.hypot(dy) / radius;
-                let weight = smudge_edge_weight(distance, radius, t.brush.hardness);
-                if weight <= 0.0 {
-                    continue;
-                }
-                let key = (xx / TILE, yy / TILE);
-                let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
-                let pixel =
-                    t.tiles
-                        .get(&key)
-                        .or_else(|| layer.tiles.get(&key))
-                        .map_or([0; 4], |tile| {
+        for tile_y in miny / TILE..maxy.div_ceil(TILE) {
+            let tile_top = tile_y * TILE;
+            let y_start = miny.max(tile_top);
+            let y_end = maxy.min(tile_top + TILE);
+            for tile_x in minx / TILE..maxx.div_ceil(TILE) {
+                let tile_left = tile_x * TILE;
+                let x_start = minx.max(tile_left);
+                let x_end = maxx.min(tile_left + TILE);
+                let key = (tile_x, tile_y);
+                let source = t.tiles.get(&key).or_else(|| layer.tiles.get(&key));
+                for yy in y_start..y_end {
+                    for xx in x_start..x_end {
+                        if self.state.selection.as_ref().is_some_and(|selection| {
+                            !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                        }) {
+                            continue;
+                        }
+                        let dx = f64::from(xx) + 0.5 - x;
+                        let dy = f64::from(yy) + 0.5 - y;
+                        let distance = dx.hypot(dy) / radius;
+                        let weight = smudge_edge_weight(distance, radius, t.brush.hardness);
+                        if weight <= 0.0 {
+                            continue;
+                        }
+                        let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
+                        let pixel = source.map_or([0; 4], |tile| {
                             tile[offset..offset + 4]
                                 .try_into()
                                 .expect("RGBA pixel has four bytes")
                         });
-                for channel in 0..4 {
-                    sum[channel] += f64::from(pixel[channel]) * weight;
+                        for channel in 0..4 {
+                            sum[channel] += f64::from(pixel[channel]) * weight;
+                        }
+                        total_weight += weight;
+                    }
                 }
-                total_weight += weight;
             }
         }
         let sampled = if total_weight > 0.0 {
@@ -2177,59 +2270,75 @@ impl Engine {
             return Ok(());
         }
 
-        for yy in miny..maxy {
-            for xx in minx..maxx {
-                if self.state.selection.as_ref().is_some_and(|selection| {
-                    !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
-                }) {
-                    continue;
-                }
-                let distance = (f64::from(xx) + 0.5 - x).hypot(f64::from(yy) + 0.5 - y) / radius;
-                let amount = strength * smudge_edge_weight(distance, radius, t.brush.hardness);
-                if amount <= 0.0 {
-                    continue;
-                }
-                let key = (xx / TILE, yy / TILE);
-                let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
-                let previous =
-                    t.tiles
-                        .get(&key)
-                        .or_else(|| layer.tiles.get(&key))
-                        .map_or([0; 4], |tile| {
+        let mut tile_budget_used = self.tile_budget_used(t);
+        for tile_y in miny / TILE..maxy.div_ceil(TILE) {
+            let tile_top = tile_y * TILE;
+            let y_start = miny.max(tile_top);
+            let y_end = maxy.min(tile_top + TILE);
+            for tile_x in minx / TILE..maxx.div_ceil(TILE) {
+                let tile_left = tile_x * TILE;
+                let x_start = minx.max(tile_left);
+                let x_end = maxx.min(tile_left + TILE);
+                let key = (tile_x, tile_y);
+                let base_tile = layer.tiles.get(&key);
+                let mut working = t.tiles.remove(&key).map(|tile| {
+                    Arc::try_unwrap(tile).unwrap_or_else(|shared| shared.as_ref().clone())
+                });
+                let mut tile_changed = false;
+                for yy in y_start..y_end {
+                    for xx in x_start..x_end {
+                        if self.state.selection.as_ref().is_some_and(|selection| {
+                            !selection.contains([f64::from(xx) + 0.5, f64::from(yy) + 0.5])
+                        }) {
+                            continue;
+                        }
+                        let distance =
+                            (f64::from(xx) + 0.5 - x).hypot(f64::from(yy) + 0.5 - y) / radius;
+                        let amount =
+                            strength * smudge_edge_weight(distance, radius, t.brush.hardness);
+                        if amount <= 0.0 {
+                            continue;
+                        }
+                        let offset = ((yy % TILE * TILE + xx % TILE) * 4) as usize;
+                        let previous = if let Some(tile) = working.as_deref() {
                             tile[offset..offset + 4]
                                 .try_into()
                                 .expect("RGBA pixel has four bytes")
+                        } else if let Some(tile) = base_tile {
+                            tile[offset..offset + 4]
+                                .try_into()
+                                .expect("RGBA pixel has four bytes")
+                        } else {
+                            [0; 4]
+                        };
+                        let next = std::array::from_fn(|channel| {
+                            mix_byte(previous[channel], carry[channel], amount)
                         });
-                let next = std::array::from_fn(|channel| {
-                    mix_byte(previous[channel], carry[channel], amount)
-                });
-                if next == previous {
-                    continue;
+                        if next == previous {
+                            continue;
+                        }
+                        if working.is_none() {
+                            if tile_budget_used >= MAX_TILES {
+                                return Err(PaintError::Limit);
+                            }
+                            tile_budget_used += 1;
+                            working =
+                                Some(base_tile.map_or_else(
+                                    || vec![0; TILE_BYTES],
+                                    |tile| tile.as_ref().clone(),
+                                ));
+                        }
+                        working.as_mut().expect("tile allocated")[offset..offset + 4]
+                            .copy_from_slice(&next);
+                        tile_changed = true;
+                    }
                 }
-                if !t.tiles.contains_key(&key)
-                    && self.state.tile_count()
-                        + self
-                            .active
-                            .values()
-                            .map(|transaction| {
-                                transaction.tiles.len() + transaction.mask_tiles.len()
-                            })
-                            .sum::<usize>()
-                        + t.tiles.len()
-                        + t.mask_tiles.len()
-                        >= MAX_TILES
-                {
-                    return Err(PaintError::Limit);
+                if let Some(tile) = working {
+                    t.tiles.insert(key, Arc::new(tile));
                 }
-                let tile = t.tiles.entry(key).or_insert_with(|| {
-                    layer
-                        .tiles
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or_else(|| Arc::new(vec![0; TILE_BYTES]))
-                });
-                Arc::make_mut(tile)[offset..offset + 4].copy_from_slice(&next);
-                self.damage.insert(key);
+                if tile_changed {
+                    self.damage.insert(key);
+                }
             }
         }
         Ok(())
@@ -2241,40 +2350,86 @@ impl Engine {
                 p.copy_from_slice(&[bg[0], bg[1], bg[2], 255]);
             }
         }
-        for l in self.state.layers.iter().filter(|l| l.visible) {
-            let mut tile = l
-                .tiles
-                .get(&key)
-                .map(|v| v.as_ref().clone())
-                .unwrap_or_else(|| vec![0; TILE_BYTES]);
-            for t in self.active.values().filter(|t| t.layer == l.id) {
-                if let Some(src) = t.tiles.get(&key) {
-                    if stroke_mode_needs_exclusive_layer(t.mode) {
+        for layer in self
+            .state
+            .layers
+            .iter()
+            .filter(|layer| layer.visible && layer.opacity > 0)
+        {
+            let source = layer.tiles.get(&key).map(Arc::as_ref);
+            let active_raster = self.active.values().any(|transaction| {
+                transaction.layer == layer.id && transaction.tiles.contains_key(&key)
+            });
+            let has_vectors = !layer.vector_paths.is_empty();
+
+            // Empty raster layers with no vector content cannot contribute to
+            // this tile, even if they have an enabled or inverted mask.
+            if source.is_none() && !active_raster && !has_vectors {
+                continue;
+            }
+
+            let mask = layer.mask.as_ref().filter(|mask| mask.enabled);
+            let provisional_mask = mask.and_then(|_| {
+                self.active.values().find_map(|transaction| {
+                    (transaction.layer == layer.id && transaction.mode == StrokeMode::MaskPaint)
+                        .then(|| transaction.mask_tiles.get(&key))
+                        .flatten()
+                })
+            });
+            let stored_mask = mask.and_then(|mask| mask.tiles.get(&key));
+            let mask_changes_pixels = mask.is_some_and(|mask| {
+                provisional_mask.is_some() || stored_mask.is_some() || mask.inverted
+            });
+
+            // Most raster layers have no provisional writes, vector objects,
+            // or non-default mask pixels. Composite their existing immutable
+            // tile directly into the destination instead of allocating and
+            // cloning a full 64x64 temporary for every visible layer.
+            if !active_raster && !has_vectors && !mask_changes_pixels {
+                let Some(source) = source else { continue };
+                for (destination, pixel) in out.chunks_exact_mut(4).zip(source.chunks_exact(4)) {
+                    over(destination, pixel, false, layer.opacity, layer.blend);
+                }
+                continue;
+            }
+
+            let mut tile = source.map_or_else(|| vec![0; TILE_BYTES], |source| source.to_vec());
+            for transaction in self
+                .active
+                .values()
+                .filter(|transaction| transaction.layer == layer.id)
+            {
+                if let Some(src) = transaction.tiles.get(&key) {
+                    if stroke_mode_needs_exclusive_layer(transaction.mode) {
                         tile.copy_from_slice(src);
                     } else {
-                        for (d, s) in tile.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                        for (destination, pixel) in
+                            tile.chunks_exact_mut(4).zip(src.chunks_exact(4))
+                        {
                             over(
-                                d,
-                                s,
-                                t.brush.kind == BrushKind::Eraser,
-                                (t.brush.opacity * 255.0).round() as u8,
+                                destination,
+                                pixel,
+                                transaction.brush.kind == BrushKind::Eraser,
+                                (transaction.brush.opacity * 255.0).round() as u8,
                                 Blend::Normal,
                             );
                         }
                     }
                 }
             }
-            vector::rasterize_layer_tile(l, key, [self.state.width, self.state.height], &mut tile);
-            if let Some(mask) = l.mask.as_ref().filter(|mask| mask.enabled) {
-                let provisional = self.active.values().find_map(|transaction| {
-                    (transaction.layer == l.id && transaction.mode == StrokeMode::MaskPaint)
-                        .then(|| transaction.mask_tiles.get(&key))
-                        .flatten()
-                });
-                let stored = provisional
-                    .or_else(|| mask.tiles.get(&key))
+            if has_vectors {
+                vector::rasterize_layer_tile(
+                    layer,
+                    key,
+                    [self.state.width, self.state.height],
+                    &mut tile,
+                );
+            }
+            if let Some(mask) = mask {
+                let values = provisional_mask
+                    .or(stored_mask)
                     .map(|values| values.as_slice());
-                if let Some(values) = stored {
+                if let Some(values) = values {
                     for (index, pixel) in tile.chunks_exact_mut(4).enumerate() {
                         let alpha = if mask.inverted {
                             255 - values[index]
@@ -2289,8 +2444,8 @@ impl Engine {
                     tile.fill(0);
                 }
             }
-            for (d, s) in out.chunks_exact_mut(4).zip(tile.chunks_exact(4)) {
-                over(d, s, false, l.opacity, l.blend);
+            for (destination, pixel) in out.chunks_exact_mut(4).zip(tile.chunks_exact(4)) {
+                over(destination, pixel, false, layer.opacity, layer.blend);
             }
         }
         out
@@ -2421,11 +2576,18 @@ fn smudge_edge_weight(distance: f64, radius: f64, hardness: f64) -> f64 {
 }
 fn over(dst: &mut [u8], src: &[u8], erase: bool, opacity: u8, mode: Blend) {
     let sa = u32::from(src[3]) * u32::from(opacity) / 255;
+    if sa == 0 {
+        return;
+    }
     let da = u32::from(dst[3]);
     if erase {
         for d in dst {
             *d = (u32::from(*d) * (255 - sa) / 255) as u8;
         }
+        return;
+    }
+    if opacity == 255 && da == 0 && mode == Blend::Normal {
+        dst.copy_from_slice(src);
         return;
     }
     for c in 0..3 {
