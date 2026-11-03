@@ -31,8 +31,8 @@ pub fn android_main(android_app: AndroidApp) {
         Ok(Err(error)) => crate::diagnostics::write(format_args!(
             "BitchPixel could not start or continue: {error}"
         )),
-        Err(panic) => crate::diagnostics::write(format_args!(
-            "BitchPixel stopped unexpectedly: {panic:?}"
-        )),
+        Err(panic) => {
+            crate::diagnostics::write(format_args!("BitchPixel stopped unexpectedly: {panic:?}"))
+        }
     }
 }
