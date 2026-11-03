@@ -876,6 +876,6 @@ mod touch_tests {
         ));
 
         assert_eq!(session.live().project().undo_count(), 1);
-        assert!(session.live().project().undo());
+        assert!(session.live_mut().project_mut().undo());
     }
 }
