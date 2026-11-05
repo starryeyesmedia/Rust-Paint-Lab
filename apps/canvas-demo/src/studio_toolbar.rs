@@ -1,82 +1,11 @@
-//! Direct tool catalog plus temporary grouped-rail compatibility and deterministic navigation.
+//! Direct tool catalog and deterministic focus navigation.
 
 use crate::{studio::EditTool, studio_icons::Icon};
-
-/// Compatibility taxonomy used by the current `studio.rs` grouped rail. It is
-/// retained until the separately leased integration replaces those callers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum ToolFamily {
-    PaintEffects,
-    ColorApplication,
-    Shapes,
-    Selection,
-    Vector,
-}
-
-impl ToolFamily {
-    pub(crate) const ORDERED: [Self; 5] = [
-        Self::PaintEffects,
-        Self::ColorApplication,
-        Self::Shapes,
-        Self::Selection,
-        Self::Vector,
-    ];
-
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::PaintEffects => "Paint Effects",
-            Self::ColorApplication => "Color Application",
-            Self::Shapes => "Shapes",
-            Self::Selection => "Selection",
-            Self::Vector => "Vector",
-        }
-    }
-
-    pub(crate) const fn representative(self) -> Icon {
-        match self {
-            Self::PaintEffects => Icon::Smudge,
-            Self::ColorApplication => Icon::Fill,
-            Self::Shapes => Icon::QuickShape,
-            Self::Selection => Icon::RectangleSelection,
-            Self::Vector => Icon::Path,
-        }
-    }
-
-    pub(crate) const fn members(self) -> &'static [ToolEntry] {
-        match self {
-            Self::PaintEffects => &PAINT_EFFECTS,
-            Self::ColorApplication => &COLOR_APPLICATION,
-            Self::Shapes => &SHAPES,
-            Self::Selection => &SELECTION,
-            Self::Vector => &VECTOR,
-        }
-    }
-
-    pub(crate) fn active(self, tool: EditTool) -> Option<&'static ToolEntry> {
-        self.members().iter().find(|entry| entry.tool == tool)
-    }
-
-    pub(crate) fn containing(tool: EditTool) -> Option<Self> {
-        Self::ORDERED
-            .into_iter()
-            .find(|family| family.active(tool).is_some())
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ToolEntry {
-    pub(crate) tool: EditTool,
-    pub(crate) icon: Icon,
-    pub(crate) label: &'static str,
-    pub(crate) shortcut: &'static str,
-}
 
 /// User-facing activation intent for a direct toolbar control.
 ///
 /// Brush and Eraser are separate controls, while both use `EditTool::Brush`
-/// underneath. The integration applies the existing brush preset behavior.
-// The renderer will consume this metadata once PR #9 releases studio.rs.
-#[allow(dead_code)]
+/// underneath and use the app's existing brush preset behavior.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToolActivation {
     /// Select the ordinary editing tool recorded in the catalog entry.
@@ -91,8 +20,6 @@ pub(crate) enum ToolActivation {
 ///
 /// The label is suitable for visible text and the control's accessible name.
 /// A shortcut is absent when the current app does not assign one.
-// The renderer will consume this metadata once PR #9 releases studio.rs.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ToolCatalogEntry {
     pub(crate) tool: EditTool,
@@ -130,11 +57,9 @@ const fn catalog_entry(
 }
 
 /// All implemented tools in stable top-to-bottom and keyboard-focus order.
-#[allow(dead_code)]
 ///
 /// `Create path` remains named as the current path editor; it is not presented
-/// as a finished freehand vector brush. This catalog is groundwork only; the
-/// current `studio.rs` rail still uses its compatibility grouped APIs.
+/// as a finished freehand vector brush.
 pub(crate) const TOOL_CATALOG: [ToolCatalogEntry; 15] = [
     catalog_entry(
         EditTool::Brush,
@@ -243,114 +168,6 @@ pub(crate) const TOOL_CATALOG: [ToolCatalogEntry; 15] = [
     ),
 ];
 
-/// Interim direct-tool subset consumed by the current `studio.rs` rail.
-/// Preserve it until that file's grouped-rail integration is replaced.
-pub(crate) const DIRECT_TOOLS: [ToolEntry; 3] = [
-    ToolEntry {
-        tool: EditTool::Brush,
-        icon: Icon::Brush,
-        label: "Brush",
-        shortcut: "B",
-    },
-    ToolEntry {
-        tool: EditTool::Brush,
-        icon: Icon::Eraser,
-        label: "Eraser",
-        shortcut: "",
-    },
-    ToolEntry {
-        tool: EditTool::Eyedropper,
-        icon: Icon::Eyedropper,
-        label: "Eyedropper",
-        shortcut: "I",
-    },
-];
-
-const PAINT_EFFECTS: [ToolEntry; 2] = [
-    ToolEntry {
-        tool: EditTool::Smudge,
-        icon: Icon::Smudge,
-        label: "Smudge",
-        shortcut: "S",
-    },
-    ToolEntry {
-        tool: EditTool::ColorMix,
-        icon: Icon::ColorMixer,
-        label: "Color mixer",
-        shortcut: "X",
-    },
-];
-
-const COLOR_APPLICATION: [ToolEntry; 2] = [
-    ToolEntry {
-        tool: EditTool::Fill,
-        icon: Icon::Fill,
-        label: "Fill",
-        shortcut: "F",
-    },
-    ToolEntry {
-        tool: EditTool::Gradient,
-        icon: Icon::Gradient,
-        label: "Gradient",
-        shortcut: "G",
-    },
-];
-
-const SHAPES: [ToolEntry; 4] = [
-    ToolEntry {
-        tool: EditTool::QuickShape,
-        icon: Icon::QuickShape,
-        label: "QuickShape",
-        shortcut: "Q",
-    },
-    ToolEntry {
-        tool: EditTool::ShapeLine,
-        icon: Icon::Line,
-        label: "Line",
-        shortcut: "L",
-    },
-    ToolEntry {
-        tool: EditTool::ShapeRectangle,
-        icon: Icon::Rectangle,
-        label: "Rectangle",
-        shortcut: "R",
-    },
-    ToolEntry {
-        tool: EditTool::ShapeEllipse,
-        icon: Icon::Ellipse,
-        label: "Ellipse",
-        shortcut: "O",
-    },
-];
-
-const SELECTION: [ToolEntry; 3] = [
-    ToolEntry {
-        tool: EditTool::Rectangle,
-        icon: Icon::RectangleSelection,
-        label: "Rectangle selection",
-        shortcut: "M",
-    },
-    ToolEntry {
-        tool: EditTool::Ellipse,
-        icon: Icon::EllipseSelection,
-        label: "Ellipse selection",
-        shortcut: "E",
-    },
-    ToolEntry {
-        tool: EditTool::Lasso,
-        icon: Icon::Lasso,
-        label: "Lasso selection",
-        shortcut: "K",
-    },
-];
-
-const VECTOR: [ToolEntry; 1] = [ToolEntry {
-    tool: EditTool::VectorPath,
-    icon: Icon::Path,
-    label: "Create path",
-    shortcut: "V",
-}];
-
 /// Move within a keyboard-navigable sequence without wrapping at either end.
 pub(crate) fn adjacent_focus(index: usize, count: usize, forward: bool) -> Option<usize> {
     if count == 0 {
@@ -364,149 +181,19 @@ pub(crate) fn adjacent_focus(index: usize, count: usize, forward: bool) -> Optio
     })
 }
 
-/// Compatibility navigation for the current grouped rail; remove after the
-/// `studio.rs` integration consumes `TOOL_CATALOG`.
-pub(crate) fn adjacent_family(index: usize, forward: bool) -> Option<ToolFamily> {
-    let count = ToolFamily::ORDERED.len();
-    if count == 0 {
-        return None;
-    }
-    let index = if forward {
-        index.saturating_add(1) % count
-    } else {
-        index.checked_sub(1).unwrap_or(count - 1)
-    };
-    Some(ToolFamily::ORDERED[index])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn legacy_grouped_compatibility_entries_keep_the_existing_members() {
-        assert_eq!(
-            ToolFamily::ORDERED.map(ToolFamily::label),
-            [
-                "Paint Effects",
-                "Color Application",
-                "Shapes",
-                "Selection",
-                "Vector"
-            ]
-        );
-        assert_eq!(
-            ToolFamily::PaintEffects
-                .members()
-                .iter()
-                .map(|entry| entry.label)
-                .collect::<Vec<_>>(),
-            ["Smudge", "Color mixer"]
-        );
-        assert_eq!(
-            ToolFamily::ColorApplication
-                .members()
-                .iter()
-                .map(|entry| entry.label)
-                .collect::<Vec<_>>(),
-            ["Fill", "Gradient"]
-        );
-        assert_eq!(
-            ToolFamily::Shapes
-                .members()
-                .iter()
-                .map(|entry| entry.label)
-                .collect::<Vec<_>>(),
-            ["QuickShape", "Line", "Rectangle", "Ellipse"]
-        );
-        assert_eq!(
-            ToolFamily::Selection
-                .members()
-                .iter()
-                .map(|entry| entry.label)
-                .collect::<Vec<_>>(),
-            [
-                "Rectangle selection",
-                "Ellipse selection",
-                "Lasso selection"
-            ]
-        );
-        assert_eq!(
-            ToolFamily::Vector
-                .members()
-                .iter()
-                .map(|entry| entry.label)
-                .collect::<Vec<_>>(),
-            ["Create path"]
-        );
-    }
+    fn smudge_keeps_the_touch_app_symbol_mapping() {
+        let smudge = TOOL_CATALOG
+            .iter()
+            .find(|entry| entry.label == "Smudge")
+            .unwrap();
 
-    #[test]
-    fn direct_tools_and_smudge_symbol_keep_the_approved_mapping() {
-        assert_eq!(
-            DIRECT_TOOLS.map(|entry| entry.label),
-            ["Brush", "Eraser", "Eyedropper"]
-        );
-        assert_eq!(PAINT_EFFECTS[0].icon, Icon::Smudge);
-        assert_eq!(Icon::Smudge.asset_name(), "touch_app");
-        assert_eq!(
-            ToolFamily::containing(EditTool::ColorMix),
-            Some(ToolFamily::PaintEffects)
-        );
-        assert_eq!(ToolFamily::containing(EditTool::Brush), None);
-        assert_eq!(
-            DIRECT_TOOLS.map(|entry| (entry.label, entry.icon.asset_name())),
-            [
-                ("Brush", "brush"),
-                ("Eraser", "ink_eraser"),
-                ("Eyedropper", "colorize")
-            ]
-        );
-        assert_eq!(
-            ToolFamily::PaintEffects
-                .members()
-                .iter()
-                .map(|entry| (entry.label, entry.icon.asset_name()))
-                .collect::<Vec<_>>(),
-            [("Smudge", "touch_app"), ("Color mixer", "blender")]
-        );
-        assert_eq!(
-            ToolFamily::ColorApplication
-                .members()
-                .iter()
-                .map(|entry| (entry.label, entry.icon.asset_name()))
-                .collect::<Vec<_>>(),
-            [("Fill", "format_color_fill"), ("Gradient", "linear_scale")]
-        );
-        assert_eq!(
-            ToolFamily::Shapes
-                .members()
-                .iter()
-                .map(|entry| (entry.label, entry.icon.asset_name()))
-                .collect::<Vec<_>>(),
-            [
-                ("QuickShape", "shapes"),
-                ("Line", "diagonal_line"),
-                ("Rectangle", "rectangle"),
-                ("Ellipse", "circle")
-            ]
-        );
-        assert_eq!(
-            ToolFamily::Selection
-                .members()
-                .iter()
-                .map(|entry| (entry.label, entry.icon.asset_name()))
-                .collect::<Vec<_>>(),
-            [
-                ("Rectangle selection", "select_all"),
-                ("Ellipse selection", "radio_button_unchecked"),
-                ("Lasso selection", "lasso_select")
-            ]
-        );
-        assert_eq!(
-            ToolFamily::Vector.members()[0].icon.asset_name(),
-            "polyline"
-        );
+        assert_eq!(smudge.icon, Icon::Smudge);
+        assert_eq!(smudge.icon.asset_name(), "touch_app");
         assert_eq!(Icon::EditAnchors.asset_name(), "shape_line");
     }
 
@@ -623,19 +310,14 @@ mod tests {
     }
 
     #[test]
-    fn ellipse_selection_hint_matches_the_existing_e_tool_shortcut() {
-        let catalog_entry = TOOL_CATALOG
-            .iter()
-            .find(|entry| entry.tool == EditTool::Ellipse)
-            .unwrap();
-        let compatibility_entry = SELECTION
+    fn ellipse_selection_hint_matches_the_runtime_shortcut() {
+        let entry = TOOL_CATALOG
             .iter()
             .find(|entry| entry.tool == EditTool::Ellipse)
             .unwrap();
 
-        assert_eq!(catalog_entry.shortcut, Some("E"));
-        assert_eq!(catalog_entry.accessible_name(), "Ellipse selection (E)");
-        assert_eq!(compatibility_entry.shortcut, "E");
+        assert_eq!(entry.shortcut, Some("E"));
+        assert_eq!(entry.accessible_name(), "Ellipse selection (E)");
     }
 
     #[test]
@@ -678,14 +360,5 @@ mod tests {
         assert_eq!(adjacent_focus(usize::MAX, count, true), Some(count - 1));
         assert_eq!(adjacent_focus(usize::MAX, count, false), Some(count - 2));
         assert_eq!(adjacent_focus(0, 0, true), None);
-    }
-
-    #[test]
-    fn legacy_group_navigation_keeps_existing_order_until_integration() {
-        assert_eq!(adjacent_family(0, true), Some(ToolFamily::ColorApplication));
-        assert_eq!(adjacent_family(3, true), Some(ToolFamily::Vector));
-        assert_eq!(adjacent_family(4, true), Some(ToolFamily::PaintEffects));
-        assert_eq!(adjacent_family(0, false), Some(ToolFamily::Vector));
-        assert_eq!(adjacent_family(4, false), Some(ToolFamily::Selection));
     }
 }

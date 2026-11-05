@@ -423,8 +423,15 @@ pub fn button(
         .color(egui::Color32::TRANSPARENT);
     let size = [size[0].max(44.0), size[1].max(44.0)];
     let response = ui.add_sized(size, egui::Button::new(hidden_label).selected(selected));
+    let accessible_name = accessible_label(name, shortcut);
+    let enabled = ui.is_enabled();
     response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, selected, name)
+        egui::WidgetInfo::selected(
+            egui::WidgetType::RadioButton,
+            enabled,
+            selected,
+            accessible_name.clone(),
+        )
     });
     let color = if selected {
         ui.visuals().selection.stroke.color
@@ -436,6 +443,57 @@ pub fn button(
     paint(ui.painter(), response.rect.shrink(9.0), icon, color);
     let tooltip = shortcut.map_or_else(|| name.to_string(), |key| format!("{name} ({key})"));
     response.on_hover_text(tooltip)
+}
+
+/// Draw a named command button with a Material Symbols icon. `selected` is
+/// exposed to AccessKit for tab shortcuts and other toggle-style commands.
+pub fn action_button(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    name: &str,
+    shortcut: Option<&str>,
+    selected: bool,
+    enabled: bool,
+    size: [f32; 2],
+) -> egui::Response {
+    let hidden_label = egui::RichText::new(name)
+        .size(1.0)
+        .color(egui::Color32::TRANSPARENT);
+    let size = [size[0].max(44.0), size[1].max(44.0)];
+    let response = ui.add_enabled(
+        enabled,
+        egui::Button::new(hidden_label)
+            .selected(selected)
+            .min_size(size.into()),
+    );
+    let accessible_name = accessible_label(name, shortcut);
+    let enabled = ui.is_enabled() && enabled;
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Button,
+            enabled,
+            selected,
+            accessible_name.clone(),
+        )
+    });
+    let color = if !enabled {
+        ui.visuals().widgets.noninteractive.fg_stroke.color
+    } else if selected {
+        ui.visuals().selection.stroke.color
+    } else if response.hovered() {
+        ui.visuals().widgets.hovered.fg_stroke.color
+    } else {
+        ui.visuals().text_color()
+    };
+    paint(ui.painter(), response.rect.shrink(9.0), icon, color);
+    response.on_hover_text(accessible_name)
+}
+
+fn accessible_label(name: &str, shortcut: Option<&str>) -> String {
+    shortcut.map_or_else(
+        || name.to_owned(),
+        |shortcut| format!("{name} ({shortcut})"),
+    )
 }
 
 /// Draw a recognizable, font-independent palette grip while leaving dragging
@@ -587,6 +645,13 @@ mod tests {
             ("A+B artwork", None)
         );
         assert_eq!(split_menu_label_shortcut("Tool +G"), ("Tool +G", None));
+    }
+
+    #[test]
+    fn toolbar_accessible_names_keep_shortcuts_and_labels_together() {
+        assert_eq!(accessible_label("Smudge", Some("S")), "Smudge (S)");
+        assert_eq!(accessible_label("Eraser", None), "Eraser");
+        assert_eq!(accessible_label("Undo", Some("Ctrl+Z")), "Undo (Ctrl+Z)");
     }
 
     #[test]
