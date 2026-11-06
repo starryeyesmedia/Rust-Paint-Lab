@@ -5924,6 +5924,7 @@ pub struct Studio {
     palette_drag_offset: [f32; 2],
     toolbar_focus_ids: Vec<egui::Id>,
     toolbar_last_focused_id: Option<egui::Id>,
+    toolbar_last_layout_key: Option<[i32; 3]>,
     last_non_eraser_brush: BrushKind,
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
@@ -6267,6 +6268,7 @@ impl Studio {
             palette_drag_offset: [0.0; 2],
             toolbar_focus_ids: Vec::new(),
             toolbar_last_focused_id: None,
+            toolbar_last_layout_key: None,
             last_non_eraser_brush: BrushKind::Round,
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
@@ -10454,6 +10456,12 @@ impl Studio {
             };
             let palette_area_height = (palette_viewport.height() - 6.0).max(180.0);
             let compact_rail = palette_viewport.height() < 520.0 || screen.width() < 760.0;
+            let toolbar_layout_key = [
+                (screen.width() * 100.0).round() as i32,
+                (screen.height() * 100.0).round() as i32,
+                (ctx.pixels_per_point() * 1000.0).round() as i32,
+            ];
+            let toolbar_layout_changed = self.toolbar_last_layout_key != Some(toolbar_layout_key);
             // Avoid forcing an Area sizing pass here. egui hides an Area during
             // that pass, so the entire tool rail disappeared for a frame after
             // every resize and workspace transition that changed its geometry.
@@ -10652,6 +10660,16 @@ impl Studio {
                                                 memory.request_focus(response.id)
                                             });
                                             self.select_toolbar_tool(entry, session);
+                                        }
+                                        if toolbar_layout_changed
+                                            && selected
+                                            && !palette_toolbar_pointer_focused
+                                        {
+                                            // Keep the active direct tool reachable when a
+                                            // resize or interface-scale change moves the rail
+                                            // viewport. This is a one-frame layout correction;
+                                            // pointer scrolling is otherwise left alone.
+                                            response.scroll_to_me(Some(egui::Align::Center));
                                         }
                                         if self.test_path_dialog {
                                             let rect = response.rect;
@@ -10854,6 +10872,7 @@ impl Studio {
                 );
             });
             let rect = palette_response.response.rect;
+            self.toolbar_last_layout_key = Some(toolbar_layout_key);
             self.palette_rect = Some(rect);
             if self.test_path_dialog && palette_area_initialized {
                 let marker = [
