@@ -10700,6 +10700,10 @@ impl Studio {
                                             }
                                         }
                                     }
+                                    // Leave enough trailing scroll room for the final
+                                    // direct tool to become fully visible when keyboard
+                                    // focus scrolls it into the viewport.
+                                    tool_ui.add_space(16.0);
                                 });
                             let scroll_offset = (tool_output.state.offset.y * 100.0).round() as i32;
                             if self.test_path_dialog
@@ -18371,6 +18375,8 @@ mod tests {
         let area_id = egui::Id::new("test clickable reflowing tool rail");
         let line_rect = std::cell::Cell::new(None);
         let rectangle_rect = std::cell::Cell::new(None);
+        let last_tool_rect = std::cell::Cell::new(None);
+        let last_tool_id = std::cell::Cell::new(None);
         let tool_viewport = std::cell::Cell::new(None);
         let scroll_offset = std::cell::Cell::new(0.0);
         let clicked_tool = std::cell::Cell::new(None);
@@ -18433,6 +18439,10 @@ mod tests {
                                                 if entry.label == "Rectangle" {
                                                     rectangle_rect.set(Some(response.rect));
                                                 }
+                                                if entry.label == "Create path" {
+                                                    last_tool_rect.set(Some(response.rect));
+                                                    last_tool_id.set(Some(response.id));
+                                                }
                                                 if response.has_focus() {
                                                     response
                                                         .scroll_to_me(Some(egui::Align::Center));
@@ -18441,6 +18451,7 @@ mod tests {
                                                     clicked_tool.set(Some(entry.label));
                                                 }
                                             }
+                                            tool_ui.add_space(16.0);
                                         });
                                     tool_viewport.set(Some(output.inner_rect));
                                     scroll_offset.set(output.state.offset.y);
@@ -18583,6 +18594,23 @@ mod tests {
             clicked_tool.get(),
             Some("Rectangle"),
             "the next visible tool must remain clickable after pointer focus scrolls Line into view"
+        );
+
+        context.memory_mut(|memory| {
+            memory.request_focus(last_tool_id.get().expect("Create path has a focusable control"));
+        });
+        for _ in 0..4 {
+            let _focused = render(egui::vec2(1280.0, 800.0), Vec::new());
+        }
+        let last_tool = last_tool_rect
+            .get()
+            .expect("Create path remains the final direct tool");
+        let tool_viewport = tool_viewport
+            .get()
+            .expect("the rail keeps its scroll viewport");
+        assert!(
+            tool_viewport.contains_rect(last_tool),
+            "keyboard focus must scroll the final direct tool fully into view: target={last_tool:?}, clip={tool_viewport:?}"
         );
     }
 
