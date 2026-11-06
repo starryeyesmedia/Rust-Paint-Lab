@@ -5923,6 +5923,7 @@ pub struct Studio {
     palette_dragging: bool,
     palette_drag_offset: [f32; 2],
     toolbar_focus_ids: Vec<egui::Id>,
+    toolbar_last_focused_id: Option<egui::Id>,
     last_non_eraser_brush: BrushKind,
     handedness: crate::workspace::Handedness,
     palette_position: [f32; 2],
@@ -6265,6 +6266,7 @@ impl Studio {
             palette_dragging: false,
             palette_drag_offset: [0.0; 2],
             toolbar_focus_ids: Vec::new(),
+            toolbar_last_focused_id: None,
             last_non_eraser_brush: BrushKind::Round,
             handedness: preferences.handedness,
             palette_position: preferences.palette_position,
@@ -10466,6 +10468,7 @@ impl Studio {
             let mut palette_grip_drag_started = false;
             let mut palette_grip_dragged = false;
             let mut palette_grip_drag_stopped = false;
+            let mut palette_toolbar_pointer_focused = false;
             let palette_response = area.show(ctx, |ui| {
                 show_area_contents_with_size(
                     ui,
@@ -10518,6 +10521,8 @@ impl Studio {
                                 Vec::with_capacity(2 + crate::studio_toolbar::TOOL_CATALOG.len());
                             let mut rail_clicked =
                                 Vec::with_capacity(2 + crate::studio_toolbar::TOOL_CATALOG.len());
+                            let mut rail_tool_responses =
+                                Vec::with_capacity(crate::studio_toolbar::TOOL_CATALOG.len());
                             let references_selected = self.show_controls
                                 && self.inspector_tab == crate::workspace::InspectorTab::References;
                             let references = crate::studio_icons::action_button(
@@ -10533,6 +10538,7 @@ impl Studio {
                             let references_clicked = references.clicked();
                             rail_clicked.push(references_clicked);
                             if references_clicked {
+                                palette_toolbar_pointer_focused = true;
                                 ui.memory_mut(|memory| memory.request_focus(references.id));
                                 self.select_inspector_tab(
                                     crate::workspace::InspectorTab::References,
@@ -10572,6 +10578,7 @@ impl Studio {
                             let library_clicked = library.clicked();
                             rail_clicked.push(library_clicked);
                             if library_clicked {
+                                palette_toolbar_pointer_focused = true;
                                 ui.memory_mut(|memory| memory.request_focus(library.id));
                                 let open = !self.brush_flyout_open;
                                 self.select_inspector_tab(crate::workspace::InspectorTab::Brush);
@@ -10622,9 +10629,6 @@ impl Studio {
                                         rail_focus.push(response.id);
                                         let response_clicked = response.clicked();
                                         rail_clicked.push(response_clicked);
-                                        if response.has_focus() {
-                                            response.scroll_to_me(Some(egui::Align::Center));
-                                        }
                                         if self.test_path_dialog
                                             && response.hovered()
                                             && response.is_pointer_button_down_on()
@@ -10641,6 +10645,7 @@ impl Studio {
                                             );
                                         }
                                         if response_clicked {
+                                            palette_toolbar_pointer_focused = true;
                                             // Continue keyboard navigation from the
                                             // tool the artist just selected by pointer.
                                             tool_ui.memory_mut(|memory| {
@@ -10714,6 +10719,7 @@ impl Studio {
                                                 );
                                             }
                                         }
+                                        rail_tool_responses.push(response);
                                     }
                                     // Leave enough trailing scroll room for the final
                                     // direct tool to become fully visible when keyboard
@@ -10809,6 +10815,19 @@ impl Studio {
                                         ctx.request_repaint();
                                     }
                                 }
+                            }
+                            let focused = ui.memory(|memory| memory.focused());
+                            if focused != self.toolbar_last_focused_id {
+                                if !palette_toolbar_pointer_focused
+                                    && let Some(index) = focused.and_then(|focused| {
+                                        rail_focus.iter().position(|id| *id == focused)
+                                    })
+                                    && index >= 2
+                                    && let Some(response) = rail_tool_responses.get(index - 2)
+                                {
+                                    response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                                self.toolbar_last_focused_id = focused;
                             }
                             self.toolbar_focus_ids = rail_focus;
                             if self.test_path_dialog
