@@ -18350,6 +18350,167 @@ mod tests {
     }
 
     #[test]
+    fn scrolled_direct_tool_button_receives_pointer_activation() {
+        let context = egui::Context::default();
+        crate::ui_tokens::install(&context);
+        let area_id = egui::Id::new("test clickable reflowing tool rail");
+        let line_rect = std::cell::Cell::new(None);
+        let tool_viewport = std::cell::Cell::new(None);
+        let scroll_offset = std::cell::Cell::new(0.0);
+        let clicked_tool = std::cell::Cell::new(None);
+        let render = |viewport: egui::Vec2, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, viewport)),
+                events,
+                ..Default::default()
+            };
+            context.run(input, |ctx| {
+                let palette_height = (viewport.y - 200.0).max(180.0);
+                egui::Area::new(area_id)
+                    .constrain_to(egui::Rect::from_min_size(egui::Pos2::ZERO, viewport))
+                    .default_size(egui::vec2(72.0, palette_height))
+                    .current_pos(egui::pos2(8.0, 8.0))
+                    .show(ctx, |ui| {
+                        super::show_area_contents_with_size(
+                            ui,
+                            egui::vec2(72.0, palette_height),
+                            |ui| {
+                                crate::ui_tokens::tool_palette_frame(ui.visuals()).show(ui, |ui| {
+                                    ui.set_width(56.0);
+                                    let _ = crate::studio_icons::action_button(
+                                        ui,
+                                        crate::studio_icons::Icon::Reference,
+                                        "References",
+                                        None,
+                                        false,
+                                        true,
+                                        [44.0, 44.0],
+                                    );
+                                    let _ = crate::studio_icons::action_button(
+                                        ui,
+                                        crate::studio_icons::Icon::Brush,
+                                        "Brush Library",
+                                        None,
+                                        false,
+                                        true,
+                                        [44.0, 44.0],
+                                    );
+                                    let output = egui::ScrollArea::vertical()
+                                        .id_salt("test-direct-tool-click-scroll")
+                                        .max_height((palette_height - 152.0).max(44.0))
+                                        .auto_shrink([false, false])
+                                        .show(ui, |tool_ui| {
+                                            for entry in crate::studio_toolbar::TOOL_CATALOG {
+                                                let response = crate::studio_icons::button(
+                                                    tool_ui,
+                                                    entry.icon,
+                                                    entry.label,
+                                                    entry.shortcut,
+                                                    false,
+                                                    [44.0, 44.0],
+                                                );
+                                                if entry.label == "Line" {
+                                                    line_rect.set(Some(response.rect));
+                                                }
+                                                if response.clicked() {
+                                                    clicked_tool.set(Some(entry.label));
+                                                }
+                                            }
+                                        });
+                                    tool_viewport.set(Some(output.inner_rect));
+                                    scroll_offset.set(output.state.offset.y);
+                                });
+                            },
+                        );
+                    });
+            })
+        };
+
+        let _ = render(egui::vec2(640.0, 480.0), Vec::new());
+        let _ = render(egui::vec2(1280.0, 800.0), Vec::new());
+        let mut previous_offset = scroll_offset.get();
+        for _ in 0..8 {
+            let viewport = tool_viewport
+                .get()
+                .expect("the rail reports its scroll viewport");
+            let line = line_rect
+                .get()
+                .expect("the catalog renders the Line control");
+            if viewport.contains_rect(line) {
+                break;
+            }
+            let point = viewport.center();
+            let _ = render(
+                egui::vec2(1280.0, 800.0),
+                vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -48.0),
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            if (scroll_offset.get() - previous_offset).abs() < 0.01 {
+                let _ = render(
+                    egui::vec2(1280.0, 800.0),
+                    vec![egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, 48.0),
+                        modifiers: egui::Modifiers::NONE,
+                    }],
+                );
+            }
+            previous_offset = scroll_offset.get();
+        }
+
+        let target = line_rect
+            .get()
+            .expect("the Line control stays in the direct catalog");
+        let clip = tool_viewport
+            .get()
+            .expect("the rail keeps its scroll viewport");
+        assert!(
+            target.left() >= clip.left() - 1.0
+                && target.top() >= clip.top() - 1.0
+                && target.right() <= clip.right() + 1.0
+                && target.bottom() <= clip.bottom() + 1.0,
+            "wheel scrolling must bring Line fully into the rail viewport: target={target:?}, clip={clip:?}, offset={}",
+            scroll_offset.get()
+        );
+        let point = target.center();
+        let _pressed = render(
+            egui::vec2(1280.0, 800.0),
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _released = render(
+            egui::vec2(1280.0, 800.0),
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(
+            clicked_tool.get(),
+            Some("Line"),
+            "a pointer click on the scrolled Line control must reach its button"
+        );
+    }
+
+    #[test]
     fn compact_layer_labels_truncate_without_panicking_on_unicode() {
         assert_eq!(super::compact_layer_label("Paint 3", 80.0), "Paint 3");
         assert_eq!(super::compact_layer_label("Paint 3 copy", 42.0), "Pai…");
