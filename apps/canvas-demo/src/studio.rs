@@ -10882,6 +10882,7 @@ impl Studio {
                                     && let Some(response) = rail_tool_responses.get(index - 2)
                                 {
                                     response.scroll_to_me(Some(egui::Align::Center));
+                                    ctx.request_repaint();
                                 }
                                 self.toolbar_last_focused_id = focused;
                             }
