@@ -5852,6 +5852,7 @@ pub struct Studio {
     test_toolbar_history_state: Option<(bool, bool)>,
     test_toolbar_scroll_offset_logged: Option<i32>,
     test_direct_toolbar_logged: bool,
+    test_direct_toolbar_visible: Option<[i32; 7]>,
     test_file_menu_bottom_rect: Option<[i32; 5]>,
     test_view_menu_rect_logged: Option<[i32; 5]>,
     test_ui_scale_slider_rect_logged: Option<[i32; 5]>,
@@ -5921,8 +5922,6 @@ pub struct Studio {
     palette_collapsed: bool,
     palette_dragging: bool,
     palette_drag_offset: [f32; 2],
-    palette_viewport_height: f32,
-    palette_was_horizontal: bool,
     toolbar_focus_ids: Vec<egui::Id>,
     last_non_eraser_brush: BrushKind,
     handedness: crate::workspace::Handedness,
@@ -6173,6 +6172,7 @@ impl Studio {
             test_toolbar_history_state: None,
             test_toolbar_scroll_offset_logged: None,
             test_direct_toolbar_logged: false,
+            test_direct_toolbar_visible: None,
             test_file_menu_bottom_rect: None,
             test_view_menu_rect_logged: None,
             test_ui_scale_slider_rect_logged: None,
@@ -6243,8 +6243,6 @@ impl Studio {
             palette_collapsed: preferences.palette_collapsed,
             palette_dragging: false,
             palette_drag_offset: [0.0; 2],
-            palette_viewport_height: 0.0,
-            palette_was_horizontal: false,
             toolbar_focus_ids: Vec::new(),
             last_non_eraser_brush: BrushKind::Round,
             handedness: preferences.handedness,
@@ -10431,23 +10429,18 @@ impl Studio {
                     floating_position,
                 )
             };
-            let horizontal_palette = matches!(
-                effective_palette_dock,
-                crate::workspace::PaletteDock::Top | crate::workspace::PaletteDock::Bottom
-            );
             let palette_area_height = (palette_viewport.height() - 6.0).max(180.0);
             let compact_rail = palette_viewport.height() < 520.0 || screen.width() < 760.0;
-            let palette_geometry_changed =
-                (self.palette_viewport_height - palette_area_height).abs() > 1.0
-                    || self.palette_was_horizontal != horizontal_palette;
-            self.palette_viewport_height = palette_area_height;
-            self.palette_was_horizontal = horizontal_palette;
-            let area = egui::Area::new(egui::Id::new("tool palette"))
+            // Avoid forcing an Area sizing pass here. egui hides an Area during
+            // that pass, so the entire tool rail disappeared for a frame after
+            // every resize and workspace transition that changed its geometry.
+            let palette_area_id = egui::Id::new("tool palette");
+            let palette_area_initialized = egui::AreaState::load(ctx, palette_area_id).is_some();
+            let area = egui::Area::new(palette_area_id)
                 .movable(false)
                 .constrain_to(screen.shrink(4.0))
                 .order(egui::Order::Foreground)
                 .default_size(egui::vec2(72.0, palette_area_height))
-                .sizing_pass(palette_geometry_changed)
                 .current_pos(dock_position);
             let mut palette_grip_drag_started = false;
             let mut palette_grip_dragged = false;
@@ -10752,6 +10745,32 @@ impl Studio {
             });
             let rect = palette_response.response.rect;
             self.palette_rect = Some(rect);
+            if self.test_path_dialog && palette_area_initialized {
+                let marker = [
+                    (screen.width() * 100.0).round() as i32,
+                    (screen.height() * 100.0).round() as i32,
+                    (rect.left() * 100.0).round() as i32,
+                    (rect.top() * 100.0).round() as i32,
+                    (rect.width() * 100.0).round() as i32,
+                    (rect.height() * 100.0).round() as i32,
+                    (ctx.pixels_per_point() * 1000.0).round() as i32,
+                ];
+                if self.test_direct_toolbar_visible != Some(marker) {
+                    self.test_direct_toolbar_visible = Some(marker);
+                    crate::studio_log!(
+                        "UI_TEST_DIRECT_TOOLBAR_VISIBLE: controls={} direct={} screen={:.1}x{:.1} rect={:.1},{:.1},{:.1},{:.1} scale={:.2}",
+                        crate::studio_toolbar::TOOL_CATALOG.len() + 2,
+                        crate::studio_toolbar::TOOL_CATALOG.len(),
+                        screen.width(),
+                        screen.height(),
+                        rect.left(),
+                        rect.top(),
+                        rect.width(),
+                        rect.height(),
+                        ctx.pixels_per_point()
+                    );
+                }
+            }
             let compact_workspace = crate::studio_layout::compact_workspace_mode(screen);
             let active_compact_reference = self
                 .compact_reference_index
