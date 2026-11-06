@@ -2635,6 +2635,35 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                         wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
                              and event_marker('UI_TEST_TOOL_SELECTION')=='Brush',
                              'compact 150% pointer scrolling returns to and selects Brush')
+                        path_target=ensure_direct_tool_visible('Create path')
+                        before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                        click_direct_tool_and_report_pointer_hit('Create path',path_target)
+                        wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                             and event_marker('UI_TEST_TOOL_SELECTION')=='Create path',
+                             'compact 150% pointer scrolling reaches and selects Create Path')
+                        path_visible=wait(
+                            lambda:stable_visible_direct_tool_bounds('Create path'),
+                            'compact 150% Create Path leaves the direct rail fully visible',
+                        )
+                        assert path_visible[2]>=44 and path_visible[3]>=44, \\
+                            f'compact 150% Create Path target is undersized: {path_visible}'
+                        path_canvas=wait(
+                            canvas_mapping_marker,
+                            'compact 150% canvas remains visible after Create Path selection',
+                        )
+                        assert path_canvas[2]>path_canvas[0]+80 \\
+                            and path_canvas[3]>path_canvas[1]+80, \\
+                            f'compact 150% canvas is occluded after Create Path selection: {path_canvas}'
+                        capture_window(
+                            window,
+                            'direct-toolbar-workspace-640x480-150-create-path',
+                        )
+                        brush_target=ensure_direct_tool_visible('Brush')
+                        before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                        click_direct_tool_and_report_pointer_hit('Brush',brush_target)
+                        wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                             and event_marker('UI_TEST_TOOL_SELECTION')=='Brush',
+                             'compact 150% pointer scrolling returns from Create Path to Brush')
                         before=event_line_count('UI_TEST_TOOL_SELECTION: ')
                         key('Tab')
                         time.sleep(0.08)
