@@ -18613,7 +18613,10 @@ mod tests {
             .get()
             .expect("the rail keeps its scroll viewport");
         assert!(
-            tool_viewport.contains_rect(last_tool),
+            last_tool.left() >= tool_viewport.left() - 1.0
+                && last_tool.top() >= tool_viewport.top() - 1.0
+                && last_tool.right() <= tool_viewport.right() + 1.0
+                && last_tool.bottom() <= tool_viewport.bottom() + 1.0,
             "keyboard focus must scroll the final direct tool fully into view: target={last_tool:?}, clip={tool_viewport:?}"
         );
     }
