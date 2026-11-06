@@ -2645,14 +2645,14 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                             lambda:stable_visible_direct_tool_bounds('Create path'),
                             'compact 150% Create Path leaves the direct rail fully visible',
                         )
-                        assert path_visible[2]>=44 and path_visible[3]>=44, \\
+                        assert path_visible[2]>=44 and path_visible[3]>=44, \
                             f'compact 150% Create Path target is undersized: {path_visible}'
                         path_canvas=wait(
                             canvas_mapping_marker,
                             'compact 150% canvas remains visible after Create Path selection',
                         )
-                        assert path_canvas[2]>path_canvas[0]+80 \\
-                            and path_canvas[3]>path_canvas[1]+80, \\
+                        assert path_canvas[2]>path_canvas[0]+80 \
+                            and path_canvas[3]>path_canvas[1]+80, \
                             f'compact 150% canvas is occluded after Create Path selection: {path_canvas}'
                         capture_window(
                             window,
