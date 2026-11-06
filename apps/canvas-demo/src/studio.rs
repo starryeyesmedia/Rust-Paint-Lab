@@ -6392,10 +6392,15 @@ impl Studio {
         }
     }
 
+    fn path_tool_should_show_inspector(compact_rail: bool, inspector_open: bool) -> bool {
+        !compact_rail || inspector_open
+    }
+
     fn select_toolbar_tool(
         &mut self,
         entry: crate::studio_toolbar::ToolCatalogEntry,
         session: &mut CanvasSession,
+        compact_rail: bool,
     ) {
         let current_brush = session.live().project().brush.kind;
         let project = session.live_mut().project_mut();
@@ -6413,7 +6418,19 @@ impl Studio {
         self.symmetry_origin_armed = false;
         self.tool = entry.tool;
         if self.tool == EditTool::VectorPath {
-            self.select_inspector_tab(crate::workspace::InspectorTab::Edit);
+            if Self::path_tool_should_show_inspector(compact_rail, self.show_controls) {
+                self.select_inspector_tab(crate::workspace::InspectorTab::Edit);
+            } else {
+                // Keep Create Path usable in a compact workspace. Opening the
+                // full-sheet Inspector here would cover the rail, preventing
+                // pointer scroll back to another direct tool. Remember the
+                // relevant tab so it is ready when the artist opens the panel.
+                self.inspector_tab = crate::workspace::InspectorTab::Edit;
+                self.brush_flyout_open = false;
+                self.layers_flyout_open = false;
+                self.color_flyout_open = false;
+                self.workspace_needs_save = true;
+            }
         }
         if self.tool != EditTool::Brush {
             self.mask_editing_layer = None;
@@ -10668,7 +10685,7 @@ impl Studio {
                                             tool_ui.memory_mut(|memory| {
                                                 memory.request_focus(response.id)
                                             });
-                                            self.select_toolbar_tool(entry, session);
+                                            self.select_toolbar_tool(entry, session, compact_rail);
                                         }
                                         if toolbar_layout_changed
                                             && selected
@@ -10815,7 +10832,11 @@ impl Studio {
                                                     crate::studio_toolbar::TOOL_CATALOG
                                                         .get(tool_index - 2)
                                                 {
-                                                    self.select_toolbar_tool(*entry, session);
+                                                    self.select_toolbar_tool(
+                                                        *entry,
+                                                        session,
+                                                        compact_rail,
+                                                    );
                                                 }
                                             }
                                         }
@@ -18404,6 +18425,13 @@ mod tests {
             super::EditTool::Brush,
             BrushKind::Round,
         ));
+    }
+
+    #[test]
+    fn compact_create_path_keeps_a_closed_inspector_from_covering_the_rail() {
+        assert!(!super::Studio::path_tool_should_show_inspector(true, false));
+        assert!(super::Studio::path_tool_should_show_inspector(true, true));
+        assert!(super::Studio::path_tool_should_show_inspector(false, false));
     }
 
     #[test]
