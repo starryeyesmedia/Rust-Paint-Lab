@@ -6016,6 +6016,27 @@ pub struct Studio {
     new_from_welcome: bool,
     picker_from_welcome: bool,
 }
+
+/// Reflow the contents of a floating Area to the current viewport without
+/// forcing egui's invisible sizing pass. The Area itself holds its previous
+/// frame size, so the child UI needs the current bounds before its contents
+/// are laid out.
+fn show_area_contents_with_size<R>(
+    ui: &mut egui::Ui,
+    size: egui::Vec2,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let rect = egui::Rect::from_min_size(ui.cursor().min, size);
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt("area-viewport-reflow")
+            .max_rect(rect),
+    );
+    let output = add_contents(&mut child);
+    ui.advance_cursor_after_rect(child.min_rect());
+    output
+}
+
 impl Studio {
     pub fn new(g: &Renderer, window: &Window, format: wgpu::TextureFormat) -> Self {
         let context = egui::Context::default();
@@ -10446,7 +10467,12 @@ impl Studio {
             let mut palette_grip_dragged = false;
             let mut palette_grip_drag_stopped = false;
             let palette_response = area.show(ctx, |ui| {
-                crate::ui_tokens::tool_palette_frame(ui.visuals()).show(ui, |ui| {
+                show_area_contents_with_size(
+                    ui,
+                    egui::vec2(72.0, palette_area_height),
+                    |palette_ui| {
+                        crate::ui_tokens::tool_palette_frame(palette_ui.visuals())
+                            .show(palette_ui, |ui| {
                     ui.set_width(56.0);
                     let toolbar_root = egui::Id::new("bitchpixel-tools-toolbar-region");
                     ctx.accesskit_node_builder(toolbar_root, |node| {
@@ -10741,7 +10767,9 @@ impl Studio {
                             }
                         },
                     );
-                });
+                            });
+                    },
+                );
             });
             let rect = palette_response.response.rect;
             self.palette_rect = Some(rect);
@@ -18258,6 +18286,67 @@ mod tests {
             super::EditTool::Brush,
             BrushKind::Round,
         ));
+    }
+
+    #[test]
+    fn floating_tool_rail_reflows_visibly_when_the_viewport_grows() {
+        let context = egui::Context::default();
+        let area_id = egui::Id::new("test reflowing tool rail");
+        let render = |viewport: egui::Vec2| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, viewport)),
+                ..Default::default()
+            };
+            context.run(input, |ctx| {
+                let palette_height = (viewport.y - 200.0).max(180.0);
+                egui::Area::new(area_id)
+                    .constrain_to(egui::Rect::from_min_size(egui::Pos2::ZERO, viewport))
+                    .default_size(egui::vec2(72.0, palette_height))
+                    .current_pos(egui::pos2(8.0, 8.0))
+                    .show(ctx, |ui| {
+                        super::show_area_contents_with_size(
+                            ui,
+                            egui::vec2(72.0, palette_height),
+                            |ui| {
+                                crate::ui_tokens::tool_palette_frame(ui.visuals()).show(ui, |ui| {
+                                    ui.set_width(56.0);
+                                    ui.add_sized([44.0, 44.0], egui::Button::new("References"));
+                                    ui.add_sized([44.0, 44.0], egui::Button::new("Brush Library"));
+                                    egui::ScrollArea::vertical()
+                                        .max_height((palette_height - 152.0).max(44.0))
+                                        .show(ui, |ui| {
+                                            for index in 0..15 {
+                                                ui.add_sized(
+                                                    [44.0, 44.0],
+                                                    egui::Button::new(format!("Tool {index}")),
+                                                );
+                                            }
+                                        });
+                                });
+                            },
+                        );
+                    });
+            })
+        };
+
+        let _first_frame = render(egui::vec2(640.0, 480.0));
+        let compact_rect = egui::AreaState::load(&context, area_id)
+            .expect("the compact rail stores its first-frame geometry")
+            .rect();
+        assert!(compact_rect.height() < 440.0);
+
+        let resized_frame = render(egui::vec2(1280.0, 800.0));
+        let expanded_rect = egui::AreaState::load(&context, area_id)
+            .expect("the resized rail remains in the area stack")
+            .rect();
+        assert!(
+            expanded_rect.height() >= 440.0,
+            "the rail should use the expanded viewport without an invisible sizing frame: {expanded_rect:?}"
+        );
+        assert!(
+            !resized_frame.shapes.is_empty(),
+            "the reflow frame must paint the tool rail while its bounds change"
+        );
     }
 
     #[test]
