@@ -10482,7 +10482,12 @@ impl Studio {
                     ui,
                     egui::vec2(72.0, palette_area_height),
                     |palette_ui| {
-                        crate::ui_tokens::tool_palette_frame(palette_ui.visuals())
+                        let palette_frame = if compact_rail {
+                            crate::ui_tokens::compact_tool_palette_frame(palette_ui.visuals())
+                        } else {
+                            crate::ui_tokens::tool_palette_frame(palette_ui.visuals())
+                        };
+                        palette_frame
                             .show(palette_ui, |ui| {
                     ui.set_width(56.0);
                     let toolbar_root = egui::Id::new("bitchpixel-tools-toolbar-region");
@@ -10612,9 +10617,13 @@ impl Studio {
                                 }
                             }
 
-                            ui.add_space(if compact_rail { 1.0 } else { 3.0 });
+                            if !compact_rail {
+                                ui.add_space(3.0);
+                            }
                             let project_brush = session.live().project().brush.kind;
-                            let tool_viewport_height = (palette_area_height - 152.0).max(44.0);
+                            let reserved_palette_height = if compact_rail { 140.0 } else { 152.0 };
+                            let tool_viewport_height =
+                                (palette_area_height - reserved_palette_height).max(44.0);
                             let tool_output = egui::ScrollArea::vertical()
                                 .id_salt("direct-tool-catalog-scroll")
                                 .max_height(tool_viewport_height)

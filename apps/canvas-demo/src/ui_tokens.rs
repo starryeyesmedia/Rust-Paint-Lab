@@ -280,6 +280,20 @@ pub fn floating_panel_frame(visuals: &egui::Visuals) -> egui::Frame {
 /// The primary tool rail uses the same raised surface as flyouts, with a
 /// restrained violet edge so it reads as one coherent workspace component.
 pub fn tool_palette_frame(visuals: &egui::Visuals) -> egui::Frame {
+    tool_palette_frame_with_vertical_margin(visuals, 5)
+}
+
+/// A denser tool rail for compact viewports. The 44-point controls keep their
+/// full touch targets; trimming only the frame's vertical padding gives the
+/// scroll area enough room to expose a control after a standard wheel step.
+pub fn compact_tool_palette_frame(visuals: &egui::Visuals) -> egui::Frame {
+    tool_palette_frame_with_vertical_margin(visuals, 0)
+}
+
+fn tool_palette_frame_with_vertical_margin(
+    visuals: &egui::Visuals,
+    vertical_margin: i8,
+) -> egui::Frame {
     let high_contrast = visuals.override_text_color.is_some();
     let accent = if high_contrast {
         visuals.window_stroke.color
@@ -302,7 +316,7 @@ pub fn tool_palette_frame(visuals: &egui::Visuals) -> egui::Frame {
             egui::Stroke::new(1.25, mix_color(visuals.window_stroke.color, accent, 0.35))
         })
         .corner_radius(16.0)
-        .inner_margin(egui::Margin::same(5))
+        .inner_margin(egui::Margin::symmetric(5, vertical_margin))
 }
 
 /// Card surface shared by Home, New Artwork and contextual tool panels.
@@ -397,6 +411,15 @@ pub fn install(context: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_tool_palette_trims_only_vertical_frame_padding() {
+        let visuals = egui::Visuals::light();
+
+        assert_eq!(tool_palette_frame(&visuals).inner_margin.sum().y, 10);
+        assert_eq!(compact_tool_palette_frame(&visuals).inner_margin.sum().x, 10);
+        assert_eq!(compact_tool_palette_frame(&visuals).inner_margin.sum().y, 0);
+    }
 
     #[test]
     fn shared_style_uses_touch_sized_default_controls_and_focusable_rounding() {
