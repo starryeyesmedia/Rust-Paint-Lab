@@ -584,10 +584,296 @@ def toolbar_smudge_bounds():
     return window_rect_marker('UI_TEST_TOOL_MENU_SMUDGE_RECT')
 
 def toolbar_direct_bounds(name):
-    prefix=f'UI_TEST_TOOL_DIRECT_RECT: {name} '
-    lines=[line[len(prefix):] for line in application_log_lines()
+    prefix='UI_TEST_TOOL_DIRECT_RECT: '
+    matches=[]
+    for line in application_log_lines():
+        if not line.startswith(prefix):
+            continue
+        fields=line[len(prefix):].split()
+        if len(fields)<6 or ' '.join(fields[:-5])!=name:
+            continue
+        try:
+            matches.append(tuple(map(float,fields[-5:])))
+        except ValueError:
+            continue
+    return matches[-1] if matches else None
+
+def toolbar_references_bounds():
+    return window_rect_marker('UI_TEST_TOOLBAR_REFERENCES_RECT')
+
+def toolbar_library_bounds():
+    return window_rect_marker('UI_TEST_TOOLBAR_BRUSH_LIBRARY_RECT')
+
+def direct_tool_rail_bounds():
+    prefix='UI_TEST_DIRECT_TOOL_RAIL: '
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
            if line.startswith(prefix)]
-    return tuple(map(float,lines[-1].split()[:5])) if lines else None
+    if not lines:
+        return None
+    fields={key:value for key,value in
+            (field.split('=',1) for field in lines[-1].split() if '=' in field)}
+    try:
+        viewport=tuple(map(float,fields['viewport'].split(',')))
+        if len(viewport)!=4:
+            return None
+        offset=float(fields['offset'])
+        scale=float(fields['scale'])
+        catalog=int(fields['catalog'])
+    except (KeyError,ValueError):
+        return None
+    palette=palette_bounds()
+    if palette is None or abs(palette[4]-scale)>0.03:
+        return None
+    if viewport[0]<palette[0]-1 or viewport[1]<palette[1]-1 \
+            or viewport[0]+viewport[2]>palette[0]+palette[2]+1 \
+            or viewport[1]+viewport[3]>palette[1]+palette[3]+1:
+        return None
+    return catalog,offset,viewport,scale
+
+def direct_toolbar_visible_state():
+    prefix='UI_TEST_DIRECT_TOOLBAR_VISIBLE: '
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    fields={key:value for key,value in
+            (field.split('=',1) for field in lines[-1].split() if '=' in field)}
+    try:
+        screen=tuple(map(float,fields['screen'].split('x')))
+        rect=tuple(map(float,fields['rect'].split(',')))
+        scale=float(fields['scale'])
+        controls=int(fields['controls'])
+        direct=int(fields['direct'])
+    except (KeyError,ValueError):
+        return None
+    if len(screen)!=2 or len(rect)!=4:
+        return None
+    return controls,direct,*screen,*rect,scale
+
+def direct_toolbar_visible_for(width,height,scale):
+    state=direct_toolbar_visible_state()
+    if state is None:
+        return None
+    controls,direct,screen_width,screen_height,_x,_y,_w,_h,reported_scale=state
+    if controls!=17 or direct!=15 or abs(reported_scale-scale)>0.03:
+        return None
+    if abs(screen_width-width/scale)>2.0 or abs(screen_height-height/scale)>2.0:
+        return None
+    return state
+
+def visible_direct_tool_bounds(name):
+    target=toolbar_direct_bounds(name)
+    rail=direct_tool_rail_bounds()
+    if target is None or rail is None:
+        return None
+    _catalog,_offset,(left,top,width,height),scale=rail
+    x,y,w,h,target_scale=target
+    if abs(scale-target_scale)>0.03:
+        return None
+    if x<left-1 or y<top-1 or x+w>left+width+1 or y+h>top+height+1:
+        return None
+    return target
+
+def stable_visible_direct_tool_bounds(name, stable_for=0.12, timeout=1.5):
+    deadline=time.monotonic()+timeout
+    previous=None
+    stable_since=None
+    while time.monotonic()<deadline:
+        target=visible_direct_tool_bounds(name)
+        rail=direct_tool_rail_bounds()
+        if target is None or rail is None:
+            previous=None
+            stable_since=None
+        else:
+            _catalog,offset,viewport,scale=rail
+            state=tuple(round(value,1) for value in target)+(
+                round(offset,1),*(round(value,1) for value in viewport),
+                round(scale,2))
+            now=time.monotonic()
+            if state==previous:
+                if stable_since is not None and now-stable_since>=stable_for:
+                    return target
+            else:
+                previous=state
+                stable_since=now
+        time.sleep(0.03)
+    return None
+
+
+def direct_tool_pointer_down_state():
+    prefix='UI_TEST_TOOL_POINTER_DOWN: '
+    lines=[line.partition(prefix)[2] for line in application_log_lines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    label,separator,details=lines[-1].partition(' rect=')
+    rect_text,scale_separator,scale_text=details.partition(' scale=')
+    if not separator or not scale_separator:
+        return None
+    try:
+        rect=tuple(map(float,rect_text.split(',')))
+        scale=float(scale_text)
+    except ValueError:
+        return None
+    return (label,rect,scale) if len(rect)==4 else None
+
+def click_direct_tool_and_report_pointer_hit(name,target):
+    prefix='UI_TEST_TOOL_POINTER_DOWN: '
+    before=event_line_count(prefix)
+    x,y,width,height,scale=target
+    click_x=round((x+width/2)*scale)
+    click_y=round((y+height/2)*scale)
+    click_and_hold_scaled_rect(target)
+    after=event_line_count(prefix)
+    observed=direct_tool_pointer_down_state() if after>before else None
+    if observed is not None:
+        label,rect,reported_scale=observed
+        point_x=click_x/scale
+        point_y=click_y/scale
+        assert label==name, \
+            f'pointer for {name} reached {label!r}; click target={target!r} hovered rect={rect!r}'
+        assert abs(scale-reported_scale)<0.03, \
+            f'{name} pointer hit scale differs from target: target={target!r} hovered={observed!r}'
+        left,top,hit_width,hit_height=rect
+        assert left-1<=point_x<=left+hit_width+1 \
+            and top-1<=point_y<=top+hit_height+1, \
+            f'{name} click point {(point_x,point_y)!r} is outside hovered response {rect!r}'
+    hovered_label=observed[0] if observed is not None else None
+    hovered_rect=observed[1] if observed is not None else None
+    reported_scale=observed[2] if observed is not None else None
+    print('UI_TEST_DIRECT_TOOL_POINTER_HIT: '
+          f'expected={name!r} click_target={target!r} '
+          f'marker_count={after-before} hovered_label={hovered_label!r} '
+          f'hovered_rect={hovered_rect!r} scale={reported_scale!r}',flush=True)
+    return observed
+
+
+def refresh_direct_tool_rail():
+    palette=wait(palette_bounds,'tool rail has current outer geometry')
+    x,y,width,height,scale=palette
+    point_x=(x+width/2)*scale
+    attempts=[]
+    # At compact 150% the palette is short: its midpoint can fall above the
+    # tool ScrollArea. Probe lower points inside the palette before declaring
+    # the live rail geometry unavailable.
+    for fraction in (0.9,0.75,0.6):
+        point_y=(y+min(height*fraction,height-8.0))*scale
+        for down in (True,False):
+            before=event_line_count('UI_TEST_DIRECT_TOOL_RAIL: ')
+            wheel_at(point_x,point_y,notches=1,down=down)
+            deadline=time.monotonic()+1.2
+            while time.monotonic()<deadline:
+                rail=direct_tool_rail_bounds()
+                if event_line_count('UI_TEST_DIRECT_TOOL_RAIL: ')>before and rail is not None:
+                    attempts.append((fraction,'down' if down else 'up','refreshed',rail))
+                    print(f'UI_TEST_DIRECT_TOOL_RAIL_REFRESH: {attempts[-1]!r}',flush=True)
+                    return rail
+                time.sleep(0.03)
+            attempts.append((fraction,'down' if down else 'up','no-current-marker'))
+    rail=direct_tool_rail_bounds()
+    print(f'UI_TEST_DIRECT_TOOL_RAIL_REFRESH: failed attempts={attempts!r} '
+          f'palette={palette!r} rail={rail!r}',flush=True)
+    return rail
+
+def ensure_direct_tool_visible(name):
+    attempts=[]
+    for attempt in range(32):
+        rail=direct_tool_rail_bounds()
+        if rail is None:
+            refresh_direct_tool_rail()
+            attempts.append((attempt,'rail-unavailable'))
+            time.sleep(0.04)
+            continue
+        target=toolbar_direct_bounds(name)
+        if target is None:
+            attempts.append((attempt,'target-unavailable',rail))
+            time.sleep(0.04)
+            continue
+        visible=visible_direct_tool_bounds(name)
+        if visible is not None:
+            stable=stable_visible_direct_tool_bounds(name)
+            if stable is not None:
+                return stable
+        _catalog,offset,(left,top,width,height),scale=rail
+        x,y,w,h,target_scale=target
+        down=y+h>top+height
+        if y<top:
+            down=False
+        before=event_line_count('UI_TEST_DIRECT_TOOL_RAIL: ')
+        wheel_at((left+width/2)*scale,(top+height/2)*scale,
+                 notches=1,down=down)
+        deadline=time.monotonic()+1.2
+        moved=False
+        after_offset=None
+        while time.monotonic()<deadline:
+            new_rail=direct_tool_rail_bounds()
+            if event_line_count('UI_TEST_DIRECT_TOOL_RAIL: ')>before \
+                    and new_rail is not None and abs(new_rail[1]-offset)>0.05:
+                moved=True
+                after_offset=new_rail[1]
+                break
+            time.sleep(0.03)
+        attempts.append((attempt,round(y,1),round(h,1),round(target_scale,2),
+                         round(offset,1),round(top,1),round(height,1),
+                         'down' if down else 'up',moved,
+                         None if after_offset is None else round(after_offset,1)))
+        if not moved:
+            # A wheel step at a rail edge can be a no-op. Retry in the other
+            # direction on the next iteration and let geometry decide.
+            time.sleep(0.04)
+    rail=direct_tool_rail_bounds()
+    target=toolbar_direct_bounds(name)
+    visible=visible_direct_tool_bounds(name)
+    try:
+        capture_window(window,f'direct-toolbar-visible-failure-{name.lower().replace(" ","-")}')
+    except Exception as screenshot_error:
+        print(f'UI_TEST_DIRECT_TOOL_FAILURE_SCREENSHOT: {screenshot_error!r}',flush=True)
+    raise AssertionError(
+        f'{name} did not become fully visible in the direct tool rail; '
+        f'target={target!r} rail={rail!r} visible={visible!r} '
+        f'last_attempts={attempts[-8:]!r}'
+    )
+
+def history_actions():
+    marker=event_marker('UI_TEST_HISTORY_ACTIONS')
+    if marker is None:
+        return None
+    fields={key:value for key,value in
+            (field.split('=',1) for field in marker.split() if '=' in field)}
+    if set(fields)!={'undo','redo'}:
+        return None
+    return fields['undo']=='true',fields['redo']=='true'
+
+def history_button_state(name):
+    prefix=f'UI_TEST_{name.upper()}_RECT: '
+    lines=[line.partition(': ')[2] for line in application_log_lines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    values=lines[-1].split()
+    if len(values)!=6 or not values[-1].startswith('enabled='):
+        return None
+    try:
+        geometry=tuple(map(float,values[:5]))
+    except ValueError:
+        return None
+    return (*geometry,values[5]=='enabled=true')
+
+def file_menu_bottom_state():
+    prefix='UI_TEST_FILE_MENU_BOTTOM_RECT: '
+    lines=[line.partition(': ')[2] for line in application_log_lines()
+           if line.startswith(prefix)]
+    if not lines:
+        return None
+    values={key:value for key,value in
+            (field.split('=',1) for field in lines[-1].split() if '=' in field)}
+    try:
+        geometry=tuple(map(float,lines[-1].split()[:4]))
+        visible=float(values['visible'])
+        scale=float(values['scale'])
+    except (KeyError,ValueError):
+        return None
+    return (*geometry,visible,scale)
 
 def view_menu_bounds():
     return window_rect_marker('UI_TEST_VIEW_MENU_RECT')
@@ -1646,6 +1932,20 @@ def png_chunk(kind, data):
     body=kind+data
     return struct.pack('>I',len(data))+body+struct.pack('>I',binascii.crc32(body)&0xffffffff)
 
+def screenshot_region_color_count(image_path, region):
+    width,height,pixels=decode_rgba_png(Path(image_path).read_bytes())
+    x1,y1,x2,y2=map(int,region)
+    x1=max(0,min(width,x1));x2=max(x1,min(width,x2))
+    y1=max(0,min(height,y1));y2=max(y1,min(height,y2))
+    colors=set()
+    x_step=max(1,(x2-x1)//64)
+    y_step=max(1,(y2-y1)//64)
+    for y in range(y1,y2,y_step):
+        for x in range(x1,x2,x_step):
+            offset=(y*width+x)*4
+            colors.add(tuple(pixels[offset:offset+3]))
+    return len(colors)
+
 def capture_window(window, name):
     folder=os.environ.get('RPL_UI_SCREENSHOT_DIR')
     if not folder: return
@@ -1879,7 +2179,7 @@ def capture_window(window, name):
     # The high-contrast palette intentionally reduces the number of colors.
     # Still reject a blank/uninitialized image, while not requiring the richer
     # palette diversity used by normal and dark-theme screenshots.
-    minimum_colors = 2 if name == 'home-dark-high-contrast' else 18
+    minimum_colors = 2 if name in {'home-dark-high-contrast','canvas-workspace-high-contrast-compact'} else 18
     print(f'UI_SCREENSHOT_COLOR_COUNT: {name} {len(sampled)}', flush=True)
     assert len(sampled)>minimum_colors, f'{name} screenshot looks blank or was not fully rendered ({len(sampled)} sampled colors; expected >{minimum_colors})'
     if name.startswith('reference-board-'):
@@ -1954,6 +2254,19 @@ def capture_window(window, name):
         assert layer_thumbnail_content_pixels>=1, \
             f'{name} selected-layer thumbnail did not visibly alter checkerboard pixels inside its frame ({layer_thumbnail_content_pixels})'
         print(f'UI_SCREENSHOT_LAYER_THUMBNAIL_CONTENT_PIXELS: {name} {layer_thumbnail_content_pixels}',flush=True)
+    if name.startswith('direct-toolbar-') or name in {
+        'canvas-workspace-dark-toolbar-top',
+        'canvas-workspace-high-contrast-compact',
+    }:
+        palette=wait(palette_bounds,'captured app workspace reports its live tool rail')
+        x,y,palette_width,palette_height,scale=palette
+        region=(round(x*scale),round(y*scale),
+                round((x+palette_width)*scale),round((y+palette_height)*scale))
+        rail_colors=screenshot_region_color_count(destination/f'{name}.png',region)
+        minimum_rail_colors=5 if name=='canvas-workspace-high-contrast-compact' else 8
+        print(f'UI_SCREENSHOT_TOOL_RAIL_COLORS: {name} {rail_colors}',flush=True)
+        assert rail_colors>=minimum_rail_colors, \
+            f'{name} does not visibly render the live tool rail ({rail_colors} sampled colors)'
     captured_screenshots[name] = (width, height)
     print(f'UI_SCREENSHOT_CAPTURED: {name} {width}x{height}', flush=True)
 
@@ -2157,152 +2470,295 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert palette[3] >= 440.0, f'normal-height tool rail should show more than a clipped handful of tools: {palette}'
             assert palette[1] + palette[3] <= 800/palette[4] - 40.0, \
                 f'tool rail must leave the bottom status area accessible: {palette}'
-            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
-                         'the approved Paint Effects group is visible in the tool rail')
-            before_strokes=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
-            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
-            click_at((effects[0]+effects[2]/2)*effects[4],
-                     (effects[1]+effects[3]/2)*effects[4])
-            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
-                 'the Paint Effects popup opens from a real pointer click')
-            capture_window(window,'approved-toolbar-paint-effects-popup')
-            mapping=wait(canvas_mapping_marker,'the canvas bounds are available for popup dismissal')
-            stroke_count=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
-            commit_count=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
-            close_count=event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')
-            click_at(((mapping[0]+mapping[2])/2)*palette[4],
-                     ((mapping[1]+mapping[3])/2)*palette[4])
-            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')>close_count,
-                 'clicking the canvas dismisses the tool popup')
+            wait(lambda:application_log_contains(
+                'UI_TEST_DIRECT_TOOLBAR: controls=17 direct=15 references=true brush_library=true'),
+                 'the integrated toolbar exposes 15 direct tools and two workspace actions')
+            wait(lambda:direct_toolbar_visible_for(1280,800,1.0),
+                 'the live 1280x800 workspace renders the full direct toolbar area')
+            assert toolbar_more_bounds() is None \
+                and toolbar_family_bounds('Paint Effects') is None, \
+                'the live toolbar does not expose grouped or More-family navigation'
+
+            # New Artwork is still empty here. Verify the history buttons are
+            # directly present, disabled with empty history, and safe to tap.
+            empty_history=wait(history_actions,'empty-document history state')
+            assert empty_history==(False,False), \
+                f'empty artwork must disable Undo and Redo: {empty_history}'
+            undo_button=wait(lambda:history_button_state('undo'),'visible Undo target')
+            redo_button=wait(lambda:history_button_state('redo'),'visible Redo target')
+            for history_name,button_state in [('Undo',undo_button),('Redo',redo_button)]:
+                assert button_state[2]>=44 and button_state[3]>=44, \
+                    f'{history_name} must meet the 44-point target: {button_state}'
+                assert button_state[5] is False, \
+                    f'{history_name} visual state must match empty history: {button_state}'
+            empty_undo_count=event_marker_count('UI_TEST_HISTORY_UNDO')
+            empty_redo_count=event_marker_count('UI_TEST_HISTORY_REDO')
+            empty_strokes=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            empty_commits=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
+            click_scaled_rect(undo_button[:5])
+            click_scaled_rect(redo_button[:5])
             time.sleep(0.12)
-            assert event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')==stroke_count==before_strokes, \
-                'popup dismissal on the canvas must not start a paint stroke'
-            assert event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')==commit_count, \
-                'popup dismissal must not commit an unintended canvas stroke'
-            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
-                         'Paint Effects remains reachable after popup dismissal')
-            click_at((effects[0]+effects[2]/2)*effects[4],
-                     (effects[1]+effects[3]/2)*effects[4])
-            smudge=wait(toolbar_smudge_bounds,'the Smudge option is exposed with a real pointer target')
-            assert smudge[2]>=44 and smudge[3]>=44, f'Smudge popup target is smaller than 44 points: {smudge}'
-            assert smudge[2]<=256, f'Smudge popup row must remain within the approved bounded menu width: {smudge}'
-            click_at((smudge[0]+smudge[2]/2)*smudge[4],
-                     (smudge[1]+smudge[3]/2)*smudge[4])
-            wait(lambda:event_marker('UI_TEST_TOOL_SELECTED')=='Smudge',
-                 'the Smudge menu item selects the existing Smudge tool')
-            capture_window(window,'approved-toolbar-smudge-selected')
-            brush=wait(brush_rect,'the direct Brush action remains available')
-            click_at((brush[0]+brush[2]/2)*brush[4],
-                     (brush[1]+brush[3]/2)*brush[4])
-            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
-                 'the direct Brush action returns from Smudge to Brush')
-            effects=wait(lambda: toolbar_family_bounds('Paint Effects'),
-                         'Paint Effects remains available for keyboard operation')
-            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
-            click_at((effects[0]+effects[2]/2)*effects[4],
-                     (effects[1]+effects[3]/2)*effects[4])
-            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
-                 'the Paint Effects popup opens before keyboard navigation')
-            key('Down');key('Return')
-            wait(lambda:event_marker('UI_TEST_TOOL_SELECTED')=='Color mixer',
-                 'arrow and Enter keys navigate and activate the next tool in the group')
-            family_open_count=event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')
-            key('Return')
-            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_OPENED: Paint Effects ')>family_open_count,
-                 'focus returns to the group trigger after selection and Enter reopens it')
-            close_count=event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')
-            key('Escape')
-            wait(lambda:event_line_count('UI_TEST_TOOL_FAMILY_CLOSED')>close_count,
-                 'Escape closes the tool popup and restores its trigger focus')
-            brush=wait(brush_rect,'the direct Brush action remains available after keyboard use')
-            click_at((brush[0]+brush[2]/2)*brush[4],
-                     (brush[1]+brush[3]/2)*brush[4])
-            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
-                 'Brush is active before compact toolbar verification')
-            resize_window(window,640,480)
-            compact=wait(palette_bounds,'the approved toolbar remains visible at 640x480')
-            assert compact[0]>=-1 and compact[1]>=-1 \
-                and compact[0]+compact[2]<=640/compact[4]+1 \
-                and compact[1]+compact[3]<=480/compact[4]+1, \
-                f'compact toolbar must remain inside the 640x480 viewport: {compact}'
-            assert compact[2]<=90, f'compact toolbar must stay a narrow single-column rail: {compact}'
-            more=wait(toolbar_more_bounds,'narrow toolbar provides the approved grouped-family navigation')
-            assert more[2]>=44 and more[3]>=44, f'More tool families target is smaller than 44 points: {more}'
-            capture_window(window,'approved-toolbar-compact-640')
-            observed_families=[]
-            for expected_family in ['Color Application','Shapes','Selection','Vector','Paint Effects']:
-                count=event_line_count(f'UI_TEST_TOOLBAR_SCROLLED: {expected_family} ')
-                more=wait(toolbar_more_bounds,'More tool families remains visible at compact size')
-                click_at((more[0]+more[2]/2)*more[4],
-                         (more[1]+more[3]/2)*more[4])
-                scrolled=wait(lambda:toolbar_scrolled_bounds(expected_family)
-                              if event_line_count(f'UI_TEST_TOOLBAR_SCROLLED: {expected_family} ')
-                              >count else None,
-                              f'the compact rail scrolls to {expected_family}')
-                _,target,viewport=scrolled
-                assert target[1]>=viewport[1]-1 and target[1]+target[3]<=viewport[1]+viewport[3]+1, \
-                    f'{expected_family} must be visible after More scrolls the grouped rail: {scrolled}'
-                observed_families.append(expected_family)
-            assert observed_families==['Color Application','Shapes','Selection','Vector','Paint Effects']
-            layouts=[('640x480-100',640,480,1.0),
-                     ('1280x800-100',1280,800,1.0),
-                     ('1920x1080-100',1920,1080,1.0)]
+            assert history_actions()==(False,False), \
+                'tapping disabled history controls must leave empty history unchanged'
+            assert event_marker_count('UI_TEST_HISTORY_UNDO')==empty_undo_count \
+                and event_marker_count('UI_TEST_HISTORY_REDO')==empty_redo_count, \
+                'disabled Undo and Redo must not dispatch history actions'
+            assert event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')==empty_strokes \
+                and event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')==empty_commits, \
+                'history controls must not route their taps into canvas painting'
+
+            tool_labels=[
+                'Brush','Eraser','Eyedropper','Smudge','Color Mixer','Fill','Gradient',
+                'QuickShape','Line','Rectangle','Ellipse','Rectangle selection',
+                'Ellipse selection','Lasso selection','Create path',
+            ]
+            assert len(tool_labels)==15 and len(set(tool_labels))==15
+            stroke_starts=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            stroke_commits=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
+            direct_selection_count=event_line_count('UI_TEST_TOOL_SELECTION: ')
+            capture_window(window,'direct-toolbar-workspace-light')
+            for tool_name in tool_labels:
+                target=ensure_direct_tool_visible(tool_name)
+                before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                hit_state=None
+                try:
+                    hit_state=click_direct_tool_and_report_pointer_hit(tool_name,target)
+                    wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                         and event_marker('UI_TEST_TOOL_SELECTION')==tool_name,
+                         f'the real direct {tool_name} control activates by pointer')
+                except AssertionError:
+                    selected_count=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                    selected_tool=event_marker('UI_TEST_TOOL_SELECTION')
+                    rail_state=direct_tool_rail_bounds()
+                    visible_target=visible_direct_tool_bounds(tool_name)
+                    hovered=direct_tool_pointer_down_state()
+                    print('UI_TEST_DIRECT_SELECTION_DIAGNOSTIC: '
+                          f'expected={tool_name!r} before={before} '
+                          f'count={selected_count} active={selected_tool!r} '
+                          f'target={target!r} visible={visible_target!r} '
+                          f'rail={rail_state!r} hit={hit_state!r} '
+                          f'hovered={hovered!r}',flush=True)
+                    capture_window(window,
+                                   f'direct-toolbar-failed-{tool_name.lower().replace(" ","-")}')
+                    raise
+                if tool_name=='Brush':
+                    # The Brush response has just been pointer-focused while it
+                    # is visible. Tab and Return must move to and activate Eraser.
+                    before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                    key('Tab')
+                    time.sleep(0.08)
+                    key('Return')
+                    wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                         and event_marker('UI_TEST_TOOL_SELECTION')=='Eraser',
+                         'Tab and Return focus and activate Eraser after Brush')
+            assert event_line_count('UI_TEST_TOOL_SELECTION: ')>=direct_selection_count+15, \
+                'every direct tool control must dispatch its own selection action'
+            final_tool_bounds=wait(
+                lambda:stable_visible_direct_tool_bounds('Create path'),
+                'Create path becomes fully visible after focus scrolling settles',
+            )
+            assert final_tool_bounds is not None, \
+                'the final direct tool remains reachable after rail focus scrolling'
+            capture_window(window,'direct-toolbar-workspace-light-scrolled')
+
+            # Direct References switches the integrated Inspector tab. Restore
+            # Layers before opening the Brush Library from its own rail entry.
+            reference_button=wait(toolbar_references_bounds,'direct References target')
+            assert reference_button[2]>=44 and reference_button[3]>=44
+            reference_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            click_and_hold_scaled_rect(reference_button)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>reference_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References',
+                 'the direct References rail action opens the References Inspector')
+            ctrl('l')
+            wait(lambda:event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'the Inspector returns to Layers after direct References activation')
+
             def verify_toolbar_layout(name,width,height,scale):
                 rect=wait(palette_bounds,f'{name} toolbar geometry settles')
                 assert abs(rect[4]-scale)<0.03, \
                     f'{name} must use the requested logical scale {scale}: {rect}'
+                visible=wait(lambda:direct_toolbar_visible_for(width,height,scale),
+                             f'{name} reports a live rendered direct toolbar')
+                _,_,screen_width,screen_height,visible_x,visible_y,visible_width,visible_height,visible_scale=visible
+                assert visible_x>=-1 and visible_y>=-1 \
+                    and visible_x+visible_width<=screen_width+1 \
+                    and visible_y+visible_height<=screen_height+1 \
+                    and abs(visible_scale-scale)<0.03, \
+                    f'{name} live tool rail is outside the rendered screen: {visible}'
                 assert rect[0]>=-1 and rect[1]>=-1 \
                     and rect[0]+rect[2]<=width/scale+1 \
                     and rect[1]+rect[3]<=height/scale+1, \
-                    f'{name} toolbar is outside its logical viewport: {rect}'
-                for name_tool in ['Brush','Eraser','Eyedropper']:
-                    target=wait(lambda:toolbar_direct_bounds(name_tool),
-                                f'{name} exposes the direct {name_tool} target')
+                    f'{name} tool rail is outside its logical viewport: {rect}'
+                rail=direct_tool_rail_bounds()
+                if rail is None:
+                    rail=refresh_direct_tool_rail()
+                if width==640 and height==480 and scale>1.49:
+                    capture_window(window,
+                                   'direct-toolbar-workspace-640x480-150-precheck')
+                compact_150=name=='640x480-150'
+                for name_tool in ['Brush','Eraser']:
+                    if compact_150 and name_tool=='Eraser':
+                        target=wait(
+                            lambda:stable_visible_direct_tool_bounds('Eraser'),
+                            'keyboard focus brings Eraser fully into view at compact 150%',
+                        )
+                    else:
+                        ensure_direct_tool_visible(name_tool)
+                        target=wait(lambda:toolbar_direct_bounds(name_tool),
+                                    f'{name} exposes the direct {name_tool} target')
+                    assert abs(target[4]-scale)<0.03, \
+                        f'{name} {name_tool} geometry has a stale scale: {target}'
                     assert target[2]>=44 and target[3]>=44, \
                         f'{name} {name_tool} target is smaller than 44 logical points: {target}'
                     assert target[0]>=-1 and target[1]>=-1 \
                         and target[0]+target[2]<=width/scale+1 \
                         and target[1]+target[3]<=height/scale+1, \
                         f'{name} {name_tool} target is outside the window: {target}'
-                if name=='640x480-150':
-                    view=wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
-                        view_menu_bounds()),
-                        '150% compact layout keeps the View menu outside the toolbar')
-                    help_menu=wait(lambda: (lambda value: value if value and abs(value[4]-scale)<0.03 else None)(
-                        help_menu_bounds()),
-                        '150% compact layout keeps the last application menu reachable')
-                    brush_menu=wait(quick_brush_menu_bounds,
-                                    '150% compact layout exposes the real Brush preset control')
-                    assert view[0]>=rect[0]+rect[2]-1.0, \
-                        f'150% compact toolbar obscures the View/document menu: palette={rect} menu={view}'
-                    assert help_menu[0]+help_menu[2]<=width/scale+1.0, \
-                        f'150% compact layout clips the Help menu: {help_menu}'
-                    assert brush_menu[0]>=rect[0]+rect[2]-1.0, \
-                        f'150% compact toolbar obscures Brush preset control: palette={rect} preset={brush_menu}'
-                    more=wait(toolbar_more_bounds,
-                              '150% narrow layout keeps the More target reachable')
-                    assert more[2]>=44 and more[3]>=44, \
-                        f'150% More target is smaller than 44 logical points: {more}'
-                    assert more[0]>=-1 and more[1]>=-1 \
-                        and more[0]+more[2]<=width/scale+1 \
-                        and more[1]+more[3]<=height/scale+1, \
-                        f'150% More target is outside the logical viewport: {more}'
-                    count=event_line_count('UI_TEST_TOOLBAR_SCROLLED: Color Application ')
-                    click_at((more[0]+more[2]/2)*more[4],
-                             (more[1]+more[3]/2)*more[4])
-                    scrolled=wait(lambda:toolbar_scrolled_bounds('Color Application')
-                                  if event_line_count('UI_TEST_TOOLBAR_SCROLLED: Color Application ')
-                                  >count else None,
-                                  '150% More scrolls the family rail to Color Application')
-                    _,target_rect,viewport_rect=scrolled
-                    assert target_rect[1]>=viewport_rect[1]-1 \
-                        and target_rect[1]+target_rect[3]<=viewport_rect[1]+viewport_rect[3]+1, \
-                        f'150% Color Application must be visible in the scrolled rail: {scrolled}'
-                capture_window(window,f'approved-toolbar-{name}')
+                    if compact_150 and name_tool=='Brush':
+                        before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                        click_direct_tool_and_report_pointer_hit('Brush',target)
+                        wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                             and event_marker('UI_TEST_TOOL_SELECTION')=='Brush',
+                             'compact 150% Brush remains pointer-operable')
+                        mixer_target=ensure_direct_tool_visible('Color Mixer')
+                        assert mixer_target[2]>=44 and mixer_target[3]>=44, \
+                            f'compact 150% Color Mixer target is undersized: {mixer_target}'
+                        before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                        click_direct_tool_and_report_pointer_hit('Color Mixer',mixer_target)
+                        wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                             and event_marker('UI_TEST_TOOL_SELECTION')=='Color Mixer',
+                             'compact 150% pointer scrolling reaches and selects Color Mixer')
+                        brush_target=ensure_direct_tool_visible('Brush')
+                        before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                        click_direct_tool_and_report_pointer_hit('Brush',brush_target)
+                        wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                             and event_marker('UI_TEST_TOOL_SELECTION')=='Brush',
+                             'compact 150% pointer scrolling returns to and selects Brush')
+                        before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                        key('Tab')
+                        time.sleep(0.08)
+                        key('Return')
+                        wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                             and event_marker('UI_TEST_TOOL_SELECTION')=='Eraser',
+                             'compact 150% Tab + Return activates Eraser')
+                        eraser=stable_visible_direct_tool_bounds('Eraser')
+                        if eraser is None:
+                            eraser_target=toolbar_direct_bounds('Eraser')
+                            rail=direct_tool_rail_bounds()
+                            visible=visible_direct_tool_bounds('Eraser')
+                            selection=event_marker('UI_TEST_TOOL_SELECTION')
+                            capture_window(
+                                window,
+                                'direct-toolbar-workspace-640x480-150-eraser-focus-failure',
+                            )
+                            print(
+                                'UI_TEST_COMPACT_150_ERASER_VISIBILITY_FAILURE: '
+                                f'selection={selection!r} target={eraser_target!r} '
+                                f'rail={rail!r} visible={visible!r}',
+                                flush=True,
+                            )
+                            raise AssertionError(
+                                'Tab/Return activated Eraser but keyboard focus '
+                                f'did not bring its full bounds into the compact rail: '
+                                f'target={eraser_target!r} rail={rail!r} visible={visible!r}'
+                            )
+                        assert eraser[2]>=44 and eraser[3]>=44 \
+                            and eraser[0]>=-1 and eraser[1]>=-1 \
+                            and eraser[0]+eraser[2]<=width/scale+1 \
+                            and eraser[1]+eraser[3]<=height/scale+1, \
+                            f'compact 150% Eraser focus target is out of bounds: {eraser}'
+                for history_name in ['undo','redo']:
+                    button_state=wait(lambda:history_button_state(history_name),
+                                      f'{name} direct {history_name.title()} control')
+                    assert abs(button_state[4]-scale)<0.03, \
+                        f'{name} {history_name.title()} geometry has a stale scale: {button_state}'
+                    assert button_state[2]>=44 and button_state[3]>=44, \
+                        f'{name} {history_name.title()} target is smaller than 44 points: {button_state}'
+                    assert button_state[0]>=-1 and button_state[1]>=-1 \
+                        and button_state[0]+button_state[2]<=width/scale+1 \
+                        and button_state[1]+button_state[3]<=height/scale+1, \
+                        f'{name} {history_name.title()} target is outside the window: {button_state}'
+                for action_name,action_bounds in [
+                    ('References',toolbar_references_bounds()),
+                    ('Brush Library',toolbar_library_bounds()),
+                ]:
+                    target=wait(lambda:toolbar_references_bounds()
+                                if action_name=='References' else toolbar_library_bounds(),
+                                f'{name} direct {action_name} action')
+                    assert abs(target[4]-scale)<0.03, \
+                        f'{name} {action_name} geometry has a stale scale: {target}'
+                    assert target[2]>=44 and target[3]>=44, \
+                        f'{name} {action_name} target is smaller than 44 points: {target}'
+                    assert target[0]>=-1 and target[1]>=-1 \
+                        and target[0]+target[2]<=width/scale+1 \
+                        and target[1]+target[3]<=height/scale+1, \
+                        f'{name} {action_name} target is outside the window: {target}'
+                mapping=wait(canvas_mapping_marker,f'{name} has a live application canvas')
+                assert mapping[2]>mapping[0]+80 and mapping[3]>mapping[1]+80, \
+                    f'{name} canvas is too small to be artist-visible: {mapping}'
+                capture_window(window,f'direct-toolbar-workspace-{name}')
                 return rect
-            verify_toolbar_layout('640x480-100',640,480,1.0)
+
+            def reach_compact_tool_pair(name):
+                refresh_direct_tool_rail()
+                target=ensure_direct_tool_visible('Brush')
+                before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                click_direct_tool_and_report_pointer_hit('Brush',target)
+                wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                     and event_marker('UI_TEST_TOOL_SELECTION')=='Brush',
+                     f'{name} reaches the first direct tool')
+                capture_window(window,'direct-toolbar-workspace-light-compact')
+                target=ensure_direct_tool_visible('Create path')
+                before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                click_direct_tool_and_report_pointer_hit('Create path',target)
+                wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                     and event_marker('UI_TEST_TOOL_SELECTION')=='Create path',
+                     f'{name} scrolls to and activates the last direct tool')
+                capture_window(window,'direct-toolbar-workspace-light-scrolled')
+                target=ensure_direct_tool_visible('Brush')
+                before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+                click_and_hold_scaled_rect(target)
+                wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                     and event_marker('UI_TEST_TOOL_SELECTION')=='Brush',
+                     f'{name} returns to the first direct tool')
+
+            resize_window(window,640,480)
+            compact_rect=verify_toolbar_layout('640x480-100',640,480,1.0)
+            reach_compact_tool_pair('640x480 at 100%')
+            assert json.loads(prefs.read_text()).get('palette_dock')=='Left', \
+                'toolbar activation must not redock the palette'
+            reference_button=wait(toolbar_references_bounds,'compact direct References target')
+            reference_count=event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')
+            click_and_hold_scaled_rect(reference_button)
+            wait(lambda:event_marker_count('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')>reference_count
+                 and event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='References',
+                 'compact direct References remains operable by pointer')
+            ctrl('l')
+            wait(lambda:event_marker('UI_TEST_WORKSPACE_CONTROLS_ACTIVE')=='Layers',
+                 'compact References activation can return to Layers')
+            library_button=wait(toolbar_library_bounds,'compact Brush Library rail target')
+            assert library_button[2]>=44 and library_button[3]>=44
+            library_open_count=event_marker_count('UI_TEST_BRUSH_NARROW_VISIBLE_CARDS')
+            click_and_hold_scaled_rect(library_button)
+            wait(brush_narrow_visible_cards_ready,
+                 'the direct Brush Library action opens its real compact preset gallery')
+            assert event_marker_count('UI_TEST_BRUSH_NARROW_VISIBLE_CARDS')>library_open_count, \
+                'direct Brush Library activation must render fresh preset-card geometry'
+            capture_window(window,'direct-toolbar-brush-library-open')
+            first_brush_card=wait(brush_narrow_visible_card,
+                                  'the real compact Brush Library renders a clickable preset card')
+            selected_preset_count=event_marker_count('UI_TEST_BRUSH_LIBRARY_PRESET_SELECTED')
+            click_and_hold_scaled_rect(first_brush_card)
+            wait(lambda:event_marker_count('UI_TEST_BRUSH_LIBRARY_PRESET_SELECTED')>
+                     selected_preset_count
+                 and event_marker('UI_TEST_BRUSH_LIBRARY_PRESET_SELECTED')=='Ink',
+                 'selecting a visible Brush Library preset activates Ink')
+            assert event_marker_count('UI_TEST_BRUSH_NARROW_VISIBLE_CARDS')>=library_open_count
+            capture_window(window,'direct-toolbar-brush-preset-selected')
+
             resize_window(window,1280,800)
-            palette=verify_toolbar_layout('1280x800-100',1280,800,1.0)
+            verify_toolbar_layout('1280x800-100',1280,800,1.0)
             resize_window(window,1920,1080)
             verify_toolbar_layout('1920x1080-100',1920,1080,1.0)
             set_interface_scale(window,prefs,1.5)
@@ -2311,8 +2767,51 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                                       ('1920x1080-150',1920,1080)]:
                 resize_window(window,width,height)
                 verify_toolbar_layout(name,width,height,1.5)
+                if name=='640x480-150':
+                    reach_compact_tool_pair('640x480 at 150%')
+
+            # Exercise the real File menu at the compact, enlarged scale. The
+            # last entry is reached through keyboard navigation and opens the
+            # non-destructive Recovery Manager.
+            resize_window(window,640,480)
+            verify_toolbar_layout('640x480-150',640,480,1.5)
+            file_menu_count=event_line_count('UI_TEST_FILE_MENU_BOTTOM_RECT: ')
+            click_at(round(26*1.5),round(12*1.5))
+            wait(lambda:event_line_count('UI_TEST_FILE_MENU_BOTTOM_RECT: ')>
+                     file_menu_count and file_menu_bottom_state() is not None,
+                 'the File menu opens from its visible application menu label')
+            menu_bottom=file_menu_bottom_state()
+            for _ in range(12):
+                if menu_bottom[4]>=menu_bottom[3]-1:
+                    break
+                wheel_at(round(100*1.5),round(300*1.5),notches=1,down=True)
+                time.sleep(0.08)
+                next_bottom=file_menu_bottom_state()
+                if next_bottom is not None:
+                    menu_bottom=next_bottom
+            assert menu_bottom[4]>=menu_bottom[3]-1 \
+                and menu_bottom[1]>=-1 and menu_bottom[1]+menu_bottom[3]<=480/1.5+1, \
+                f'compact File-menu bottom entry must scroll fully into view: {menu_bottom}'
+            capture_window(window,'file-menu-compact-150')
+            recovery_modal_count=event_marker_count('UI_TEST_RECOVERY_MODAL_BOUNDS')
+            key('End')
+            time.sleep(0.08)
+            key('Return')
+            wait(lambda:event_marker_count('UI_TEST_RECOVERY_MODAL_BOUNDS')>
+                     recovery_modal_count,
+                 'End and Return reach the File menu Recovery Manager entry')
+            key('Escape')
+            assert process.poll() is None, 'Escape from Recovery Manager must leave the application open'
+
+            resize_window(window,1280,800)
             set_interface_scale(window,prefs,1.0)
             resize_window(window,1280,800)
+            target=wait(lambda:toolbar_direct_bounds('Brush'),'Brush control is reachable after layout reset')
+            before=event_line_count('UI_TEST_TOOL_SELECTION: ')
+            click_and_hold_scaled_rect(target)
+            wait(lambda:event_line_count('UI_TEST_TOOL_SELECTION: ')>before
+                 and event_marker('UI_TEST_TOOL_SELECTION')=='Brush',
+                 'Brush is active before the remaining workspace smoke')
             palette=wait(palette_bounds,'the toolbar restores its normal layout after resizing')
             assert json.loads(prefs.read_text()).get('palette_dock') == 'Left', \
                 'clicking toolbar controls must not move or redock the palette'
@@ -3061,6 +3560,106 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             ctrl('y');ctrl('s')
             wait(lambda: bool(valid_project(project)) and '*' not in title(window),'redo saved raster tiles')
             assert (directory/'artwork.rpl.bak').exists()
+
+            # Add two distinguishable raster edits, then use the visible
+            # history buttons for repeated exact Undo/Redo. Save after each
+            # action so native bytes are the black-box document oracle.
+            key('b')
+            wait(lambda:event_marker('UI_TEST_ACTIVE_TOOL')=='Brush',
+                 'the raster history acceptance starts with Brush selected')
+            base_history=project.read_bytes()
+            canvas=wait(canvas_mapping_marker,'history acceptance reports live canvas mapping')
+            left,top,right,bottom,_,_=canvas
+            first_start=(round((left+0.23*(right-left))),round((top+0.64*(bottom-top))))
+            first_end=(first_start[0]+27,first_start[1]+17)
+            starts=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            drag_at(*first_start,*first_end)
+            wait(lambda:event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')>starts,
+                 'first history-acceptance raster stroke begins on the canvas')
+            ctrl('s')
+            wait(lambda:valid_project(project) and project.read_bytes()!=base_history,
+                 'first history-acceptance stroke is saved as a distinct document')
+            first_history=project.read_bytes()
+            second_start=(round((left+0.31*(right-left))),round((top+0.72*(bottom-top))))
+            second_end=(second_start[0]+31,second_start[1]+13)
+            starts=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            drag_at(*second_start,*second_end)
+            wait(lambda:event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')>starts,
+                 'second history-acceptance raster stroke begins on the canvas')
+            ctrl('s')
+            wait(lambda:valid_project(project) and project.read_bytes()!=first_history,
+                 'second history-acceptance stroke is saved as a second document state')
+            second_history=project.read_bytes()
+            assert history_actions()==(True,False), \
+                f'two saved strokes should enable Undo and disable Redo: {history_actions()}'
+            undo_button=wait(lambda:history_button_state('undo'),'enabled Undo control')
+            redo_button=wait(lambda:history_button_state('redo'),'disabled Redo control')
+            assert undo_button[2]>=44 and undo_button[3]>=44
+            assert redo_button[2]>=44 and redo_button[3]>=44
+            assert redo_button[5] is False, \
+                'Redo must appear disabled while the document is at its newest state'
+
+            history_paint_starts=event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')
+            history_paint_commits=event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')
+            undo_action_count=event_marker_count('UI_TEST_HISTORY_UNDO')
+            click_scaled_rect(undo_button[:5])
+            wait(lambda:event_marker_count('UI_TEST_HISTORY_UNDO')>undo_action_count,
+                 'direct Undo dispatches the application history action')
+            ctrl('s')
+            wait(lambda:project.read_bytes()==first_history,
+                 'direct Undo restores the exact preceding native document bytes')
+            assert history_actions()==(True,True), \
+                f'Undo should enable Redo while an earlier edit remains: {history_actions()}'
+            assert event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')==history_paint_starts \
+                and event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')==history_paint_commits, \
+                'tapping Undo must not paint through to the canvas'
+
+            undo_action_count=event_marker_count('UI_TEST_HISTORY_UNDO')
+            key('Return')
+            wait(lambda:event_marker_count('UI_TEST_HISTORY_UNDO')>undo_action_count,
+                 'Return activates the focused Undo button a second time')
+            ctrl('s')
+            wait(lambda:project.read_bytes()==initial,
+                 'keyboard-activated Undo restores the exact baseline artwork')
+            assert history_actions()==(True,True), \
+                f'the baseline stroke remains undoable and redo is available: {history_actions()}'
+
+            redo_action_count=event_marker_count('UI_TEST_HISTORY_REDO')
+            redo_button=wait(lambda:history_button_state('redo'),'first enabled Redo target')
+            click_scaled_rect(redo_button[:5])
+            wait(lambda:event_marker_count('UI_TEST_HISTORY_REDO')>redo_action_count,
+                 'direct Redo dispatches the first history action')
+            ctrl('s')
+            wait(lambda:project.read_bytes()==first_history,
+                 'direct Redo restores the first additional document exactly')
+            redo_action_count=event_marker_count('UI_TEST_HISTORY_REDO')
+            key('Return')
+            wait(lambda:event_marker_count('UI_TEST_HISTORY_REDO')>redo_action_count,
+                 'Return activates the focused Redo button a second time')
+            ctrl('s')
+            wait(lambda:project.read_bytes()==second_history,
+                 'keyboard-activated Redo restores the newest document exactly')
+            assert history_actions()==(True,False), \
+                f'the newest document disables Redo again: {history_actions()}'
+            assert event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')==history_paint_starts \
+                and event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')==history_paint_commits, \
+                'tapping Redo must not paint through to the canvas'
+
+            # Restore the state expected by the remaining workflow and prove
+            # the buttons return to the matching history availability.
+            for expected_bytes,action_name in [
+                (first_history,'Undo restores the first added stroke'),
+                (initial,'Undo restores the original saved artwork'),
+            ]:
+                before=event_marker_count('UI_TEST_HISTORY_UNDO')
+                click_scaled_rect(wait(lambda:history_button_state('undo'),
+                                       'Undo remains directly operable'))
+                wait(lambda:event_marker_count('UI_TEST_HISTORY_UNDO')>before,action_name)
+                ctrl('s')
+                wait(lambda:project.read_bytes()==expected_bytes,action_name)
+            assert event_line_count('UI_TEST_MOUSE_STROKE_STARTED: ')==history_paint_starts \
+                and event_marker_count('UI_TEST_MOUSE_STROKE_COMMITTED')==history_paint_commits, \
+                'all repeated Undo/Redo toolbar taps must leave canvas paint input untouched'
             ctrl('e');png=directory/'artwork.png'
             wait(lambda: png.exists(),'PNG export')
             data=png.read_bytes();assert data[:8]==b'\x89PNG\r\n\x1a\n'
@@ -5835,11 +6434,29 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             assert dark_create[1]+dark_create[3]<=480/dark_create[4]+1, \
                 f'dark narrow Create action is clipped after scrolling: {dark_create}'
             capture_window(window,'new-artwork-dark-narrow-scrolled')
+            dark_toolbar_count=event_line_count('UI_TEST_DIRECT_TOOLBAR: ')
+            dark_visible_toolbar_count=event_line_count('UI_TEST_DIRECT_TOOLBAR_VISIBLE: ')
+            dark_brush_rect_count=event_line_count('UI_TEST_TOOL_DIRECT_RECT: Brush ')
+            dark_undo_rect_count=event_line_count('UI_TEST_UNDO_RECT: ')
+            dark_redo_rect_count=event_line_count('UI_TEST_REDO_RECT: ')
             click_at((dark_create[0]+dark_create[2]/2)*dark_create[4],
                      (dark_create[1]+dark_create[3]/2)*dark_create[4])
             wait(lambda: application_log_contains('UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1'),
                  'dark narrow New Artwork Create action creates its document')
             resize_window(window,1280,800);time.sleep(0.4)
+            wait(lambda:event_line_count('UI_TEST_DIRECT_TOOLBAR: ')>dark_toolbar_count
+                 and application_log_contains(
+                     'UI_TEST_DIRECT_TOOLBAR: controls=17 direct=15 references=true brush_library=true'),
+                 'dark workspace integrates the direct toolbar shell')
+            wait(lambda:event_line_count('UI_TEST_DIRECT_TOOLBAR_VISIBLE: ')>dark_visible_toolbar_count
+                 and direct_toolbar_visible_for(1280,800,1.0),
+                 'dark 1280x800 workspace renders its live toolbar area')
+            wait(lambda:event_line_count('UI_TEST_TOOL_DIRECT_RECT: Brush ')>dark_brush_rect_count,
+                 'dark workspace exposes current direct Brush geometry')
+            wait(lambda:event_line_count('UI_TEST_UNDO_RECT: ')>dark_undo_rect_count,
+                 'dark workspace exposes current direct Undo geometry')
+            wait(lambda:event_line_count('UI_TEST_REDO_RECT: ')>dark_redo_rect_count,
+                 'dark workspace exposes current direct Redo geometry')
             capture_window(window,'canvas-workspace-dark-toolbar-top')
             clearance=wait(top_palette_clearance,'top-docked palette reports its measured app-toolbar clearance')
             assert clearance[0]>=clearance[1]-0.5, f'top palette overlaps contextual options: {clearance}'
@@ -5995,9 +6612,38 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
             process=subprocess.Popen([str(executable)],cwd=directory,env=env,stdout=log,stderr=subprocess.STDOUT)
             window=wait(find_window,'high-contrast Home');focus(display,window,2,0);send();time.sleep(0.5)
             capture_window(window,'home-dark-high-contrast')
+            ctrl('n')
+            new_document_prompt()
+            resize_window(window,1280,800)
+            assert_new_document_name_and_create_visible(1280,800)
+            create=wait(lambda:window_rect_marker('UI_TEST_NEW_DOCUMENT_CREATE_RECT'),
+                        'high-contrast New Artwork exposes Create')
+            document_created_count=event_line_count('UI_TEST_DOCUMENT_CREATED: ')
+            toolbar_created_count=event_line_count('UI_TEST_DIRECT_TOOLBAR: ')
+            direct_brush_count=event_line_count('UI_TEST_TOOL_DIRECT_RECT: Brush ')
+            undo_rect_count=event_line_count('UI_TEST_UNDO_RECT: ')
+            redo_rect_count=event_line_count('UI_TEST_REDO_RECT: ')
+            click_scaled_rect(create)
+            wait(lambda:event_line_count('UI_TEST_DOCUMENT_CREATED: ')>document_created_count
+                 and application_log_contains('UI_TEST_DOCUMENT_CREATED: 1800 2400 artwork 1'),
+                 'high-contrast workspace creates its real document')
+            resize_window(window,640,480)
+            wait(lambda:event_line_count('UI_TEST_DIRECT_TOOLBAR: ')>toolbar_created_count
+                 and application_log_contains(
+                     'UI_TEST_DIRECT_TOOLBAR: controls=17 direct=15 references=true brush_library=true'),
+                 'high-contrast compact workspace creates the integrated tool rail')
+            wait(lambda:direct_toolbar_visible_for(640,480,1.0),
+                 'high-contrast 640x480 workspace renders its live toolbar area')
+            wait(lambda:event_line_count('UI_TEST_TOOL_DIRECT_RECT: Brush ')>direct_brush_count,
+                 'high-contrast compact workspace reports current Brush geometry')
+            wait(lambda:event_line_count('UI_TEST_UNDO_RECT: ')>undo_rect_count,
+                 'high-contrast compact workspace exposes Undo')
+            wait(lambda:event_line_count('UI_TEST_REDO_RECT: ')>redo_rect_count,
+                 'high-contrast compact workspace exposes Redo')
+            capture_window(window,'canvas-workspace-high-contrast-compact')
             close_application(process)
             if os.environ.get('RPL_UI_SCREENSHOT_DIR'):
-                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-actions-menu','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','layers-vector-child-selected','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','vector-filled-path','vector-svg-export','home-dark-high-contrast'}
+                required={'home-light-normal','home-light-wide','home-light-narrow','home-preset-created','home-recent-artwork-light','new-artwork-light-normal','new-artwork-light-narrow','new-artwork-light-narrow-scrolled','reference-board-light','reference-board-light-narrow','reference-board-multi-light','compact-reference-first','compact-reference-second','brush-library-light-normal','brush-library-light-narrow','color-controls-light','layers-panel-populated-light','layers-panel-populated-light-narrow','inspector-layers-light-populated','reference-inspector-light-populated','reference-inspector-pinned-light','reference-overlay-over-layers-light','layers-panel-white-mask-settings','layers-panel-white-mask-settings-narrow','layers-mask-actions-menu','layers-panel-mask-editing','layers-panel-mask-editing-narrow','layers-panel-painted-mask','layers-vector-child-selected','recovery-manager-populated-light','recovery-manager-populated-light-narrow','inspector-unified-light-normal','home-dark-normal','home-dark-wide','home-dark-narrow','new-artwork-dark-normal','new-artwork-dark-narrow','new-artwork-dark-narrow-scrolled','canvas-workspace-dark-toolbar-top','reference-board-dark','reference-board-dark-narrow','brush-library-dark','color-controls-dark','layers-panel-populated-dark','layers-panel-populated-dark-narrow','inspector-layers-populated-dark-narrow','reference-inspector-dark-narrow','recovery-manager-populated-dark','recovery-manager-populated-dark-narrow','symmetry-panel-custom-origin','selection-move-canvas','selection-scale-rotate-workspace','quick-shape-workspace','vector-node-editor','vector-node-editor-with-inserted-midpoint','vector-cubic-handles','vector-smoothed-path','vector-filled-path','vector-svg-export','home-dark-high-contrast','direct-toolbar-workspace-light','direct-toolbar-workspace-light-scrolled','direct-toolbar-workspace-640x480-100','direct-toolbar-workspace-1280x800-100','direct-toolbar-workspace-1920x1080-100','direct-toolbar-workspace-640x480-150','direct-toolbar-workspace-1280x800-150','direct-toolbar-workspace-1920x1080-150','direct-toolbar-workspace-light-compact','direct-toolbar-brush-library-open','direct-toolbar-brush-preset-selected','file-menu-compact-150','canvas-workspace-high-contrast-compact'}
                 missing=required-set(captured_screenshots)
                 assert not missing,f'screenshot suite missed required states: {sorted(missing)}'
                 for name,(width,height) in captured_screenshots.items():
@@ -6013,7 +6659,7 @@ with tempfile.TemporaryDirectory(prefix='rpl-alpha-window-') as folder:
                     if name == 'home-recent-artwork-light':
                         if width >= 1800 and height >= 1000:
                             assert width>=1800 and height>=1000, f'{name} must show the featured real artwork at wide size: {width}x{height}'
-            print('ALPHA_WORKFLOW_SMOKE: PASSED (real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; QuickShape line/rectangle/ellipse recognition, incomplete-gesture rejection, cancellation and exact undo/redo; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; canvas scale/rotation handles with cancelled previews, pixel changes, save and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; Add/Edit/Enable/Disable/Invert/Clear/Remove editable masks with v1/v2 reopen, compositing, raster-tile integrity and exact undo/redo; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
+            print('ALPHA_WORKFLOW_SMOKE: PASSED (15 direct live toolbar tools with pointer and keyboard activation, compact rail scrolling, direct References and Brush Library preset selection, compact File-menu keyboard reachability, pixel-verified toolbar screenshots, direct history-backed Undo/Redo with exact saved bytes and paint-through checks; real mouse raster paint; vertical symmetry panel through keyboard shortcut, real mirrored layer pixels and exact undo/redo; live linear/radial gradient preview, Escape cancellation and selection-clipped commits; QuickShape line/rectangle/ellipse recognition, incomplete-gesture rejection, cancellation and exact undo/redo; transactional Smudge and Color Mixer strokes with saved tile changes and exact undo/redo; native save/reopen pixels; Home thumbnail and Open-project card after restart; persistent theme/reference board; multi-reference placement; floating workspace panels; saved colors and hue wheel; layer duplicate/reorder/delete/clear; selected-pixel drag move with Escape cancellation, raster-byte mutation and exact undo/redo; canvas scale/rotation handles with cancelled previews, pixel changes, save and exact undo/redo; selected-pixel copy to a new native layer with source-tile integrity and exact undo/redo; real opacity and blend-mode controls with native-save and undo/redo checks; Add/Edit/Enable/Disable/Invert/Clear/Remove editable masks with v1/v2 reopen, compositing, raster-tile integrity and exact undo/redo; reference isolation from exports; save checksum and backup; PNG/OpenRaster export/import; brush preset save/load; rectangle selection/fill/undo; zoom/fit; journal-durable process-kill recovery without paired snapshot; preserved source artwork; clean close)')
         except Exception as error:
             print(f'ALPHA_WORKFLOW_FAILURE: {type(error).__name__}: {error}', flush=True)
             raise
