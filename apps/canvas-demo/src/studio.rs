@@ -10615,6 +10615,21 @@ impl Studio {
                                         if response.has_focus() {
                                             response.scroll_to_me(Some(egui::Align::Center));
                                         }
+                                        if self.test_path_dialog
+                                            && response.hovered()
+                                            && response.is_pointer_button_down_on()
+                                        {
+                                            let rect = response.rect;
+                                            crate::studio_log!(
+                                                "UI_TEST_TOOL_POINTER_DOWN: {} rect={:.1},{:.1},{:.1},{:.1} scale={:.2}",
+                                                entry.label,
+                                                rect.left(),
+                                                rect.top(),
+                                                rect.width(),
+                                                rect.height(),
+                                                ctx.pixels_per_point()
+                                            );
+                                        }
                                         if response.clicked() {
                                             self.select_toolbar_tool(entry, session);
                                         }
@@ -18355,16 +18370,19 @@ mod tests {
         crate::ui_tokens::install(&context);
         let area_id = egui::Id::new("test clickable reflowing tool rail");
         let line_rect = std::cell::Cell::new(None);
+        let rectangle_rect = std::cell::Cell::new(None);
         let tool_viewport = std::cell::Cell::new(None);
         let scroll_offset = std::cell::Cell::new(0.0);
         let clicked_tool = std::cell::Cell::new(None);
+        let time = std::cell::Cell::new(0.0);
         let render = |viewport: egui::Vec2, events: Vec<egui::Event>| {
             let input = egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, viewport)),
+                time: Some(time.get()),
                 events,
                 ..Default::default()
             };
-            context.run(input, |ctx| {
+            let output = context.run(input, |ctx| {
                 let palette_height = (viewport.y - 200.0).max(180.0);
                 egui::Area::new(area_id)
                     .constrain_to(egui::Rect::from_min_size(egui::Pos2::ZERO, viewport))
@@ -18412,6 +18430,13 @@ mod tests {
                                                 if entry.label == "Line" {
                                                     line_rect.set(Some(response.rect));
                                                 }
+                                                if entry.label == "Rectangle" {
+                                                    rectangle_rect.set(Some(response.rect));
+                                                }
+                                                if response.has_focus() {
+                                                    response
+                                                        .scroll_to_me(Some(egui::Align::Center));
+                                                }
                                                 if response.clicked() {
                                                     clicked_tool.set(Some(entry.label));
                                                 }
@@ -18423,7 +18448,9 @@ mod tests {
                             },
                         );
                     });
-            })
+            });
+            time.set(time.get() + 1.0 / 60.0);
+            output
         };
 
         let _ = render(egui::vec2(640.0, 480.0), Vec::new());
@@ -18491,6 +18518,16 @@ mod tests {
                 },
             ],
         );
+        // The real desktop smoke holds the pointer for roughly 120 ms so the
+        // OS event queue cannot coalesce the press and release into one frame.
+        // Keep rendering during that interval to include any focus-scroll
+        // animation triggered by the first pointer-selected tool.
+        for _ in 0..7 {
+            let _held = render(
+                egui::vec2(1280.0, 800.0),
+                vec![egui::Event::PointerMoved(point)],
+            );
+        }
         let _released = render(
             egui::vec2(1280.0, 800.0),
             vec![
@@ -18507,6 +18544,45 @@ mod tests {
             clicked_tool.get(),
             Some("Line"),
             "a pointer click on the scrolled Line control must reach its button"
+        );
+        let rectangle_target = rectangle_rect
+            .get()
+            .expect("the Rectangle control remains directly accessible");
+        let point = rectangle_target.center();
+        let _pressed = render(
+            egui::vec2(1280.0, 800.0),
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        for _ in 0..7 {
+            let _held = render(
+                egui::vec2(1280.0, 800.0),
+                vec![egui::Event::PointerMoved(point)],
+            );
+        }
+        let _released = render(
+            egui::vec2(1280.0, 800.0),
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(
+            clicked_tool.get(),
+            Some("Rectangle"),
+            "the next visible tool must remain clickable after pointer focus scrolls Line into view"
         );
     }
 
