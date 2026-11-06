@@ -421,7 +421,10 @@ mod tests {
             compact_tool_palette_frame(&visuals).inner_margin.sum().x,
             10.0
         );
-        assert_eq!(compact_tool_palette_frame(&visuals).inner_margin.sum().y, 0.0);
+        assert_eq!(
+            compact_tool_palette_frame(&visuals).inner_margin.sum().y,
+            0.0
+        );
     }
 
     #[test]
