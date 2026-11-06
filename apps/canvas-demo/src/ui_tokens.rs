@@ -417,7 +417,10 @@ mod tests {
         let visuals = egui::Visuals::light();
 
         assert_eq!(tool_palette_frame(&visuals).inner_margin.sum().y, 10);
-        assert_eq!(compact_tool_palette_frame(&visuals).inner_margin.sum().x, 10);
+        assert_eq!(
+            compact_tool_palette_frame(&visuals).inner_margin.sum().x,
+            10
+        );
         assert_eq!(compact_tool_palette_frame(&visuals).inner_margin.sum().y, 0);
     }
 
