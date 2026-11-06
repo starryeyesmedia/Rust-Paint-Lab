@@ -18597,7 +18597,11 @@ mod tests {
         );
 
         context.memory_mut(|memory| {
-            memory.request_focus(last_tool_id.get().expect("Create path has a focusable control"));
+            memory.request_focus(
+                last_tool_id
+                    .get()
+                    .expect("Create path has a focusable control"),
+            );
         });
         for _ in 0..4 {
             let _focused = render(egui::vec2(1280.0, 800.0), Vec::new());
