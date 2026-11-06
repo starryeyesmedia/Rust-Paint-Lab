@@ -416,12 +416,12 @@ mod tests {
     fn compact_tool_palette_trims_only_vertical_frame_padding() {
         let visuals = egui::Visuals::light();
 
-        assert_eq!(tool_palette_frame(&visuals).inner_margin.sum().y, 10);
+        assert_eq!(tool_palette_frame(&visuals).inner_margin.sum().y, 10.0);
         assert_eq!(
             compact_tool_palette_frame(&visuals).inner_margin.sum().x,
-            10
+            10.0
         );
-        assert_eq!(compact_tool_palette_frame(&visuals).inner_margin.sum().y, 0);
+        assert_eq!(compact_tool_palette_frame(&visuals).inner_margin.sum().y, 0.0);
     }
 
     #[test]
