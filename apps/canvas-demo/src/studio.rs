@@ -5850,7 +5850,7 @@ pub struct Studio {
     test_toolbar_undo_rect: Option<[i32; 5]>,
     test_toolbar_redo_rect: Option<[i32; 5]>,
     test_toolbar_history_state: Option<(bool, bool)>,
-    test_toolbar_scroll_offset_logged: Option<i32>,
+    test_toolbar_scroll_state_logged: Option<[i32; 6]>,
     test_direct_toolbar_logged: bool,
     test_direct_toolbar_visible: Option<[i32; 7]>,
     test_file_menu_bottom_rect: Option<[i32; 5]>,
@@ -6193,7 +6193,7 @@ impl Studio {
             test_toolbar_undo_rect: None,
             test_toolbar_redo_rect: None,
             test_toolbar_history_state: None,
-            test_toolbar_scroll_offset_logged: None,
+            test_toolbar_scroll_state_logged: None,
             test_direct_toolbar_logged: false,
             test_direct_toolbar_visible: None,
             test_file_menu_bottom_rect: None,
@@ -10744,16 +10744,24 @@ impl Studio {
                                     // focus scrolls it into the viewport.
                                     tool_ui.add_space(16.0);
                                 });
-                            let scroll_offset = (tool_output.state.offset.y * 100.0).round() as i32;
+                            let scroll_offset = tool_output.state.offset.y;
+                            let rect = tool_output.inner_rect;
+                            let scroll_marker = [
+                                (scroll_offset * 100.0).round() as i32,
+                                (rect.left() * 100.0).round() as i32,
+                                (rect.top() * 100.0).round() as i32,
+                                (rect.width() * 100.0).round() as i32,
+                                (rect.height() * 100.0).round() as i32,
+                                (ctx.pixels_per_point() * 1000.0).round() as i32,
+                            ];
                             if self.test_path_dialog
-                                && self.test_toolbar_scroll_offset_logged != Some(scroll_offset)
+                                && self.test_toolbar_scroll_state_logged != Some(scroll_marker)
                             {
-                                self.test_toolbar_scroll_offset_logged = Some(scroll_offset);
-                                let rect = tool_output.inner_rect;
+                                self.test_toolbar_scroll_state_logged = Some(scroll_marker);
                                 crate::studio_log!(
                                     "UI_TEST_DIRECT_TOOL_RAIL: catalog={} offset={:.1} viewport={:.1},{:.1},{:.1},{:.1} scale={:.2}",
                                     crate::studio_toolbar::TOOL_CATALOG.len(),
-                                    tool_output.state.offset.y,
+                                    scroll_offset,
                                     rect.left(), rect.top(), rect.width(), rect.height(),
                                     ctx.pixels_per_point()
                                 );
