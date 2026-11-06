@@ -10516,6 +10516,8 @@ impl Studio {
 
                             let mut rail_focus =
                                 Vec::with_capacity(2 + crate::studio_toolbar::TOOL_CATALOG.len());
+                            let mut rail_clicked =
+                                Vec::with_capacity(2 + crate::studio_toolbar::TOOL_CATALOG.len());
                             let references_selected = self.show_controls
                                 && self.inspector_tab == crate::workspace::InspectorTab::References;
                             let references = crate::studio_icons::action_button(
@@ -10528,7 +10530,10 @@ impl Studio {
                                 [44.0, 44.0],
                             );
                             rail_focus.push(references.id);
-                            if references.clicked() {
+                            let references_clicked = references.clicked();
+                            rail_clicked.push(references_clicked);
+                            if references_clicked {
+                                ui.memory_mut(|memory| memory.request_focus(references.id));
                                 self.select_inspector_tab(
                                     crate::workspace::InspectorTab::References,
                                 );
@@ -10564,7 +10569,10 @@ impl Studio {
                                 [44.0, 44.0],
                             );
                             rail_focus.push(library.id);
-                            if library.clicked() {
+                            let library_clicked = library.clicked();
+                            rail_clicked.push(library_clicked);
+                            if library_clicked {
+                                ui.memory_mut(|memory| memory.request_focus(library.id));
                                 let open = !self.brush_flyout_open;
                                 self.select_inspector_tab(crate::workspace::InspectorTab::Brush);
                                 self.show_controls = false;
@@ -10612,6 +10620,8 @@ impl Studio {
                                             [44.0, 44.0],
                                         );
                                         rail_focus.push(response.id);
+                                        let response_clicked = response.clicked();
+                                        rail_clicked.push(response_clicked);
                                         if response.has_focus() {
                                             response.scroll_to_me(Some(egui::Align::Center));
                                         }
@@ -10630,7 +10640,12 @@ impl Studio {
                                                 ctx.pixels_per_point()
                                             );
                                         }
-                                        if response.clicked() {
+                                        if response_clicked {
+                                            // Continue keyboard navigation from the
+                                            // tool the artist just selected by pointer.
+                                            tool_ui.memory_mut(|memory| {
+                                                memory.request_focus(response.id)
+                                            });
                                             self.select_toolbar_tool(entry, session);
                                         }
                                         if self.test_path_dialog {
@@ -10729,12 +10744,41 @@ impl Studio {
                                         input.key_pressed(egui::Key::End),
                                         input.key_pressed(egui::Key::PageUp),
                                         input.key_pressed(egui::Key::PageDown),
+                                        input.key_pressed(egui::Key::Enter)
+                                            || input.key_pressed(egui::Key::Space),
                                     )
                                 });
                                 let focused = rail_focus.iter().position(|id| {
                                     ui.memory(|memory| memory.focused() == Some(*id))
                                 });
                                 if let Some(index) = focused {
+                                    let activate_key = navigation.6;
+                                    // Eguis button response handles the activation when
+                                    // it reports a click. If it only reports focus, map
+                                    // Enter/Space to the focused rail action here.
+                                    if activate_key && !rail_clicked[index] {
+                                        match index {
+                                            0 => self.select_inspector_tab(
+                                                crate::workspace::InspectorTab::References,
+                                            ),
+                                            1 => {
+                                                let open = !self.brush_flyout_open;
+                                                self.select_inspector_tab(
+                                                    crate::workspace::InspectorTab::Brush,
+                                                );
+                                                self.show_controls = false;
+                                                self.brush_flyout_open = open;
+                                            }
+                                            tool_index => {
+                                                if let Some(entry) =
+                                                    crate::studio_toolbar::TOOL_CATALOG
+                                                        .get(tool_index - 2)
+                                                {
+                                                    self.select_toolbar_tool(*entry, session);
+                                                }
+                                            }
+                                        }
+                                    }
                                     let destination = if navigation.0 {
                                         crate::studio_toolbar::adjacent_focus(
                                             index,
