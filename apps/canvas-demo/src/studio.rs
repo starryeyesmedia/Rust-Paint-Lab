@@ -10769,6 +10769,27 @@ impl Studio {
                                     // direct tool to become fully visible when keyboard
                                     // focus scrolls it into the viewport.
                                     tool_ui.add_space(16.0);
+
+                                    // ScrollArea consumes response scroll targets while
+                                    // its contents are being shown. Request focus scrolling
+                                    // here, inside this closure, so keyboard focus changes
+                                    // are applied to this rail instead of being left for an
+                                    // outer UI pass to consume.
+                                    let focused = tool_ui.memory(|memory| memory.focused());
+                                    if focused != self.toolbar_last_focused_id {
+                                        if !palette_toolbar_pointer_focused
+                                            && let Some(index) = focused.and_then(|focused| {
+                                                rail_focus.iter().position(|id| *id == focused)
+                                            })
+                                            && index >= 2
+                                            && let Some(response) =
+                                                rail_tool_responses.get(index - 2)
+                                        {
+                                            response.scroll_to_me(Some(egui::Align::Center));
+                                            ctx.request_repaint();
+                                        }
+                                        self.toolbar_last_focused_id = focused;
+                                    }
                                 });
                             let scroll_offset = tool_output.state.offset.y;
                             let rect = tool_output.inner_rect;
@@ -10871,20 +10892,6 @@ impl Studio {
                                         ctx.request_repaint();
                                     }
                                 }
-                            }
-                            let focused = ui.memory(|memory| memory.focused());
-                            if focused != self.toolbar_last_focused_id {
-                                if !palette_toolbar_pointer_focused
-                                    && let Some(index) = focused.and_then(|focused| {
-                                        rail_focus.iter().position(|id| *id == focused)
-                                    })
-                                    && index >= 2
-                                    && let Some(response) = rail_tool_responses.get(index - 2)
-                                {
-                                    response.scroll_to_me(Some(egui::Align::Center));
-                                    ctx.request_repaint();
-                                }
-                                self.toolbar_last_focused_id = focused;
                             }
                             self.toolbar_focus_ids = rail_focus;
                             if self.test_path_dialog
